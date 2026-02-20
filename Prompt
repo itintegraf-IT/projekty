@@ -1,0 +1,133 @@
+Jsi seniorní full-stack vývojář. Postavíš funkční webovou aplikaci pro plánování výroby dle specifikace níže. MUSÍŠ postupovat po etapách. 
+DŮLEŽITÉ: Nevygeneruješ všechno najednou. Půjdeš přesně tímto postupem a po každé etapě se zastavíš a napíšeš „POKRAČOVAT? (ano/ne)“.
+
+====================================================
+ETAPY IMPLEMENTACE (povinné)
+====================================================
+
+ETAPA 1 — Skeleton a běh aplikace
+- Zvol stack (preferuj Next.js + React + TypeScript + Tailwind + Prisma + PostgreSQL).
+- Vygeneruj strom projektu + všechny soubory nutné pro spuštění.
+- Přidej seed s mock daty.
+- Udělej 1 stránku s layoutem: vlevo placeholder timeline (bez DnD), vpravo builder formulář.
+- Builder ukládá blok do DB a na timeline se hned zobrazí.
+- Přidej API (CRUD pro bloky + termíny DATA/Materiál/Expedice).
+- Přidej README se spuštěním.
+Pak se zastav: „POKRAČOVAT?“
+
+ETAPA 2 — Timeline render (grid + scroll + filtry)
+- Timeline renderuje bloky ve 2 sloupcích (XL 105, XL 106) na ose Y (čas+datum).
+- Grid 30 minut.
+- Scroll na dny (min. 30 dní dopředu, ideálně 1 rok), sticky header.
+- Horní filtr: číslo zakázky + skok na datum.
+- Klik na blok otevře detail (side panel / modal) s termíny a nastavením opakování.
+Pak se zastav: „POKRAČOVAT?“
+
+ETAPA 3 — Drag & drop + resize + rozdělení (split)
+- Implementuj drag&drop přesuny bloků mezi stroji i v čase.
+- Implementuj resize start/end se snapem na 30 min.
+- Implementuj nástroj „Rozdělení zakázky“:
+  - U dlouhého bloku lze provést „říznutí“ (split) v zvoleném čase → vzniknou 2 bloky se zachováním metadat.
+  - Split nesmí vytvořit část kratší než 30 min.
+  - UX: buď kontextové menu „Rozdělit“, nebo klávesa (např. S) + klik na čas v bloku, nebo ikonka „nůž“.
+- Kolize řeš jasně (zabránit / nebo vizuální konflikt s potvrzením).
+Pak se zastav: „POKRAČOVAT?“
+
+ETAPA 4 — Směny + svátky + background
+- Implementuj směnový kalendář:
+  - XL 106: 3 směny, nepracuje se jen o víkendech.
+  - XL 105: 2 směny, bez noční; ranní začíná v 06:00.
+- Nepracovní čas zvýrazni na pozadí (jako víkendy v Excelu).
+- Přidej státní svátky ČR:
+  - buď přes knihovnu, nebo statický seznam pro více let dopředu
+  - zvýraznit stejně jako víkendy (pokud už není)
+Pak se zastav: „POKRAČOVAT?“
+
+ETAPA 5 — Stavy, šednutí, overdue
+- Barvy bloků:
+  - modrá → zakázka OK
+  - fialová → rezervace
+  - červená → údržba / oprava
+  - šedá → blok, který už měl být podle aktuálního času hotový
+- Šednutí: pokud end < now a blok není maintenance → šedá (případně kombinace se stavem).
+- Termíny v detailu: DATA / Materiál / Expedice:
+  - zadání data ve formátu „1.1“ (interně ukládej jako datum s rokem)
+  - DATA a Materiál mají checkbox OK
+  - pokud dnešní datum > termín a není OK → červené zvýraznění (overdue)
+Pak se zastav: „POKRAČOVAT?“
+
+ETAPA 6 — Opakování (z detailu zakázky)
+- Přidej opakování operace: každý den / každý týden / každý měsíc.
+- Musí být nastavitelné v detailu zakázky jedním zaškrtnutím (checkbox/radio), aby se to nemuselo plánovat ručně.
+- Implementuj série:
+  - vytvoření instancí dopředu (např. 6–12 měsíců) nebo generování „on the fly“
+  - editace jedné instance vs celé série (výběr při editaci)
+Pak se zastav: „POKRAČOVAT?“
+
+ETAPA 7 — Hromadné posuny + zámečky bloků
+- Implementuj multi-select:
+  - uživatel tažením myši vytvoří výběrový obdélník (lasso/box select) a označí více bloků
+  - následně lze celou skupinu posunout v čase (drag) se snapem na 30 min
+- Implementuj „posun navazujících bloků“ (push/shift chain):
+  - když vložím novou zakázku nebo prodloužím blok a vznikne kolize, nabídni akci:
+    „Posunout všechny následující navazující zakázky“ (na stejném stroji) tak, aby už nebyly kolize
+  - posun respektuje směny a nepracovní časy (pokud se do nich dostane, musí se posunout na nejbližší další pracovní slot)
+- Implementuj zámeček u zakázky (lock/pin):
+  - blok může být „zamknutý“ → při hromadném posunu ani při posunu navazujících bloků se NESMÍ pohnout
+  - pokud je zamknutý blok v cestě, systém:
+    a) buď zastaví posun a ukáže hlášku „Nelze posunout přes zamknutý blok“
+    b) nebo nabídne alternativu (např. posun jen do okamžiku před lockem)
+- UX pro lock:
+  - ikona zámku přímo na bloku + přepínač v detailu
+Pak se zastav: „POKRAČOVAT?“
+
+ETAPA 8 — Práva a zámek editace aplikace
+- Režimy:
+  - viewer → jen čtení
+  - planner → může editovat
+- Vpravo nahoře ikona zámku „Editace“
+- Po zadání hesla integraf273 se odemkne editace (neukládat heslo do UI ani logů; pouze ověřit).
+Pak se zastav: „HOTOVO“
+
+====================================================
+SPECIFIKACE APLIKACE (platí pro všechny etapy)
+====================================================
+
+HLAVNÍ LAYOUT
+- Split view: vlevo plánovací timeline, vpravo builder.
+- Nahoře: globální filtr (číslo zakázky + datum).
+- Plán až na 1 rok dopředu.
+
+TIMELINE
+- Stroje na ose X: XL 105, XL 106.
+- Čas+datum na ose Y.
+- Grid 30 minut.
+- Drag&drop + resize + snap 30 min.
+
+BLOKY
+- typ: zakázka / rezervace / údržba
+- obsah: číslo zakázky, stroj, start, end, termíny DATA/Materiál/Expedice, opakování, lock
+
+BUILDER
+- číslo zakázky
+- stroj
+- délka trvání (30min intervaly)
+- typ (zakázka / rezervace / údržba)
+- DATA/Materiál/Expedice data
+- vytvoření → blok vznikne v plánu
+
+AUTOMATICKÉ CHOVÁNÍ
+- aplikace zná aktuální čas a aktualizuje UI
+
+====================================================
+VÝSTUPNÍ PRAVIDLA (povinné)
+====================================================
+- V každé etapě napiš:
+  1) krátké zdůvodnění (max 5 vět)
+  2) strom souborů projektu
+  3) kompletní obsah všech nových/změněných souborů (copy-paste)
+  4) přesné kroky spuštění a ověření (co kliknout, co čekat)
+- Kód musí být spustitelný lokálně bez doplňování „něco si domysli“.
+- Nevynechávej konfigurace (Prisma, .env.example, migrace/seed).
+- Nepoužívej pseudokód tam, kde má být reálná implementace.
+- Po dokončení etapy se zeptej: „POKRAČOVAT? (ano/ne)“ a čekej.
