@@ -219,4 +219,4 @@ Formulář pro vytvoření nového bloku. Pole:
 
 ---
 
-*Dokument naposledy aktualizován: 2025 — verze Vojta
+*Dokument naposledy aktualizován: 2025 — verze V
