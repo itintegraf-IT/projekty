@@ -51,7 +51,7 @@ ETAPA 5 — Stavy, šednutí, overdue
   - šedá → blok, který už měl být podle aktuálního času hotový
 - Šednutí: pokud end < now a blok není maintenance → šedá (případně kombinace se stavem).
 - Termíny v detailu: DATA / Materiál / Expedice:
-  - zadání data ve formátu „1.1“ (interně ukládej jako datum s rokem)
+  - zadání data ve formátu „1.1“ (interně ukládáno jako datum s rokem)
   - DATA a Materiál mají checkbox OK
   - pokud dnešní datum > termín a není OK → červené zvýraznění (overdue)
 Pak se zastav: „POKRAČOVAT?“
@@ -81,12 +81,14 @@ ETAPA 7 — Hromadné posuny + zámečky bloků
   - ikona zámku přímo na bloku + přepínač v detailu
 Pak se zastav: „POKRAČOVAT?“
 
-ETAPA 8 — Práva a zámek editace aplikace
-- Režimy:
-  - viewer → jen čtení
-  - planner → může editovat
-- Vpravo nahoře ikona zámku „Editace“
-- Po zadání hesla integraf273 se odemkne editace (neukládat heslo do UI ani logů; pouze ověřit).
+ETAPA 8 — Uživatelé, role a přihlášení
+- Implementuj přihlašování uživatelů (bez veřejné registrace).
+- Uživatelé a jejich role (Plánovač, MTZ, DTP, Viewer) budou uložení v databázi (seed).
+- Při přihlášení načti roli a aplikuj matici práv z DOKUMENTACE.md (co která role může vidět / editovat).
+- UI:
+  - přihlašovací obrazovka při startu aplikace,
+  - vpravo nahoře jméno přihlášeného uživatele a jeho role,
+  - prvky UI, na které uživatel nemá právo, budou skryté nebo zašedlé.
 Pak se zastav: „HOTOVO“
 
 ====================================================
