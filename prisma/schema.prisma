@@ -1,0 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Block {
+  id                 Int            @id @default(autoincrement())
+  orderNumber        String
+  machine            String         // XL_105 | XL_106
+  startTime          DateTime
+  endTime            DateTime
+  type               String         @default("ZAKAZKA") // ZAKAZKA | REZERVACE | UDRZBA
+  description        String?
+  locked             Boolean        @default(false)
+
+  // Termíny (Etapa 5)
+  deadlineData       DateTime?
+  deadlineMaterial   DateTime?
+  deadlineExpedice   DateTime?
+  deadlineDataOk     Boolean        @default(false)
+  deadlineMaterialOk Boolean        @default(false)
+
+  // Opakování (Etapa 6)
+  recurrenceType     String         @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY
+  recurrenceParentId Int?
+  recurrenceParent   Block?         @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
+  recurrenceChildren Block[]        @relation("RecurrenceChildren")
+
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  role         String   @default("VIEWER") // ADMIN | PLANOVAT | MTZ | DTP | VIEWER
+  createdAt    DateTime @default(now())
+}
