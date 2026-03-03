@@ -185,32 +185,34 @@ Formulář pro vytvoření nového bloku. Pole:
 - Uživatelé jsou předem nadefinovaní v databázi (seed) — žádná veřejná registrace
 
 ### Správa uživatelů
-- Plánovač (admin) spravuje uživatelské účty
+- Admin spravuje uživatelské účty a celý systém
 - Uživatelé jsou zakládáni přes seed nebo admin rozhraní
+- Plánovač nemá přístup ke správě uživatelů
 
 ### Role a oprávnění
 
 | Role | Popis | Co může dělat |
 |------|-------|---------------|
-| **Plánovač** | Plná práva | Vše — vytváření, editace, mazání bloků, správa termínů DATA / Materiál / Expedice, správa uživatelů |
+| **Admin** | Správce systému | Vše — včetně správy uživatelů, jejich zakládání, editace a mazání; má přístup ke všem funkcím aplikace |
+| **Plánovač** | Plánování výroby | Vytváření, editace, mazání bloků, správa termínů DATA / Materiál / Expedice, drag & drop, split, zámečky, hromadné posuny |
 | **MTZ** | Oddělení materiálu | Vidí celou timeline, edituje pouze kolonku **Materiál** (datum + checkbox OK) |
 | **DTP** | Oddělení dat | Vidí celou timeline, edituje pouze kolonku **DATA** (datum + checkbox OK) |
 | **Viewer** | Jen čtení | Vidí celou timeline, nemůže nic editovat |
 
 ### Detailní matice práv
 
-| Akce | Plánovač | MTZ | DTP | Viewer |
-|------|----------|-----|-----|--------|
-| Vidět timeline | ✅ | ✅ | ✅ | ✅ |
-| Vytvořit / smazat blok | ✅ | ❌ | ❌ | ❌ |
-| Přesunout / resize blok | ✅ | ❌ | ❌ | ❌ |
-| Rozdělit blok (split) | ✅ | ❌ | ❌ | ❌ |
-| Editovat termín DATA | ✅ | ❌ | ✅ | ❌ |
-| Editovat termín Materiál | ✅ | ✅ | ❌ | ❌ |
-| Editovat termín Expedice | ✅ | ❌ | ❌ | ❌ |
-| Zamknout / odemknout blok | ✅ | ❌ | ❌ | ❌ |
-| Hromadné posuny | ✅ | ❌ | ❌ | ❌ |
-| Správa uživatelů | ✅ | ❌ | ❌ | ❌ |
+| Akce | Admin | Plánovač | MTZ | DTP | Viewer |
+|------|-------|----------|-----|-----|--------|
+| Vidět timeline | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Vytvořit / smazat blok | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Přesunout / resize blok | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Rozdělit blok (split) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Editovat termín DATA | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Editovat termín Materiál | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Editovat termín Expedice | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Zamknout / odemknout blok | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Hromadné posuny | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Správa uživatelů | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 ### UX přihlašování
 - Vpravo nahoře zobrazeno jméno přihlášeného uživatele a jeho role

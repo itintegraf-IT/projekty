@@ -83,13 +83,16 @@ Pak se zastav: „POKRAČOVAT?“
 
 ETAPA 8 — Uživatelé, role a přihlášení
 - Implementuj přihlašování uživatelů (bez veřejné registrace).
-- Uživatelé a jejich role (Plánovač, MTZ, DTP, Viewer) budou uložení v databázi (seed).
+- Uživatelé a jejich role (Admin, Plánovač, MTZ, DTP, Viewer) budou uložení v databázi (seed).
+- Role Admin má plná práva včetně správy uživatelů (zakládání, editace, mazání účtů). Správa uživatelů je dostupná pouze roli Admin, ne Plánovači.
+- Plánovač má plná práva na plánování (bloky, termíny, drag&drop, split, zámečky, hromadné posuny), ale bez správy uživatelů.
 - Při přihlášení načti roli a aplikuj matici práv z DOKUMENTACE.md (co která role může vidět / editovat).
 - UI:
   - přihlašovací obrazovka při startu aplikace,
   - vpravo nahoře jméno přihlášeného uživatele a jeho role,
-  - prvky UI, na které uživatel nemá právo, budou skryté nebo zašedlé.
-Pak se zastav: „HOTOVO“
+  - prvky UI, na které uživatel nemá právo, budou skryté nebo zašedlé,
+  - admin rozhraní pro správu uživatelů (přístupné pouze roli Admin).
+Pak se zastav: „HOTOVO”
 
 ====================================================
 SPECIFIKACE APLIKACE (platí pro všechny etapy)
