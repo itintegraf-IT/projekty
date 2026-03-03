@@ -12,7 +12,7 @@
 
 Webová aplikace pro plánování výroby na strojích XL 105 a XL 106. Umožňuje plánovat zakázky, rezervace a údržbu na časové ose, spravovat termíny a řídit přístupová práva různých oddělení.
 
-**Stack:** Next.js + React + TypeScript + Tailwind + Prisma + PostgreSQL
+**Stack:** Next.js + React + TypeScript + Tailwind + Prisma + MySQL
 
 ---
 
@@ -86,7 +86,7 @@ Formulář pro vytvoření nového bloku. Pole:
 
 ## Etapa 1 — Skeleton a běh aplikace
 
-- Next.js + React + TypeScript + Tailwind + Prisma + PostgreSQL
+- Next.js + React + TypeScript + Tailwind + Prisma + MySQL
 - Strom projektu + všechny soubory nutné pro spuštění
 - Seed s mock daty
 - Jedna stránka s layoutem: vlevo placeholder timeline (bez DnD), vpravo builder formulář
