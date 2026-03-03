@@ -18,7 +18,7 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | Etapa | Název | Stav |
 |-------|-------|------|
 | 1 | Skeleton, databáze, API, builder formulář | ✅ Hotovo |
-| 2 | Timeline render (grid + scroll + filtry) | ⬜ Nezačato |
+| 2 | Timeline render (grid + scroll + filtry) | ✅ Hotovo |
 | 3 | Drag & drop + resize + rozdělení | ⬜ Nezačato |
 | 4 | Směny + svátky + background | ⬜ Nezačato |
 | 5 | Stavy, šednutí, overdue | ⬜ Nezačato |
@@ -61,7 +61,8 @@ npm run prisma:seed
 | `prisma/schema.prisma` | DB schema — Block + User modely pro všech 8 etap |
 | `src/lib/prisma.ts` | Prisma singleton klient |
 | `src/app/page.tsx` | Server Component — načítá bloky z DB |
-| `src/app/_components/PlannerPage.tsx` | Client Component — builder formulář + seznam bloků |
+| `src/app/_components/PlannerPage.tsx` | Client Component — builder formulář + detail bloku + filtry |
+| `src/app/_components/TimelineGrid.tsx` | Vizuální timeline grid (2 sloupce, absolutně pozicované bloky) |
 | `src/app/api/blocks/route.ts` | GET all + POST |
 | `src/app/api/blocks/[id]/route.ts` | GET + PUT + DELETE |
 | `DOKUMENTACE.md` | Plná projektová dokumentace (neupravuj ručně) |
