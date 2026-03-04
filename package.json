@@ -27,6 +27,7 @@
     "eslint-config-next": "latest",
     "postcss": "latest",
     "prisma": "^5",
+    "shadcn": "^3.8.5",
     "tailwindcss": "latest",
     "tsx": "latest",
     "typescript": "latest"

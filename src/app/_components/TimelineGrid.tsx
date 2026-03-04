@@ -70,7 +70,16 @@ interface TimelineGridProps {
   onBlockUpdate: (updatedBlock: Block) => void;
   onBlockCreate: (newBlock: Block) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  queueDragItem?: { id: number; durationHours: number; type: string } | null;
+  onQueueDrop?: (itemId: number, machine: string, startTime: Date) => void;
 }
+
+type QueueDropPreview = {
+  machine: string;
+  top: number;
+  height: number;
+  jobType: string;
+} | null;
 
 // ─── Barvy dle typu ────────────────────────────────────────────────────────────
 const TYPE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
@@ -203,11 +212,13 @@ function BlockCard({
 export default function TimelineGrid({
   blocks, filterText, selectedBlockId,
   onBlockClick, onBlockUpdate, onBlockCreate, scrollRef,
+  queueDragItem, onQueueDrop,
 }: TimelineGridProps) {
   const [viewStart, setViewStart] = useState<Date | null>(null);
   const [now, setNow]             = useState<Date | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
+  const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
 
   const dragStateRef  = useRef<DragInternalState | null>(null);
   const dragDidMove   = useRef(false);
@@ -522,6 +533,37 @@ export default function TimelineGrid({
                 key={machine}
                 ref={(el) => { colRefs.current[colIdx] = el; }}
                 style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0, borderRight: colIdx === 0 ? "1px solid rgb(30 41 59)" : undefined }}
+                onDragOver={(e) => {
+                  if (!queueDragItem) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                  const vs = viewStartRef.current;
+                  const el = scrollRef.current;
+                  if (!vs || !el) return;
+                  const rect = el.getBoundingClientRect();
+                  const timelineY = e.clientY - rect.top + el.scrollTop;
+                  const snappedStart = snapToSlot(yToDate(timelineY, vs));
+                  const snappedY = dateToY(snappedStart, vs);
+                  const height = queueDragItem.durationHours * 2 * SLOT_HEIGHT;
+                  setQueueDropPreview({ machine, top: snappedY, height, jobType: queueDragItem.type });
+                }}
+                onDragLeave={(e) => {
+                  if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+                    setQueueDropPreview(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (!onQueueDrop || !queueDragItem) return;
+                  const vs = viewStartRef.current;
+                  const el = scrollRef.current;
+                  if (!vs || !el) return;
+                  const rect = el.getBoundingClientRect();
+                  const timelineY = e.clientY - rect.top + el.scrollTop;
+                  const snappedStart = snapToSlot(yToDate(timelineY, vs));
+                  setQueueDropPreview(null);
+                  onQueueDrop(queueDragItem.id, machine, snappedStart);
+                }}
               >
                 {/* Dnešní pozadí */}
                 {days.map((d) =>
@@ -592,6 +634,22 @@ export default function TimelineGrid({
                     />
                   );
                 })}
+
+                {/* Náhled při přetahování z fronty */}
+                {queueDropPreview && queueDropPreview.machine === machine && (
+                  <div style={{
+                    position: "absolute",
+                    top: queueDropPreview.top,
+                    height: Math.max(queueDropPreview.height, SLOT_HEIGHT),
+                    left: 3,
+                    width: "calc(100% - 6px)",
+                    borderRadius: 4,
+                    backgroundColor: "rgba(36,132,245,0.18)",
+                    border: "2px dashed rgba(36,132,245,0.6)",
+                    pointerEvents: "none",
+                    zIndex: 15,
+                  }} />
+                )}
 
                 {/* Blok táhnutý DO tohoto sloupce z jiného stroje */}
                 {(() => {
