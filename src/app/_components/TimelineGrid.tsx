@@ -72,6 +72,7 @@ interface TimelineGridProps {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   queueDragItem?: { id: number; durationHours: number; type: string } | null;
   onQueueDrop?: (itemId: number, machine: string, startTime: Date) => void;
+  onBlockDoubleClick?: (block: Block) => void;
 }
 
 type QueueDropPreview = {
@@ -136,7 +137,7 @@ const DAY_ABBR   = ["Ne","Po","Út","St","Čt","Pá","So"];
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
   block, top, height, dimmed, selected, isDragging,
-  onClick, onMouseDown, onResizeMouseDown, onContextMenu,
+  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu,
 }: {
   block: Block;
   top: number;
@@ -145,6 +146,7 @@ function BlockCard({
   selected: boolean;
   isDragging: boolean;
   onClick: () => void;
+  onDoubleClick: () => void;
   onMouseDown: (e: React.MouseEvent) => void;
   onResizeMouseDown: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -159,6 +161,7 @@ function BlockCard({
     <div
       onMouseDown={block.locked ? undefined : onMouseDown}
       onClick={onClick}
+      onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
       onContextMenu={onContextMenu}
       style={{
         position: "absolute",
@@ -212,7 +215,7 @@ function BlockCard({
 export default function TimelineGrid({
   blocks, filterText, selectedBlockId,
   onBlockClick, onBlockUpdate, onBlockCreate, scrollRef,
-  queueDragItem, onQueueDrop,
+  queueDragItem, onQueueDrop, onBlockDoubleClick,
 }: TimelineGridProps) {
   const [viewStart, setViewStart] = useState<Date | null>(null);
   const [now, setNow]             = useState<Date | null>(null);
@@ -279,12 +282,16 @@ export default function TimelineGrid({
         const originalTop    = dateToY(ds.originalStart, vs);
         const originalHeight = dateToY(ds.originalEnd, vs) - originalTop;
         const newMachine     = clientXToMachine(e.clientX);
-        setDragPreview({ blockId: ds.blockId, top: originalTop + deltaY, height: originalHeight, machine: newMachine });
+        const snappedStart   = snapToSlot(yToDate(originalTop + deltaY, vs));
+        const snappedTop     = dateToY(snappedStart, vs);
+        setDragPreview({ blockId: ds.blockId, top: snappedTop, height: originalHeight, machine: newMachine });
       } else {
         const originalTop    = dateToY(ds.originalStart, vs);
         const originalHeight = dateToY(ds.originalEnd, vs) - originalTop;
-        const newHeight      = Math.max(SLOT_HEIGHT, originalHeight + deltaY);
-        setDragPreview({ blockId: ds.blockId, top: originalTop, height: newHeight, machine: ds.originalMachine });
+        const rawEnd         = yToDate(originalTop + Math.max(SLOT_HEIGHT, originalHeight + deltaY), vs);
+        const snappedEnd     = snapToSlot(rawEnd);
+        const snappedHeight  = Math.max(SLOT_HEIGHT, dateToY(snappedEnd, vs) - originalTop);
+        setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine });
       }
     }
 
@@ -611,12 +618,11 @@ export default function TimelineGrid({
                 {/* Bloky patřící tomuto stroji */}
                 {machineBlocks.map((block) => {
                   const isThisBlockDragging = dragPreview?.blockId === block.id;
-                  if (isThisBlockDragging && dragPreview && dragPreview.machine !== machine) return null;
-
-                  const top    = isThisBlockDragging && dragPreview ? dragPreview.top    : dateToY(new Date(block.startTime), viewStart);
-                  const height = isThisBlockDragging && dragPreview ? dragPreview.height : dateToY(new Date(block.endTime), viewStart) - dateToY(new Date(block.startTime), viewStart);
-                  const dimmed   = filter !== "" && !block.orderNumber.toLowerCase().includes(filter);
-                  const selected = block.id === selectedBlockId;
+                  // Vždy renderujeme na původní pozici; při tažení blok zešedne (ghost at origin)
+                  const top    = dateToY(new Date(block.startTime), viewStart);
+                  const height = dateToY(new Date(block.endTime), viewStart) - top;
+                  const dimmed   = (filter !== "" && !block.orderNumber.toLowerCase().includes(filter)) || !!isThisBlockDragging;
+                  const selected = !isThisBlockDragging && block.id === selectedBlockId;
 
                   return (
                     <BlockCard
@@ -626,8 +632,9 @@ export default function TimelineGrid({
                       height={height}
                       dimmed={dimmed}
                       selected={selected}
-                      isDragging={!!isThisBlockDragging}
+                      isDragging={false}
                       onClick={() => { if (!dragDidMove.current) onBlockClick(block); }}
+                      onDoubleClick={() => onBlockDoubleClick?.(block)}
                       onMouseDown={(e) => handleBlockMouseDown(block, e)}
                       onResizeMouseDown={(e) => handleResizeMouseDown(block, e)}
                       onContextMenu={(e) => handleBlockContextMenu(block, e)}
@@ -635,14 +642,34 @@ export default function TimelineGrid({
                   );
                 })}
 
+                {/* Landing zone — přesouvání existujícího bloku (stejný i cizí stroj) */}
+                {dragPreview && dragPreview.machine === machine && (() => {
+                  const draggedBlock = blocks.find((b) => b.id === dragPreview.blockId);
+                  if (!draggedBlock) return null;
+                  const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#c0392b" };
+                  const color = colorMap[draggedBlock.type] ?? "#475569";
+                  return (
+                    <div style={{
+                      position: "absolute",
+                      top: dragPreview.top,
+                      height: Math.max(dragPreview.height, SLOT_HEIGHT),
+                      left: 3, width: "calc(100% - 6px)",
+                      borderRadius: 4,
+                      backgroundColor: `${color}22`,
+                      border: `2px dashed ${color}cc`,
+                      pointerEvents: "none",
+                      zIndex: 16,
+                    }} />
+                  );
+                })()}
+
                 {/* Náhled při přetahování z fronty */}
                 {queueDropPreview && queueDropPreview.machine === machine && (
                   <div style={{
                     position: "absolute",
                     top: queueDropPreview.top,
                     height: Math.max(queueDropPreview.height, SLOT_HEIGHT),
-                    left: 3,
-                    width: "calc(100% - 6px)",
+                    left: 3, width: "calc(100% - 6px)",
                     borderRadius: 4,
                     backgroundColor: "rgba(36,132,245,0.18)",
                     border: "2px dashed rgba(36,132,245,0.6)",
@@ -650,28 +677,6 @@ export default function TimelineGrid({
                     zIndex: 15,
                   }} />
                 )}
-
-                {/* Blok táhnutý DO tohoto sloupce z jiného stroje */}
-                {(() => {
-                  if (!dragPreview || dragPreview.machine !== machine) return null;
-                  const dragged = blocks.find((b) => b.id === dragPreview.blockId);
-                  if (!dragged || dragged.machine === machine) return null;
-                  return (
-                    <BlockCard
-                      key={`drag-into-${dragged.id}`}
-                      block={dragged}
-                      top={dragPreview.top}
-                      height={dragPreview.height}
-                      dimmed={false}
-                      selected={false}
-                      isDragging={true}
-                      onClick={() => {}}
-                      onMouseDown={() => {}}
-                      onResizeMouseDown={() => {}}
-                      onContextMenu={() => {}}
-                    />
-                  );
-                })()}
               </div>
             );
           })}
