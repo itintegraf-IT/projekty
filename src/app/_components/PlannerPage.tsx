@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import TimelineGrid, { dateToY, type Block } from "./TimelineGrid";
+import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
 import { Label }     from "@/components/ui/label";
@@ -9,16 +9,34 @@ import { Button }    from "@/components/ui/button";
 import { Switch }    from "@/components/ui/switch";
 import { Badge }     from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
+type CodebookOption = {
+  id: number;
+  category: string;
+  label: string;
+  sortOrder: number;
+  isActive: boolean;
+  shortCode: string | null;
+  isWarning: boolean;
+};
+
 type QueueItem = {
   id: number;
   orderNumber: string;
   type: string;
   durationHours: number;
   description: string;
-  deadlineData: string;
-  deadlineMaterial: string;
+  dataStatusId: number | null;
+  dataStatusLabel: string | null;
+  materialStatusId: number | null;
+  materialStatusLabel: string | null;
+  barvyStatusId: number | null;
+  barvyStatusLabel: string | null;
+  lakStatusId: number | null;
+  lakStatusLabel: string | null;
+  specifikace: string;
   deadlineExpedice: string;
 };
 
@@ -102,14 +120,64 @@ function BlockEdit({
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
   const [type, setType]               = useState(block.type);
   const [description, setDescription] = useState(block.description ?? "");
-  const [deadlineData, setDeadlineData]           = useState(block.deadlineData ? new Date(block.deadlineData).toISOString().slice(0, 10) : "");
-  const [deadlineMaterial, setDeadlineMaterial]   = useState(block.deadlineMaterial ? new Date(block.deadlineMaterial).toISOString().slice(0, 10) : "");
-  const [deadlineExpedice, setDeadlineExpedice]   = useState(block.deadlineExpedice ? new Date(block.deadlineExpedice).toISOString().slice(0, 10) : "");
-  const [deadlineDataOk, setDeadlineDataOk]       = useState(block.deadlineDataOk);
-  const [deadlineMaterialOk, setDeadlineMaterialOk] = useState(block.deadlineMaterialOk);
   const [locked, setLocked]           = useState(block.locked);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
+
+  // Termín expedice
+  const [deadlineExpedice, setDeadlineExpedice] = useState(
+    block.deadlineExpedice ? new Date(block.deadlineExpedice).toISOString().slice(0, 10) : ""
+  );
+
+  // DATA
+  const [dataStatusId, setDataStatusId]         = useState<string>(block.dataStatusId?.toString() ?? "");
+  const [dataRequiredDate, setDataRequiredDate] = useState(
+    block.dataRequiredDate ? new Date(block.dataRequiredDate).toISOString().slice(0, 10) : ""
+  );
+  const [dataOk, setDataOk] = useState(block.dataOk);
+
+  // MATERIÁL
+  const [materialStatusId, setMaterialStatusId]         = useState<string>(block.materialStatusId?.toString() ?? "");
+  const [materialRequiredDate, setMaterialRequiredDate] = useState(
+    block.materialRequiredDate ? new Date(block.materialRequiredDate).toISOString().slice(0, 10) : ""
+  );
+  const [materialOk, setMaterialOk]             = useState(block.materialOk);
+  const [pantoneExpectedDate, setPantoneExpectedDate] = useState(
+    block.pantoneExpectedDate ? new Date(block.pantoneExpectedDate).toISOString().slice(0, 10) : ""
+  );
+
+  // BARVY
+  const [barvyStatusId, setBarvyStatusId] = useState<string>(block.barvyStatusId?.toString() ?? "");
+
+  // LAK
+  const [lakStatusId, setLakStatusId] = useState<string>(block.lakStatusId?.toString() ?? "");
+
+  // SPECIFIKACE
+  const [specifikace, setSpecifikace] = useState(block.specifikace ?? "");
+
+  // Číselníky
+  const [dataOpts, setDataOpts]         = useState<CodebookOption[]>([]);
+  const [materialOpts, setMaterialOpts] = useState<CodebookOption[]>([]);
+  const [barvyOpts, setBarvyOpts]       = useState<CodebookOption[]>([]);
+  const [lakOpts, setLakOpts]           = useState<CodebookOption[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/codebook?category=DATA").then((r) => r.json()),
+      fetch("/api/codebook?category=MATERIAL").then((r) => r.json()),
+      fetch("/api/codebook?category=BARVY").then((r) => r.json()),
+      fetch("/api/codebook?category=LAK").then((r) => r.json()),
+    ]).then(([d, m, b, l]) => {
+      setDataOpts(d);
+      setMaterialOpts(m);
+      setBarvyOpts(b);
+      setLakOpts(l);
+    });
+  }, []);
+
+  function resolveLabel(opts: CodebookOption[], id: string): string | null {
+    return opts.find((o) => o.id.toString() === id)?.label ?? null;
+  }
 
   async function handleSave() {
     if (!orderNumber.trim()) { setError("Vyplňte číslo zakázky."); return; }
@@ -124,11 +192,21 @@ function BlockEdit({
           type,
           description: description.trim() || null,
           locked,
-          deadlineData: deadlineData || null,
-          deadlineMaterial: deadlineMaterial || null,
           deadlineExpedice: deadlineExpedice || null,
-          deadlineDataOk,
-          deadlineMaterialOk,
+          dataStatusId: dataStatusId ? parseInt(dataStatusId) : null,
+          dataStatusLabel: dataStatusId ? resolveLabel(dataOpts, dataStatusId) : null,
+          dataRequiredDate: dataRequiredDate || null,
+          dataOk,
+          materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
+          materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
+          materialRequiredDate: materialRequiredDate || null,
+          materialOk,
+          pantoneExpectedDate: pantoneExpectedDate || null,
+          barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
+          barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
+          lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
+          lakStatusLabel: lakStatusId ? resolveLabel(lakOpts, lakStatusId) : null,
+          specifikace: specifikace.trim() || null,
         }),
       });
       if (!res.ok) throw new Error("Chyba serveru");
@@ -142,6 +220,35 @@ function BlockEdit({
   }
 
   const typeCfg = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
+  const SECTION = "fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: '#9ba8c0'";
+  void SECTION;
+
+  function SectionLabel({ children }: { children: React.ReactNode }) {
+    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 8 }}>{children}</div>;
+  }
+
+  function StatusSelect({ value, onChange, opts, placeholder }: {
+    value: string;
+    onChange: (v: string) => void;
+    opts: CodebookOption[];
+    placeholder: string;
+  }) {
+    return (
+      <Select value={value || "__none__"} onValueChange={(v) => onChange(v === "__none__" ? "" : v)}>
+        <SelectTrigger className="h-8 text-xs w-full">
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__" className="text-xs text-slate-400">— nezadáno —</SelectItem>
+          {opts.map((o) => (
+            <SelectItem key={o.id} value={o.id.toString()} className="text-xs">
+              {o.isWarning ? "⚠ " : ""}{o.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  }
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid rgb(30 41 59)" }}>
@@ -173,20 +280,10 @@ function BlockEdit({
 
         {/* Typ */}
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 8 }}>Typ záznamu</div>
+          <SectionLabel>Typ záznamu</SectionLabel>
           <div style={{ display: "flex", gap: 6 }}>
             {(Object.entries(TYPE_BUILDER_CONFIG) as [string, typeof TYPE_BUILDER_CONFIG[keyof typeof TYPE_BUILDER_CONFIG]][]).map(([key, cfg]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setType(key)}
-                style={{
-                  flex: 1, padding: "7px 4px", borderRadius: 7,
-                  border: type === key ? `1px solid ${cfg.color}` : "1px solid rgba(255,255,255,0.08)",
-                  background: type === key ? `${cfg.color}22` : "rgba(255,255,255,0.02)",
-                  cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-                }}
-              >
+              <button key={key} type="button" onClick={() => setType(key)} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid rgba(255,255,255,0.08)", background: type === key ? `${cfg.color}22` : "rgba(255,255,255,0.02)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                 <span style={{ fontSize: 14 }}>{cfg.emoji}</span>
                 <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "#9ba8c0", textAlign: "center" }}>{cfg.label}</span>
               </button>
@@ -199,56 +296,77 @@ function BlockEdit({
           <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>
             {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
           </Label>
-          <Input
-            value={orderNumber}
-            onChange={(e) => setOrderNumber(e.target.value)}
-            className="h-8 text-xs"
-          />
+          <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="h-8 text-xs" />
         </div>
 
         {/* Popis */}
         <div style={{ marginTop: 10 }}>
           <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Popis</Label>
-          <Textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={2}
-            className="text-xs resize-none"
-          />
+          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="text-xs resize-none" />
         </div>
 
-        {/* Termíny */}
+        {/* ── Výrobní sloupečky ── */}
         {type !== "UDRZBA" && (
-          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Termíny</div>
+          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+            <SectionLabel>Výrobní sloupečky</SectionLabel>
 
             {/* DATA */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>DATA</Label>
-                <Input type="date" value={deadlineData} onChange={(e) => setDeadlineData(e.target.value)} className="h-8 text-xs" />
+            <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: 6, padding: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>DATA</Label>
+              <StatusSelect value={dataStatusId} onChange={setDataStatusId} opts={dataOpts} placeholder="Status dat…" />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum (nepovinný)</Label>
+                  <Input type="date" value={dataRequiredDate} onChange={(e) => setDataRequiredDate(e.target.value)} className="h-7 text-xs" />
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: dataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", marginTop: 16, flexShrink: 0 }}>
+                  <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
+                  OK
+                </label>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: deadlineDataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", marginTop: 18, flexShrink: 0 }}>
-                <input type="checkbox" checked={deadlineDataOk} onChange={(e) => setDeadlineDataOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
-                OK
-              </label>
             </div>
 
-            {/* Materiál */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1 }}>
-                <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Materiál</Label>
-                <Input type="date" value={deadlineMaterial} onChange={(e) => setDeadlineMaterial(e.target.value)} className="h-8 text-xs" />
+            {/* MATERIÁL */}
+            <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: 6, padding: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>MATERIÁL</Label>
+              <StatusSelect value={materialStatusId} onChange={setMaterialStatusId} opts={materialOpts} placeholder="Status materiálu…" />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum (nepovinný)</Label>
+                  <Input type="date" value={materialRequiredDate} onChange={(e) => setMaterialRequiredDate(e.target.value)} className="h-7 text-xs" />
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: materialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", marginTop: 16, flexShrink: 0 }}>
+                  <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
+                  OK
+                </label>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: deadlineMaterialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", marginTop: 18, flexShrink: 0 }}>
-                <input type="checkbox" checked={deadlineMaterialOk} onChange={(e) => setDeadlineMaterialOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
-                OK
-              </label>
+              <div style={{ marginTop: 6 }}>
+                <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Pantone — očekávané dodání</Label>
+                <Input type="date" value={pantoneExpectedDate} onChange={(e) => setPantoneExpectedDate(e.target.value)} className="h-7 text-xs" />
+              </div>
+            </div>
+
+            {/* BARVY */}
+            <div>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>BARVY</Label>
+              <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="Typ barev…" />
+            </div>
+
+            {/* LAK */}
+            <div>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>LAK</Label>
+              <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="Typ laku…" />
+            </div>
+
+            {/* SPECIFIKACE */}
+            <div>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>SPECIFIKACE</Label>
+              <Textarea value={specifikace} onChange={(e) => setSpecifikace(e.target.value)} rows={2} placeholder="Speciální požadavky…" className="text-xs resize-none" />
             </div>
 
             {/* Expedice */}
             <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Expedice</Label>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Termín expedice</Label>
               <Input type="date" value={deadlineExpedice} onChange={(e) => setDeadlineExpedice(e.target.value)} className="h-8 text-xs" />
             </div>
           </div>
@@ -264,20 +382,10 @@ function BlockEdit({
 
         {/* Tlačítka */}
         <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="flex-1 bg-[#FFE600] text-[#111318] hover:bg-[#FFE600]/90 font-bold text-xs"
-          >
+          <Button type="button" onClick={handleSave} disabled={saving} className="flex-1 bg-[#FFE600] text-[#111318] hover:bg-[#FFE600]/90 font-bold text-xs">
             {saving ? "Ukládám…" : "Uložit změny →"}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onClose}
-            className="text-slate-400 text-xs"
-          >
+          <Button type="button" variant="ghost" onClick={onClose} className="text-slate-400 text-xs">
             Zrušit
           </Button>
         </div>
@@ -348,13 +456,32 @@ function BlockDetail({
           </>
         )}
 
-        <Separator className="my-1 bg-slate-800" />
-        <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2 space-y-1.5">
-          <div className="text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Termíny</div>
-          <DeadlineRow label="DATA"     value={formatDate(block.deadlineData)}     ok={block.deadlineDataOk} />
-          <DeadlineRow label="Materiál" value={formatDate(block.deadlineMaterial)} ok={block.deadlineMaterialOk} />
-          <DeadlineRow label="Expedice" value={formatDate(block.deadlineExpedice)} ok={false} />
-        </div>
+        {(block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace) && (
+          <>
+            <Separator className="my-1 bg-slate-800" />
+            <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2 space-y-1.5">
+              <div className="text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Výrobní sloupečky</div>
+              {block.dataStatusLabel && (
+                <DeadlineRow label="DATA" value={block.dataStatusLabel} ok={block.dataOk} date={block.dataRequiredDate ? formatDate(block.dataRequiredDate) : null} />
+              )}
+              {block.materialStatusLabel && (
+                <DeadlineRow label="Materiál" value={block.materialStatusLabel} ok={block.materialOk} date={block.materialRequiredDate ? formatDate(block.materialRequiredDate) : null} />
+              )}
+              {block.barvyStatusLabel && <Row label="Barvy" value={block.barvyStatusLabel} />}
+              {block.lakStatusLabel && <Row label="Lak" value={block.lakStatusLabel} />}
+              {block.specifikace && <Row label="Spec" value={block.specifikace} />}
+            </div>
+          </>
+        )}
+        {block.deadlineExpedice && (
+          <>
+            <Separator className="my-1 bg-slate-800" />
+            <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2">
+              <div className="text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Termín</div>
+              <Row label="Expedice" value={formatDate(block.deadlineExpedice)} />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Smazat */}
@@ -405,14 +532,132 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DeadlineRow({ label, value, ok }: { label: string; value: string; ok: boolean }) {
+function DeadlineRow({ label, value, ok, date }: { label: string; value: string; ok: boolean; date?: string | null }) {
   return (
     <div className="flex items-baseline gap-2">
       <span className="text-[10px] text-slate-500 w-16 flex-shrink-0">{label}</span>
       <span className={value === "—" ? "text-slate-600" : ok ? "text-green-400" : "text-slate-300"}>
         {value}
         {ok && value !== "—" && <span className="ml-1 text-green-500">✓</span>}
+        {date && <span className="ml-1 text-slate-500 text-[9px]">({date})</span>}
       </span>
+    </div>
+  );
+}
+
+// ─── ShutdownManager ──────────────────────────────────────────────────────────
+function ShutdownManager({
+  companyDays,
+  onAdd,
+  onDelete,
+  onClose,
+}: {
+  companyDays: CompanyDay[];
+  onAdd: (startDate: string, endDate: string, label: string) => Promise<void>;
+  onDelete: (id: number) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate]     = useState("");
+  const [label, setLabel]         = useState("");
+  const [saving, setSaving]       = useState(false);
+  const [deleting, setDeleting]   = useState<number | null>(null);
+  const [error, setError]         = useState<string | null>(null);
+
+  async function handleAdd() {
+    if (!startDate || !endDate || !label.trim()) { setError("Vyplňte všechna pole."); return; }
+    if (endDate < startDate) { setError("Konec musí být po začátku."); return; }
+    setSaving(true); setError(null);
+    try {
+      await onAdd(startDate, endDate, label.trim());
+      setStartDate(""); setEndDate(""); setLabel("");
+    } catch { setError("Chyba při ukládání."); }
+    finally { setSaving(false); }
+  }
+
+  async function handleDelete(id: number) {
+    setDeleting(id);
+    try { await onDelete(id); }
+    catch { setError("Chyba při mazání."); }
+    finally { setDeleting(null); }
+  }
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid rgb(30 41 59)" }}>
+      <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, #1a1d25 0%, #111318 100%)", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Firemní dny</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", marginTop: 2 }}>Odstávky a svátky</div>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">← Zpět</Button>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>
+        {error && (
+          <div style={{ marginBottom: 12, borderRadius: 6, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", padding: "8px 12px", fontSize: 11, color: "#fca5a5" }}>{error}</div>
+        )}
+
+        {/* Formulář */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Přidat odstávku</div>
+          <div>
+            <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Název</Label>
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Velikonoce, dovolená…" className="h-8 text-xs" />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Od</Label>
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div>
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Do</Label>
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-8 text-xs" />
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleAdd}
+            disabled={saving || !label.trim() || !startDate || !endDate}
+            className="w-full text-xs font-semibold border border-purple-400/35 bg-purple-400/[0.06] text-purple-400 hover:bg-purple-400/[0.12] hover:text-purple-400 disabled:text-slate-600 disabled:border-slate-700 disabled:bg-transparent"
+          >
+            {saving ? "Ukládám…" : "＋ Přidat"}
+          </Button>
+        </div>
+
+        <Separator className="my-1 bg-slate-800" />
+
+        {/* Seznam */}
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 4 }}>
+            Uložené ({companyDays.length})
+          </div>
+          {companyDays.length === 0 && (
+            <div style={{ fontSize: 11, color: "#475569", textAlign: "center", padding: "12px 0" }}>Žádné záznamy</div>
+          )}
+          {companyDays.map((cd) => (
+            <div key={cd.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)", borderRadius: 6, padding: "8px 10px" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#c4b5fd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cd.label}</div>
+                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                  {new Date(cd.startDate).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                  {cd.startDate.slice(0, 10) !== cd.endDate.slice(0, 10) && (
+                    <> – {new Date(cd.endDate).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" })}</>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDelete(cd.id)}
+                disabled={deleting === cd.id}
+                style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "#475569", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
+              >
+                {deleting === cd.id ? "…" : "×"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -442,8 +687,10 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
 }
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[] }) {
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
+  const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
+  const [showShutdowns, setShowShutdowns] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Builder form fields
@@ -451,9 +698,18 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
   const [type, setType]                   = useState("ZAKAZKA");
   const [durationHours, setDurationHours] = useState(1);
   const [description, setDescription]     = useState("");
-  const [deadlineData, setDeadlineData]           = useState("");
-  const [deadlineMaterial, setDeadlineMaterial]   = useState("");
-  const [deadlineExpedice, setDeadlineExpedice]   = useState("");
+  const [bDeadlineExpedice, setBDeadlineExpedice] = useState("");
+  const [bDataStatusId, setBDataStatusId]         = useState<string>("");
+  const [bMaterialStatusId, setBMaterialStatusId] = useState<string>("");
+  const [bBarvyStatusId, setBBarvyStatusId]       = useState<string>("");
+  const [bLakStatusId, setBLakStatusId]           = useState<string>("");
+  const [bSpecifikace, setBSpecifikace]           = useState("");
+
+  // Číselníky pro builder
+  const [bDataOpts, setBDataOpts]         = useState<CodebookOption[]>([]);
+  const [bMaterialOpts, setBMaterialOpts] = useState<CodebookOption[]>([]);
+  const [bBarvyOpts, setBBarvyOpts]       = useState<CodebookOption[]>([]);
+  const [bLakOpts, setBLakOpts]           = useState<CodebookOption[]>([]);
 
   // Queue
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -526,6 +782,23 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
     } catch {
       setError("Chyba při mazání bloku.");
     }
+  }
+
+  async function handleAddCompanyDay(startDate: string, endDate: string, label: string) {
+    const res = await fetch("/api/company-days", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startDate, endDate, label }),
+    });
+    if (!res.ok) throw new Error("Chyba serveru");
+    const created: CompanyDay = await res.json();
+    setCompanyDays((prev) => [...prev, created].sort((a, b) => a.startDate.localeCompare(b.startDate)));
+  }
+
+  async function handleDeleteCompanyDay(id: number) {
+    const res = await fetch(`/api/company-days/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Chyba serveru");
+    setCompanyDays((prev) => prev.filter((d) => d.id !== id));
   }
 
   function handleAddToQueue() {
@@ -626,7 +899,15 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
         </div>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
-          <span className="uppercase tracking-[0.18em]">Etapa 3</span>
+          <Button
+            variant={showShutdowns ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setShowShutdowns((s) => !s)}
+            className="h-8 text-xs border-slate-700"
+          >
+            📅 Odstávky
+          </Button>
+          <span className="uppercase tracking-[0.18em]">Etapa 4</span>
           <span>{blocks.length} bloků</span>
         </div>
       </header>
@@ -646,6 +927,7 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
             queueDragItem={draggingQueueItem}
             onQueueDrop={handleQueueDrop}
             onBlockDoubleClick={handleBlockDoubleClick}
+            companyDays={companyDays}
           />
         </div>
 
@@ -658,7 +940,14 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
 
         {/* PRAVÁ ČÁST – detail nebo builder */}
         <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {editingBlock ? (
+          {showShutdowns ? (
+            <ShutdownManager
+              companyDays={companyDays}
+              onAdd={handleAddCompanyDay}
+              onDelete={handleDeleteCompanyDay}
+              onClose={() => setShowShutdowns(false)}
+            />
+          ) : editingBlock ? (
             <BlockEdit
               key={editingBlock.id}
               block={editingBlock}

@@ -20,14 +20,15 @@ Webová aplikace pro plánování výroby na strojích XL 105 a XL 106. Umožňu
 
 | Etapa | Název | Stav |
 |-------|-------|------|
-| 1 | Skeleton a běh aplikace | ⬜ Nezačato |
-| 2 | Timeline render (grid + scroll + filtry) | ⬜ Nezačato |
-| 3 | Drag & drop + resize + rozdělení | ⬜ Nezačato |
-| 4 | Směny + svátky + background | ⬜ Nezačato |
-| 5 | Stavy, šednutí, overdue | ⬜ Nezačato |
+| 1 | Skeleton a běh aplikace | ✅ Hotovo |
+| 2 | Timeline render (grid + scroll + filtry) | ✅ Hotovo |
+| 3 | Drag & drop + resize + rozdělení | ✅ Hotovo |
+| 4 | Směny + svátky + background | ✅ Hotovo |
+| 5 | Výrobní sloupečky, stavy, overdue indikace | ⬜ Nezačato |
 | 6 | Opakování | ⬜ Nezačato |
 | 7 | Hromadné posuny + zámečky | ⬜ Nezačato |
 | 8 | Uživatelé, role a přihlašování | ⬜ Nezačato |
+| 9 | Admin dashboard (uživatelé + číselníky) | ⬜ Nezačato |
 
 > Stav měň na: ⬜ Nezačato / 🔄 Rozpracováno / ✅ Hotovo / 🐛 Chyba
 
@@ -56,31 +57,193 @@ Webová aplikace pro plánování výroby na strojích XL 105 a XL 106. Umožňu
 - **Grid:** 30 minut
 - **Scroll:** minimálně 30 dní dopředu, ideálně 1 rok; sticky header
 - Drag & drop + resize + snap na 30 min
+- Každý blok zobrazuje výrobní sloupečky (DATA, MATERIÁL, BARVY, LAK, SPECIFIKACE) jako barevné badge přímo na kartičce — slouží k rychlému porovnání zakázek a optimalizaci pořadí výroby
 
 ---
 
 ## Bloky (zakázky / rezervace / údržba)
 
 Každý blok obsahuje:
+
+### Základní pole
 - Číslo zakázky
 - Stroj (XL 105 nebo XL 106)
 - Začátek a konec (start / end)
 - Typ: `zakázka` / `rezervace` / `údržba`
-- Termíny: DATA, Materiál, Expedice
+- Termín expedice (deadlineExpedice — datum, povinné nebo volitelné)
+- Popis (volný text, nepovinný)
 - Nastavení opakování
 - Zámek (lock/pin)
+
+### Výrobní sloupečky
+
+Pět sloupečků viditelných přímo na bloku v timeline. Slouží k rychlé orientaci a optimalizaci pořadí zakázek — **nenahrazují barvy bloků** (ty řeší stav celé zakázky). Každý sloupec se zobrazuje jako Badge s volitelnou ⚠ ikonkou.
+
+| Sloupec | Typ hodnoty | Doplňkový datum | OK checkbox |
+|---------|-------------|-----------------|-------------|
+| **DATA** | status z číselníku | ✅ ano (nepovinný) | ✅ ano |
+| **MATERIÁL** | status z číselníku | ✅ ano (nepovinný) | ✅ ano |
+| **BARVY** | status z číselníku | ❌ ne | ❌ ne |
+| **LAK** | status z číselníku | ❌ ne | ❌ ne |
+| **SPECIFIKACE** | volný text | ❌ ne | ❌ ne |
+
+#### Pantone — řešení doplňkového datumu
+Sloupec MATERIÁL obsahuje volitelnou položku `pantone` v číselníku. Pro sledování očekávaného data dodání pantonu existuje **samostatné pole** `pantoneExpectedDate` (nullable DateTime) přímo na bloku. Toto pole je viditelné a editovatelné v detailu bloku, pokud má blok v MATERIÁL zvolenou hodnotu obsahující „pantone". Uloženo jako samostatné DB pole — není součástí číselníku.
+
+#### DB pole bloku pro výrobní sloupečky
+
+```
+// DATA
+dataStatusId        Int?       FK → CodebookOption (category = DATA)
+dataStatusLabel     String?    snapshot labelu v době uložení
+dataRequiredDate    DateTime?  doplňkový datum (nepovinný)
+dataOk              Boolean    default false
+
+// MATERIÁL
+materialStatusId     Int?       FK → CodebookOption (category = MATERIAL)
+materialStatusLabel  String?    snapshot
+materialRequiredDate DateTime?  doplňkový datum (nepovinný)
+materialOk           Boolean    default false
+pantoneExpectedDate  DateTime?  samostatné pole pro pantone dodání
+
+// BARVY
+barvyStatusId        Int?       FK → CodebookOption (category = BARVY)
+barvyStatusLabel     String?    snapshot
+
+// LAK
+lakStatusId          Int?       FK → CodebookOption (category = LAK)
+lakStatusLabel       String?    snapshot
+
+// SPECIFIKACE
+specifikace          String?    volný text
+```
+
+**Proč snapshot label?** Pokud admin přejmenuje položku číselníku, historické zakázky zobrazí label v době uložení, ne aktuální název.
+
+---
+
+## Číselníky (CodebookOption)
+
+### DB model
+
+```prisma
+model CodebookOption {
+  id        Int     @id @default(autoincrement())
+  category  String  // "DATA" | "MATERIAL" | "BARVY" | "LAK"
+  label     String
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+  shortCode String? // volitelná zkratka pro zobrazení v badge
+  isWarning Boolean @default(false) // pokud true, badge se zobrazí oranžově
+}
+```
+
+Blok nikdy neukládá přímo label — ukládá `optionId` + `snapshotLabel`. Snapshot chrání historii.
+
+### Default hodnoty (seed)
+
+#### DATA
+| Label | shortCode | isWarning |
+|-------|-----------|-----------|
+| CHYBNÁ DATA | — | ✅ true |
+| U SCHVÁLENÍ | — | — |
+| PŘIPRAVENO | — | — |
+| VYSVÍCENO | — | — |
+| MÍSTO PRO POZNÁMKU | — | — |
+
+#### MATERIÁL
+| Label | shortCode | isWarning |
+|-------|-----------|-----------|
+| SKLADEM | — | — |
+| TISK Z ARCHŮ | — | — |
+| TISK Z ROLÍ | — | — |
+| 50m | — | — |
+| 55m | — | — |
+| 55lit | — | — |
+| 60m | — | — |
+| 60lim | — | — |
+| 70m | — | — |
+| pantone (očekávané datum dodání) | — | — |
+| MÍSTO PRO POZNÁMKU | — | — |
+
+#### BARVY
+| Label | shortCode |
+|-------|-----------|
+| SCH Lumina LED | — |
+| IML COLORGRAF | — |
+| SCH TRIUMPH K | — |
+
+#### LAK
+| Label | shortCode |
+|-------|-----------|
+| disperse lesk | — |
+| disperse mat | — |
+| pod UV | — |
+| mat pod lamino | — |
+| 150 | — |
+| 401 | — |
+| 215 | — |
+| parciální | — |
+| UV lak | — |
+| vysoce lesklá disperse | — |
+
+---
+
+## Not-ready indikace
+
+### Logika
+
+```
+pokud (startTime bloku < requiredDate) A (ok !== true)
+→ zobraz ⚠ u konkrétního sloupce
+```
+
+Indikace se aplikuje pouze tehdy, pokud `requiredDate` existuje (není null). Pokud datum není vyplněno, žádné varování se nezobrazuje.
+
+### Vizuální provedení
+
+- ⚠ nebo vykřičník přímo u badge sloupce na kartičce v timeline
+- Příklad: `DATA ⚠` | `MAT ⚠`
+- Sloupec může být vizuálně zvýrazněn (oranžový rámeček)
+- Tooltip při najetí: „Zakázka startuje 19.2., ale materiál dorazí 20.2."
+- **Primární indikace musí být u konkrétního sloupce**, ne jen na celém bloku
 
 ---
 
 ## Builder (pravý panel)
 
 Formulář pro vytvoření nového bloku. Pole:
+
 - Číslo zakázky
 - Stroj (výběr XL 105 / XL 106)
 - Délka trvání (intervaly po 30 min)
 - Typ bloku (zakázka / rezervace / údržba)
-- Termíny: DATA, Materiál, Expedice
+- **DATA:** Select ze živého číselníku + volitelný date picker + OK checkbox
+- **MATERIÁL:** Select ze živého číselníku + volitelný date picker + OK checkbox + volitelný pantone datum
+- **BARVY:** Select ze živého číselníku
+- **LAK:** Select ze živého číselníku
+- **SPECIFIKACE:** Textarea
+- Termín expedice (date picker)
 - Po potvrzení se blok okamžitě zobrazí na timeline
+
+---
+
+## shadcn/ui — UX poznámky
+
+V projektu je aktivní shadcn/ui (New York styl). Pro konzistentní UI používej tyto komponenty:
+
+| Prvek | Komponenta |
+|-------|-----------|
+| Status dropdown (DATA, MATERIÁL, BARVY, LAK) | `Select` nebo `Combobox` (pokud je položek hodně nebo chceme vyhledávání) |
+| Date picker (doplňkový datum, pantone datum) | `Popover` + `Calendar` |
+| Badge ve sloupečcích | `Badge` (variant dle stavu: default / warning / success) |
+| Warning ikonka | `Icon` (AlertTriangle z lucide-react) + `Tooltip` |
+| Tooltip detail | `Tooltip` (shadcn) |
+| Admin tabulky (uživatelé, číselníky) | Data Table pattern (`Table` + `ColumnDef` s TanStack Table) |
+| Edit dialogy (uživatel, položka číselníku) | `Dialog` nebo `Drawer` (Drawer vhodnější na mobilu) |
+
+Aktuálně nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator.
+Pro etapu 5 a 9 bude třeba doinstalovat: Select, Popover, Calendar, Tooltip, Dialog/Drawer, Table.
 
 ---
 
@@ -133,18 +296,58 @@ Formulář pro vytvoření nového bloku. Pole:
 
 ---
 
-## Etapa 5 — Stavy, šednutí, overdue
+## Etapa 5 — Výrobní sloupečky, stavy, overdue indikace
 
-**Barvy bloků:**
+### 5a — Barvy bloků (stav zakázky)
+
+**Barvy bloků (viditelné na celém bloku):**
 - 🔵 Modrá → zakázka OK
 - 🟣 Fialová → rezervace
 - 🔴 Červená → údržba / oprava
 - ⚫ Šedá → blok, který už měl být hotový (end < now a není údržba)
 
-**Termíny v detailu bloku:**
-- DATA, Materiál, Expedice — zadání ve formátu `1.1` (interně ukládáno jako datum s rokem)
-- DATA a Materiál mají checkbox OK
-- Pokud dnešní datum > termín a checkbox není OK → červené zvýraznění (overdue)
+### 5b — Číselníky v DB
+
+- Vytvořit model `CodebookOption` (viz sekce Číselníky výše)
+- Seed default hodnot pro DATA, MATERIÁL, BARVY, LAK
+- API: GET `/api/codebook?category=DATA` (živý číselník pro formuláře)
+- Položky s `isActive = false` se nezobrazují v dropdownech, ale zůstávají historicky v DB
+
+### 5c — Rozšíření bloku o výrobní sloupečky
+
+- Migrace DB: přidat všechna nová pole na Block model (viz sekce Bloky → DB pole)
+- Rozšíření API `PUT /api/blocks/[id]` o nová pole
+- Seed zakázek doplnit o ukázkové hodnoty výrobních sloupečků
+
+### 5d — Výrobní sloupečky v timeline
+
+- Každý blok zobrazí badge pro DATA, MATERIÁL, BARVY, LAK (a SPECIFIKACE pokud není prázdná)
+- Badge používá shadcn `Badge` komponentu
+- Krátký label (shortCode pokud existuje, jinak prvních N znaků)
+- Pokud `isWarning = true` u dané položky → badge oranžová/červená
+- Tooltip na badge: plný název položky
+
+### 5e — Not-ready indikace
+
+- Logika: `startTime < requiredDate && ok !== true` → zobraz ⚠ u sloupce
+- UI: `AlertTriangle` ikonka z lucide-react + shadcn `Tooltip` s vysvětlením
+- Indikace jen pokud `requiredDate` existuje
+
+### 5f — Rozšíření Builderu a detailu bloku
+
+- Builder: přidat Select/Combobox pro DATA, MATERIÁL, BARVY, LAK
+- Builder: přidat date picker (Popover + Calendar) pro doplňkové datumy
+- Detail bloku: zobrazit a editovat všechna výrobní pole
+- Detail bloku: zobrazit termín expedice
+
+### Termíny v detailu bloku
+
+DATA, MATERIÁL — zadány v detailu zakázky:
+- Status (Select ze živého číselníku)
+- Doplňkový datum (date picker, nepovinný)
+- OK checkbox
+
+Pokud datum existuje a není OK a blok ještě nezačal → červené zvýraznění (overdue/not-ready).
 
 ---
 
@@ -185,7 +388,7 @@ Formulář pro vytvoření nového bloku. Pole:
 - Uživatelé jsou předem nadefinovaní v databázi (seed) — žádná veřejná registrace
 
 ### Správa uživatelů
-- Admin spravuje uživatelské účty a celý systém
+- Admin spravuje uživatelské účty přes Admin dashboard (Etapa 9)
 - Uživatelé jsou zakládáni přes seed nebo admin rozhraní
 - Plánovač nemá přístup ke správě uživatelů
 
@@ -193,10 +396,10 @@ Formulář pro vytvoření nového bloku. Pole:
 
 | Role | Popis | Co může dělat |
 |------|-------|---------------|
-| **Admin** | Správce systému | Vše — včetně správy uživatelů, jejich zakládání, editace a mazání; má přístup ke všem funkcím aplikace |
-| **Plánovač** | Plánování výroby | Vytváření, editace, mazání bloků, správa termínů DATA / Materiál / Expedice, drag & drop, split, zámečky, hromadné posuny |
-| **MTZ** | Oddělení materiálu | Vidí celou timeline, edituje pouze kolonku **Materiál** (datum + checkbox OK) |
-| **DTP** | Oddělení dat | Vidí celou timeline, edituje pouze kolonku **DATA** (datum + checkbox OK) |
+| **Admin** | Správce systému | Vše — včetně správy uživatelů, číselníků, jejich zakládání, editace a mazání; má přístup ke všem funkcím aplikace |
+| **Plánovač** | Plánování výroby | Vytváření, editace, mazání bloků, správa výrobních sloupečků, drag & drop, split, zámečky, hromadné posuny |
+| **MTZ** | Oddělení materiálu | Vidí celou timeline, edituje pouze sloupec **MATERIÁL** (status + datum + OK + pantone datum) |
+| **DTP** | Oddělení dat | Vidí celou timeline, edituje pouze sloupec **DATA** (status + datum + OK) |
 | **Viewer** | Jen čtení | Vidí celou timeline, nemůže nic editovat |
 
 ### Detailní matice práv
@@ -207,12 +410,16 @@ Formulář pro vytvoření nového bloku. Pole:
 | Vytvořit / smazat blok | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Přesunout / resize blok | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Rozdělit blok (split) | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Editovat termín DATA | ✅ | ✅ | ❌ | ✅ | ❌ |
-| Editovat termín Materiál | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Editovat sloupec DATA | ✅ | ✅ | ❌ | ✅ | ❌ |
+| Editovat sloupec MATERIÁL | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Editovat sloupec BARVY | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Editovat sloupec LAK | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Editovat SPECIFIKACE | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Editovat termín Expedice | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Zamknout / odemknout blok | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Hromadné posuny | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Správa uživatelů | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Správa číselníků | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 ### UX přihlašování
 - Vpravo nahoře zobrazeno jméno přihlášeného uživatele a jeho role
@@ -221,4 +428,36 @@ Formulář pro vytvoření nového bloku. Pole:
 
 ---
 
-*Dokument naposledy aktualizován: 2025 — verze V
+## Etapa 9 — Admin dashboard
+
+Samostatná stránka nebo sekce přístupná pouze roli Admin.
+
+### Správa uživatelů
+
+- Tabulka všech uživatelů (Data Table pattern)
+- Akce: vytvoření uživatele, změna role, reset hesla, deaktivace účtu
+- Dialog / Drawer pro editaci (shadcn `Dialog` nebo `Drawer`)
+- Deaktivovaný uživatel se nemůže přihlásit, ale existuje v DB (zachování historie)
+
+### Správa číselníků
+
+- Záložky / sekce pro každou kategorii: DATA, MATERIÁL, BARVY, LAK
+- Tabulka položek s drag & drop řazením (sortOrder)
+- Akce na každé položce:
+  - Editace labelu
+  - Nastavení shortCode
+  - Přepnutí isWarning (zvýraznění v UI)
+  - Deaktivace (isActive = false) — položka zmizí z dropdownů, ale historizovaná data zůstávají
+- Přidání nové položky (formulář + uložení do DB)
+- Pořadí se promítne do dropdownů v timeline / builderu
+
+### UX poznámky pro Admin dashboard
+
+- Admin tabulky: shadcn Data Table (TanStack Table + `Table`, `TableHeader`, `TableRow`, `TableCell`)
+- Edit dialogy: shadcn `Dialog` s formulářem uvnitř
+- Potvrzení mazání/deaktivace: `AlertDialog`
+- Záložky kategorií: shadcn `Tabs`
+
+---
+
+*Dokument naposledy aktualizován: 2026 — verze VI*

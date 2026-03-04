@@ -20,11 +20,12 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 1 | Skeleton, databáze, API, builder formulář | ✅ Hotovo |
 | 2 | Timeline render (grid + scroll + filtry) | ✅ Hotovo |
 | 3 | Drag & drop + resize + rozdělení | ✅ Hotovo |
-| 4 | Směny + svátky + background | ⬜ Nezačato |
-| 5 | Stavy, šednutí, overdue | ⬜ Nezačato |
+| 4 | Směny + svátky + background | ✅ Hotovo |
+| 5 | Výrobní sloupečky, stavy, overdue indikace | ⬜ Nezačato |
 | 6 | Opakování | ⬜ Nezačato |
 | 7 | Hromadné posuny + zámečky | ⬜ Nezačato |
 | 8 | Uživatelé, role a přihlašování | ⬜ Nezačato |
+| 9 | Admin dashboard (uživatelé + číselníky) | ⬜ Nezačato |
 
 ---
 
@@ -51,6 +52,8 @@ npm run prisma:seed
 - **Prisma verze:** `^5` — záměrně ne `latest` (v7 má breaking changes s novým config systémem)
 - **Enumy:** uloženy jako string (SQLite kompatibilita), při přechodu na MySQL Prisma vytvoří ENUM sloupce automaticky
 - **Tailwind:** verze 4, používá `@import "tailwindcss"` (ne `@tailwind base`)
+- **Číselníky:** hodnoty pro DATA, MATERIÁL, BARVY, LAK jsou uloženy v DB (model `CodebookOption`), ne hardcoded. Spravuje je Admin přes dashboard.
+- **Snapshot labelu:** blok ukládá `optionId` + `snapshotLabel` — při přejmenování položky číselníku historická data zůstanou konzistentní.
 
 ---
 
@@ -58,10 +61,14 @@ npm run prisma:seed
 
 | Soubor | Účel |
 |--------|------|
-| `prisma/schema.prisma` | DB schema — Block + User modely pro všech 8 etap |
+| `prisma/schema.prisma` | DB schema — Block + CodebookOption + User modely |
 | `src/lib/prisma.ts` | Prisma singleton klient |
-| `src/app/page.tsx` | Server Component — načítá bloky z DB |
-| `src/app/_components/PlannerPage.tsx` | Client Component — builder formulář + fronta + detail bloku + filtry |
+| `src/app/page.tsx` | Server Component — načítá bloky + companyDays z DB |
+| `src/app/api/company-days/route.ts` | GET + POST firemních dnů |
+| `src/app/api/company-days/[id]/route.ts` | DELETE firemního dne |
+| `src/app/api/codebook/route.ts` | GET číselníku dle category (etapa 5) |
+| `src/app/api/codebook/[id]/route.ts` | PUT + DELETE položky číselníku (etapa 9) |
+| `src/app/_components/PlannerPage.tsx` | Client Component — builder + fronta + detail + ShutdownManager |
 | `src/app/_components/TimelineGrid.tsx` | Vizuální timeline grid (datum 44px + čas 72px + 2 strojové sloupce) |
 | `src/app/api/blocks/route.ts` | GET all + POST |
 | `src/app/api/blocks/[id]/route.ts` | GET + PUT + DELETE |
@@ -79,10 +86,54 @@ npm run prisma:seed
 - Drop z fronty: HTML5 DnD (`draggable`, `onDragStart`, `onDragOver`, `onDrop`), modrý přerušovaný obdélník jako preview
 
 ### PlannerPage.tsx
-- Builder: typ + číslo zakázky + délka + popis + termíny → "Přidat do fronty" (stroj ani čas se nezadávají)
+- Builder: typ + číslo zakázky + délka + popis + výrobní sloupečky + termín expedice → "Přidat do fronty"
 - Fronta: kartičky s `draggable`, přetažením na timeline vznikne blok (stroj = cílový sloupec, čas = pozice puštění)
-- `QueueItem` typ: id, orderNumber, type, durationHours, description, deadlineData, deadlineMaterial, deadlineExpedice
+- `QueueItem` typ: id, orderNumber, type, durationHours, description, dataStatusId, materialStatusId, barvyStatusId, lakStatusId, specifikace, deadlineExpedice
 - Aside panel je resizable (8px handle), zIndex: 10; timeline container zIndex: 0; sticky header zIndex: 30
+
+### shadcn/ui
+- Styl: New York
+- Nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator
+- Pro etapu 5+9 doinstalovat: Select, Popover, Calendar, Tooltip, Dialog, AlertDialog, Table, Tabs
+
+---
+
+## DB Schema — Block model
+
+Pole: id, orderNumber, machine (XL_105|XL_106), startTime, endTime, type (ZAKAZKA|REZERVACE|UDRZBA),
+description, locked, deadlineExpedice,
+dataStatusId, dataStatusLabel, dataRequiredDate, dataOk,
+materialStatusId, materialStatusLabel, materialRequiredDate, materialOk, pantoneExpectedDate,
+barvyStatusId, barvyStatusLabel,
+lakStatusId, lakStatusLabel,
+specifikace,
+recurrenceType (NONE|DAILY|WEEKLY|MONTHLY), recurrenceParentId (self-relace),
+createdAt, updatedAt.
+
+Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` jsou nahrazena novým schématem výrobních sloupečků v etapě 5.
+
+## DB Schema — CodebookOption model
+
+Pole: id, category (DATA|MATERIAL|BARVY|LAK), label, sortOrder, isActive, shortCode (nullable), isWarning.
+Seed default hodnot je součástí etapy 5.
+
+## DB Schema — User model
+
+Pole: id, username (unique), passwordHash, role (ADMIN|PLANOVAT|MTZ|DTP|VIEWER), createdAt
+
+---
+
+## Pravidlo: přidávání nových výrobních sloupečků
+
+Při každém přidání nového výrobního sloupečku do bloku je nutné vždy vyřešit všechny tyto body:
+
+1. **DB číselník** — vytvořit nebo rozšířit `CodebookOption` (category + default hodnoty)
+2. **Seed hodnot** — doplnit `prisma/seed.ts` o nové default položky
+3. **Role oprávnění** — rozhodnout, která role smí sloupec editovat (matice v DOKUMENTACE.md)
+4. **UI v timeline** — zobrazit badge na bloku, not-ready indikaci (⚠ pokud platí logika)
+5. **UI v builderu** — přidat Select/Combobox + případný date picker do formuláře
+6. **Not-ready logiku** — pokud sloupec má `requiredDate`, implementovat varování `startTime < requiredDate && !ok`
+7. **Aktualizovat DOKUMENTACE.md** — přidat do tabulky výrobních sloupečků, matice práv, etapy
 
 ---
 

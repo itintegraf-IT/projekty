@@ -8,30 +8,68 @@ datasource db {
 }
 
 model Block {
-  id                 Int            @id @default(autoincrement())
-  orderNumber        String
-  machine            String         // XL_105 | XL_106
-  startTime          DateTime
-  endTime            DateTime
-  type               String         @default("ZAKAZKA") // ZAKAZKA | REZERVACE | UDRZBA
-  description        String?
-  locked             Boolean        @default(false)
+  id          Int      @id @default(autoincrement())
+  orderNumber String
+  machine     String   // XL_105 | XL_106
+  startTime   DateTime
+  endTime     DateTime
+  type        String   @default("ZAKAZKA") // ZAKAZKA | REZERVACE | UDRZBA
+  description String?
+  locked      Boolean  @default(false)
 
-  // Termíny (Etapa 5)
-  deadlineData       DateTime?
-  deadlineMaterial   DateTime?
-  deadlineExpedice   DateTime?
-  deadlineDataOk     Boolean        @default(false)
-  deadlineMaterialOk Boolean        @default(false)
+  // Termín expedice
+  deadlineExpedice DateTime?
+
+  // Výrobní sloupečky — DATA (Etapa 5)
+  dataStatusId     Int?
+  dataStatusLabel  String?
+  dataRequiredDate DateTime?
+  dataOk           Boolean   @default(false)
+
+  // Výrobní sloupečky — MATERIÁL (Etapa 5)
+  materialStatusId     Int?
+  materialStatusLabel  String?
+  materialRequiredDate DateTime?
+  materialOk           Boolean   @default(false)
+  pantoneExpectedDate  DateTime?
+
+  // Výrobní sloupečky — BARVY (Etapa 5)
+  barvyStatusId    Int?
+  barvyStatusLabel String?
+
+  // Výrobní sloupečky — LAK (Etapa 5)
+  lakStatusId    Int?
+  lakStatusLabel String?
+
+  // Výrobní sloupečky — SPECIFIKACE (Etapa 5)
+  specifikace String?
 
   // Opakování (Etapa 6)
-  recurrenceType     String         @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY
+  recurrenceType     String  @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY
   recurrenceParentId Int?
-  recurrenceParent   Block?         @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
-  recurrenceChildren Block[]        @relation("RecurrenceChildren")
+  recurrenceParent   Block?  @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
+  recurrenceChildren Block[] @relation("RecurrenceChildren")
 
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CodebookOption {
+  id        Int     @id @default(autoincrement())
+  category  String  // "DATA" | "MATERIAL" | "BARVY" | "LAK"
+  label     String
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+  shortCode String?
+  isWarning Boolean @default(false)
+}
+
+model CompanyDay {
+  id        Int      @id @default(autoincrement())
+  startDate DateTime
+  endDate   DateTime
+  label     String
+  createdAt DateTime @default(now())
 }
 
 model User {

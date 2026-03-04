@@ -33,11 +33,26 @@ export async function POST(request: NextRequest) {
         type: body.type ?? "ZAKAZKA",
         description: body.description ?? null,
         locked: body.locked ?? false,
-        deadlineData: body.deadlineData ? new Date(body.deadlineData) : null,
-        deadlineMaterial: body.deadlineMaterial ? new Date(body.deadlineMaterial) : null,
         deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
-        deadlineDataOk: body.deadlineDataOk ?? false,
-        deadlineMaterialOk: body.deadlineMaterialOk ?? false,
+        // DATA
+        dataStatusId: body.dataStatusId ?? null,
+        dataStatusLabel: body.dataStatusLabel ?? null,
+        dataRequiredDate: body.dataRequiredDate ? new Date(body.dataRequiredDate) : null,
+        dataOk: body.dataOk ?? false,
+        // MATERIÁL
+        materialStatusId: body.materialStatusId ?? null,
+        materialStatusLabel: body.materialStatusLabel ?? null,
+        materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
+        materialOk: body.materialOk ?? false,
+        pantoneExpectedDate: body.pantoneExpectedDate ? new Date(body.pantoneExpectedDate) : null,
+        // BARVY
+        barvyStatusId: body.barvyStatusId ?? null,
+        barvyStatusLabel: body.barvyStatusLabel ?? null,
+        // LAK
+        lakStatusId: body.lakStatusId ?? null,
+        lakStatusLabel: body.lakStatusLabel ?? null,
+        // SPECIFIKACE
+        specifikace: body.specifikace ?? null,
       },
     });
 

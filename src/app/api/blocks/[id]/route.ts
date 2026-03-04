@@ -42,19 +42,34 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         ...(body.type !== undefined && { type: body.type }),
         ...(body.description !== undefined && { description: body.description }),
         ...(body.locked !== undefined && { locked: body.locked }),
-        ...(body.deadlineData !== undefined && {
-          deadlineData: body.deadlineData ? new Date(body.deadlineData) : null,
-        }),
-        ...(body.deadlineMaterial !== undefined && {
-          deadlineMaterial: body.deadlineMaterial ? new Date(body.deadlineMaterial) : null,
-        }),
         ...(body.deadlineExpedice !== undefined && {
           deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
         }),
-        ...(body.deadlineDataOk !== undefined && { deadlineDataOk: body.deadlineDataOk }),
-        ...(body.deadlineMaterialOk !== undefined && {
-          deadlineMaterialOk: body.deadlineMaterialOk,
+        // DATA
+        ...(body.dataStatusId !== undefined && { dataStatusId: body.dataStatusId }),
+        ...(body.dataStatusLabel !== undefined && { dataStatusLabel: body.dataStatusLabel }),
+        ...(body.dataRequiredDate !== undefined && {
+          dataRequiredDate: body.dataRequiredDate ? new Date(body.dataRequiredDate) : null,
         }),
+        ...(body.dataOk !== undefined && { dataOk: body.dataOk }),
+        // MATERIÁL
+        ...(body.materialStatusId !== undefined && { materialStatusId: body.materialStatusId }),
+        ...(body.materialStatusLabel !== undefined && { materialStatusLabel: body.materialStatusLabel }),
+        ...(body.materialRequiredDate !== undefined && {
+          materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
+        }),
+        ...(body.materialOk !== undefined && { materialOk: body.materialOk }),
+        ...(body.pantoneExpectedDate !== undefined && {
+          pantoneExpectedDate: body.pantoneExpectedDate ? new Date(body.pantoneExpectedDate) : null,
+        }),
+        // BARVY
+        ...(body.barvyStatusId !== undefined && { barvyStatusId: body.barvyStatusId }),
+        ...(body.barvyStatusLabel !== undefined && { barvyStatusLabel: body.barvyStatusLabel }),
+        // LAK
+        ...(body.lakStatusId !== undefined && { lakStatusId: body.lakStatusId }),
+        ...(body.lakStatusLabel !== undefined && { lakStatusLabel: body.lakStatusLabel }),
+        // SPECIFIKACE
+        ...(body.specifikace !== undefined && { specifikace: body.specifikace }),
       },
     });
 

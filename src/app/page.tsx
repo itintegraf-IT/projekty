@@ -11,12 +11,21 @@ export default async function HomePage() {
     ...b,
     startTime: b.startTime.toISOString(),
     endTime: b.endTime.toISOString(),
-    deadlineData: b.deadlineData?.toISOString() ?? null,
-    deadlineMaterial: b.deadlineMaterial?.toISOString() ?? null,
     deadlineExpedice: b.deadlineExpedice?.toISOString() ?? null,
+    dataRequiredDate: b.dataRequiredDate?.toISOString() ?? null,
+    materialRequiredDate: b.materialRequiredDate?.toISOString() ?? null,
+    pantoneExpectedDate: b.pantoneExpectedDate?.toISOString() ?? null,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   }));
 
-  return <PlannerPage initialBlocks={serialized} />;
+  const companyDays = await prisma.companyDay.findMany({ orderBy: { startDate: "asc" } });
+  const serializedCompanyDays = companyDays.map((d) => ({
+    ...d,
+    startDate: d.startDate.toISOString(),
+    endDate: d.endDate.toISOString(),
+    createdAt: d.createdAt.toISOString(),
+  }));
+
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} />;
 }

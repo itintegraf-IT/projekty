@@ -28,11 +28,26 @@ export type Block = {
   type: string;
   description: string | null;
   locked: boolean;
-  deadlineData: string | null;
-  deadlineMaterial: string | null;
   deadlineExpedice: string | null;
-  deadlineDataOk: boolean;
-  deadlineMaterialOk: boolean;
+  // Výrobní sloupečky — DATA
+  dataStatusId: number | null;
+  dataStatusLabel: string | null;
+  dataRequiredDate: string | null;
+  dataOk: boolean;
+  // Výrobní sloupečky — MATERIÁL
+  materialStatusId: number | null;
+  materialStatusLabel: string | null;
+  materialRequiredDate: string | null;
+  materialOk: boolean;
+  pantoneExpectedDate: string | null;
+  // Výrobní sloupečky — BARVY
+  barvyStatusId: number | null;
+  barvyStatusLabel: string | null;
+  // Výrobní sloupečky — LAK
+  lakStatusId: number | null;
+  lakStatusLabel: string | null;
+  // Výrobní sloupečky — SPECIFIKACE
+  specifikace: string | null;
   recurrenceType: string;
   createdAt: string;
   updatedAt: string;
@@ -73,6 +88,7 @@ interface TimelineGridProps {
   queueDragItem?: { id: number; durationHours: number; type: string } | null;
   onQueueDrop?: (itemId: number, machine: string, startTime: Date) => void;
   onBlockDoubleClick?: (block: Block) => void;
+  companyDays?: CompanyDay[];
 }
 
 type QueueDropPreview = {
@@ -88,7 +104,64 @@ const TYPE_COLORS: Record<string, { bg: string; border: string; text: string }> 
   REZERVACE: { bg: "bg-purple-500/25", border: "border-purple-500/50", text: "text-purple-200" },
   UDRZBA:   { bg: "bg-red-500/25",    border: "border-red-500/50",    text: "text-red-200" },
 };
-const DEFAULT_COLORS = { bg: "bg-slate-700/30", border: "border-slate-600/50", text: "text-slate-300" };
+const DEFAULT_COLORS  = { bg: "bg-slate-700/30",  border: "border-slate-600/50",  text: "text-slate-300" };
+const OVERDUE_COLORS  = { bg: "bg-slate-600/20",  border: "border-slate-500/35",  text: "text-slate-500" };
+
+// ─── ProductionBadge ───────────────────────────────────────────────────────────
+function ProductionBadge({ label, warning }: { label: string; warning?: boolean }) {
+  const short = label.length > 6 ? label.slice(0, 6) : label;
+  return (
+    <span
+      className={`text-[7px] px-0.5 py-px rounded font-semibold leading-none ${
+        warning ? "bg-amber-500/35 text-amber-300" : "bg-white/10 text-slate-300"
+      }`}
+    >
+      {short}{warning ? " ⚠" : ""}
+    </span>
+  );
+}
+
+// ─── CompanyDay typ ────────────────────────────────────────────────────────────
+export type CompanyDay = {
+  id: number;
+  startDate: string;
+  endDate: string;
+  label: string;
+  createdAt: string;
+};
+
+// ─── České státní svátky ──────────────────────────────────────────────────────
+function easterDate(year: number): Date {
+  const a = year % 19, b = Math.floor(year / 100), c = year % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+function czechHolidaySet(year: number): Set<string> {
+  const s = new Set([
+    `${year}-01-01`, `${year}-05-01`, `${year}-05-08`,
+    `${year}-07-05`, `${year}-07-06`, `${year}-09-28`,
+    `${year}-10-28`, `${year}-11-17`,
+    `${year}-12-24`, `${year}-12-25`, `${year}-12-26`,
+  ]);
+  const easter = easterDate(year);
+  const goodFriday = new Date(easter); goodFriday.setDate(easter.getDate() - 2);
+  const easterMon  = new Date(easter); easterMon.setDate(easter.getDate() + 1);
+  s.add(goodFriday.toISOString().slice(0, 10));
+  s.add(easterMon.toISOString().slice(0, 10));
+  return s;
+}
+
+// XL_105: 2 směny (6–14, 14–22), noční neprovozuje → noční overlay ZAP
+// XL_106: 3 směny = 24h provoz → noční overlay VYP, žádné tintování
+const MACHINES_WITH_NIGHT_OFF = new Set(["XL_105"]);
 
 // ─── Pomocné funkce ────────────────────────────────────────────────────────────
 function startOfDay(d: Date): Date {
@@ -136,7 +209,7 @@ const DAY_ABBR   = ["Ne","Po","Út","St","Čt","Pá","So"];
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
-  block, top, height, dimmed, selected, isDragging,
+  block, top, height, dimmed, selected, isDragging, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu,
 }: {
   block: Block;
@@ -145,6 +218,7 @@ function BlockCard({
   dimmed: boolean;
   selected: boolean;
   isDragging: boolean;
+  now: Date;
   onClick: () => void;
   onDoubleClick: () => void;
   onMouseDown: (e: React.MouseEvent) => void;
@@ -152,10 +226,25 @@ function BlockCard({
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
-  const colors = TYPE_COLORS[block.type] ?? DEFAULT_COLORS;
+
+  const isOverdue = block.type !== "UDRZBA" && new Date(block.endTime) < now;
+  const colors = isOverdue ? OVERDUE_COLORS : (TYPE_COLORS[block.type] ?? DEFAULT_COLORS);
+
   const clampedHeight = Math.max(height, 20);
-  const showTimes = clampedHeight >= 44;
-  const showDesc = clampedHeight >= 72 && block.description;
+  const showTimes  = clampedHeight >= 44;
+  const showDesc   = clampedHeight >= 80 && block.description;
+  const showBadges = clampedHeight >= 52;
+
+  // Not-ready logika
+  const blockStart = new Date(block.startTime);
+  const dataNotReady =
+    !!block.dataRequiredDate && !block.dataOk && blockStart < new Date(block.dataRequiredDate);
+  const materialNotReady =
+    !!block.materialRequiredDate && !block.materialOk && blockStart < new Date(block.materialRequiredDate);
+
+  const hasBadges =
+    block.dataStatusLabel || block.materialStatusLabel ||
+    block.barvyStatusLabel || block.lakStatusLabel || block.specifikace;
 
   return (
     <div
@@ -193,6 +282,19 @@ function BlockCard({
           {block.description}
         </div>
       )}
+      {showBadges && hasBadges && (
+        <div className="px-1 pt-0.5 flex flex-wrap gap-0.5">
+          {block.dataStatusLabel && (
+            <ProductionBadge label={block.dataStatusLabel} warning={dataNotReady} />
+          )}
+          {block.materialStatusLabel && (
+            <ProductionBadge label={block.materialStatusLabel} warning={materialNotReady} />
+          )}
+          {block.barvyStatusLabel && <ProductionBadge label={block.barvyStatusLabel} />}
+          {block.lakStatusLabel && <ProductionBadge label={block.lakStatusLabel} />}
+          {block.specifikace && <ProductionBadge label="SPEC" />}
+        </div>
+      )}
       {!block.locked && (
         <div
           onMouseEnter={() => setResizeHovered(true)}
@@ -216,6 +318,7 @@ export default function TimelineGrid({
   blocks, filterText, selectedBlockId,
   onBlockClick, onBlockUpdate, onBlockCreate, scrollRef,
   queueDragItem, onQueueDrop, onBlockDoubleClick,
+  companyDays,
 }: TimelineGridProps) {
   const [viewStart, setViewStart] = useState<Date | null>(null);
   const [now, setNow]             = useState<Date | null>(null);
@@ -396,7 +499,7 @@ export default function TimelineGrid({
     try {
       const res1 = await fetch(`/api/blocks/${block.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: splitAt.toISOString() }) });
       onBlockUpdate(await res1.json());
-      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineData: block.deadlineData, deadlineMaterial: block.deadlineMaterial, deadlineExpedice: block.deadlineExpedice }) });
+      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, pantoneExpectedDate: block.pantoneExpectedDate, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
       onBlockCreate(await res2.json());
     } catch { /* chyba při dělení */ }
   }
@@ -434,8 +537,17 @@ export default function TimelineGrid({
   // ── Precompute markers ─────────────────────────────────────────────────────
   const todayDate = new Date();
 
-  type DayInfo = { date: Date; y: number; isWeekend: boolean; isToday: boolean };
+  type DayInfo = { date: Date; y: number; isWeekend: boolean; isToday: boolean; isHoliday: boolean; isCompanyDay: boolean; companyDayLabel?: string };
   const days: DayInfo[] = [];
+
+  // Výpočet svátkové sady pro všechny roky v zobrazovaném rozsahu
+  const holidays = (() => {
+    const years = new Set<number>();
+    for (let i = 0; i < TOTAL_DAYS; i++) years.add(addDays(viewStart, i).getFullYear());
+    const s = new Set<string>();
+    years.forEach((y) => czechHolidaySet(y).forEach((d) => s.add(d)));
+    return s;
+  })();
 
   type HalfHourMark = { y: number; label: string; isFullHour: boolean };
   const halfHourMarkers: HalfHourMark[] = [];
@@ -447,7 +559,10 @@ export default function TimelineGrid({
     const dayY     = di * DAY_HEIGHT;
     const isWeekend = day.getDay() === 0 || day.getDay() === 6;
     const isToday  = isSameDay(day, todayDate);
-    days.push({ date: day, y: dayY, isWeekend, isToday });
+    const dateStr  = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const isHoliday = holidays.has(dateStr);
+    const companyDayMatch = companyDays?.find((cd) => dateStr >= cd.startDate.slice(0, 10) && dateStr <= cd.endDate.slice(0, 10));
+    days.push({ date: day, y: dayY, isWeekend, isToday, isHoliday, isCompanyDay: !!companyDayMatch, companyDayLabel: companyDayMatch?.label });
     nightOverlays.push({ top: dayY,                            height: WORK_START_H * 2 * SLOT_HEIGHT, key: `ns-${di}` });
     nightOverlays.push({ top: dayY + WORK_END_H * 2 * SLOT_HEIGHT, height: (24 - WORK_END_H) * 2 * SLOT_HEIGHT, key: `ne-${di}` });
     for (let s = 0; s < 48; s++) {
@@ -480,11 +595,19 @@ export default function TimelineGrid({
                   right: 0,
                   borderLeft: d.isToday
                     ? "3px solid #2484f5"
+                    : d.isHoliday
+                    ? "3px solid #ef4444"
+                    : d.isCompanyDay
+                    ? "3px solid #8b5cf6"
                     : d.isWeekend
                     ? "3px solid #fb923c"
                     : "3px solid transparent",
                   backgroundColor: d.isToday
                     ? "rgba(36,132,245,0.07)"
+                    : d.isHoliday
+                    ? "rgba(239,68,68,0.12)"
+                    : d.isCompanyDay
+                    ? "rgba(139,92,246,0.12)"
                     : d.isWeekend
                     ? "rgba(251,146,60,0.04)"
                     : "transparent",
@@ -495,13 +618,13 @@ export default function TimelineGrid({
                   gap: 2,
                 }}
               >
-                <span style={{ fontSize: 8, fontWeight: 600, letterSpacing: "0.04em", lineHeight: 1, color: d.isToday ? "#93c5fd" : d.isWeekend ? "#fdba74" : "rgb(71 85 105)" }}>
+                <span style={{ fontSize: 8, fontWeight: 600, letterSpacing: "0.04em", lineHeight: 1, color: d.isToday ? "#93c5fd" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fdba74" : "rgb(71 85 105)" }}>
                   {DAY_ABBR[d.date.getDay()]}
                 </span>
-                <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1, color: d.isToday ? "#3b82f6" : d.isWeekend ? "#fb923c" : "rgb(100 116 139)" }}>
+                <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1, color: d.isToday ? "#3b82f6" : d.isHoliday ? "#ef4444" : d.isCompanyDay ? "#8b5cf6" : d.isWeekend ? "#fb923c" : "rgb(100 116 139)" }}>
                   {d.date.getDate()}
                 </span>
-                <span style={{ fontSize: 8, fontWeight: 500, lineHeight: 1, color: d.isToday ? "#93c5fd" : d.isWeekend ? "#fdba74" : "rgb(51 65 85)" }}>
+                <span style={{ fontSize: 8, fontWeight: 500, lineHeight: 1, color: d.isToday ? "#93c5fd" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fdba74" : "rgb(51 65 85)" }}>
                   {MONTH_ABBR[d.date.getMonth()]}
                 </span>
               </div>
@@ -510,6 +633,12 @@ export default function TimelineGrid({
 
           {/* ── Čas sloupec ───────────────────────────────────────────────── */}
           <div style={{ width: TIME_COL_W, flexShrink: 0, position: "relative", zIndex: 9, borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(7 11 22)" }}>
+            {/* Firemní den overlay */}
+            {days.map((d) =>
+              d.isCompanyDay ? (
+                <div key={`ct-${d.y}`} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
+              ) : null
+            )}
             {halfHourMarkers.map((m) => (
               <div
                 key={m.y}
@@ -586,8 +715,22 @@ export default function TimelineGrid({
                   ) : null
                 )}
 
-                {/* Noční overlay */}
-                {nightOverlays.map((n) => (
+                {/* Svátek overlay */}
+                {days.map((d) =>
+                  d.isHoliday && !d.isToday ? (
+                    <div key={`h-${d.y}`} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(239,68,68,0.06)", pointerEvents: "none" }} />
+                  ) : null
+                )}
+
+                {/* Firemní den overlay */}
+                {days.map((d) =>
+                  d.isCompanyDay ? (
+                    <div key={`c-${d.y}`} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
+                  ) : null
+                )}
+
+                {/* Noční overlay — jen pro stroje bez nočního provozu */}
+                {MACHINES_WITH_NIGHT_OFF.has(machine) && nightOverlays.map((n) => (
                   <div key={n.key} style={{ position: "absolute", top: n.top, height: n.height, left: 0, right: 0, backgroundColor: "rgba(2,6,23,0.4)", pointerEvents: "none" }} />
                 ))}
 
@@ -633,6 +776,7 @@ export default function TimelineGrid({
                       dimmed={dimmed}
                       selected={selected}
                       isDragging={false}
+                      now={now ?? new Date()}
                       onClick={() => { if (!dragDidMove.current) onBlockClick(block); }}
                       onDoubleClick={() => onBlockDoubleClick?.(block)}
                       onMouseDown={(e) => handleBlockMouseDown(block, e)}
