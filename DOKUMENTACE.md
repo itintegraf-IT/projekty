@@ -230,20 +230,21 @@ Formulář pro vytvoření nového bloku. Pole:
 
 ## shadcn/ui — UX poznámky
 
-V projektu je aktivní shadcn/ui (New York styl). Pro konzistentní UI používej tyto komponenty:
+V projektu je aktivní shadcn/ui (New York styl). Aktuálně nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator.
 
-| Prvek | Komponenta |
-|-------|-----------|
-| Status dropdown (DATA, MATERIÁL, BARVY, LAK) | `Select` nebo `Combobox` (pokud je položek hodně nebo chceme vyhledávání) |
-| Date picker (doplňkový datum, pantone datum) | `Popover` + `Calendar` |
-| Badge ve sloupečcích | `Badge` (variant dle stavu: default / warning / success) |
+**Důležité:** Shadcn `Select`, `Popover` a `Calendar` jsou v projektu **záměrně nahrazeny nativními HTML prvky** — Radix portály konfliktuji s CSS proměnnými v dark modu (průhledná pozadí). Toto rozhodnutí platí pro celý projekt, nevracet se k shadcn komponentám pro tyto prvky.
+
+| Prvek | Řešení |
+|-------|--------|
+| Všechna dropdown menu | Nativní `<select>` — styl: background `#181b22`, border `#1e2130`, borderRadius 10, height 40, chevron SVG přes wrapper |
+| Date picker (doplňkový datum, pantone datum) | Nativní `<input type="date" style={{ colorScheme: "dark" }}>` |
+| Badge ve sloupečcích | `Badge` (shadcn, variant dle stavu) |
 | Warning ikonka | `Icon` (AlertTriangle z lucide-react) + `Tooltip` |
-| Tooltip detail | `Tooltip` (shadcn) |
+| Tooltip detail | shadcn `Tooltip` |
 | Admin tabulky (uživatelé, číselníky) | Data Table pattern (`Table` + `ColumnDef` s TanStack Table) |
-| Edit dialogy (uživatel, položka číselníku) | `Dialog` nebo `Drawer` (Drawer vhodnější na mobilu) |
+| Edit dialogy (uživatel, položka číselníku) | shadcn `Dialog` |
 
-Aktuálně nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator.
-Pro etapu 5 a 9 bude třeba doinstalovat: Select, Popover, Calendar, Tooltip, Dialog/Drawer, Table.
+Pro etapu 9 bude třeba doinstalovat: Tooltip, Dialog, AlertDialog, Table, Tabs.
 
 ---
 
@@ -281,18 +282,17 @@ Pro etapu 5 a 9 bude třeba doinstalovat: Select, Popover, Calendar, Tooltip, Di
 
 ---
 
-## Etapa 4 — Směny + svátky + background
+## Etapa 4 — Směny + svátky + background ✅
 
-**XL 106:**
-- 3 směny
-- Nepracuje se pouze o víkendech
+**XL 106:** 3 směny (6–14, 14–22, 22–6) — 24h provoz, žádný noční overlay
 
-**XL 105:**
-- 2 směny, bez noční
-- Ranní začíná v 06:00
+**XL 105:** 2 směny (6–14, 14–22) — noční hodiny (22–6) jsou ztmavené překryvnou vrstvou
 
-- Nepracovní čas zvýrazněn na pozadí (jako víkendy v Excelu)
-- Státní svátky ČR zvýrazněny stejně jako víkendy (statický seznam nebo knihovna, více let dopředu)
+**Implementováno:**
+- Státní svátky ČR hardcoded (algoritmus Velikonoc + pevné svátky) — červené pozadí v date column i v machine columns
+- Firemní odstávky: uloženy v DB (`CompanyDay` model), CRUD přes API, UI správy v `ShutdownManager` panelu — fialové pozadí
+- Barvy dnů v date column: dnes=modrá, svátek=červená, firemní den=fialová, víkend=oranžová
+- Noční overlay jen pro XL 105 (MACHINES_WITH_NIGHT_OFF set)
 
 ---
 
@@ -335,8 +335,8 @@ Pro etapu 5 a 9 bude třeba doinstalovat: Select, Popover, Calendar, Tooltip, Di
 
 ### 5f — Rozšíření Builderu a detailu bloku
 
-- Builder: přidat Select/Combobox pro DATA, MATERIÁL, BARVY, LAK
-- Builder: přidat date picker (Popover + Calendar) pro doplňkové datumy
+- Builder: přidat nativní `<select>` pro DATA, MATERIÁL, BARVY, LAK
+- Builder: přidat nativní `<input type="date">` pro doplňkové datumy
 - Detail bloku: zobrazit a editovat všechna výrobní pole
 - Detail bloku: zobrazit termín expedice
 
@@ -460,4 +460,4 @@ Samostatná stránka nebo sekce přístupná pouze roli Admin.
 
 ---
 
-*Dokument naposledy aktualizován: 2026 — verze VI*
+*Dokument naposledy aktualizován: 2026-03 — verze VII*

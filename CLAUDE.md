@@ -94,7 +94,10 @@ npm run prisma:seed
 ### shadcn/ui
 - Styl: New York
 - Nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator
-- Pro etapu 5+9 doinstalovat: Select, Popover, Calendar, Tooltip, Dialog, AlertDialog, Table, Tabs
+- **Dropdowny a date pickery jsou nativní HTML** — shadcn Select, Popover a Calendar byly odstraněny kvůli CSS variable konfliktům s Radix portály v dark modu
+  - Všechna `<select>` pole mají jednotný styl: background `#181b22`, border `#1e2130`, borderRadius 10, height 40
+  - Date picker = nativní `<input type="date" style={{ colorScheme: "dark" }}`
+- Pro etapu 9 doinstalovat: Tooltip, Dialog, AlertDialog, Table, Tabs
 
 ---
 
@@ -110,7 +113,7 @@ specifikace,
 recurrenceType (NONE|DAILY|WEEKLY|MONTHLY), recurrenceParentId (self-relace),
 createdAt, updatedAt.
 
-Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` jsou nahrazena novým schématem výrobních sloupečků v etapě 5.
+Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` jsou nahrazena novým schématem výrobních sloupečků. Pole jsou již v DB (migrace provedena).
 
 ## DB Schema — CodebookOption model
 
@@ -131,7 +134,7 @@ Při každém přidání nového výrobního sloupečku do bloku je nutné vždy
 2. **Seed hodnot** — doplnit `prisma/seed.ts` o nové default položky
 3. **Role oprávnění** — rozhodnout, která role smí sloupec editovat (matice v DOKUMENTACE.md)
 4. **UI v timeline** — zobrazit badge na bloku, not-ready indikaci (⚠ pokud platí logika)
-5. **UI v builderu** — přidat Select/Combobox + případný date picker do formuláře
+5. **UI v builderu** — přidat nativní `<select>` + případný `<input type="date">` do formuláře
 6. **Not-ready logiku** — pokud sloupec má `requiredDate`, implementovat varování `startTime < requiredDate && !ok`
 7. **Aktualizovat DOKUMENTACE.md** — přidat do tabulky výrobních sloupečků, matice práv, etapy
 

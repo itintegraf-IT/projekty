@@ -9,7 +9,6 @@ import { Button }    from "@/components/ui/button";
 import { Switch }    from "@/components/ui/switch";
 import { Badge }     from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
 type CodebookOption = {
@@ -106,6 +105,37 @@ function formatDuration(hours: number): string {
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
+
+// ─── DatePickerField ──────────────────────────────────────────────────────────
+function DatePickerField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      type="date"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        colorScheme: "dark",
+        height: 32,
+        width: "100%",
+        borderRadius: 6,
+        border: "1px solid rgb(51 65 85)",
+        backgroundColor: "rgb(15 23 42)",
+        color: value ? "#f1f5f9" : "#64748b",
+        fontSize: 12,
+        padding: "0 10px",
+        outline: "none",
+        boxSizing: "border-box",
+      } as React.CSSProperties}
+    />
+  );
+}
 
 // ─── BlockEdit ────────────────────────────────────────────────────────────────
 function BlockEdit({
@@ -234,19 +264,33 @@ function BlockEdit({
     placeholder: string;
   }) {
     return (
-      <Select value={value || "__none__"} onValueChange={(v) => onChange(v === "__none__" ? "" : v)}>
-        <SelectTrigger className="h-8 text-xs w-full">
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__none__" className="text-xs text-slate-400">— nezadáno —</SelectItem>
+      <div style={{ position: "relative" }}>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            appearance: "none", width: "100%", height: 40,
+            background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
+            color: value ? "#e8eaf0" : "#64748b", fontSize: 13, fontWeight: 600,
+            padding: "0 40px 0 14px", cursor: "pointer", outline: "none",
+          }}
+          onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+          onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+        >
+          <option value="">— {placeholder} —</option>
           {opts.map((o) => (
-            <SelectItem key={o.id} value={o.id.toString()} className="text-xs">
+            <option key={o.id} value={o.id.toString()}>
               {o.isWarning ? "⚠ " : ""}{o.label}
-            </SelectItem>
+            </option>
           ))}
-        </SelectContent>
-      </Select>
+        </select>
+        <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+          style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, pointerEvents: "none" }}>
+          <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
     );
   }
 
@@ -272,12 +316,6 @@ function BlockEdit({
           </div>
         )}
 
-        {/* Info (read-only) */}
-        <div style={{ marginTop: 14, padding: "8px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.06)", fontSize: 10, color: "#64748b", display: "flex", gap: 16 }}>
-          <span>{block.machine.replace("_", "\u00a0")}</span>
-          <span>{new Date(block.startTime).toLocaleString("cs-CZ", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} – {new Date(block.endTime).toLocaleString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}</span>
-        </div>
-
         {/* Typ */}
         <div style={{ marginTop: 14 }}>
           <SectionLabel>Typ záznamu</SectionLabel>
@@ -291,18 +329,18 @@ function BlockEdit({
           </div>
         </div>
 
-        {/* Číslo zakázky */}
-        <div style={{ marginTop: 12 }}>
-          <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>
-            {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
-          </Label>
-          <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="h-8 text-xs" />
-        </div>
-
-        {/* Popis */}
-        <div style={{ marginTop: 10 }}>
-          <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Popis</Label>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="text-xs resize-none" />
+        {/* Číslo zakázky + Popis — side by side */}
+        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div>
+            <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>
+              {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
+            </Label>
+            <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="h-8 text-xs" />
+          </div>
+          <div>
+            <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Popis</Label>
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="text-xs resize-none" />
+          </div>
         </div>
 
         {/* ── Výrobní sloupečky ── */}
@@ -314,12 +352,12 @@ function BlockEdit({
             <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: 6, padding: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
               <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>DATA</Label>
               <StatusSelect value={dataStatusId} onChange={setDataStatusId} opts={dataOpts} placeholder="Status dat…" />
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                <div style={{ flex: 1 }}>
-                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum (nepovinný)</Label>
-                  <Input type="date" value={dataRequiredDate} onChange={(e) => setDataRequiredDate(e.target.value)} className="h-7 text-xs" />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginTop: 6 }}>
+                <div>
+                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum potřeby</Label>
+                  <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum…" />
                 </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: dataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", marginTop: 16, flexShrink: 0 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: dataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", paddingBottom: 2, flexShrink: 0 }}>
                   <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
                   OK
                 </label>
@@ -330,32 +368,29 @@ function BlockEdit({
             <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: 6, padding: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
               <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>MATERIÁL</Label>
               <StatusSelect value={materialStatusId} onChange={setMaterialStatusId} opts={materialOpts} placeholder="Status materiálu…" />
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                <div style={{ flex: 1 }}>
-                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum (nepovinný)</Label>
-                  <Input type="date" value={materialRequiredDate} onChange={(e) => setMaterialRequiredDate(e.target.value)} className="h-7 text-xs" />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginTop: 6 }}>
+                <div>
+                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum potřeby</Label>
+                  <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum…" />
                 </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: materialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", marginTop: 16, flexShrink: 0 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: materialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", paddingBottom: 2, flexShrink: 0 }}>
                   <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
                   OK
                 </label>
               </div>
               <div style={{ marginTop: 6 }}>
                 <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Pantone — očekávané dodání</Label>
-                <Input type="date" value={pantoneExpectedDate} onChange={(e) => setPantoneExpectedDate(e.target.value)} className="h-7 text-xs" />
+                <DatePickerField value={pantoneExpectedDate} onChange={setPantoneExpectedDate} placeholder="Datum pantonu…" />
               </div>
             </div>
 
-            {/* BARVY */}
+            {/* BARVY + LAK — jeden řádek */}
             <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>BARVY</Label>
-              <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="Typ barev…" />
-            </div>
-
-            {/* LAK */}
-            <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>LAK</Label>
-              <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="Typ laku…" />
+              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>BARVY &amp; LAK</Label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="Barvy…" />
+                <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="Lak…" />
+              </div>
             </div>
 
             {/* SPECIFIKACE */}
@@ -367,7 +402,7 @@ function BlockEdit({
             {/* Expedice */}
             <div>
               <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Termín expedice</Label>
-              <Input type="date" value={deadlineExpedice} onChange={(e) => setDeadlineExpedice(e.target.value)} className="h-8 text-xs" />
+              <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} placeholder="Datum expedice…" />
             </div>
           </div>
         )}
@@ -746,6 +781,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
     };
   }, []);
 
+  // Načtení číselníků pro builder
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/codebook?category=DATA").then((r) => r.json()),
+      fetch("/api/codebook?category=MATERIAL").then((r) => r.json()),
+      fetch("/api/codebook?category=BARVY").then((r) => r.json()),
+      fetch("/api/codebook?category=LAK").then((r) => r.json()),
+    ]).then(([d, m, b, l]) => {
+      setBDataOpts(d);
+      setBMaterialOpts(m);
+      setBBarvyOpts(b);
+      setBLakOpts(l);
+    }).catch(() => {/* číselník se nepodařilo načíst */});
+  }, []);
+
   const viewStart = startOfDay(addDays(new Date(), -3));
 
   function handleScrollToNow() {
@@ -803,6 +853,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
 
   function handleAddToQueue() {
     if (!orderNumber.trim()) return;
+    const findLabel = (opts: CodebookOption[], id: string) =>
+      opts.find((o) => String(o.id) === id)?.label ?? null;
     setQueue((prev) => [
       ...prev,
       {
@@ -811,16 +863,26 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
         type,
         durationHours,
         description: description.trim(),
-        deadlineData,
-        deadlineMaterial,
-        deadlineExpedice,
+        dataStatusId: bDataStatusId ? Number(bDataStatusId) : null,
+        dataStatusLabel: findLabel(bDataOpts, bDataStatusId),
+        materialStatusId: bMaterialStatusId ? Number(bMaterialStatusId) : null,
+        materialStatusLabel: findLabel(bMaterialOpts, bMaterialStatusId),
+        barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
+        barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
+        lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
+        lakStatusLabel: findLabel(bLakOpts, bLakStatusId),
+        specifikace: bSpecifikace,
+        deadlineExpedice: bDeadlineExpedice,
       },
     ]);
     setOrderNumber("");
     setDescription("");
-    setDeadlineData("");
-    setDeadlineMaterial("");
-    setDeadlineExpedice("");
+    setBDataStatusId("");
+    setBMaterialStatusId("");
+    setBBarvyStatusId("");
+    setBLakStatusId("");
+    setBSpecifikace("");
+    setBDeadlineExpedice("");
   }
 
   async function handleQueueDrop(itemId: number, machine: string, startTime: Date) {
@@ -838,8 +900,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
           startTime: startTime.toISOString(),
           endTime: endTime.toISOString(),
           description: item.description || null,
-          deadlineData: item.deadlineData || null,
-          deadlineMaterial: item.deadlineMaterial || null,
+          dataStatusId: item.dataStatusId,
+          dataStatusLabel: item.dataStatusLabel,
+          materialStatusId: item.materialStatusId,
+          materialStatusLabel: item.materialStatusLabel,
+          barvyStatusId: item.barvyStatusId,
+          barvyStatusLabel: item.barvyStatusLabel,
+          lakStatusId: item.lakStatusId,
+          lakStatusLabel: item.lakStatusLabel,
+          specifikace: item.specifikace || null,
           deadlineExpedice: item.deadlineExpedice || null,
         }),
       });
@@ -1033,16 +1102,45 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
 
                     {/* Délka tisku */}
                     <div>
-                      <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Délka tisku</Label>
-                      <select
-                        value={durationHours}
-                        onChange={(e) => setDurationHours(Number(e.target.value))}
-                        className="h-8 w-full rounded-md border border-input bg-transparent px-3 text-xs text-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                      >
-                        {DURATION_OPTIONS.map((opt) => (
-                          <option key={opt.hours} value={opt.hours}>{opt.label}</option>
-                        ))}
-                      </select>
+                      <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Délka tisku</label>
+                      <div style={{ position: "relative", display: "inline-block", width: "fit-content" }}>
+                        <select
+                          value={String(durationHours)}
+                          onChange={(e) => setDurationHours(Number(e.target.value))}
+                          style={{
+                            appearance: "none",
+                            width: "auto",
+                            minWidth: 120,
+                            height: 40,
+                            background: "#181b22",
+                            border: "1px solid #1e2130",
+                            borderRadius: 10,
+                            color: "#e8eaf0",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            padding: "0 40px 0 14px",
+                            cursor: "pointer",
+                            outline: "none",
+                          }}
+                          onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                          onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                        >
+                          {DURATION_OPTIONS.map((opt) => (
+                            <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
+                          ))}
+                        </select>
+                        <svg
+                          viewBox="0 0 20 20"
+                          fill="none"
+                          stroke="#6b7280"
+                          strokeWidth="1.8"
+                          style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, pointerEvents: "none" }}
+                        >
+                          <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
                     </div>
 
                     {/* Popis */}
@@ -1058,23 +1156,54 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                     </div>
                   </div>
 
-                  {/* ── Termíny (skryté pro Údržbu) ── */}
+                  {/* ── Výrobní sloupečky (skryté pro Údržbu) ── */}
                   {type !== "UDRZBA" && (
                     <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Termíny</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Výrobní sloupečky</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        <div>
-                          <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>DATA</Label>
-                          <Input type="date" value={deadlineData} onChange={(e) => setDeadlineData(e.target.value)} className="h-8 text-xs" />
-                        </div>
-                        <div>
-                          <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Materiál</Label>
-                          <Input type="date" value={deadlineMaterial} onChange={(e) => setDeadlineMaterial(e.target.value)} className="h-8 text-xs" />
-                        </div>
+                        {([
+                          { label: "Data",    value: bDataStatusId,     setter: setBDataStatusId,     opts: bDataOpts },
+                          { label: "Materiál", value: bMaterialStatusId, setter: setBMaterialStatusId, opts: bMaterialOpts },
+                          { label: "Barvy",   value: bBarvyStatusId,    setter: setBBarvyStatusId,    opts: bBarvyOpts },
+                          { label: "Lak",     value: bLakStatusId,      setter: setBLakStatusId,      opts: bLakOpts },
+                        ] as { label: string; value: string; setter: (v: string) => void; opts: CodebookOption[] }[]).map(({ label, value, setter, opts }) => (
+                          <div key={label}>
+                            <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>{label}</label>
+                            <div style={{ position: "relative" }}>
+                              <select
+                                value={value}
+                                onChange={(e) => setter(e.target.value)}
+                                style={{
+                                  appearance: "none", width: "100%", height: 40,
+                                  background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
+                                  color: value ? "#e8eaf0" : "#64748b", fontSize: 13, fontWeight: 600,
+                                  padding: "0 40px 0 14px", cursor: "pointer", outline: "none",
+                                }}
+                                onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                                onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                              >
+                                <option value="">— nezadáno —</option>
+                                {opts.map((o) => (
+                                  <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                                ))}
+                              </select>
+                              <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, pointerEvents: "none" }}>
+                                <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                       <div>
-                        <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Expedice</Label>
-                        <Input type="date" value={deadlineExpedice} onChange={(e) => setDeadlineExpedice(e.target.value)} className="h-8 text-xs" />
+                        <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Specifikace</Label>
+                        <Input value={bSpecifikace} onChange={(e) => setBSpecifikace(e.target.value)} placeholder="Volný text…" className="h-8 text-xs" />
+                      </div>
+                      <div>
+                        <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Termín expedice</Label>
+                        <DatePickerField value={bDeadlineExpedice} onChange={setBDeadlineExpedice} placeholder="Datum expedice…" />
                       </div>
                     </div>
                   )}

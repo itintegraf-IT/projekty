@@ -98,28 +98,6 @@ type QueueDropPreview = {
   jobType: string;
 } | null;
 
-// ─── Barvy dle typu ────────────────────────────────────────────────────────────
-const TYPE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  ZAKAZKA:  { bg: "bg-blue-500/25",   border: "border-blue-500/50",   text: "text-blue-200" },
-  REZERVACE: { bg: "bg-purple-500/25", border: "border-purple-500/50", text: "text-purple-200" },
-  UDRZBA:   { bg: "bg-red-500/25",    border: "border-red-500/50",    text: "text-red-200" },
-};
-const DEFAULT_COLORS  = { bg: "bg-slate-700/30",  border: "border-slate-600/50",  text: "text-slate-300" };
-const OVERDUE_COLORS  = { bg: "bg-slate-600/20",  border: "border-slate-500/35",  text: "text-slate-500" };
-
-// ─── ProductionBadge ───────────────────────────────────────────────────────────
-function ProductionBadge({ label, warning }: { label: string; warning?: boolean }) {
-  const short = label.length > 6 ? label.slice(0, 6) : label;
-  return (
-    <span
-      className={`text-[7px] px-0.5 py-px rounded font-semibold leading-none ${
-        warning ? "bg-amber-500/35 text-amber-300" : "bg-white/10 text-slate-300"
-      }`}
-    >
-      {short}{warning ? " ⚠" : ""}
-    </span>
-  );
-}
 
 // ─── CompanyDay typ ────────────────────────────────────────────────────────────
 export type CompanyDay = {
@@ -191,11 +169,6 @@ function snapToSlot(date: Date): Date {
   return new Date(Math.round(ms / SLOT_MS) * SLOT_MS);
 }
 
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
 function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
@@ -208,9 +181,126 @@ const MONTH_ABBR = ["Led","Úno","Bře","Dub","Kvě","Čvn","Čvc","Srp","Zář"
 const DAY_ABBR   = ["Ne","Po","Út","St","Čt","Pá","So"];
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
+// ─── Vizuální config bloků ─────────────────────────────────────────────────────
+const BLOCK_STYLES: Record<string, {
+  gradient: string; border: string; accentBar: string;
+  leftBg: string; textPrimary: string; textSub: string;
+}> = {
+  ZAKAZKA: {
+    gradient:    "linear-gradient(150deg, #0f2744 0%, #081729 100%)",
+    border:      "rgba(37,99,235,0.55)",
+    accentBar:   "#3b82f6",
+    leftBg:      "rgba(37,99,235,0.14)",
+    textPrimary: "#dbeafe",
+    textSub:     "#93c5fd",
+  },
+  REZERVACE: {
+    gradient:    "linear-gradient(150deg, #1e0a40 0%, #0d0522 100%)",
+    border:      "rgba(124,58,237,0.55)",
+    accentBar:   "#8b5cf6",
+    leftBg:      "rgba(124,58,237,0.14)",
+    textPrimary: "#ede9fe",
+    textSub:     "#c4b5fd",
+  },
+  UDRZBA: {
+    gradient:    "linear-gradient(150deg, #3b0808 0%, #1b0404 100%)",
+    border:      "rgba(220,38,38,0.55)",
+    accentBar:   "#ef4444",
+    leftBg:      "rgba(220,38,38,0.14)",
+    textPrimary: "#fee2e2",
+    textSub:     "#fca5a5",
+  },
+};
+const BLOCK_OVERDUE = {
+  gradient:    "linear-gradient(150deg, #18191f 0%, #0d0f14 100%)",
+  border:      "rgba(71,85,105,0.35)",
+  accentBar:   "#334155",
+  leftBg:      "rgba(71,85,105,0.08)",
+  textPrimary: "#475569",
+  textSub:     "#334155",
+};
+const BLOCK_DEFAULT = {
+  gradient:    "linear-gradient(150deg, #1e2433 0%, #111720 100%)",
+  border:      "rgba(71,85,105,0.4)",
+  accentBar:   "#64748b",
+  leftBg:      "rgba(71,85,105,0.12)",
+  textPrimary: "#94a3b8",
+  textSub:     "#64748b",
+};
+
+// ─── Pomocná funkce — bezpečný parse data z DB (ISO timestamp i date string) ──
+function fmtDate(s: string | null | undefined): string {
+  if (!s) return "–";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "–";
+  return d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+// ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
+function DateBadge({
+  label, dateStr, ok, warn, onToggle,
+}: {
+  label: string; dateStr: string; ok: boolean; warn: boolean; onToggle: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const fmt = fmtDate(dateStr);
+
+  const bg          = ok ? "rgba(74,222,128,0.12)" : warn ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.05)";
+  const borderColor = ok ? "rgba(74,222,128,0.35)"  : warn ? "rgba(251,191,36,0.35)"  : "rgba(255,255,255,0.08)";
+  const labelColor  = ok ? "#4ade80" : warn ? "#fbbf24" : "#64748b";
+  const dateColor   = ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
+
+  async function handleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (loading) return;
+    setLoading(true);
+    onToggle();
+    setLoading(false);
+  }
+
+  return (
+    <div
+      onClick={handleClick}
+      style={{
+        display: "flex", flexDirection: "column", gap: 2,
+        padding: "4px 7px", borderRadius: 5,
+        background: bg, border: `1px solid ${borderColor}`,
+        cursor: "pointer", flex: "1 1 0", minWidth: 0,
+        transition: "all 0.12s", opacity: loading ? 0.6 : 1,
+      }}
+    >
+      <span style={{ fontSize: 8, fontWeight: 700, color: labelColor, lineHeight: 1, letterSpacing: "0.06em" }}>
+        {label}
+      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
+        <span style={{ fontSize: 10, lineHeight: 1, color: ok ? "#4ade80" : warn ? "#fbbf24" : "#334155" }}>
+          {ok ? "✓" : warn ? "!" : "·"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── StatusNote — poznámka ze selectu ─────────────────────────────────────────
+function StatusNote({ label, accent }: { label: string; accent: string }) {
+  return (
+    <span style={{
+      fontSize: 8.5, fontWeight: 600, color: accent, lineHeight: 1,
+      background: `${accent}18`, border: `1px solid ${accent}30`,
+      borderRadius: 4, padding: "2px 6px", whiteSpace: "nowrap",
+      overflow: "hidden", textOverflow: "ellipsis", maxWidth: 110,
+      display: "inline-block",
+    }}>
+      {label.length > 14 ? label.slice(0, 14) + "…" : label}
+    </span>
+  );
+}
+
+// ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
   block, top, height, dimmed, selected, isDragging, now,
-  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu,
+  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu, onBlockUpdate,
 }: {
   block: Block;
   top: number;
@@ -224,89 +314,172 @@ function BlockCard({
   onMouseDown: (e: React.MouseEvent) => void;
   onResizeMouseDown: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  onBlockUpdate: (b: Block) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
+  const [hovered, setHovered]             = useState(false);
 
-  const isOverdue = block.type !== "UDRZBA" && new Date(block.endTime) < now;
-  const colors = isOverdue ? OVERDUE_COLORS : (TYPE_COLORS[block.type] ?? DEFAULT_COLORS);
-
+  const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now;
   const clampedHeight = Math.max(height, 20);
-  const showTimes  = clampedHeight >= 44;
-  const showDesc   = clampedHeight >= 80 && block.description;
-  const showBadges = clampedHeight >= 52;
 
-  // Not-ready logika
-  const blockStart = new Date(block.startTime);
-  const dataNotReady =
-    !!block.dataRequiredDate && !block.dataOk && blockStart < new Date(block.dataRequiredDate);
-  const materialNotReady =
-    !!block.materialRequiredDate && !block.materialOk && blockStart < new Date(block.materialRequiredDate);
+  const dataNotReady     = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
+  const materialNotReady = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
 
-  const hasBadges =
-    block.dataStatusLabel || block.materialStatusLabel ||
-    block.barvyStatusLabel || block.lakStatusLabel || block.specifikace;
+  const s = isOverdue ? BLOCK_OVERDUE : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
+
+  // Výškové prahy
+  const showDates  = clampedHeight >= 62;   // 2. řádek — date badges
+  const showNotes  = clampedHeight >= 100;  // 3. řádek — status labels
+  const showSpec   = clampedHeight >= 80;   // specifikace (vlastní řádek)
+  const showDesc   = clampedHeight >= 40;   // popis za číslem zakázky
+
+  const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
+  const shadow  = selected
+    ? "0 0 0 1.5px #FFE600, 0 4px 16px rgba(0,0,0,0.6)"
+    : hovered && !isDragging
+      ? "0 6px 20px rgba(0,0,0,0.55)"
+      : "0 2px 8px rgba(0,0,0,0.4)";
+
+  async function toggleField(field: "dataOk" | "materialOk", current: boolean) {
+    try {
+      const res = await fetch(`/api/blocks/${block.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: !current }),
+      });
+      if (res.ok) onBlockUpdate(await res.json());
+    } catch { /* tiché selhání */ }
+  }
+
+  const hasDateRow = (block.dataRequiredDate || block.materialRequiredDate || block.deadlineExpedice);
+  const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
 
   return (
     <div
       onMouseDown={block.locked ? undefined : onMouseDown}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       onClick={onClick}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
       onContextMenu={onContextMenu}
       style={{
-        position: "absolute",
-        top,
-        height: clampedHeight,
-        left: 3,
+        position: "absolute", top, height: clampedHeight, left: 3,
         width: "calc(100% - 6px)",
-        zIndex: isDragging ? 20 : resizeHovered ? 15 : 1,
+        zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
+        opacity, borderRadius: 7,
+        border: `1px solid ${selected ? "#FFE600" : s.border}`,
+        boxShadow: shadow,
+        background: s.gradient,
+        display: "flex", flexDirection: "column",
+        overflow: "hidden", userSelect: "none",
+        transition: isDragging ? "none" : "box-shadow 0.15s",
       }}
-      className={[
-        "rounded border select-none overflow-hidden",
-        colors.bg,
-        selected ? "border-yellow-400 ring-1 ring-yellow-400/50" : colors.border,
-        dimmed ? "opacity-20" : isDragging ? "opacity-70 shadow-2xl" : "opacity-100 hover:brightness-110",
-      ].join(" ")}
     >
-      <div className={`px-1.5 py-0.5 text-[10px] font-bold leading-tight truncate ${colors.text}`}>
-        {block.orderNumber}
-        {block.locked && <span className="ml-1 opacity-80">🔒</span>}
+      {/* Barevný akcent nahoře (2px) */}
+      <div style={{ height: 2, flexShrink: 0, background: s.accentBar, opacity: isOverdue ? 0.35 : 0.8 }} />
+
+      {/* ── Řádek 1: Číslo zakázky + popis ── */}
+      <div style={{
+        padding: "5px 9px 3px", display: "flex", alignItems: "baseline",
+        gap: 6, minWidth: 0, flexShrink: 0,
+      }}>
+        <span style={{
+          fontSize: 12, fontWeight: 700, color: s.textPrimary,
+          lineHeight: 1.2, flexShrink: 0, maxWidth: "50%",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {block.orderNumber}
+          {block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+        </span>
+        {showDesc && block.description && (
+          <span style={{
+            fontSize: 10, color: s.textSub, opacity: 0.8, lineHeight: 1.2,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+          }}>
+            {block.description}
+          </span>
+        )}
       </div>
-      {showTimes && (
-        <div className={`px-1.5 text-[9px] opacity-70 leading-tight ${colors.text}`}>
-          {formatTime(block.startTime)}–{formatTime(block.endTime)}
-        </div>
-      )}
-      {showDesc && (
-        <div className={`px-1.5 text-[9px] opacity-60 leading-tight truncate ${colors.text}`}>
-          {block.description}
-        </div>
-      )}
-      {showBadges && hasBadges && (
-        <div className="px-1 pt-0.5 flex flex-wrap gap-0.5">
-          {block.dataStatusLabel && (
-            <ProductionBadge label={block.dataStatusLabel} warning={dataNotReady} />
+
+      {/* ── Řádek 2: Klikatelné date badges ── */}
+      {showDates && hasDateRow && (
+        <div style={{
+          padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap",
+          flexShrink: 0,
+        }}>
+          {block.dataRequiredDate && (
+            <DateBadge
+              label="DATA" dateStr={block.dataRequiredDate}
+              ok={block.dataOk} warn={dataNotReady}
+              onToggle={() => toggleField("dataOk", block.dataOk)}
+            />
           )}
-          {block.materialStatusLabel && (
-            <ProductionBadge label={block.materialStatusLabel} warning={materialNotReady} />
+          {block.materialRequiredDate && (
+            <DateBadge
+              label="MAT." dateStr={block.materialRequiredDate}
+              ok={block.materialOk} warn={materialNotReady}
+              onToggle={() => toggleField("materialOk", block.materialOk)}
+            />
           )}
-          {block.barvyStatusLabel && <ProductionBadge label={block.barvyStatusLabel} />}
-          {block.lakStatusLabel && <ProductionBadge label={block.lakStatusLabel} />}
-          {block.specifikace && <ProductionBadge label="SPEC" />}
+          {block.deadlineExpedice && (
+            <div style={{
+              display: "flex", flexDirection: "column", gap: 2,
+              padding: "4px 7px", borderRadius: 5,
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+              flex: "1 1 0", minWidth: 0,
+            }}>
+              <span style={{ fontSize: 8, fontWeight: 700, color: "#64748b", lineHeight: 1, letterSpacing: "0.06em" }}>EXP.</span>
+              <span style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", lineHeight: 1 }}>
+                {fmtDate(block.deadlineExpedice)}
+              </span>
+            </div>
+          )}
         </div>
       )}
+
+      {/* ── Řádek 3: Specifikace (celý text) ── */}
+      {showSpec && block.specifikace && (
+        <div style={{ padding: "0 9px 3px", flexShrink: 0 }}>
+          <span style={{
+            fontSize: 9, color: "#94a3b8", lineHeight: 1.3,
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}>
+            {block.specifikace}
+          </span>
+        </div>
+      )}
+
+      {/* ── Řádek 4: Poznámky ze selectů ── */}
+      {showNotes && hasNoteRow && (
+        <div style={{
+          padding: "1px 7px 4px", display: "flex", gap: 4, flexWrap: "wrap",
+          flexShrink: 0, overflow: "hidden",
+        }}>
+          {block.dataStatusLabel    && <StatusNote label={block.dataStatusLabel}     accent={s.accentBar} />}
+          {block.materialStatusLabel && <StatusNote label={block.materialStatusLabel} accent={s.textSub} />}
+          {block.barvyStatusLabel    && <StatusNote label={block.barvyStatusLabel}    accent="#94a3b8" />}
+          {block.lakStatusLabel      && <StatusNote label={block.lakStatusLabel}      accent="#94a3b8" />}
+        </div>
+      )}
+
+      {/* Resize handle */}
       {!block.locked && (
         <div
           onMouseEnter={() => setResizeHovered(true)}
           onMouseLeave={() => setResizeHovered(false)}
           onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown(e); }}
-          style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 10, cursor: "ns-resize" }}
-          className="flex items-end justify-center"
+          style={{
+            position: "absolute", bottom: 0, left: 0, right: 0, height: 8,
+            cursor: "ns-resize", display: "flex", alignItems: "flex-end", justifyContent: "center",
+          }}
         >
-          <div
-            style={{ width: "100%", height: 2, transition: "background-color 0.15s" }}
-            className={resizeHovered ? "bg-blue-400/80" : "bg-white/0"}
-          />
+          <div style={{
+            width: "100%", height: 2,
+            background: resizeHovered ? "rgba(96,165,250,0.7)" : "transparent",
+            transition: "background 0.15s",
+          }} />
         </div>
       )}
     </div>
@@ -782,6 +955,7 @@ export default function TimelineGrid({
                       onMouseDown={(e) => handleBlockMouseDown(block, e)}
                       onResizeMouseDown={(e) => handleResizeMouseDown(block, e)}
                       onContextMenu={(e) => handleBlockContextMenu(block, e)}
+                      onBlockUpdate={callbacksRef.current.onBlockUpdate}
                     />
                   );
                 })}
