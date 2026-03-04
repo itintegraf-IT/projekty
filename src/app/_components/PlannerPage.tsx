@@ -1,7 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block } from "./TimelineGrid";
+
+// ─── Typy ─────────────────────────────────────────────────────────────────────
+type QueueItem = {
+  id: number;
+  orderNumber: string;
+  type: string;
+  machine: string;
+  durationHours: number;
+  description: string;
+};
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const TYPE_LABELS: Record<string, string> = {
@@ -10,18 +20,32 @@ const TYPE_LABELS: Record<string, string> = {
   UDRZBA: "Údržba",
 };
 
-const DURATION_OPTIONS = [
-  { label: "0,5 hod", hours: 0.5 },
-  { label: "1 hod", hours: 1 },
-  { label: "1,5 hod", hours: 1.5 },
-  { label: "2 hod", hours: 2 },
-  { label: "2,5 hod", hours: 2.5 },
-  { label: "3 hod", hours: 3 },
-  { label: "4 hod", hours: 4 },
-  { label: "5 hod", hours: 5 },
-  { label: "6 hod", hours: 6 },
-  { label: "8 hod", hours: 8 },
-];
+const TYPE_BUILDER_CONFIG = {
+  ZAKAZKA: { emoji: "📋", label: "Zakázka", color: "#1a6bcc" },
+  REZERVACE: { emoji: "📌", label: "Rezervace", color: "#7c3aed" },
+  UDRZBA: { emoji: "🔧", label: "Údržba / Oprava", color: "#c0392b" },
+} as const;
+
+// 0:30 … 24:00 v 30minutových krocích
+const DURATION_OPTIONS = Array.from({ length: 48 }, (_, i) => {
+  const totalMinutes = (i + 1) * 30;
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  return { label: `${h}:${m.toString().padStart(2, "0")}`, hours: totalMinutes / 60 };
+});
+
+// ─── Styly ────────────────────────────────────────────────────────────────────
+const INPUT_STYLE: React.CSSProperties = {
+  width: "100%",
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 6,
+  padding: "7px 10px",
+  fontSize: 11,
+  color: "#e2e8f0",
+  outline: "none",
+  boxSizing: "border-box",
+};
 
 // ─── Pomocné funkce ───────────────────────────────────────────────────────────
 function startOfDay(d: Date): Date {
@@ -64,6 +88,16 @@ function durationHuman(startIso: string, endIso: string): string {
   return `${h} hod ${m} min`;
 }
 
+function formatDuration(hours: number): string {
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  if (m === 0) return `${h} hod`;
+  return `${h}:${m.toString().padStart(2, "0")} hod`;
+}
+
+// NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
+// — timeline s flex-1 se automaticky roztáhne na celou šířku
+
 // ─── BlockDetail ──────────────────────────────────────────────────────────────
 function BlockDetail({
   block,
@@ -77,7 +111,7 @@ function BlockDetail({
   const [confirming, setConfirming] = useState(false);
 
   return (
-    <div className="h-full flex flex-col border-l border-slate-800">
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid rgb(30 41 59)" }}>
       {/* Hlavička */}
       <div className="px-4 py-3 border-b border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 flex items-center justify-between">
         <div>
@@ -88,14 +122,15 @@ function BlockDetail({
         </div>
         <button
           onClick={onClose}
-          className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors px-2 py-1 rounded hover:bg-slate-800"
+          className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-200 transition-colors px-3 py-1.5 rounded-md border border-slate-700 hover:bg-slate-800 hover:border-slate-600"
         >
-          ← Zpět
+          <span>←</span>
+          <span>Zpět</span>
         </button>
       </div>
 
       {/* Obsah */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 text-[11px]">
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }} className="px-4 py-4 space-y-3 text-[11px]">
         {/* Základní info */}
         <div className="space-y-1.5">
           <Row label="Stroj" value={block.machine.replace("_", "\u00a0")} />
@@ -193,6 +228,37 @@ function DeadlineRow({ label, value, ok }: { label: string; value: string; ok: b
   );
 }
 
+// ─── ResizeHandle ─────────────────────────────────────────────────────────────
+function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: 8,
+        flexShrink: 0,
+        position: "relative",
+        zIndex: 20,
+        cursor: "col-resize",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: hovered ? "rgb(59 130 246 / 0.4)" : "rgb(30 41 59)",
+        transition: "background-color 0.15s",
+      }}
+    >
+      {hovered && (
+        <div style={{ color: "rgb(148 163 184)", fontSize: 10, lineHeight: 1, userSelect: "none", pointerEvents: "none", display: "flex", gap: 1 }}>
+          <span>⇐</span>
+          <span>⇒</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
 export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] }) {
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
@@ -211,11 +277,38 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
   const [deadlineMaterial, setDeadlineMaterial] = useState("");
   const [deadlineExpedice, setDeadlineExpedice] = useState("");
 
+  // Queue
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const queueIdRef = useRef(0);
+
   // Timeline state
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [filterText, setFilterText] = useState("");
   const [jumpDate, setJumpDate] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Resizable aside
+  const [asideWidth, setAsideWidth] = useState(320);
+  const isResizing = useRef(false);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!isResizing.current) return;
+      const newWidth = window.innerWidth - e.clientX;
+      setAsideWidth(Math.min(600, Math.max(200, newWidth)));
+    }
+    function onMouseUp() {
+      isResizing.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   const viewStart = startOfDay(addDays(new Date(), -3));
 
@@ -231,6 +324,19 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 100), behavior: "smooth" });
   }
 
+  function handleBlockUpdate(updated: Block) {
+    setBlocks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+    setSelectedBlock((sel) => (sel?.id === updated.id ? updated : sel));
+  }
+
+  function handleBlockCreate(newBlock: Block) {
+    setBlocks((prev) =>
+      [...prev, newBlock].sort(
+        (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      )
+    );
+  }
+
   async function handleDeleteBlock(id: number) {
     try {
       const res = await fetch(`/api/blocks/${id}`, { method: "DELETE" });
@@ -240,6 +346,21 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
     } catch {
       setError("Chyba při mazání bloku.");
     }
+  }
+
+  function handleAddToQueue() {
+    if (!orderNumber.trim()) return;
+    setQueue((prev) => [
+      ...prev,
+      {
+        id: ++queueIdRef.current,
+        orderNumber: orderNumber.trim(),
+        type,
+        machine,
+        durationHours,
+        description: description.trim(),
+      },
+    ]);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -290,7 +411,6 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
         )
       );
 
-      // Scroll na datum nového bloku
       const y = dateToY(new Date(newBlock.startTime), viewStart);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
 
@@ -308,8 +428,10 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
     }
   }
 
+  const typeConfig = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
+
   return (
-    <main className="h-screen flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
+    <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-slate-950 text-slate-100">
       {/* ── Header ── */}
       <header className="flex-shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur px-4 py-2 flex items-center gap-4">
         {/* Logo */}
@@ -352,26 +474,35 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
         </div>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
-          <span className="uppercase tracking-[0.18em]">Etapa 2</span>
+          <span className="uppercase tracking-[0.18em]">Etapa 3</span>
           <span>{blocks.length} bloků</span>
         </div>
       </header>
 
       {/* ── Tělo ── */}
-      <section className="flex flex-1 min-h-0">
+      <section style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         {/* LEVÁ ČÁST – timeline grid */}
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative", zIndex: 0 }}>
           <TimelineGrid
             blocks={blocks}
             filterText={filterText}
             selectedBlockId={selectedBlock?.id ?? null}
             onBlockClick={setSelectedBlock}
+            onBlockUpdate={handleBlockUpdate}
+            onBlockCreate={handleBlockCreate}
             scrollRef={scrollRef}
           />
         </div>
 
+        {/* Resize handle */}
+        <ResizeHandle onMouseDown={() => {
+          isResizing.current = true;
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+        }} />
+
         {/* PRAVÁ ČÁST – detail nebo builder */}
-        <aside className="w-[320px] lg:w-[360px] flex-shrink-0 bg-slate-950">
+        <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {selectedBlock ? (
             <BlockDetail
               block={selectedBlock}
@@ -379,161 +510,342 @@ export default function PlannerPage({ initialBlocks }: { initialBlocks: Block[] 
               onDelete={handleDeleteBlock}
             />
           ) : (
-            <div className="h-full flex flex-col border-l border-slate-800">
-              <div className="px-4 py-3 border-b border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950">
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Job builder
-                </div>
-                <div className="mt-1 text-[11px] text-slate-300">
-                  Vytvoř nový blok → ulož do databáze → zobraz na timeline.
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#111318", borderLeft: "1px solid rgba(255,255,255,0.06)" }}>
+
+              {/* ── Builder Header ── */}
+              <div style={{
+                padding: "12px 16px",
+                background: "linear-gradient(135deg, #1a1d25 0%, #111318 100%)",
+                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                flexShrink: 0,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 8,
+                    background: "linear-gradient(135deg, #e53e3e 0%, #dd6b20 100%)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontWeight: 900, color: "#fff", fontSize: 15, flexShrink: 0,
+                  }}>
+                    J
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 }}>Job Builder</div>
+                    <div style={{ fontSize: 9, color: "#9ba8c0", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>Integraf</div>
+                  </div>
                 </div>
               </div>
 
+              {/* ── Formulář ── */}
               <form
                 onSubmit={handleSubmit}
-                className="flex-1 overflow-y-auto px-4 py-4 space-y-4 text-[11px]"
+                style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}
               >
-                {error && (
-                  <div className="rounded-md bg-red-500/20 border border-red-500/40 px-3 py-2 text-red-300 text-[10px]">
-                    {error}
+                <div style={{ padding: "0 16px", flex: 1 }}>
+
+                  {/* Chybové hlášky */}
+                  {error && (
+                    <div style={{ margin: "12px 0 0", borderRadius: 6, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", padding: "8px 12px", fontSize: 11, color: "#fca5a5" }}>
+                      {error}
+                    </div>
+                  )}
+                  {successMsg && (
+                    <div style={{ margin: "12px 0 0", borderRadius: 6, background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)", padding: "8px 12px", fontSize: 11, color: "#86efac" }}>
+                      {successMsg}
+                    </div>
+                  )}
+
+                  {/* ── Sekce: Typ záznamu ── */}
+                  <div style={{ paddingTop: 16, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 10 }}>
+                      Typ záznamu
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {(Object.entries(TYPE_BUILDER_CONFIG) as [string, typeof TYPE_BUILDER_CONFIG[keyof typeof TYPE_BUILDER_CONFIG]][]).map(([key, cfg]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setType(key)}
+                          style={{
+                            flex: 1,
+                            padding: "8px 4px",
+                            borderRadius: 7,
+                            border: type === key ? `1px solid ${cfg.color}` : "1px solid rgba(255,255,255,0.08)",
+                            background: type === key ? `${cfg.color}22` : "rgba(255,255,255,0.02)",
+                            cursor: "pointer",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: 4,
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          <span style={{ fontSize: 16, lineHeight: 1 }}>{cfg.emoji}</span>
+                          <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "#9ba8c0", letterSpacing: "0.04em", lineHeight: 1.3, textAlign: "center" }}>
+                            {cfg.label}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── Sekce: Zakázka ── */}
+                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>
+                      {type === "UDRZBA" ? "Popis" : "Zakázka"}
+                    </div>
+
+                    {/* Číslo zakázky */}
+                    <div>
+                      <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>
+                        {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
+                      </div>
+                      <input
+                        value={orderNumber}
+                        onChange={(e) => setOrderNumber(e.target.value)}
+                        placeholder={type === "UDRZBA" ? "Čištění hlavy…" : "17001"}
+                        style={INPUT_STYLE}
+                      />
+                    </div>
+
+                    {/* Stroj + Délka tisku */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>Stroj</div>
+                        <select
+                          value={machine}
+                          onChange={(e) => setMachine(e.target.value)}
+                          style={INPUT_STYLE}
+                        >
+                          <option value="XL_105">XL 105</option>
+                          <option value="XL_106">XL 106</option>
+                        </select>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>Délka tisku</div>
+                        <select
+                          value={durationHours}
+                          onChange={(e) => setDurationHours(Number(e.target.value))}
+                          style={INPUT_STYLE}
+                        >
+                          {DURATION_OPTIONS.map((opt) => (
+                            <option key={opt.hours} value={opt.hours}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Datum a čas začátku */}
+                    <div>
+                      <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>Datum a čas začátku *</div>
+                      <input
+                        type="datetime-local"
+                        value={startDatetime}
+                        onChange={(e) => setStartDatetime(e.target.value)}
+                        style={INPUT_STYLE}
+                      />
+                    </div>
+
+                    {/* Popis */}
+                    <div>
+                      <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>Popis</div>
+                      <textarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        rows={2}
+                        placeholder="Firma – produkt – počet tisků…"
+                        style={{ ...INPUT_STYLE, resize: "none" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* ── Sekce: Termíny (skryté pro Údržbu) ── */}
+                  {type !== "UDRZBA" && (
+                    <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>
+                        Termíny
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>DATA</div>
+                          <input
+                            type="date"
+                            value={deadlineData}
+                            onChange={(e) => setDeadlineData(e.target.value)}
+                            style={INPUT_STYLE}
+                          />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>Materiál</div>
+                          <input
+                            type="date"
+                            value={deadlineMaterial}
+                            onChange={(e) => setDeadlineMaterial(e.target.value)}
+                            style={INPUT_STYLE}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5 }}>Expedice</div>
+                        <input
+                          type="date"
+                          value={deadlineExpedice}
+                          onChange={(e) => setDeadlineExpedice(e.target.value)}
+                          style={INPUT_STYLE}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Live náhled ── */}
+                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 8 }}>
+                      Náhled bloku
+                    </div>
+                    <div style={{
+                      borderRadius: 6,
+                      padding: "9px 11px",
+                      background: `${typeConfig?.color ?? "#334155"}18`,
+                      borderLeft: `3px solid ${typeConfig?.color ?? "#475569"}`,
+                      border: `1px solid ${typeConfig?.color ?? "#475569"}33`,
+                    }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 }}>
+                        {orderNumber || <span style={{ color: "#475569", fontWeight: 400 }}>—</span>}
+                      </div>
+                      {description && (
+                        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 3, lineHeight: 1.4 }}>
+                          {description}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 10, color: typeConfig?.color ?? "#64748b", marginTop: 5 }}>
+                        {typeConfig?.emoji} {typeConfig?.label} · {formatDuration(durationHours)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── Akce ── */}
+                  <div style={{ paddingTop: 14, paddingBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* Přidat do fronty */}
+                    <button
+                      type="button"
+                      onClick={handleAddToQueue}
+                      disabled={!orderNumber.trim()}
+                      style={{
+                        width: "100%",
+                        borderRadius: 7,
+                        border: "1px solid rgba(255,230,0,0.35)",
+                        background: "rgba(255,230,0,0.06)",
+                        color: orderNumber.trim() ? "#FFE600" : "#64748b",
+                        fontWeight: 600,
+                        padding: "8px 0",
+                        fontSize: 11,
+                        cursor: orderNumber.trim() ? "pointer" : "not-allowed",
+                        transition: "all 0.15s",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      ＋ Přidat do fronty
+                    </button>
+
+                    {/* Uložit blok */}
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      style={{
+                        width: "100%",
+                        borderRadius: 7,
+                        border: "none",
+                        background: isSubmitting ? "rgba(255,230,0,0.35)" : "#FFE600",
+                        color: "#111318",
+                        fontWeight: 700,
+                        padding: "9px 0",
+                        fontSize: 12,
+                        cursor: isSubmitting ? "not-allowed" : "pointer",
+                        transition: "all 0.15s",
+                        letterSpacing: "0.03em",
+                      }}
+                    >
+                      {isSubmitting ? "Ukládám…" : "Uložit blok →"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* ── Fronta ── */}
+                {queue.length > 0 && (
+                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "#0d1017", padding: "12px 16px 16px", flexShrink: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>
+                        Fronta
+                      </div>
+                      <div style={{
+                        minWidth: 18, height: 18, borderRadius: 9,
+                        background: "#FFE600", color: "#111318",
+                        fontSize: 9, fontWeight: 800,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        padding: "0 5px",
+                      }}>
+                        {queue.length}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {queue.map((item) => {
+                        const itemCfg = TYPE_BUILDER_CONFIG[item.type as keyof typeof TYPE_BUILDER_CONFIG];
+                        return (
+                          <div
+                            key={item.id}
+                            draggable
+                            style={{
+                              display: "flex",
+                              alignItems: "stretch",
+                              background: "rgba(255,255,255,0.03)",
+                              borderRadius: 6,
+                              border: "1px solid rgba(255,255,255,0.07)",
+                              overflow: "hidden",
+                              cursor: "grab",
+                            }}
+                          >
+                            {/* Barevný pruh vlevo */}
+                            <div style={{ width: 3, background: itemCfg?.color ?? "#64748b", flexShrink: 0 }} />
+                            {/* Obsah */}
+                            <div style={{ flex: 1, padding: "7px 9px", minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: "#f1f5f9" }}>
+                                {item.orderNumber}
+                              </div>
+                              <div style={{ fontSize: 10, color: "#9ba8c0", marginTop: 2 }}>
+                                {itemCfg?.emoji} {item.machine.replace("_", "\u00a0")} · {formatDuration(item.durationHours)}
+                              </div>
+                              {item.description && (
+                                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {item.description}
+                                </div>
+                              )}
+                            </div>
+                            {/* Smazat */}
+                            <button
+                              type="button"
+                              onClick={() => setQueue((prev) => prev.filter((q) => q.id !== item.id))}
+                              style={{
+                                flexShrink: 0,
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                color: "#475569",
+                                fontSize: 16,
+                                padding: "0 10px",
+                                display: "flex",
+                                alignItems: "center",
+                                lineHeight: 1,
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
-                {successMsg && (
-                  <div className="rounded-md bg-green-500/20 border border-green-500/40 px-3 py-2 text-green-300 text-[10px]">
-                    {successMsg}
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                    Číslo zakázky *
-                  </label>
-                  <input
-                    value={orderNumber}
-                    onChange={(e) => setOrderNumber(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-yellow-400/50"
-                    placeholder="17001"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                      Stroj
-                    </label>
-                    <select
-                      value={machine}
-                      onChange={(e) => setMachine(e.target.value)}
-                      className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-yellow-400/50"
-                    >
-                      <option value="XL_105">XL 105</option>
-                      <option value="XL_106">XL 106</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                      Typ bloku
-                    </label>
-                    <select
-                      value={type}
-                      onChange={(e) => setType(e.target.value)}
-                      className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-yellow-400/50"
-                    >
-                      <option value="ZAKAZKA">Zakázka</option>
-                      <option value="REZERVACE">Rezervace</option>
-                      <option value="UDRZBA">Údržba</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                    Datum a čas začátku *
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={startDatetime}
-                    onChange={(e) => setStartDatetime(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-yellow-400/50"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                    Délka (30 min sloty)
-                  </label>
-                  <select
-                    value={durationHours}
-                    onChange={(e) => setDurationHours(Number(e.target.value))}
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-yellow-400/50"
-                  >
-                    {DURATION_OPTIONS.map((opt) => (
-                      <option key={opt.hours} value={opt.hours}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                    Popis zakázky
-                  </label>
-                  <textarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] text-slate-200 placeholder:text-slate-600 resize-none focus:outline-none focus:border-yellow-400/50"
-                    placeholder="Firma – produkt – počet tisků…"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                      DATA
-                    </label>
-                    <input
-                      type="date"
-                      value={deadlineData}
-                      onChange={(e) => setDeadlineData(e.target.value)}
-                      className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-yellow-400/50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                      Materiál
-                    </label>
-                    <input
-                      type="date"
-                      value={deadlineMaterial}
-                      onChange={(e) => setDeadlineMaterial(e.target.value)}
-                      className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-yellow-400/50"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-semibold tracking-wide text-slate-400 mb-1">
-                    Expedice
-                  </label>
-                  <input
-                    type="date"
-                    value={deadlineExpedice}
-                    onChange={(e) => setDeadlineExpedice(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-[11px] text-slate-200 focus:outline-none focus:border-yellow-400/50"
-                  />
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="w-full rounded-md bg-yellow-400 hover:bg-yellow-300 disabled:bg-yellow-400/40 text-black font-semibold py-2 text-[11px] transition-colors disabled:cursor-not-allowed"
-                  >
-                    {isSubmitting ? "Ukládám…" : "Uložit blok"}
-                  </button>
-                </div>
               </form>
             </div>
           )}

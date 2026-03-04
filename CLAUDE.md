@@ -19,7 +19,7 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 |-------|-------|------|
 | 1 | Skeleton, databáze, API, builder formulář | ✅ Hotovo |
 | 2 | Timeline render (grid + scroll + filtry) | ✅ Hotovo |
-| 3 | Drag & drop + resize + rozdělení | ⬜ Nezačato |
+| 3 | Drag & drop + resize + rozdělení | ✅ Hotovo |
 | 4 | Směny + svátky + background | ⬜ Nezačato |
 | 5 | Stavy, šednutí, overdue | ⬜ Nezačato |
 | 6 | Opakování | ⬜ Nezačato |
