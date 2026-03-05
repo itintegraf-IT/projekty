@@ -59,9 +59,6 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
         }),
         ...(body.materialOk !== undefined && { materialOk: body.materialOk }),
-        ...(body.pantoneExpectedDate !== undefined && {
-          pantoneExpectedDate: body.pantoneExpectedDate ? new Date(body.pantoneExpectedDate) : null,
-        }),
         // BARVY
         ...(body.barvyStatusId !== undefined && { barvyStatusId: body.barvyStatusId }),
         ...(body.barvyStatusLabel !== undefined && { barvyStatusLabel: body.barvyStatusLabel }),

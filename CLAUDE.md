@@ -106,7 +106,7 @@ npm run prisma:seed
 Pole: id, orderNumber, machine (XL_105|XL_106), startTime, endTime, type (ZAKAZKA|REZERVACE|UDRZBA),
 description, locked, deadlineExpedice,
 dataStatusId, dataStatusLabel, dataRequiredDate, dataOk,
-materialStatusId, materialStatusLabel, materialRequiredDate, materialOk, pantoneExpectedDate,
+materialStatusId, materialStatusLabel, materialRequiredDate, materialOk,
 barvyStatusId, barvyStatusLabel,
 lakStatusId, lakStatusLabel,
 specifikace,

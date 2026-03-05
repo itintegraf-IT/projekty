@@ -31,7 +31,6 @@ model Block {
   materialStatusLabel  String?
   materialRequiredDate DateTime?
   materialOk           Boolean   @default(false)
-  pantoneExpectedDate  DateTime?
 
   // Výrobní sloupečky — BARVY (Etapa 5)
   barvyStatusId    Int?

@@ -30,8 +30,7 @@ const MATERIAL_OPTIONS = [
   { label: "60m",                              sortOrder: 6  },
   { label: "60lim",                            sortOrder: 7  },
   { label: "70m",                              sortOrder: 8  },
-  { label: "pantone (očekávané datum dodání)", sortOrder: 9  },
-  { label: "MÍSTO PRO POZNÁMKU",              sortOrder: 10 },
+  { label: "MÍSTO PRO POZNÁMKU",              sortOrder: 9  },
 ];
 
 const BARVY_OPTIONS = [

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
+const HEADER_HEIGHT = 33;       // výška sticky headeru (px) — pro sticky label uvnitř dne
 const TIME_COL_W = 72;          // šířka sloupce s časy (px)
 const VIEW_DAYS_BACK = 3;
 const VIEW_DAYS_AHEAD = 30;
@@ -39,7 +40,6 @@ export type Block = {
   materialStatusLabel: string | null;
   materialRequiredDate: string | null;
   materialOk: boolean;
-  pantoneExpectedDate: string | null;
   // Výrobní sloupečky — BARVY
   barvyStatusId: number | null;
   barvyStatusLabel: string | null;
@@ -672,7 +672,7 @@ export default function TimelineGrid({
     try {
       const res1 = await fetch(`/api/blocks/${block.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: splitAt.toISOString() }) });
       onBlockUpdate(await res1.json());
-      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, pantoneExpectedDate: block.pantoneExpectedDate, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
+      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
       onBlockCreate(await res2.json());
     } catch { /* chyba při dělení */ }
   }
@@ -784,22 +784,28 @@ export default function TimelineGrid({
                     : d.isWeekend
                     ? "rgba(251,146,60,0.04)"
                     : "transparent",
+                }}
+              >
+                {/* Sticky label — drží se viditelnosti celý den při scrollování */}
+                <div style={{
+                  position: "sticky",
+                  top: HEADER_HEIGHT,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   paddingTop: 8,
                   gap: 2,
-                }}
-              >
-                <span style={{ fontSize: 8, fontWeight: 600, letterSpacing: "0.04em", lineHeight: 1, color: d.isToday ? "#93c5fd" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fdba74" : "rgb(71 85 105)" }}>
-                  {DAY_ABBR[d.date.getDay()]}
-                </span>
-                <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1, color: d.isToday ? "#3b82f6" : d.isHoliday ? "#ef4444" : d.isCompanyDay ? "#8b5cf6" : d.isWeekend ? "#fb923c" : "rgb(100 116 139)" }}>
-                  {d.date.getDate()}
-                </span>
-                <span style={{ fontSize: 8, fontWeight: 500, lineHeight: 1, color: d.isToday ? "#93c5fd" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fdba74" : "rgb(51 65 85)" }}>
-                  {MONTH_ABBR[d.date.getMonth()]}
-                </span>
+                }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fb923c" : "#94a3b8" }}>
+                    {DAY_ABBR[d.date.getDay()]}
+                  </span>
+                  <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: d.isToday ? "#38bdf8" : d.isHoliday ? "#f87171" : d.isCompanyDay ? "#a78bfa" : d.isWeekend ? "#f97316" : "#e2e8f0" }}>
+                    {d.date.getDate()}
+                  </span>
+                  <span style={{ fontSize: 8, fontWeight: 600, lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fb923c" : "#64748b" }}>
+                    {MONTH_ABBR[d.date.getMonth()]}
+                  </span>
+                </div>
               </div>
             ))}
           </div>

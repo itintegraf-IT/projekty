@@ -44,7 +44,6 @@ export async function POST(request: NextRequest) {
         materialStatusLabel: body.materialStatusLabel ?? null,
         materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
         materialOk: body.materialOk ?? false,
-        pantoneExpectedDate: body.pantoneExpectedDate ? new Date(body.pantoneExpectedDate) : null,
         // BARVY
         barvyStatusId: body.barvyStatusId ?? null,
         barvyStatusLabel: body.barvyStatusLabel ?? null,

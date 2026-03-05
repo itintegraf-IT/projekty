@@ -14,7 +14,6 @@ export default async function HomePage() {
     deadlineExpedice: b.deadlineExpedice?.toISOString() ?? null,
     dataRequiredDate: b.dataRequiredDate?.toISOString() ?? null,
     materialRequiredDate: b.materialRequiredDate?.toISOString() ?? null,
-    pantoneExpectedDate: b.pantoneExpectedDate?.toISOString() ?? null,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   }));

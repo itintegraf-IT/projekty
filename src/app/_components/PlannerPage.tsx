@@ -29,8 +29,10 @@ type QueueItem = {
   description: string;
   dataStatusId: number | null;
   dataStatusLabel: string | null;
+  dataRequiredDate: string | null;
   materialStatusId: number | null;
   materialStatusLabel: string | null;
+  materialRequiredDate: string | null;
   barvyStatusId: number | null;
   barvyStatusLabel: string | null;
   lakStatusId: number | null;
@@ -172,10 +174,6 @@ function BlockEdit({
     block.materialRequiredDate ? new Date(block.materialRequiredDate).toISOString().slice(0, 10) : ""
   );
   const [materialOk, setMaterialOk]             = useState(block.materialOk);
-  const [pantoneExpectedDate, setPantoneExpectedDate] = useState(
-    block.pantoneExpectedDate ? new Date(block.pantoneExpectedDate).toISOString().slice(0, 10) : ""
-  );
-
   // BARVY
   const [barvyStatusId, setBarvyStatusId] = useState<string>(block.barvyStatusId?.toString() ?? "");
 
@@ -231,7 +229,6 @@ function BlockEdit({
           materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
           materialRequiredDate: materialRequiredDate || null,
           materialOk,
-          pantoneExpectedDate: pantoneExpectedDate || null,
           barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
           barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
           lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
@@ -255,6 +252,10 @@ function BlockEdit({
 
   function SectionLabel({ children }: { children: React.ReactNode }) {
     return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 8 }}>{children}</div>;
+  }
+
+  function ColLabel({ children }: { children: React.ReactNode }) {
+    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 5 }}>{children}</div>;
   }
 
   function StatusSelect({ value, onChange, opts, placeholder }: {
@@ -345,64 +346,53 @@ function BlockEdit({
 
         {/* ── Výrobní sloupečky ── */}
         {type !== "UDRZBA" && (
-          <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
             <SectionLabel>Výrobní sloupečky</SectionLabel>
 
-            {/* DATA */}
-            <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: 6, padding: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>DATA</Label>
-              <StatusSelect value={dataStatusId} onChange={setDataStatusId} opts={dataOpts} placeholder="Status dat…" />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginTop: 6 }}>
-                <div>
-                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum potřeby</Label>
-                  <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum…" />
-                </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: dataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", paddingBottom: 2, flexShrink: 0 }}>
+            {/* Řádek 1: Datumy — DATA | MATERIÁL | EXPEDICE */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              <div>
+                <ColLabel>DATA datum</ColLabel>
+                <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum dodání…" />
+              </div>
+              <div>
+                <ColLabel>MATERIÁL datum</ColLabel>
+                <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum dodání…" />
+              </div>
+              <div>
+                <ColLabel>EXPEDICE</ColLabel>
+                <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} placeholder="Datum…" />
+              </div>
+            </div>
+
+            {/* Řádek 2: Poznámky — DATA | MATERIÁL | BARVY | LAK */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 6 }}>
+              {/* DATA */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <StatusSelect value={dataStatusId} onChange={setDataStatusId} opts={dataOpts} placeholder="DATA" />
+                <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: dataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer" }}>
                   <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
                   OK
                 </label>
               </div>
-            </div>
-
-            {/* MATERIÁL */}
-            <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: 6, padding: "10px", border: "1px solid rgba(255,255,255,0.05)" }}>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>MATERIÁL</Label>
-              <StatusSelect value={materialStatusId} onChange={setMaterialStatusId} opts={materialOpts} placeholder="Status materiálu…" />
-              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "end", marginTop: 6 }}>
-                <div>
-                  <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Datum potřeby</Label>
-                  <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum…" />
-                </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: materialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer", paddingBottom: 2, flexShrink: 0 }}>
+              {/* MATERIÁL */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <StatusSelect value={materialStatusId} onChange={setMaterialStatusId} opts={materialOpts} placeholder="MAT." />
+                <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: materialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer" }}>
                   <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
                   OK
                 </label>
               </div>
-              <div style={{ marginTop: 6 }}>
-                <Label style={{ fontSize: 9, color: "#64748b", marginBottom: 3, display: "block" }}>Pantone — očekávané dodání</Label>
-                <DatePickerField value={pantoneExpectedDate} onChange={setPantoneExpectedDate} placeholder="Datum pantonu…" />
-              </div>
-            </div>
-
-            {/* BARVY + LAK — jeden řádek */}
-            <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 6, display: "block" }}>BARVY &amp; LAK</Label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="Barvy…" />
-                <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="Lak…" />
-              </div>
+              {/* BARVY */}
+              <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="BARVY" />
+              {/* LAK */}
+              <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="LAK" />
             </div>
 
             {/* SPECIFIKACE */}
-            <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>SPECIFIKACE</Label>
+            <div style={{ marginTop: 8 }}>
+              <SectionLabel>Specifikace</SectionLabel>
               <Textarea value={specifikace} onChange={(e) => setSpecifikace(e.target.value)} rows={2} placeholder="Speciální požadavky…" className="text-xs resize-none" />
-            </div>
-
-            {/* Expedice */}
-            <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Termín expedice</Label>
-              <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} placeholder="Datum expedice…" />
             </div>
           </div>
         )}
@@ -735,7 +725,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   const [description, setDescription]     = useState("");
   const [bDeadlineExpedice, setBDeadlineExpedice] = useState("");
   const [bDataStatusId, setBDataStatusId]         = useState<string>("");
-  const [bMaterialStatusId, setBMaterialStatusId] = useState<string>("");
+  const [bDataRequiredDate, setBDataRequiredDate] = useState<string>("");
+  const [bMaterialStatusId, setBMaterialStatusId]         = useState<string>("");
+  const [bMaterialRequiredDate, setBMaterialRequiredDate] = useState<string>("");
   const [bBarvyStatusId, setBBarvyStatusId]       = useState<string>("");
   const [bLakStatusId, setBLakStatusId]           = useState<string>("");
   const [bSpecifikace, setBSpecifikace]           = useState("");
@@ -865,8 +857,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
         description: description.trim(),
         dataStatusId: bDataStatusId ? Number(bDataStatusId) : null,
         dataStatusLabel: findLabel(bDataOpts, bDataStatusId),
+        dataRequiredDate: bDataRequiredDate || null,
         materialStatusId: bMaterialStatusId ? Number(bMaterialStatusId) : null,
         materialStatusLabel: findLabel(bMaterialOpts, bMaterialStatusId),
+        materialRequiredDate: bMaterialRequiredDate || null,
         barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
         barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
         lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
@@ -878,7 +872,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
     setOrderNumber("");
     setDescription("");
     setBDataStatusId("");
+    setBDataRequiredDate("");
     setBMaterialStatusId("");
+    setBMaterialRequiredDate("");
     setBBarvyStatusId("");
     setBLakStatusId("");
     setBSpecifikace("");
@@ -902,8 +898,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
           description: item.description || null,
           dataStatusId: item.dataStatusId,
           dataStatusLabel: item.dataStatusLabel,
+          dataRequiredDate: item.dataRequiredDate || null,
           materialStatusId: item.materialStatusId,
           materialStatusLabel: item.materialStatusLabel,
+          materialRequiredDate: item.materialRequiredDate || null,
           barvyStatusId: item.barvyStatusId,
           barvyStatusLabel: item.barvyStatusLabel,
           lakStatusId: item.lakStatusId,
@@ -1087,59 +1085,59 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                       {type === "UDRZBA" ? "Popis" : "Zakázka"}
                     </div>
 
-                    {/* Číslo zakázky */}
-                    <div>
-                      <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>
-                        {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
-                      </Label>
-                      <Input
-                        value={orderNumber}
-                        onChange={(e) => setOrderNumber(e.target.value)}
-                        placeholder={type === "UDRZBA" ? "Čištění hlavy…" : "17001"}
-                        className="h-8 text-xs"
-                      />
-                    </div>
+                    {/* Číslo zakázky + Délka tisku */}
+                    <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                      <div style={{ flex: "0 0 130px" }}>
+                        <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>
+                          {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
+                        </Label>
+                        <Input
+                          value={orderNumber}
+                          onChange={(e) => setOrderNumber(e.target.value)}
+                          placeholder={type === "UDRZBA" ? "Čištění hlavy…" : "17001"}
+                          className="h-8 text-xs"
+                        />
+                      </div>
 
-                    {/* Délka tisku */}
-                    <div>
-                      <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Délka tisku</label>
-                      <div style={{ position: "relative", display: "inline-block", width: "fit-content" }}>
-                        <select
-                          value={String(durationHours)}
-                          onChange={(e) => setDurationHours(Number(e.target.value))}
-                          style={{
-                            appearance: "none",
-                            width: "auto",
-                            minWidth: 120,
-                            height: 40,
-                            background: "#181b22",
-                            border: "1px solid #1e2130",
-                            borderRadius: 10,
-                            color: "#e8eaf0",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            padding: "0 40px 0 14px",
-                            cursor: "pointer",
-                            outline: "none",
-                          }}
-                          onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                          onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
-                        >
-                          {DURATION_OPTIONS.map((opt) => (
-                            <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
-                          ))}
-                        </select>
-                        <svg
-                          viewBox="0 0 20 20"
-                          fill="none"
-                          stroke="#6b7280"
-                          strokeWidth="1.8"
-                          style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, pointerEvents: "none" }}
-                        >
-                          <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Délka tisku</label>
+                        <div style={{ position: "relative" }}>
+                          <select
+                            value={String(durationHours)}
+                            onChange={(e) => setDurationHours(Number(e.target.value))}
+                            style={{
+                              appearance: "none",
+                              width: "100%",
+                              height: 32,
+                              background: "#181b22",
+                              border: "1px solid #1e2130",
+                              borderRadius: 10,
+                              color: "#e8eaf0",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              padding: "0 36px 0 14px",
+                              cursor: "pointer",
+                              outline: "none",
+                            }}
+                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                          >
+                            {DURATION_OPTIONS.map((opt) => (
+                              <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
+                            ))}
+                          </select>
+                          <svg
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="#6b7280"
+                            strokeWidth="1.8"
+                            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 14, height: 14, pointerEvents: "none" }}
+                          >
+                            <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </div>
                       </div>
                     </div>
 
@@ -1160,10 +1158,97 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                   {type !== "UDRZBA" && (
                     <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Výrobní sloupečky</div>
+                      {/* DATA — datum + dropdown v jednom řádku */}
+                      <div>
+                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Data</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input
+                            type="date"
+                            value={bDataRequiredDate}
+                            onChange={(e) => setBDataRequiredDate(e.target.value)}
+                            style={{
+                              flex: "0 0 130px", height: 32, background: "#181b22",
+                              border: "1px solid #1e2130", borderRadius: 10, color: bDataRequiredDate ? "#e8eaf0" : "#64748b",
+                              fontSize: 12, padding: "0 10px", outline: "none", colorScheme: "dark",
+                            }}
+                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                          />
+                          <div style={{ position: "relative", flex: 1 }}>
+                            <select
+                              value={bDataStatusId}
+                              onChange={(e) => setBDataStatusId(e.target.value)}
+                              style={{
+                                appearance: "none", width: "100%", height: 32,
+                                background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
+                                color: bDataStatusId ? "#e8eaf0" : "#64748b", fontSize: 12, fontWeight: 600,
+                                padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
+                              }}
+                              onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                              onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                            >
+                              <option value="">— info —</option>
+                              {bDataOpts.map((o) => (
+                                <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                              ))}
+                            </select>
+                            <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
+                              <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Materiál — datum + dropdown v jednom řádku */}
+                      <div>
+                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Materiál</label>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input
+                            type="date"
+                            value={bMaterialRequiredDate}
+                            onChange={(e) => setBMaterialRequiredDate(e.target.value)}
+                            style={{
+                              flex: "0 0 130px", height: 32, background: "#181b22",
+                              border: "1px solid #1e2130", borderRadius: 10, color: bMaterialRequiredDate ? "#e8eaf0" : "#64748b",
+                              fontSize: 12, padding: "0 10px", outline: "none", colorScheme: "dark",
+                            }}
+                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                          />
+                          <div style={{ position: "relative", flex: 1 }}>
+                            <select
+                              value={bMaterialStatusId}
+                              onChange={(e) => setBMaterialStatusId(e.target.value)}
+                              style={{
+                                appearance: "none", width: "100%", height: 32,
+                                background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
+                                color: bMaterialStatusId ? "#e8eaf0" : "#64748b", fontSize: 12, fontWeight: 600,
+                                padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
+                              }}
+                              onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                              onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                            >
+                              <option value="">— info —</option>
+                              {bMaterialOpts.map((o) => (
+                                <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                              ))}
+                            </select>
+                            <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
+                              <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Barvy, Lak — 2×2 grid */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         {([
-                          { label: "Data",    value: bDataStatusId,     setter: setBDataStatusId,     opts: bDataOpts },
-                          { label: "Materiál", value: bMaterialStatusId, setter: setBMaterialStatusId, opts: bMaterialOpts },
                           { label: "Barvy",   value: bBarvyStatusId,    setter: setBBarvyStatusId,    opts: bBarvyOpts },
                           { label: "Lak",     value: bLakStatusId,      setter: setBLakStatusId,      opts: bLakOpts },
                         ] as { label: string; value: string; setter: (v: string) => void; opts: CodebookOption[] }[]).map(({ label, value, setter, opts }) => (
@@ -1174,10 +1259,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                                 value={value}
                                 onChange={(e) => setter(e.target.value)}
                                 style={{
-                                  appearance: "none", width: "100%", height: 40,
+                                  appearance: "none", width: "100%", height: 32,
                                   background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
-                                  color: value ? "#e8eaf0" : "#64748b", fontSize: 13, fontWeight: 600,
-                                  padding: "0 40px 0 14px", cursor: "pointer", outline: "none",
+                                  color: value ? "#e8eaf0" : "#64748b", fontSize: 12, fontWeight: 600,
+                                  padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
                                 }}
                                 onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
                                 onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
@@ -1190,7 +1275,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                                 ))}
                               </select>
                               <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
-                                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, pointerEvents: "none" }}>
+                                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
                                 <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
                               </svg>
                             </div>
