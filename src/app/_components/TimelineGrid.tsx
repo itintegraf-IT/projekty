@@ -11,8 +11,6 @@ const VIEW_DAYS_BACK = 3;
 const VIEW_DAYS_AHEAD = 30;
 const TOTAL_DAYS = VIEW_DAYS_BACK + VIEW_DAYS_AHEAD + 1;
 const TOTAL_SLOTS = TOTAL_DAYS * 48;
-const TOTAL_HEIGHT = TOTAL_SLOTS * SLOT_HEIGHT;
-const DAY_HEIGHT = 48 * SLOT_HEIGHT; // 1248 px
 const WORK_START_H = 6;
 const WORK_END_H = 22;
 const MACHINES = ["XL_105", "XL_106"] as const;
@@ -89,6 +87,7 @@ interface TimelineGridProps {
   onQueueDrop?: (itemId: number, machine: string, startTime: Date) => void;
   onBlockDoubleClick?: (block: Block) => void;
   companyDays?: CompanyDay[];
+  slotHeight?: number;
 }
 
 type QueueDropPreview = {
@@ -122,6 +121,13 @@ function easterDate(year: number): Date {
   return new Date(year, month - 1, day);
 }
 
+function localDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function czechHolidaySet(year: number): Set<string> {
   const s = new Set([
     `${year}-01-01`, `${year}-05-01`, `${year}-05-08`,
@@ -132,8 +138,8 @@ function czechHolidaySet(year: number): Set<string> {
   const easter = easterDate(year);
   const goodFriday = new Date(easter); goodFriday.setDate(easter.getDate() - 2);
   const easterMon  = new Date(easter); easterMon.setDate(easter.getDate() + 1);
-  s.add(goodFriday.toISOString().slice(0, 10));
-  s.add(easterMon.toISOString().slice(0, 10));
+  s.add(localDateStr(goodFriday));
+  s.add(localDateStr(easterMon));
   return s;
 }
 
@@ -154,13 +160,13 @@ function addDays(d: Date, n: number): Date {
   return r;
 }
 
-export function dateToY(date: Date, viewStart: Date): number {
+export function dateToY(date: Date, viewStart: Date, slotHeight = SLOT_HEIGHT): number {
   const diffMs = date.getTime() - viewStart.getTime();
-  return (diffMs / 60000 / 30) * SLOT_HEIGHT;
+  return (diffMs / 60000 / 30) * slotHeight;
 }
 
-function yToDate(y: number, viewStart: Date): Date {
-  const minutes = (y / SLOT_HEIGHT) * 30;
+function yToDate(y: number, viewStart: Date, slotHeight = SLOT_HEIGHT): Date {
+  const minutes = (y / slotHeight) * 30;
   return new Date(viewStart.getTime() + minutes * 60000);
 }
 
@@ -492,18 +498,25 @@ export default function TimelineGrid({
   onBlockClick, onBlockUpdate, onBlockCreate, scrollRef,
   queueDragItem, onQueueDrop, onBlockDoubleClick,
   companyDays,
+  slotHeight = SLOT_HEIGHT,
 }: TimelineGridProps) {
+  const dayHeight   = slotHeight * 48;
+  const totalHeight = TOTAL_DAYS * dayHeight;
+
   const [viewStart, setViewStart] = useState<Date | null>(null);
   const [now, setNow]             = useState<Date | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
 
-  const dragStateRef  = useRef<DragInternalState | null>(null);
-  const dragDidMove   = useRef(false);
-  const viewStartRef  = useRef<Date | null>(null);
-  const colRefs       = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef  = useRef({ onBlockUpdate, onBlockCreate });
+  const dragStateRef    = useRef<DragInternalState | null>(null);
+  const dragDidMove     = useRef(false);
+  const viewStartRef    = useRef<Date | null>(null);
+  const slotHeightRef   = useRef(slotHeight);
+  const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate });
+
+  useEffect(() => { slotHeightRef.current = slotHeight; }, [slotHeight]);
 
   useEffect(() => {
     callbacksRef.current = { onBlockUpdate, onBlockCreate };
@@ -554,19 +567,20 @@ export default function TimelineGrid({
       const deltaX = e.clientX - ds.startClientX;
       if (Math.abs(deltaY) + Math.abs(deltaX) > DRAG_THRESHOLD) dragDidMove.current = true;
 
+      const sh = slotHeightRef.current;
       if (ds.type === "move") {
-        const originalTop    = dateToY(ds.originalStart, vs);
-        const originalHeight = dateToY(ds.originalEnd, vs) - originalTop;
+        const originalTop    = dateToY(ds.originalStart, vs, sh);
+        const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
         const newMachine     = clientXToMachine(e.clientX);
-        const snappedStart   = snapToSlot(yToDate(originalTop + deltaY, vs));
-        const snappedTop     = dateToY(snappedStart, vs);
+        const snappedStart   = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
+        const snappedTop     = dateToY(snappedStart, vs, sh);
         setDragPreview({ blockId: ds.blockId, top: snappedTop, height: originalHeight, machine: newMachine });
       } else {
-        const originalTop    = dateToY(ds.originalStart, vs);
-        const originalHeight = dateToY(ds.originalEnd, vs) - originalTop;
-        const rawEnd         = yToDate(originalTop + Math.max(SLOT_HEIGHT, originalHeight + deltaY), vs);
+        const originalTop    = dateToY(ds.originalStart, vs, sh);
+        const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
+        const rawEnd         = yToDate(originalTop + Math.max(sh, originalHeight + deltaY), vs, sh);
         const snappedEnd     = snapToSlot(rawEnd);
-        const snappedHeight  = Math.max(SLOT_HEIGHT, dateToY(snappedEnd, vs) - originalTop);
+        const snappedHeight  = Math.max(sh, dateToY(snappedEnd, vs, sh) - originalTop);
         setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine });
       }
     }
@@ -584,9 +598,10 @@ export default function TimelineGrid({
 
       const deltaY = e.clientY - ds.startClientY;
 
+      const sh = slotHeightRef.current;
       if (ds.type === "move") {
-        const originalTop = dateToY(ds.originalStart, vs);
-        const newStart    = snapToSlot(yToDate(originalTop + deltaY, vs));
+        const originalTop = dateToY(ds.originalStart, vs, sh);
+        const newStart    = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
         const newEnd      = new Date(newStart.getTime() + duration);
         const newMachine  = clientXToMachine(e.clientX);
@@ -596,10 +611,10 @@ export default function TimelineGrid({
           callbacksRef.current.onBlockUpdate(updated);
         } catch { /* blok zůstane nezměněn */ }
       } else {
-        const originalTop    = dateToY(ds.originalStart, vs);
-        const originalHeight = dateToY(ds.originalEnd, vs) - originalTop;
-        const newHeightRaw   = Math.max(SLOT_HEIGHT, originalHeight + deltaY);
-        const finalEnd       = snapToSlot(yToDate(originalTop + newHeightRaw, vs));
+        const originalTop    = dateToY(ds.originalStart, vs, sh);
+        const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
+        const newHeightRaw   = Math.max(sh, originalHeight + deltaY);
+        const finalEnd       = snapToSlot(yToDate(originalTop + newHeightRaw, vs, sh));
         const minEnd         = new Date(ds.originalStart.getTime() + SLOT_MS);
         try {
           const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString() }) });
@@ -633,8 +648,9 @@ export default function TimelineGrid({
     if (!vs) return;
     dragStateRef.current = { type: "move", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
     dragDidMove.current  = false;
-    const top    = dateToY(new Date(block.startTime), vs);
-    const height = dateToY(new Date(block.endTime), vs) - top;
+    const sh     = slotHeightRef.current;
+    const top    = dateToY(new Date(block.startTime), vs, sh);
+    const height = dateToY(new Date(block.endTime), vs, sh) - top;
     setDragPreview({ blockId: block.id, top, height, machine: block.machine });
   }
 
@@ -645,8 +661,9 @@ export default function TimelineGrid({
     if (!vs) return;
     dragStateRef.current = { type: "resize", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
     dragDidMove.current  = false;
-    const top    = dateToY(new Date(block.startTime), vs);
-    const height = dateToY(new Date(block.endTime), vs) - top;
+    const sh     = slotHeightRef.current;
+    const top    = dateToY(new Date(block.startTime), vs, sh);
+    const height = dateToY(new Date(block.endTime), vs, sh) - top;
     setDragPreview({ blockId: block.id, top, height, machine: block.machine });
   }
 
@@ -722,30 +739,32 @@ export default function TimelineGrid({
     return s;
   })();
 
-  type HalfHourMark = { y: number; label: string; isFullHour: boolean };
+  type HalfHourMark = { y: number; label: string; isFullHour: boolean; isLabel: boolean };
   const halfHourMarkers: HalfHourMark[] = [];
+  // Kolik slotů (po 30 min) přeskočit mezi viditelnými štítky
+  const labelStep = slotHeight >= 14 ? 1 : slotHeight >= 7 ? 2 : slotHeight >= 4 ? 4 : 8;
 
   const nightOverlays: { top: number; height: number; key: string }[] = [];
 
   for (let di = 0; di < TOTAL_DAYS; di++) {
     const day      = addDays(viewStart, di);
-    const dayY     = di * DAY_HEIGHT;
+    const dayY     = di * dayHeight;
     const isWeekend = day.getDay() === 0 || day.getDay() === 6;
     const isToday  = isSameDay(day, todayDate);
     const dateStr  = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const isHoliday = holidays.has(dateStr);
     const companyDayMatch = companyDays?.find((cd) => dateStr >= cd.startDate.slice(0, 10) && dateStr <= cd.endDate.slice(0, 10));
     days.push({ date: day, y: dayY, isWeekend, isToday, isHoliday, isCompanyDay: !!companyDayMatch, companyDayLabel: companyDayMatch?.label });
-    nightOverlays.push({ top: dayY,                            height: WORK_START_H * 2 * SLOT_HEIGHT, key: `ns-${di}` });
-    nightOverlays.push({ top: dayY + WORK_END_H * 2 * SLOT_HEIGHT, height: (24 - WORK_END_H) * 2 * SLOT_HEIGHT, key: `ne-${di}` });
+    nightOverlays.push({ top: dayY,                                height: WORK_START_H * 2 * slotHeight, key: `ns-${di}` });
+    nightOverlays.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `ne-${di}` });
     for (let s = 0; s < 48; s++) {
       const h = Math.floor(s / 2);
       const m = s % 2 === 0 ? "00" : "30";
-      halfHourMarkers.push({ y: dayY + s * SLOT_HEIGHT, label: `${String(h).padStart(2, "0")}:${m}`, isFullHour: m === "00" });
+      halfHourMarkers.push({ y: dayY + s * slotHeight, label: `${String(h).padStart(2, "0")}:${m}`, isFullHour: m === "00", isLabel: s % labelStep === 0 });
     }
   }
 
-  const currentTimeY = now ? dateToY(now, viewStart) : null;
+  const currentTimeY = now ? dateToY(now, viewStart, slotHeight) : null;
   const filter       = filterText.trim().toLowerCase();
 
   return (
@@ -753,7 +772,7 @@ export default function TimelineGrid({
       {header}
 
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-        <div style={{ height: TOTAL_HEIGHT, display: "flex" }}>
+        <div style={{ height: totalHeight, display: "flex" }}>
 
           {/* ── Datum sloupec ─────────────────────────────────────────────── */}
           <div style={{ width: DATE_COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(7 11 22)" }}>
@@ -763,7 +782,7 @@ export default function TimelineGrid({
                 style={{
                   position: "absolute",
                   top: d.y,
-                  height: DAY_HEIGHT,
+                  height: dayHeight,
                   left: 0,
                   right: 0,
                   borderLeft: d.isToday
@@ -815,10 +834,10 @@ export default function TimelineGrid({
             {/* Firemní den overlay */}
             {days.map((d) =>
               d.isCompanyDay ? (
-                <div key={`ct-${d.y}`} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
+                <div key={`ct-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
               ) : null
             )}
-            {halfHourMarkers.map((m) => (
+            {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
               <div
                 key={m.y}
                 style={{
@@ -826,7 +845,7 @@ export default function TimelineGrid({
                   top: m.y,
                   left: 0,
                   right: 0,
-                  height: SLOT_HEIGHT,
+                  height: slotHeight,
                   display: "flex",
                   alignItems: "center",
                   paddingLeft: 8,
@@ -857,9 +876,9 @@ export default function TimelineGrid({
                   if (!vs || !el) return;
                   const rect = el.getBoundingClientRect();
                   const timelineY = e.clientY - rect.top + el.scrollTop;
-                  const snappedStart = snapToSlot(yToDate(timelineY, vs));
-                  const snappedY = dateToY(snappedStart, vs);
-                  const height = queueDragItem.durationHours * 2 * SLOT_HEIGHT;
+                  const snappedStart = snapToSlot(yToDate(timelineY, vs, slotHeight));
+                  const snappedY = dateToY(snappedStart, vs, slotHeight);
+                  const height = queueDragItem.durationHours * 2 * slotHeight;
                   setQueueDropPreview({ machine, top: snappedY, height, jobType: queueDragItem.type });
                 }}
                 onDragLeave={(e) => {
@@ -883,28 +902,28 @@ export default function TimelineGrid({
                 {/* Dnešní pozadí */}
                 {days.map((d) =>
                   d.isToday ? (
-                    <div key={d.y} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(36,132,245,0.04)", pointerEvents: "none" }} />
+                    <div key={d.y} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(36,132,245,0.04)", pointerEvents: "none" }} />
                   ) : null
                 )}
 
                 {/* Víkendové pozadí */}
                 {days.map((d) =>
                   d.isWeekend && !d.isToday ? (
-                    <div key={d.y} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(20,16,12,0.35)", pointerEvents: "none" }} />
+                    <div key={d.y} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(20,16,12,0.35)", pointerEvents: "none" }} />
                   ) : null
                 )}
 
                 {/* Svátek overlay */}
                 {days.map((d) =>
                   d.isHoliday && !d.isToday ? (
-                    <div key={`h-${d.y}`} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(239,68,68,0.06)", pointerEvents: "none" }} />
+                    <div key={`h-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(239,68,68,0.06)", pointerEvents: "none" }} />
                   ) : null
                 )}
 
                 {/* Firemní den overlay */}
                 {days.map((d) =>
                   d.isCompanyDay ? (
-                    <div key={`c-${d.y}`} style={{ position: "absolute", top: d.y, height: DAY_HEIGHT, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
+                    <div key={`c-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
                   ) : null
                 )}
 
@@ -919,12 +938,12 @@ export default function TimelineGrid({
                 ))}
 
                 {/* Hodinové čáry */}
-                {halfHourMarkers.filter((m) => m.isFullHour).map((m) => (
+                {halfHourMarkers.filter((m) => m.isLabel && m.isFullHour).map((m) => (
                   <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "rgba(30,41,59,0.7)" }} />
                 ))}
 
                 {/* Půlhodinové čáry */}
-                {halfHourMarkers.filter((m) => !m.isFullHour).map((m) => (
+                {halfHourMarkers.filter((m) => m.isLabel && !m.isFullHour).map((m) => (
                   <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "rgba(30,41,59,0.35)" }} />
                 ))}
 
@@ -941,8 +960,8 @@ export default function TimelineGrid({
                 {machineBlocks.map((block) => {
                   const isThisBlockDragging = dragPreview?.blockId === block.id;
                   // Vždy renderujeme na původní pozici; při tažení blok zešedne (ghost at origin)
-                  const top    = dateToY(new Date(block.startTime), viewStart);
-                  const height = dateToY(new Date(block.endTime), viewStart) - top;
+                  const top    = dateToY(new Date(block.startTime), viewStart, slotHeight);
+                  const height = dateToY(new Date(block.endTime), viewStart, slotHeight) - top;
                   const dimmed   = (filter !== "" && !block.orderNumber.toLowerCase().includes(filter)) || !!isThisBlockDragging;
                   const selected = !isThisBlockDragging && block.id === selectedBlockId;
 
@@ -976,7 +995,7 @@ export default function TimelineGrid({
                     <div style={{
                       position: "absolute",
                       top: dragPreview.top,
-                      height: Math.max(dragPreview.height, SLOT_HEIGHT),
+                      height: Math.max(dragPreview.height, slotHeight),
                       left: 3, width: "calc(100% - 6px)",
                       borderRadius: 4,
                       backgroundColor: `${color}22`,
@@ -992,7 +1011,7 @@ export default function TimelineGrid({
                   <div style={{
                     position: "absolute",
                     top: queueDropPreview.top,
-                    height: Math.max(queueDropPreview.height, SLOT_HEIGHT),
+                    height: Math.max(queueDropPreview.height, slotHeight),
                     left: 3, width: "calc(100% - 6px)",
                     borderRadius: 4,
                     backgroundColor: "rgba(36,132,245,0.18)",

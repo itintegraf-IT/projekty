@@ -42,6 +42,28 @@ Webová aplikace pro plánování výroby na strojích XL 105 a XL 106. Umožňu
 
 ---
 
+## Design — Apple standard
+
+Veškeré UI komponenty musí vizuálně odpovídat kvalitě aplikací Apple. Toto je závazné pravidlo pro celý projekt.
+
+| Zásada | Pravidlo |
+|--------|----------|
+| **Fonty** | `-apple-system, BlinkMacSystemFont` — systémový font, nikdy Google Fonts |
+| **Spacing** | Výhradně násobky 4 px (4, 8, 12, 16, 20, 24…) |
+| **Bordery** | Max 1 px, ideálně `rgba(255,255,255,0.08–0.15)` |
+| **Animace** | `transition` max 150 ms, `ease-out` nebo spring — nikdy lineární |
+| **Barvy** | Pozadí `#0a0a0f` / `#111318`, akcenty modrá `#3b82f6`, CTA žlutá `#FFE600` |
+| **Nativní prvky** | `<input type="range">`, `<select>`, `<input type="date">` bez restylu jsou zakázány |
+| **Vlastní komponenty** | Slider, dropdown, date picker — vlastní implementace; shadcn/ui jen pro jednoduchá primitiva |
+| **Interakce** | Hover: jemná změna opacity nebo brightness; žádné těžké stíny na hover |
+
+### Příklady dodržení standardu
+- `ZoomSlider` v `PlannerPage.tsx` — custom drag slider, bílý thumb se stínem, ikony lupy
+- `<select>` pole — jednotný styl `#181b22` bg, `border-radius: 10`, `height: 32–40`
+- `<input type="date">` — `colorScheme: "dark"`, jednotný border a background
+
+---
+
 ## Hlavní layout
 
 - **Split view:** vlevo plánovací timeline, vpravo builder formulář

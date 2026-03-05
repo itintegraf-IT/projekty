@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
@@ -53,6 +53,83 @@ const TYPE_BUILDER_CONFIG = {
   REZERVACE: { emoji: "📌", label: "Rezervace",       color: "#7c3aed" },
   UDRZBA:    { emoji: "🔧", label: "Údržba / Oprava", color: "#c0392b" },
 } as const;
+
+// ─── ZoomSlider ───────────────────────────────────────────────────────────────
+function ZoomSlider({ value, onChange, min = 3, max = 26 }: {
+  value: number; onChange: (v: number) => void; min?: number; max?: number;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+
+  const pct = (value - min) / (max - min);
+
+  const applyPosition = useCallback((clientX: number) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const { left, width } = el.getBoundingClientRect();
+    const raw = (clientX - left) / width;
+    const clamped = Math.min(1, Math.max(0, raw));
+    onChange(Math.round(min + clamped * (max - min)));
+  }, [min, max, onChange]);
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) { if (isDragging.current) applyPosition(e.clientX); }
+    function onMouseUp()  { isDragging.current = false; document.body.style.cursor = ""; }
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup",   onMouseUp);
+    return () => { window.removeEventListener("mousemove", onMouseMove); window.removeEventListener("mouseup", onMouseUp); };
+  }, [applyPosition]);
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {/* ikona odzoomu — klikatelná */}
+      <svg
+        width="12" height="12" viewBox="0 0 16 16" fill="none"
+        onClick={() => onChange(Math.max(min, value - 1))}
+        style={{ flexShrink: 0, opacity: value <= min ? 0.2 : 0.5, cursor: value <= min ? "default" : "pointer", transition: "opacity 0.15s" }}
+      >
+        <circle cx="6.5" cy="6.5" r="5" stroke="#e2e8f0" strokeWidth="1.5"/>
+        <line x1="4" y1="6.5" x2="9" y2="6.5" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+
+      {/* track */}
+      <div
+        ref={trackRef}
+        onMouseDown={(e) => { isDragging.current = true; document.body.style.cursor = "ew-resize"; applyPosition(e.clientX); }}
+        style={{ position: "relative", width: 80, height: 20, display: "flex", alignItems: "center", cursor: "ew-resize", flexShrink: 0 }}
+      >
+        {/* bg track */}
+        <div style={{ position: "absolute", inset: "0 0 0 0", margin: "auto", height: 2, borderRadius: 2, background: "rgba(255,255,255,0.1)" }} />
+        {/* fill */}
+        <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", height: 2, width: `${pct * 100}%`, borderRadius: 2, background: "rgba(255,255,255,0.55)", transition: isDragging.current ? undefined : "width 0.05s" }} />
+        {/* thumb */}
+        <div style={{
+          position: "absolute",
+          left: `calc(${pct * 100}% - 7px)`,
+          top: "50%", transform: "translateY(-50%)",
+          width: 14, height: 14, borderRadius: "50%",
+          background: "#fff",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(0,0,0,0.2)",
+          transition: isDragging.current ? undefined : "left 0.05s",
+          flexShrink: 0,
+        }} />
+      </div>
+
+      {/* ikona přiblížení — klikatelná */}
+      <svg
+        width="14" height="14" viewBox="0 0 16 16" fill="none"
+        onClick={() => onChange(Math.min(max, value + 1))}
+        style={{ flexShrink: 0, opacity: value >= max ? 0.2 : 0.5, cursor: value >= max ? "default" : "pointer", transition: "opacity 0.15s" }}
+      >
+        <circle cx="6.5" cy="6.5" r="5" stroke="#e2e8f0" strokeWidth="1.5"/>
+        <line x1="4" y1="6.5" x2="9" y2="6.5" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="6.5" y1="4" x2="6.5" y2="9" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    </div>
+  );
+}
 
 // 0:30 … 24:00 v 30minutových krocích
 const DURATION_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -750,6 +827,30 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   const [jumpDate, setJumpDate]     = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Zoom — kotva pro scroll při změně zoomu
+  const [slotHeight, setSlotHeight] = useState(26);
+  const zoomAnchorMs = useRef<number | null>(null); // ms od epochy = datum středu viewportu
+
+  function handleZoomChange(newHeight: number) {
+    const el = scrollRef.current;
+    if (el) {
+      const centerY = el.scrollTop + el.clientHeight / 2;
+      // yToDate inline: viewStart + (y / slotHeight * 30 min)
+      const anchorDate = new Date(viewStart.getTime() + (centerY / slotHeight) * 30 * 60000);
+      zoomAnchorMs.current = anchorDate.getTime();
+    }
+    setSlotHeight(newHeight);
+  }
+
+  useLayoutEffect(() => {
+    const anchorMs = zoomAnchorMs.current;
+    const el = scrollRef.current;
+    if (anchorMs === null || !el) return;
+    const newY = dateToY(new Date(anchorMs), viewStart, slotHeight);
+    el.scrollTop = newY - el.clientHeight / 2;
+    zoomAnchorMs.current = null;
+  }, [slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Resizable aside
   const [asideWidth, setAsideWidth] = useState(320);
   const isResizing = useRef(false);
@@ -791,14 +892,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   const viewStart = startOfDay(addDays(new Date(), -3));
 
   function handleScrollToNow() {
-    const y = dateToY(new Date(), viewStart);
+    const y = dateToY(new Date(), viewStart, slotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
   }
 
   function handleJumpToDate(dateStr: string) {
     if (!dateStr) return;
     const d = new Date(dateStr + "T00:00:00");
-    const y = dateToY(d, viewStart);
+    const y = dateToY(d, viewStart, slotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 100), behavior: "smooth" });
   }
 
@@ -963,6 +1064,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
           >
             Dnes
           </Button>
+          <ZoomSlider value={slotHeight} onChange={handleZoomChange} />
         </div>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
@@ -995,6 +1097,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
             onQueueDrop={handleQueueDrop}
             onBlockDoubleClick={handleBlockDoubleClick}
             companyDays={companyDays}
+            slotHeight={slotHeight}
           />
         </div>
 

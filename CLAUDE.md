@@ -79,7 +79,9 @@ npm run prisma:seed
 ## Architektura UI (po etapě 2+3 refaktoru)
 
 ### TimelineGrid.tsx
-- `SLOT_HEIGHT = 26px` (1 slot = 30 min, 1 den = 1248px)
+- `SLOT_HEIGHT = 26px` výchozí, ale dynamický — předává se jako prop `slotHeight` z PlannerPage
+- Zoom slider v headeru mění `slotHeight` (3–26 px), zoom kotví na střed viewportu (`zoomAnchorMs` ref)
+- Adaptivní časové štítky: krok štítků se mění dle `slotHeight` (každých 30 min / 1 hod / 2 hod / 4 hod)
 - `DATE_COL_W = 44px` sticky left:0 — datum, barva dne (dnes=modrá, víkend=oranžová)
 - `TIME_COL_W = 72px` — každých 30 min, celé hodiny výraznější
 - Drag existujícího bloku: mouse events, snap na grid **during** drag, landing zone = přerušovaný barevný obdélník, původní blok ghostuje na místě
@@ -113,7 +115,7 @@ specifikace,
 recurrenceType (NONE|DAILY|WEEKLY|MONTHLY), recurrenceParentId (self-relace),
 createdAt, updatedAt.
 
-Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` jsou nahrazena novým schématem výrobních sloupečků. Pole jsou již v DB (migrace provedena).
+Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` a `pantoneExpectedDate` jsou nahrazena novým schématem. `pantoneExpectedDate` bylo odstraněno i z DB (migrace provedena).
 
 ## DB Schema — CodebookOption model
 
@@ -139,6 +141,20 @@ Při každém přidání nového výrobního sloupečku do bloku je nutné vždy
 7. **Aktualizovat DOKUMENTACE.md** — přidat do tabulky výrobních sloupečků, matice práv, etapy
 
 ---
+
+## Design — Apple standard
+
+Veškeré nové UI komponenty a úpravy existujících musí dodržovat tyto zásady:
+
+- **Systémové fonty:** `-apple-system, BlinkMacSystemFont, "SF Pro Text"` — nikdy Google Fonts
+- **Tenké tahy:** bordery max 1px, ideálně 0.5px nebo `rgba` s nízkou opacitou
+- **Spacing v násobcích 4 px:** 4, 8, 12, 16, 20, 24…
+- **Žádné nativní prvky bez restylu:** `<input type="range">`, `<select>`, `<input type="date">` musí mít vlastní vizuál
+- **Interaktivní prvky:** jemný hover (opacity nebo brightness), žádné těžké box-shadow na hover
+- **Animace:** `transition` max 150 ms, ease-out nebo spring — nikdy lineární
+- **Barvy:** tmavé pozadí `#0a0a0f` / `#111318`, akcenty bílá nebo `#3b82f6` (blue-500), žlutá `#FFE600` pro CTA
+- **Vlastní komponenty místo shadcn:** pro složitější prvky (slider, dropdown, date picker) preferuj custom implementaci která přesně sedí do designu
+- **shadcn/ui:** jen pro jednoduché primitiva (Button, Input, Badge) kde se vizuál hodí
 
 ## Komunikace
 
