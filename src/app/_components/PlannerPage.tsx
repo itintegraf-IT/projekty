@@ -823,6 +823,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   // Timeline state
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
+  const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
+  const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
+  const [isCut, setIsCut] = useState(false);
+  const [pasteTarget, setPasteTarget] = useState<{ machine: string; time: Date } | null>(null);
+  const copiedBlockRef = useRef<Block | null>(null);
+  const isCutRef = useRef(false);
+  const pasteTargetRef = useRef<{ machine: string; time: Date } | null>(null);
+  copiedBlockRef.current = copiedBlock;
+  isCutRef.current = isCut;
+  pasteTargetRef.current = pasteTarget;
   const [filterText, setFilterText] = useState("");
   const [jumpDate, setJumpDate]     = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -906,6 +916,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   function handleBlockUpdate(updated: Block) {
     setBlocks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
     setSelectedBlock((sel) => (sel?.id === updated.id ? updated : sel));
+  }
+
+  async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) {
+    try {
+      const results = await Promise.all(
+        updates.map((u) =>
+          fetch(`/api/blocks/${u.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }),
+          }).then((r) => r.json() as Promise<Block>)
+        )
+      );
+      setBlocks((prev) => prev.map((b) => results.find((r) => r.id === b.id) ?? b));
+    } catch { /* tiché selhání */ }
   }
 
   function handleBlockCreate(newBlock: Block) {
@@ -1028,6 +1053,89 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
     setEditingBlock(block);
   }
 
+  async function handlePaste() {
+    const src = copiedBlockRef.current;
+    const target = pasteTargetRef.current;
+    if (!src || !target) return;
+    const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
+    const newStart = target.time;
+    const newEnd = new Date(newStart.getTime() + durationMs);
+    try {
+      const res = await fetch("/api/blocks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderNumber: src.orderNumber,
+          machine: target.machine,
+          type: src.type,
+          startTime: newStart.toISOString(),
+          endTime: newEnd.toISOString(),
+          description: src.description,
+          locked: false,
+          deadlineExpedice: src.deadlineExpedice,
+          dataStatusId: src.dataStatusId,
+          dataStatusLabel: src.dataStatusLabel,
+          dataRequiredDate: src.dataRequiredDate,
+          dataOk: src.dataOk,
+          materialStatusId: src.materialStatusId,
+          materialStatusLabel: src.materialStatusLabel,
+          materialRequiredDate: src.materialRequiredDate,
+          materialOk: src.materialOk,
+          barvyStatusId: src.barvyStatusId,
+          barvyStatusLabel: src.barvyStatusLabel,
+          lakStatusId: src.lakStatusId,
+          lakStatusLabel: src.lakStatusLabel,
+          specifikace: src.specifikace,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const newBlock: Block = await res.json();
+      handleBlockCreate(newBlock);
+      if (isCutRef.current) {
+        await fetch(`/api/blocks/${src.id}`, { method: "DELETE" });
+        setBlocks((prev) => prev.filter((b) => b.id !== src.id));
+        setSelectedBlock((sel) => (sel?.id === src.id ? null : sel));
+        setCopiedBlock(null);
+        setIsCut(false);
+      }
+    } catch {
+      setError("Chyba při vložení bloku.");
+    }
+  }
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "Escape") {
+        setSelectedBlockIds(new Set());
+        return;
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedBlock) {
+        e.preventDefault();
+        handleDeleteBlock(selectedBlock.id);
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "c" && selectedBlock) {
+        e.preventDefault();
+        setCopiedBlock(selectedBlock);
+        setIsCut(false);
+      }
+      if (e.key === "x" && selectedBlock) {
+        e.preventDefault();
+        setCopiedBlock(selectedBlock);
+        setIsCut(true);
+      }
+      if (e.key === "v" && copiedBlockRef.current && pasteTargetRef.current) {
+        e.preventDefault();
+        handlePaste();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [selectedBlock]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const typeConfig = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
 
   return (
@@ -1089,7 +1197,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
             blocks={blocks}
             filterText={filterText}
             selectedBlockId={selectedBlock?.id ?? null}
-            onBlockClick={setSelectedBlock}
+            onBlockClick={(block) => { setSelectedBlockIds(new Set()); setSelectedBlock(block); }}
             onBlockUpdate={handleBlockUpdate}
             onBlockCreate={handleBlockCreate}
             scrollRef={scrollRef}
@@ -1098,6 +1206,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
             onBlockDoubleClick={handleBlockDoubleClick}
             companyDays={companyDays}
             slotHeight={slotHeight}
+            copiedBlockId={copiedBlock?.id ?? null}
+            onGridClick={(machine, time) => setPasteTarget({ machine, time })}
+            onBlockCopy={(block) => { setCopiedBlock(block); setIsCut(false); }}
+            selectedBlockIds={selectedBlockIds}
+            onMultiSelect={setSelectedBlockIds}
+            onMultiBlockUpdate={handleMultiBlockUpdate}
           />
         </div>
 

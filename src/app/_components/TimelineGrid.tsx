@@ -51,15 +51,23 @@ export type Block = {
   updatedAt: string;
 };
 
-type DragInternalState = {
-  type: "move" | "resize";
-  blockId: number;
-  originalMachine: string;
-  startClientY: number;
-  startClientX: number;
-  originalStart: Date;
-  originalEnd: Date;
-};
+type DragInternalState =
+  | {
+      type: "move" | "resize";
+      blockId: number;
+      originalMachine: string;
+      startClientY: number;
+      startClientX: number;
+      originalStart: Date;
+      originalEnd: Date;
+    }
+  | {
+      type: "multi-move";
+      blocks: Array<{ id: number; machine: string; originalStart: Date; originalEnd: Date }>;
+      startClientY: number;
+      startClientX: number;
+      anchorBlockId: number;
+    };
 
 type DragPreview = {
   blockId: number;
@@ -88,6 +96,12 @@ interface TimelineGridProps {
   onBlockDoubleClick?: (block: Block) => void;
   companyDays?: CompanyDay[];
   slotHeight?: number;
+  copiedBlockId?: number | null;
+  onGridClick?: (machine: string, time: Date) => void;
+  onBlockCopy?: (block: Block) => void;
+  selectedBlockIds?: Set<number>;
+  onMultiSelect?: (ids: Set<number>) => void;
+  onMultiBlockUpdate?: (updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) => void;
 }
 
 type QueueDropPreview = {
@@ -305,7 +319,7 @@ function StatusNote({ label, accent }: { label: string; accent: string }) {
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
-  block, top, height, dimmed, selected, isDragging, now,
+  block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu, onBlockUpdate,
 }: {
   block: Block;
@@ -314,6 +328,8 @@ function BlockCard({
   dimmed: boolean;
   selected: boolean;
   isDragging: boolean;
+  isCopied: boolean;
+  multiSelected: boolean;
   now: Date;
   onClick: () => void;
   onDoubleClick: () => void;
@@ -342,9 +358,11 @@ function BlockCard({
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const shadow  = selected
     ? "0 0 0 1.5px #FFE600, 0 4px 16px rgba(0,0,0,0.6)"
-    : hovered && !isDragging
-      ? "0 6px 20px rgba(0,0,0,0.55)"
-      : "0 2px 8px rgba(0,0,0,0.4)";
+    : multiSelected
+      ? "0 0 0 2px rgba(59,130,246,0.7), 0 4px 16px rgba(0,0,0,0.5)"
+      : hovered && !isDragging
+        ? "0 6px 20px rgba(0,0,0,0.55)"
+        : "0 2px 8px rgba(0,0,0,0.4)";
 
   async function toggleField(field: "dataOk" | "materialOk", current: boolean) {
     try {
@@ -362,6 +380,7 @@ function BlockCard({
 
   return (
     <div
+      data-block="true"
       onMouseDown={block.locked ? undefined : onMouseDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -374,7 +393,9 @@ function BlockCard({
         zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
         opacity, borderRadius: 7,
-        border: `1px solid ${selected ? "#FFE600" : s.border}`,
+        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "1.5px solid rgba(59,130,246,0.8)" : `1px solid ${selected ? "#FFE600" : s.border}`,
+        outline: isCopied ? "1px solid rgba(59,130,246,0.3)" : undefined,
+        outlineOffset: isCopied ? "2px" : undefined,
         boxShadow: shadow,
         background: s.gradient,
         display: "flex", flexDirection: "column",
@@ -499,6 +520,12 @@ export default function TimelineGrid({
   queueDragItem, onQueueDrop, onBlockDoubleClick,
   companyDays,
   slotHeight = SLOT_HEIGHT,
+  copiedBlockId,
+  onGridClick,
+  onBlockCopy,
+  selectedBlockIds,
+  onMultiSelect,
+  onMultiBlockUpdate,
 }: TimelineGridProps) {
   const dayHeight   = slotHeight * 48;
   const totalHeight = TOTAL_DAYS * dayHeight;
@@ -508,19 +535,26 @@ export default function TimelineGrid({
   const [dragPreview, setDragPreview] = useState<DragPreview>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
+  const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const dragStateRef    = useRef<DragInternalState | null>(null);
   const dragDidMove     = useRef(false);
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate });
+  const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
+  const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
+  const blocksRef       = useRef(blocks);
+  const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
 
   useEffect(() => { slotHeightRef.current = slotHeight; }, [slotHeight]);
+  useEffect(() => { blocksRef.current = blocks; }, [blocks]);
+  useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate };
-  }, [onBlockUpdate, onBlockCreate]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate]);
 
   useEffect(() => {
     const start = startOfDay(addDays(new Date(), -VIEW_DAYS_BACK));
@@ -559,6 +593,24 @@ export default function TimelineGrid({
   // ── Globální mouse listenery ───────────────────────────────────────────────
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
+      // ── Lasso pohyb ──
+      if (lassoRef.current) {
+        const dx = e.clientX - lassoRef.current.startClientX;
+        const dy = e.clientY - lassoRef.current.startClientY;
+        if (!lassoRef.current.active && Math.hypot(dx, dy) > 5) lassoRef.current.active = true;
+        if (lassoRef.current.active) {
+          const rect = {
+            left: Math.min(e.clientX, lassoRef.current.startClientX),
+            top:  Math.min(e.clientY, lassoRef.current.startClientY),
+            width: Math.abs(dx),
+            height: Math.abs(dy),
+          };
+          lassoRectRef.current = rect;
+          setLassoRect(rect);
+        }
+        return;
+      }
+
       const ds = dragStateRef.current;
       const vs = viewStartRef.current;
       if (!ds || !vs) return;
@@ -575,17 +627,62 @@ export default function TimelineGrid({
         const snappedStart   = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         const snappedTop     = dateToY(snappedStart, vs, sh);
         setDragPreview({ blockId: ds.blockId, top: snappedTop, height: originalHeight, machine: newMachine });
-      } else {
+      } else if (ds.type === "resize") {
         const originalTop    = dateToY(ds.originalStart, vs, sh);
         const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
         const rawEnd         = yToDate(originalTop + Math.max(sh, originalHeight + deltaY), vs, sh);
         const snappedEnd     = snapToSlot(rawEnd);
         const snappedHeight  = Math.max(sh, dateToY(snappedEnd, vs, sh) - originalTop);
         setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine });
+      } else if (ds.type === "multi-move") {
+        const anchor = ds.blocks.find(b => b.id === ds.anchorBlockId);
+        if (!anchor) return;
+        const deltaMs        = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        const newStart       = new Date(anchor.originalStart.getTime() + deltaMs);
+        const newEnd         = new Date(anchor.originalEnd.getTime() + deltaMs);
+        setDragPreview({
+          blockId: ds.anchorBlockId,
+          top:     dateToY(newStart, vs, sh),
+          height:  dateToY(newEnd, vs, sh) - dateToY(newStart, vs, sh),
+          machine: anchor.machine,
+        });
       }
     }
 
     async function onMouseUp(e: MouseEvent) {
+      // ── Lasso puštění + hit testing ──
+      if (lassoRef.current) {
+        const lr = lassoRectRef.current;
+        if (lassoRef.current.active && lr && lr.width > 5 && lr.height > 5) {
+          const { left: lx, top: ly, width: lw, height: lh } = lr;
+          const newSelected = new Set<number>();
+          for (let i = 0; i < MACHINES.length; i++) {
+            const col = colRefs.current[i];
+            if (!col) continue;
+            const colRect = col.getBoundingClientRect();
+            if (colRect.right < lx || colRect.left > lx + lw) continue;
+            for (const block of blocksRef.current.filter(b => b.machine === MACHINES[i])) {
+              const vs = viewStartRef.current;
+              if (!vs) continue;
+              const sh = slotHeightRef.current;
+              const blockTop    = dateToY(new Date(block.startTime), vs, sh);
+              const blockHeight = dateToY(new Date(block.endTime), vs, sh) - blockTop;
+              const screenTop   = colRect.top + blockTop;
+              if (screenTop + blockHeight > ly && screenTop < ly + lh) newSelected.add(block.id);
+            }
+          }
+          if (newSelected.size > 0) callbacksRef.current.onMultiSelect?.(newSelected);
+          else callbacksRef.current.onMultiSelect?.(new Set());
+        } else {
+          // Kliknutí na prázdné místo → odznačit vše
+          callbacksRef.current.onMultiSelect?.(new Set());
+        }
+        lassoRef.current = null;
+        lassoRectRef.current = null;
+        setLassoRect(null);
+        return;
+      }
+
       const ds = dragStateRef.current;
       const vs = viewStartRef.current;
       if (!ds || !vs) return;
@@ -597,8 +694,8 @@ export default function TimelineGrid({
       if (!moved) return;
 
       const deltaY = e.clientY - ds.startClientY;
-
       const sh = slotHeightRef.current;
+
       if (ds.type === "move") {
         const originalTop = dateToY(ds.originalStart, vs, sh);
         const newStart    = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
@@ -610,7 +707,7 @@ export default function TimelineGrid({
           const updated: Block = await res.json();
           callbacksRef.current.onBlockUpdate(updated);
         } catch { /* blok zůstane nezměněn */ }
-      } else {
+      } else if (ds.type === "resize") {
         const originalTop    = dateToY(ds.originalStart, vs, sh);
         const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
         const newHeightRaw   = Math.max(sh, originalHeight + deltaY);
@@ -621,6 +718,15 @@ export default function TimelineGrid({
           const updated: Block = await res.json();
           callbacksRef.current.onBlockUpdate(updated);
         } catch { /* blok zůstane nezměněn */ }
+      } else if (ds.type === "multi-move") {
+        const deltaMs  = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        const updates  = ds.blocks.map(b => ({
+          id:        b.id,
+          machine:   b.machine,
+          startTime: new Date(b.originalStart.getTime() + deltaMs),
+          endTime:   new Date(b.originalEnd.getTime()   + deltaMs),
+        }));
+        callbacksRef.current.onMultiBlockUpdate?.(updates);
       }
     }
 
@@ -646,11 +752,23 @@ export default function TimelineGrid({
     e.preventDefault();
     const vs = viewStartRef.current;
     if (!vs) return;
-    dragStateRef.current = { type: "move", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
-    dragDidMove.current  = false;
     const sh     = slotHeightRef.current;
     const top    = dateToY(new Date(block.startTime), vs, sh);
     const height = dateToY(new Date(block.endTime), vs, sh) - top;
+    const ids    = selectedBlockIdsRef.current;
+    const isMulti = ids.has(block.id) && ids.size > 1;
+    if (isMulti) {
+      const selBlocks = blocksRef.current.filter(b => ids.has(b.id));
+      dragStateRef.current = {
+        type: "multi-move",
+        blocks: selBlocks.map(b => ({ id: b.id, machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
+        startClientY: e.clientY, startClientX: e.clientX,
+        anchorBlockId: block.id,
+      };
+    } else {
+      dragStateRef.current = { type: "move", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
+    }
+    dragDidMove.current = false;
     setDragPreview({ blockId: block.id, top, height, machine: block.machine });
   }
 
@@ -898,6 +1016,23 @@ export default function TimelineGrid({
                   setQueueDropPreview(null);
                   onQueueDrop(queueDragItem.id, machine, snappedStart);
                 }}
+                onMouseDown={(e) => {
+                  if (e.button !== 0) return;
+                  if ((e.target as HTMLElement).closest("[data-block]")) return;
+                  if (dragStateRef.current) return;
+                  lassoRef.current = { startClientX: e.clientX, startClientY: e.clientY, active: false };
+                  e.preventDefault();
+                }}
+                onClick={(e) => {
+                  if ((e.target as HTMLElement).closest("[data-block]")) return;
+                  const el = scrollRef.current;
+                  const vs = viewStartRef.current;
+                  if (!el || !vs || !onGridClick) return;
+                  const rect = el.getBoundingClientRect();
+                  const timelineY = e.clientY - rect.top + el.scrollTop;
+                  const snappedTime = snapToSlot(yToDate(timelineY, vs, slotHeight));
+                  onGridClick(machine, snappedTime);
+                }}
               >
                 {/* Dnešní pozadí */}
                 {days.map((d) =>
@@ -974,6 +1109,8 @@ export default function TimelineGrid({
                       dimmed={dimmed}
                       selected={selected}
                       isDragging={false}
+                      isCopied={block.id === copiedBlockId}
+                      multiSelected={!!selectedBlockIds?.has(block.id)}
                       now={now ?? new Date()}
                       onClick={() => { if (!dragDidMove.current) onBlockClick(block); }}
                       onDoubleClick={() => onBlockDoubleClick?.(block)}
@@ -1026,6 +1163,20 @@ export default function TimelineGrid({
         </div>
       </div>
 
+      {/* Lasso rectangle */}
+      {lassoRect && (
+        <div style={{
+          position: "fixed",
+          left: lassoRect.left, top: lassoRect.top,
+          width: lassoRect.width, height: lassoRect.height,
+          border: "1.5px dashed rgba(59,130,246,0.8)",
+          backgroundColor: "rgba(59,130,246,0.08)",
+          borderRadius: 4,
+          pointerEvents: "none",
+          zIndex: 9999,
+        }} />
+      )}
+
       {/* Kontextové menu */}
       {contextMenu && (
         <div
@@ -1033,7 +1184,10 @@ export default function TimelineGrid({
           className="bg-slate-800 border border-slate-600 rounded-md shadow-2xl text-[11px] overflow-hidden"
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <button onClick={handleSplitBlock} className="block w-full text-left px-4 py-2.5 text-slate-200 hover:bg-slate-700 transition-colors">
+          <button onClick={() => { onBlockCopy?.(contextMenu.block); setContextMenu(null); }} className="block w-full text-left px-4 py-2.5 text-slate-200 hover:bg-slate-700 transition-colors">
+            ⎘ Kopírovat
+          </button>
+          <button onClick={handleSplitBlock} className="block w-full text-left px-4 py-2.5 text-slate-200 hover:bg-slate-700 transition-colors border-t border-slate-700">
             ✂ Rozdělit blok
           </button>
           <button onClick={() => setContextMenu(null)} className="block w-full text-left px-4 py-2.5 text-slate-400 hover:bg-slate-700 transition-colors border-t border-slate-700">
