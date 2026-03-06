@@ -635,17 +635,13 @@ export default function TimelineGrid({
         const snappedHeight  = Math.max(sh, dateToY(snappedEnd, vs, sh) - originalTop);
         setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine });
       } else if (ds.type === "multi-move") {
-        const anchor = ds.blocks.find(b => b.id === ds.anchorBlockId);
+        const deltaMs    = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        const newMachine = clientXToMachine(e.clientX);
+        const anchor     = ds.blocks.find(b => b.id === ds.anchorBlockId);
         if (!anchor) return;
-        const deltaMs        = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
-        const newStart       = new Date(anchor.originalStart.getTime() + deltaMs);
-        const newEnd         = new Date(anchor.originalEnd.getTime() + deltaMs);
-        setDragPreview({
-          blockId: ds.anchorBlockId,
-          top:     dateToY(newStart, vs, sh),
-          height:  dateToY(newEnd, vs, sh) - dateToY(newStart, vs, sh),
-          machine: anchor.machine,
-        });
+        const newStart   = new Date(anchor.originalStart.getTime() + deltaMs);
+        const newEnd     = new Date(anchor.originalEnd.getTime() + deltaMs);
+        setDragPreview({ blockId: ds.anchorBlockId, top: dateToY(newStart, vs, sh), height: dateToY(newEnd, vs, sh) - dateToY(newStart, vs, sh), machine: newMachine });
       }
     }
 
@@ -719,10 +715,11 @@ export default function TimelineGrid({
           callbacksRef.current.onBlockUpdate(updated);
         } catch { /* blok zůstane nezměněn */ }
       } else if (ds.type === "multi-move") {
-        const deltaMs  = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
-        const updates  = ds.blocks.map(b => ({
+        const deltaMs    = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        const newMachine = clientXToMachine(e.clientX);
+        const updates    = ds.blocks.map(b => ({
           id:        b.id,
-          machine:   b.machine,
+          machine:   newMachine,
           startTime: new Date(b.originalStart.getTime() + deltaMs),
           endTime:   new Date(b.originalEnd.getTime()   + deltaMs),
         }));
@@ -884,6 +881,11 @@ export default function TimelineGrid({
 
   const currentTimeY = now ? dateToY(now, viewStart, slotHeight) : null;
   const filter       = filterText.trim().toLowerCase();
+
+  // Multi-drag: odvozeno z dragPreview + selectedBlockIds (bez extra state)
+  const isMultiDrag = !!dragPreview && !!selectedBlockIds && selectedBlockIds.size > 1 && selectedBlockIds.has(dragPreview.blockId);
+  const multiAnchor = isMultiDrag ? (blocks.find(b => b.id === dragPreview!.blockId) ?? null) : null;
+  const multiDelta  = multiAnchor ? dragPreview!.top - dateToY(new Date(multiAnchor.startTime), viewStart, slotHeight) : 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, cursor: dragPreview ? "grabbing" : "default" }}>
@@ -1093,7 +1095,9 @@ export default function TimelineGrid({
 
                 {/* Bloky patřící tomuto stroji */}
                 {machineBlocks.map((block) => {
-                  const isThisBlockDragging = dragPreview?.blockId === block.id;
+                  const isThisBlockDragging = isMultiDrag
+                    ? !!selectedBlockIds?.has(block.id)
+                    : dragPreview?.blockId === block.id;
                   // Vždy renderujeme na původní pozici; při tažení blok zešedne (ghost at origin)
                   const top    = dateToY(new Date(block.startTime), viewStart, slotHeight);
                   const height = dateToY(new Date(block.endTime), viewStart, slotHeight) - top;
@@ -1122,7 +1126,25 @@ export default function TimelineGrid({
                   );
                 })}
 
-                {/* Landing zone — přesouvání existujícího bloku (stejný i cizí stroj) */}
+                {/* Landing zóny ostatních bloků při multi-move (odvozeno z dragPreview + selectedBlockIds) */}
+                {isMultiDrag && dragPreview!.machine === machine && blocks
+                  .filter(b => selectedBlockIds!.has(b.id) && b.id !== dragPreview!.blockId)
+                  .map(b => {
+                    const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#c0392b" };
+                    const color = colorMap[b.type] ?? "#475569";
+                    const bTop    = dateToY(new Date(b.startTime), viewStart, slotHeight) + multiDelta;
+                    const bHeight = dateToY(new Date(b.endTime), viewStart, slotHeight) - dateToY(new Date(b.startTime), viewStart, slotHeight);
+                    return (
+                      <div key={b.id} style={{
+                        position: "absolute", top: bTop, height: Math.max(bHeight, slotHeight),
+                        left: 3, width: "calc(100% - 6px)", borderRadius: 4,
+                        backgroundColor: `${color}22`, border: `2px dashed ${color}cc`,
+                        pointerEvents: "none", zIndex: 16,
+                      }} />
+                    );
+                  })}
+
+                {/* Landing zone — anchor blok (single i multi) */}
                 {dragPreview && dragPreview.machine === machine && (() => {
                   const draggedBlock = blocks.find((b) => b.id === dragPreview.blockId);
                   if (!draggedBlock) return null;
