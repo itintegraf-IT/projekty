@@ -52,6 +52,9 @@ export async function POST(request: NextRequest) {
         lakStatusLabel: body.lakStatusLabel ?? null,
         // SPECIFIKACE
         specifikace: body.specifikace ?? null,
+        // OPAKOVÁNÍ
+        recurrenceType: body.recurrenceType ?? "NONE",
+        recurrenceParentId: body.recurrenceParentId ?? null,
       },
     });
 

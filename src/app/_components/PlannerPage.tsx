@@ -39,6 +39,8 @@ type QueueItem = {
   lakStatusLabel: string | null;
   specifikace: string;
   deadlineExpedice: string;
+  recurrenceType: string;
+  recurrenceCount: number;
 };
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
@@ -221,10 +223,16 @@ function BlockEdit({
   block,
   onClose,
   onSave,
+  allBlocks,
+  onDeleteAll,
+  onSaveAll,
 }: {
   block: Block;
   onClose: () => void;
   onSave: (updated: Block) => void;
+  allBlocks: Block[];
+  onDeleteAll: (ids: number[]) => Promise<void>;
+  onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<void>;
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
   const [type, setType]               = useState(block.type);
@@ -232,6 +240,10 @@ function BlockEdit({
   const [locked, setLocked]           = useState(block.locked);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
+
+  // Délka tisku
+  const currentDurationHours = (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
+  const [durationHours, setDurationHours] = useState(currentDurationHours);
 
   // Termín expedice
   const [deadlineExpedice, setDeadlineExpedice] = useState(
@@ -260,6 +272,26 @@ function BlockEdit({
   // SPECIFIKACE
   const [specifikace, setSpecifikace] = useState(block.specifikace ?? "");
 
+  // SÉRIE — potvrzovací dialog
+  const [seriesConfirm, setSeriesConfirm] = useState<"save" | "delete" | null>(null);
+
+  const isInSeries = block.recurrenceType !== "NONE" || block.recurrenceParentId !== null;
+
+  function getSeriesIds(): number[] {
+    const rootId = block.recurrenceParentId ?? block.id;
+    return allBlocks
+      .filter((b) => b.id === rootId || b.recurrenceParentId === rootId)
+      .map((b) => b.id);
+  }
+
+  function getFollowingSeriesIds(): number[] {
+    const rootId = block.recurrenceParentId ?? block.id;
+    const blockStart = new Date(block.startTime).getTime();
+    return allBlocks
+      .filter((b) => (b.id === rootId || b.recurrenceParentId === rootId) && new Date(b.startTime).getTime() >= blockStart)
+      .map((b) => b.id);
+  }
+
   // Číselníky
   const [dataOpts, setDataOpts]         = useState<CodebookOption[]>([]);
   const [materialOpts, setMaterialOpts] = useState<CodebookOption[]>([]);
@@ -284,34 +316,40 @@ function BlockEdit({
     return opts.find((o) => o.id.toString() === id)?.label ?? null;
   }
 
-  async function handleSave() {
-    if (!orderNumber.trim()) { setError("Vyplňte číslo zakázky."); return; }
+  const pendingSavePayload = useRef<Record<string, unknown> | null>(null);
+
+  function buildPayload(): Record<string, unknown> {
+    return {
+      orderNumber: orderNumber.trim(),
+      type,
+      description: description.trim() || null,
+      locked,
+      deadlineExpedice: deadlineExpedice || null,
+      dataStatusId: dataStatusId ? parseInt(dataStatusId) : null,
+      dataStatusLabel: dataStatusId ? resolveLabel(dataOpts, dataStatusId) : null,
+      dataRequiredDate: dataRequiredDate || null,
+      dataOk,
+      materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
+      materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
+      materialRequiredDate: materialRequiredDate || null,
+      materialOk,
+      barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
+      barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
+      lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
+      lakStatusLabel: lakStatusId ? resolveLabel(lakOpts, lakStatusId) : null,
+      specifikace: specifikace.trim() || null,
+      endTime: new Date(new Date(block.startTime).getTime() + durationHours * 3600000).toISOString(),
+    };
+  }
+
+  async function doSave(payload: Record<string, unknown>) {
     setSaving(true);
     setError(null);
     try {
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderNumber: orderNumber.trim(),
-          type,
-          description: description.trim() || null,
-          locked,
-          deadlineExpedice: deadlineExpedice || null,
-          dataStatusId: dataStatusId ? parseInt(dataStatusId) : null,
-          dataStatusLabel: dataStatusId ? resolveLabel(dataOpts, dataStatusId) : null,
-          dataRequiredDate: dataRequiredDate || null,
-          dataOk,
-          materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
-          materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
-          materialRequiredDate: materialRequiredDate || null,
-          materialOk,
-          barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
-          barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
-          lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
-          lakStatusLabel: lakStatusId ? resolveLabel(lakOpts, lakStatusId) : null,
-          specifikace: specifikace.trim() || null,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Chyba serveru");
       const updated: Block = await res.json();
@@ -320,6 +358,17 @@ function BlockEdit({
       setError("Chyba při ukládání.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!orderNumber.trim()) { setError("Vyplňte číslo zakázky."); return; }
+    const payload = buildPayload();
+    if (isInSeries) {
+      pendingSavePayload.current = payload;
+      setSeriesConfirm("save");
+    } else {
+      await doSave(payload);
     }
   }
 
@@ -378,7 +427,12 @@ function BlockEdit({
       <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, #1a1d25 0%, #111318 100%)", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Upravit záznam</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", marginTop: 2 }}>{block.orderNumber}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+            {block.orderNumber}
+            {isInSeries && (
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#3b82f6", background: "rgba(59,130,246,0.14)", borderRadius: 4, padding: "1px 5px" }}>↻ Série</span>
+            )}
+          </div>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">
           ← Zpět
@@ -418,6 +472,33 @@ function BlockEdit({
           <div>
             <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Popis</Label>
             <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="text-xs resize-none" />
+          </div>
+        </div>
+
+        {/* Délka tisku */}
+        <div style={{ marginTop: 8 }}>
+          <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Délka tisku</Label>
+          <div style={{ position: "relative" }}>
+            <select
+              value={String(durationHours)}
+              onChange={(e) => setDurationHours(Number(e.target.value))}
+              style={{
+                appearance: "none", width: "100%", height: 32,
+                background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
+                color: "#e8eaf0", fontSize: 12, fontWeight: 600,
+                padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
+              }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+            >
+              {DURATION_OPTIONS.map((opt) => (
+                <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
+              ))}
+            </select>
+            <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
+              <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </div>
         </div>
 
@@ -482,15 +563,84 @@ function BlockEdit({
           </Label>
         </div>
 
-        {/* Tlačítka */}
-        <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-          <Button type="button" onClick={handleSave} disabled={saving} className="flex-1 bg-[#FFE600] text-[#111318] hover:bg-[#FFE600]/90 font-bold text-xs">
-            {saving ? "Ukládám…" : "Uložit změny →"}
-          </Button>
-          <Button type="button" variant="ghost" onClick={onClose} className="text-slate-400 text-xs">
-            Zrušit
-          </Button>
-        </div>
+        {/* Série — inline dialog */}
+        {seriesConfirm ? (
+          <div style={{ marginTop: 16, borderRadius: 8, border: "1px solid rgba(59,130,246,0.3)", background: "rgba(59,130,246,0.08)", padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#93c5fd", marginBottom: 8 }}>
+              {seriesConfirm === "save" ? "Uložit změny pro…" : "Smazat…"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <button
+                onClick={async () => {
+                  if (seriesConfirm === "save" && pendingSavePayload.current) {
+                    await doSave(pendingSavePayload.current);
+                  } else if (seriesConfirm === "delete") {
+                    await onDeleteAll([block.id]);
+                    onClose();
+                  }
+                  setSeriesConfirm(null);
+                }}
+                style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.35)", borderRadius: 7, color: "#93c5fd", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
+              >
+                Jen tuto instanci
+              </button>
+              <button
+                onClick={async () => {
+                  if (seriesConfirm === "save" && pendingSavePayload.current) {
+                    const ids = getSeriesIds();
+                    await onSaveAll(ids, pendingSavePayload.current);
+                    onClose();
+                  } else if (seriesConfirm === "delete") {
+                    const ids = getFollowingSeriesIds();
+                    await onDeleteAll(ids);
+                    onClose();
+                  }
+                  setSeriesConfirm(null);
+                }}
+                style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.35)", borderRadius: 7, color: "#93c5fd", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
+              >
+                {seriesConfirm === "delete"
+                  ? `Tuto a následující (${getFollowingSeriesIds().length} bloků)`
+                  : `Celou sérii (${getSeriesIds().length} bloků)`}
+              </button>
+              <button
+                onClick={() => setSeriesConfirm(null)}
+                style={{ background: "none", border: "none", color: "#64748b", fontSize: 11, padding: "4px 0", cursor: "pointer", textAlign: "left" }}
+              >
+                Zrušit
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Tlačítka */}
+            <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+              <Button type="button" onClick={handleSave} disabled={saving} className="flex-1 bg-[#FFE600] text-[#111318] hover:bg-[#FFE600]/90 font-bold text-xs">
+                {saving ? "Ukládám…" : "Uložit změny →"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={onClose} className="text-slate-400 text-xs">
+                Zrušit
+              </Button>
+            </div>
+
+            {/* Smazat */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isInSeries) {
+                  setSeriesConfirm("delete");
+                } else {
+                  onDeleteAll([block.id]).then(onClose);
+                }
+              }}
+              style={{ marginTop: 8, width: "100%", background: "none", border: "none", color: "#475569", fontSize: 11, padding: "6px 0", cursor: "pointer", textAlign: "center", transition: "color 0.1s" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#f87171")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "#475569")}
+            >
+              Smazat blok
+            </button>
+          </>
+        )}
 
         {/* Barva náhledu */}
         <div style={{ marginTop: 12, borderRadius: 6, padding: "8px 10px", background: `${typeCfg?.color ?? "#334155"}14`, borderLeft: `3px solid ${typeCfg?.color ?? "#475569"}`, fontSize: 11, color: typeCfg?.color ?? "#64748b" }}>
@@ -808,6 +958,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   const [bBarvyStatusId, setBBarvyStatusId]       = useState<string>("");
   const [bLakStatusId, setBLakStatusId]           = useState<string>("");
   const [bSpecifikace, setBSpecifikace]           = useState("");
+  const [bRecurrenceType, setBRecurrenceType]     = useState("NONE");
+  const [bRecurrenceCount, setBRecurrenceCount]   = useState(2);
 
   // Číselníky pro builder
   const [bDataOpts, setBDataOpts]         = useState<CodebookOption[]>([]);
@@ -952,6 +1104,43 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
     }
   }
 
+  async function handleDeleteAll(ids: number[]) {
+    try {
+      await Promise.all(ids.map((id) => fetch(`/api/blocks/${id}`, { method: "DELETE" })));
+      setBlocks((prev) => prev.filter((b) => !ids.includes(b.id)));
+      if (ids.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
+      if (ids.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
+    } catch {
+      setError("Chyba při mazání série.");
+    }
+  }
+
+  async function handleSaveAll(ids: number[], payload: Record<string, unknown>) {
+    try {
+      const results = await Promise.all(
+        ids.map((id) =>
+          fetch(`/api/blocks/${id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }).then((r) => r.json())
+        )
+      );
+      setBlocks((prev) =>
+        prev.map((b) => {
+          const updated = (results as Block[]).find((r) => r.id === b.id);
+          return updated ?? b;
+        })
+      );
+      if (editingBlock && ids.includes(editingBlock.id)) {
+        const updatedEditing = (results as Block[]).find((r) => r.id === editingBlock.id);
+        if (updatedEditing) setEditingBlock(updatedEditing);
+      }
+    } catch {
+      setError("Chyba při ukládání série.");
+    }
+  }
+
   async function handleAddCompanyDay(startDate: string, endDate: string, label: string) {
     const res = await fetch("/api/company-days", {
       method: "POST",
@@ -993,6 +1182,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
         lakStatusLabel: findLabel(bLakOpts, bLakStatusId),
         specifikace: bSpecifikace,
         deadlineExpedice: bDeadlineExpedice,
+        recurrenceType: bRecurrenceType,
+        recurrenceCount: bRecurrenceType !== "NONE" ? bRecurrenceCount : 1,
       },
     ]);
     setOrderNumber("");
@@ -1005,40 +1196,80 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
     setBLakStatusId("");
     setBSpecifikace("");
     setBDeadlineExpedice("");
+    setBRecurrenceType("NONE");
+    setBRecurrenceCount(2);
+  }
+
+  function addRecurrenceInterval(date: Date, type: string): Date {
+    const d = new Date(date);
+    if (type === "DAILY") d.setDate(d.getDate() + 1);
+    else if (type === "WEEKLY") d.setDate(d.getDate() + 7);
+    else if (type === "MONTHLY") d.setMonth(d.getMonth() + 1);
+    return d;
   }
 
   async function handleQueueDrop(itemId: number, machine: string, startTime: Date) {
     const item = queue.find((q) => q.id === itemId);
     if (!item) return;
-    const endTime = new Date(startTime.getTime() + item.durationHours * 60 * 60 * 1000);
+    const durationMs = item.durationHours * 60 * 60 * 1000;
+    const rType = item.recurrenceType ?? "NONE";
+    const rCount = rType !== "NONE" ? Math.max(1, item.recurrenceCount ?? 1) : 1;
+
+    const baseBody = {
+      orderNumber: item.orderNumber,
+      machine,
+      type: item.type,
+      description: item.description || null,
+      dataStatusId: item.dataStatusId,
+      dataStatusLabel: item.dataStatusLabel,
+      dataRequiredDate: item.dataRequiredDate || null,
+      materialStatusId: item.materialStatusId,
+      materialStatusLabel: item.materialStatusLabel,
+      materialRequiredDate: item.materialRequiredDate || null,
+      barvyStatusId: item.barvyStatusId,
+      barvyStatusLabel: item.barvyStatusLabel,
+      lakStatusId: item.lakStatusId,
+      lakStatusLabel: item.lakStatusLabel,
+      specifikace: item.specifikace || null,
+      deadlineExpedice: item.deadlineExpedice || null,
+      recurrenceType: rType,
+    };
+
     try {
-      const res = await fetch("/api/blocks", {
+      // Vytvořit první (rodičovský) blok
+      const firstEnd = new Date(startTime.getTime() + durationMs);
+      const res1 = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderNumber: item.orderNumber,
-          machine,
-          type: item.type,
-          startTime: startTime.toISOString(),
-          endTime: endTime.toISOString(),
-          description: item.description || null,
-          dataStatusId: item.dataStatusId,
-          dataStatusLabel: item.dataStatusLabel,
-          dataRequiredDate: item.dataRequiredDate || null,
-          materialStatusId: item.materialStatusId,
-          materialStatusLabel: item.materialStatusLabel,
-          materialRequiredDate: item.materialRequiredDate || null,
-          barvyStatusId: item.barvyStatusId,
-          barvyStatusLabel: item.barvyStatusLabel,
-          lakStatusId: item.lakStatusId,
-          lakStatusLabel: item.lakStatusLabel,
-          specifikace: item.specifikace || null,
-          deadlineExpedice: item.deadlineExpedice || null,
-        }),
+        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString() }),
       });
-      if (!res.ok) throw new Error("Chyba serveru");
-      const newBlock: Block = await res.json();
-      handleBlockCreate(newBlock);
+      if (!res1.ok) throw new Error("Chyba serveru");
+      const parentBlock: Block = await res1.json();
+      handleBlockCreate(parentBlock);
+
+      // Vytvořit children bloky (pokud opakování > 1)
+      if (rType !== "NONE" && rCount > 1) {
+        let curStart = addRecurrenceInterval(startTime, rType);
+        for (let i = 1; i < rCount; i++) {
+          const curEnd = new Date(curStart.getTime() + durationMs);
+          const res = await fetch("/api/blocks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...baseBody,
+              startTime: curStart.toISOString(),
+              endTime: curEnd.toISOString(),
+              recurrenceParentId: parentBlock.id,
+            }),
+          });
+          if (res.ok) {
+            const childBlock: Block = await res.json();
+            handleBlockCreate(childBlock);
+          }
+          curStart = addRecurrenceInterval(curStart, rType);
+        }
+      }
+
       setQueue((prev) => prev.filter((q) => q.id !== itemId));
       setDraggingQueueItem(null);
       const y = dateToY(startTime, viewStart);
@@ -1237,6 +1468,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
               block={editingBlock}
               onClose={() => setEditingBlock(null)}
               onSave={(updated) => { handleBlockUpdate(updated); setEditingBlock(null); }}
+              allBlocks={blocks}
+              onDeleteAll={handleDeleteAll}
+              onSaveAll={handleSaveAll}
             />
           ) : selectedBlock ? (
             <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />
@@ -1509,6 +1743,62 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                       </div>
                     </div>
                   )}
+
+                  {/* ── Opakování ── */}
+                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 10 }}>Opakování</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Interval</label>
+                        <div style={{ position: "relative" }}>
+                          <select
+                            value={bRecurrenceType}
+                            onChange={(e) => setBRecurrenceType(e.target.value)}
+                            style={{
+                              appearance: "none", width: "100%", height: 32,
+                              background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
+                              color: bRecurrenceType !== "NONE" ? "#3b82f6" : "#e8eaf0", fontSize: 12, fontWeight: 600,
+                              padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
+                            }}
+                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
+                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                          >
+                            <option value="NONE">— bez opakování —</option>
+                            <option value="DAILY">↻ Každý den</option>
+                            <option value="WEEKLY">↻ Každý týden</option>
+                            <option value="MONTHLY">↻ Každý měsíc</option>
+                          </select>
+                          <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
+                            <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </div>
+                      </div>
+                      {bRecurrenceType !== "NONE" && (
+                        <div style={{ flex: "0 0 90px" }}>
+                          <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Počet bloků</label>
+                          <input
+                            type="number"
+                            min={2}
+                            max={52}
+                            value={bRecurrenceCount}
+                            onChange={(e) => setBRecurrenceCount(Math.max(2, Math.min(52, parseInt(e.target.value) || 2)))}
+                            style={{
+                              width: "100%", height: 32, background: "#181b22",
+                              border: "1px solid #3b82f6", borderRadius: 10,
+                              color: "#3b82f6", fontSize: 13, fontWeight: 700,
+                              padding: "0 10px", outline: "none", textAlign: "center",
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {bRecurrenceType !== "NONE" && (
+                      <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 6, opacity: 0.8 }}>
+                        Vytvoří se {bRecurrenceCount} bloků · interval: {bRecurrenceType === "DAILY" ? "1 den" : bRecurrenceType === "WEEKLY" ? "7 dní" : "1 měsíc"}
+                      </div>
+                    )}
+                  </div>
 
                   {/* ── Live náhled ── */}
                   <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>

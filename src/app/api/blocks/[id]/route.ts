@@ -67,6 +67,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         ...(body.lakStatusLabel !== undefined && { lakStatusLabel: body.lakStatusLabel }),
         // SPECIFIKACE
         ...(body.specifikace !== undefined && { specifikace: body.specifikace }),
+        // OPAKOVÁNÍ
+        ...(body.recurrenceType !== undefined && { recurrenceType: body.recurrenceType }),
       },
     });
 

@@ -47,6 +47,7 @@ export type Block = {
   // Výrobní sloupečky — SPECIFIKACE
   specifikace: string | null;
   recurrenceType: string;
+  recurrenceParentId: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -406,6 +407,11 @@ function BlockCard({
       {/* Barevný akcent nahoře (2px) */}
       <div style={{ height: 2, flexShrink: 0, background: s.accentBar, opacity: isOverdue ? 0.35 : 0.8 }} />
 
+      {/* Série indikace ↻ */}
+      {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && clampedHeight >= 26 && (
+        <span style={{ position: "absolute", top: 5, right: 6, fontSize: 9, opacity: 0.55, color: s.textSub, lineHeight: 1, pointerEvents: "none" }}>↻</span>
+      )}
+
       {/* ── Řádek 1: Číslo zakázky + popis ── */}
       <div style={{
         padding: "5px 9px 3px", display: "flex", alignItems: "baseline",
@@ -755,7 +761,7 @@ export default function TimelineGrid({
     const ids    = selectedBlockIdsRef.current;
     const isMulti = ids.has(block.id) && ids.size > 1;
     if (isMulti) {
-      const selBlocks = blocksRef.current.filter(b => ids.has(b.id));
+      const selBlocks = blocksRef.current.filter(b => ids.has(b.id) && !b.locked);
       dragStateRef.current = {
         type: "multi-move",
         blocks: selBlocks.map(b => ({ id: b.id, machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),

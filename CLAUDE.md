@@ -21,7 +21,7 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 2 | Timeline render (grid + scroll + filtry) | ✅ Hotovo |
 | 3 | Drag & drop + resize + rozdělení | ✅ Hotovo |
 | 4 | Směny + svátky + background | ✅ Hotovo |
-| 5 | Výrobní sloupečky, stavy, overdue indikace | ⬜ Nezačato |
+| 5 | Výrobní sloupečky, stavy, overdue indikace | ✅ Hotovo |
 | 6 | Opakování | ⬜ Nezačato |
 | 7 | Hromadné posuny + zámečky | ⬜ Nezačato |
 | 8 | Uživatelé, role a přihlašování | ⬜ Nezačato |
@@ -84,8 +84,17 @@ npm run prisma:seed
 - Adaptivní časové štítky: krok štítků se mění dle `slotHeight` (každých 30 min / 1 hod / 2 hod / 4 hod)
 - `DATE_COL_W = 44px` sticky left:0 — datum, barva dne (dnes=modrá, víkend=oranžová)
 - `TIME_COL_W = 72px` — každých 30 min, celé hodiny výraznější
+- **Sticky day label:** label dne (Po/5/Bře) je obalený v `position: sticky, top: HEADER_HEIGHT` uvnitř absolutně pozicované buňky — zůstává viditelný celý den při vertikálním scrollu
 - Drag existujícího bloku: mouse events, snap na grid **during** drag, landing zone = přerušovaný barevný obdélník, původní blok ghostuje na místě
 - Drop z fronty: HTML5 DnD (`draggable`, `onDragStart`, `onDragOver`, `onDrop`), modrý přerušovaný obdélník jako preview
+- **BlockCard layout** (výškové prahy):
+  - `>= 40px`: číslo + popis (řádek 1)
+  - `>= 62px`: klikatelné DateBadge (DATA / MAT. / EXP.) — klik toggles `dataOk`/`materialOk` přes PUT API
+  - `>= 80px`: specifikace (celý text, max 2 řádky)
+  - `>= 100px`: StatusNote labely ze selectů (dataStatusLabel, materialStatusLabel, barvy, lak)
+- **DateBadge:** zelená = ok, amber = `now > requiredDate && !ok`, šedá = datum ještě nenastalo
+- **fmtDate():** helper pro parse DB timestamps (ISO i date string) — nikdy nepoužívat `new Date(s + "T00:00:00")`
+- **Warn logika:** `now > requiredDate && !ok` — NE `blockStart < requiredDate`
 
 ### PlannerPage.tsx
 - Builder: typ + číslo zakázky + délka + popis + výrobní sloupečky + termín expedice → "Přidat do fronty"
@@ -95,10 +104,9 @@ npm run prisma:seed
 
 ### shadcn/ui
 - Styl: New York
-- Nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator
-- **Dropdowny a date pickery jsou nativní HTML** — shadcn Select, Popover a Calendar byly odstraněny kvůli CSS variable konfliktům s Radix portály v dark modu
-  - Všechna `<select>` pole mají jednotný styl: background `#181b22`, border `#1e2130`, borderRadius 10, height 40
-  - Date picker = nativní `<input type="date" style={{ colorScheme: "dark" }}`
+- Nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator, **Select, Popover, Calendar**
+- **Select:** `<SelectContent>` musí vždy dostat `className="bg-slate-900 border-slate-700"` — jinak Radix portál nezdědí dark mode a zobrazí bílé pozadí
+- **DatePickerField:** helper komponenta v PlannerPage.tsx — `Popover` + `Calendar` + `Button`. Použití všude místo `<input type="date">`.
 - Pro etapu 9 doinstalovat: Tooltip, Dialog, AlertDialog, Table, Tabs
 
 ---
@@ -115,7 +123,7 @@ specifikace,
 recurrenceType (NONE|DAILY|WEEKLY|MONTHLY), recurrenceParentId (self-relace),
 createdAt, updatedAt.
 
-Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` a `pantoneExpectedDate` jsou nahrazena novým schématem. `pantoneExpectedDate` bylo odstraněno i z DB (migrace provedena).
+Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` a `pantoneExpectedDate` jsou odstraněna a nahrazena novým schématem výrobních sloupečků (migrace provedena).
 
 ## DB Schema — CodebookOption model
 
@@ -136,8 +144,8 @@ Při každém přidání nového výrobního sloupečku do bloku je nutné vždy
 2. **Seed hodnot** — doplnit `prisma/seed.ts` o nové default položky
 3. **Role oprávnění** — rozhodnout, která role smí sloupec editovat (matice v DOKUMENTACE.md)
 4. **UI v timeline** — zobrazit badge na bloku, not-ready indikaci (⚠ pokud platí logika)
-5. **UI v builderu** — přidat nativní `<select>` + případný `<input type="date">` do formuláře
-6. **Not-ready logiku** — pokud sloupec má `requiredDate`, implementovat varování `startTime < requiredDate && !ok`
+5. **UI v builderu** — přidat shadcn `<Select>` (SelectContent s `className="bg-slate-900 border-slate-700"`) + `<DatePickerField>` do formuláře
+6. **Not-ready logiku** — pokud sloupec má `requiredDate`, implementovat varování `now > requiredDate && !ok`
 7. **Aktualizovat DOKUMENTACE.md** — přidat do tabulky výrobních sloupečků, matice práv, etapy
 
 ---
