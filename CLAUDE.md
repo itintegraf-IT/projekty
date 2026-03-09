@@ -24,7 +24,7 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 5 | Výrobní sloupečky, stavy, overdue indikace | ✅ Hotovo |
 | 6 | Opakování | ✅ Hotovo |
 | 7 | Hromadné posuny + zámečky | ✅ Hotovo |
-| 8 | Uživatelé, role a přihlašování | ⬜ Nezačato |
+| 8 | Uživatelé, role a přihlašování | ✅ Hotovo |
 | 9 | Admin dashboard (uživatelé + číselníky) | ⬜ Nezačato |
 
 ---
@@ -54,6 +54,10 @@ npm run prisma:seed
 - **Tailwind:** verze 4, používá `@import "tailwindcss"` (ne `@tailwind base`)
 - **Číselníky:** hodnoty pro DATA, MATERIÁL, BARVY, LAK jsou uloženy v DB (model `CodebookOption`), ne hardcoded. Spravuje je Admin přes dashboard.
 - **Snapshot labelu:** blok ukládá `optionId` + `snapshotLabel` — při přejmenování položky číselníku historická data zůstanou konzistentní.
+- **Auth:** bcryptjs (hesla), jose (JWT), HTTP-only cookie `integraf-session` (7 dní). Middleware v `src/middleware.ts` chrání všechny routes kromě `/login` a `/api/auth`. Import jose přes subpath (`jose/jwt/verify`, `jose/jwt/sign`) — nutné pro Turbopack Edge runtime.
+- **Roles:** ADMIN a PLANOVAT — plný přístup. DTP — edituje jen DATA sloupec. MTZ — edituje jen MATERIÁL sloupec. VIEWER — read-only (aside skrytý, timeline bez drag/resize).
+- **tsconfig moduleResolution:** `"bundler"` (ne `"Node"`) — nutné pro subpath exports (jose).
+- **next.config.mjs:** bez `experimental.appDir` (odstraněno jako obsoletní v Next.js 14+).
 
 ---
 
@@ -70,8 +74,13 @@ npm run prisma:seed
 | `src/app/api/codebook/[id]/route.ts` | PUT + DELETE položky číselníku (etapa 9) |
 | `src/app/_components/PlannerPage.tsx` | Client Component — builder + fronta + detail + ShutdownManager |
 | `src/app/_components/TimelineGrid.tsx` | Vizuální timeline grid (datum 44px + čas 72px + 2 strojové sloupce) |
-| `src/app/api/blocks/route.ts` | GET all + POST |
-| `src/app/api/blocks/[id]/route.ts` | GET + PUT + DELETE |
+| `src/app/api/blocks/route.ts` | GET all + POST (POST: ADMIN/PLANOVAT) |
+| `src/app/api/blocks/[id]/route.ts` | GET + PUT (role field filter) + DELETE (ADMIN/PLANOVAT) |
+| `src/lib/auth.ts` | createSession / getSession / deleteSession (JWT + cookie) |
+| `src/middleware.ts` | Edge middleware — JWT guard pro všechny routes |
+| `src/app/login/page.tsx` | Login stránka (dark Apple-style) |
+| `src/app/api/auth/login/route.ts` | POST — přihlášení, vytvoření session |
+| `src/app/api/auth/logout/route.ts` | POST — odhlášení, smazání cookie |
 | `DOKUMENTACE.md` | Plná projektová dokumentace (neupravuj ručně) |
 
 ---
@@ -102,6 +111,8 @@ npm run prisma:seed
 - Fronta: kartičky s `draggable`, přetažením na timeline vznikne blok (stroj = cílový sloupec, čas = pozice puštění)
 - `QueueItem` typ: id, orderNumber, type, durationHours, description, dataStatusId, materialStatusId, barvyStatusId, lakStatusId, specifikace, deadlineExpedice
 - Aside panel je resizable (8px handle), zIndex: 10; timeline container zIndex: 0; sticky header zIndex: 30
+- **Role-based UI (etapa 8):** `canEdit = ["ADMIN","PLANOVAT"].includes(role)`, `canEditData = canEdit || DTP`, `canEditMat = canEdit || MTZ`. Aside + resize handle skryté pokud `!canEdit`. BlockEdit sekce obaleny `opacity/pointerEvents` wrappery. TimelineGrid dostává `canEdit` prop.
+- Header vpravo: jméno uživatele + role badge + Odhlásit tlačítko
 - **Konfigurovatelný rozsah:** state `daysAhead` (default 60) a `daysBack` (default 3). V headeru segmented buttons [30d|60d|90d] pro přepínání dopředu.
 - **„Přejít na" pro historické bloky:** pokud hledaná zakázka (filterText) leží před viewStart, zobrazí se žlutý banner s tlačítkem. Klik rozšíří `daysBack` a scrollne na blok. Logika: `pendingScrollMs` ref + `useLayoutEffect([daysBack])`.
 - **DatePickerField** — viz sekce níže

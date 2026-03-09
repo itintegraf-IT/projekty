@@ -1,7 +1,11 @@
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import PlannerPage from "./_components/PlannerPage";
 
 export default async function HomePage() {
+  const session = await getSession();
+  if (!session) redirect("/login");
   const blocks = await prisma.block.findMany({
     orderBy: { startTime: "asc" },
   });
@@ -26,5 +30,5 @@ export default async function HomePage() {
     createdAt: d.createdAt.toISOString(),
   }));
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} />;
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} currentUser={session} />;
 }

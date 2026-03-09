@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -23,6 +24,9 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
 }
 
 export async function PUT(request: NextRequest, { params }: RouteContext) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const { id: rawId } = await params;
   const id = parseInt(rawId, 10);
   if (isNaN(id)) {
@@ -32,43 +36,67 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
   try {
     const body = await request.json();
 
+    // Role-based field filter
+    let allowed: Record<string, unknown>;
+    if (["ADMIN", "PLANOVAT"].includes(session.role)) {
+      allowed = body;
+    } else if (session.role === "DTP") {
+      allowed = {
+        dataStatusId: body.dataStatusId,
+        dataStatusLabel: body.dataStatusLabel,
+        dataRequiredDate: body.dataRequiredDate,
+        dataOk: body.dataOk,
+      };
+    } else if (session.role === "MTZ") {
+      allowed = {
+        materialStatusId: body.materialStatusId,
+        materialStatusLabel: body.materialStatusLabel,
+        materialRequiredDate: body.materialRequiredDate,
+        materialOk: body.materialOk,
+      };
+    } else {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    // Remove undefined values
+    Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
+
     const block = await prisma.block.update({
       where: { id },
       data: {
-        ...(body.orderNumber !== undefined && { orderNumber: String(body.orderNumber) }),
-        ...(body.machine !== undefined && { machine: body.machine }),
-        ...(body.startTime !== undefined && { startTime: new Date(body.startTime) }),
-        ...(body.endTime !== undefined && { endTime: new Date(body.endTime) }),
-        ...(body.type !== undefined && { type: body.type }),
-        ...(body.description !== undefined && { description: body.description }),
-        ...(body.locked !== undefined && { locked: body.locked }),
-        ...(body.deadlineExpedice !== undefined && {
-          deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
+        ...(allowed.orderNumber !== undefined && { orderNumber: String(allowed.orderNumber) }),
+        ...(allowed.machine !== undefined && { machine: allowed.machine as string }),
+        ...(allowed.startTime !== undefined && { startTime: new Date(allowed.startTime as string) }),
+        ...(allowed.endTime !== undefined && { endTime: new Date(allowed.endTime as string) }),
+        ...(allowed.type !== undefined && { type: allowed.type as string }),
+        ...(allowed.description !== undefined && { description: allowed.description as string }),
+        ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
+        ...(allowed.deadlineExpedice !== undefined && {
+          deadlineExpedice: allowed.deadlineExpedice ? new Date(allowed.deadlineExpedice as string) : null,
         }),
         // DATA
-        ...(body.dataStatusId !== undefined && { dataStatusId: body.dataStatusId }),
-        ...(body.dataStatusLabel !== undefined && { dataStatusLabel: body.dataStatusLabel }),
-        ...(body.dataRequiredDate !== undefined && {
-          dataRequiredDate: body.dataRequiredDate ? new Date(body.dataRequiredDate) : null,
+        ...(allowed.dataStatusId !== undefined && { dataStatusId: allowed.dataStatusId as number }),
+        ...(allowed.dataStatusLabel !== undefined && { dataStatusLabel: allowed.dataStatusLabel as string }),
+        ...(allowed.dataRequiredDate !== undefined && {
+          dataRequiredDate: allowed.dataRequiredDate ? new Date(allowed.dataRequiredDate as string) : null,
         }),
-        ...(body.dataOk !== undefined && { dataOk: body.dataOk }),
+        ...(allowed.dataOk !== undefined && { dataOk: allowed.dataOk as boolean }),
         // MATERIÁL
-        ...(body.materialStatusId !== undefined && { materialStatusId: body.materialStatusId }),
-        ...(body.materialStatusLabel !== undefined && { materialStatusLabel: body.materialStatusLabel }),
-        ...(body.materialRequiredDate !== undefined && {
-          materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
+        ...(allowed.materialStatusId !== undefined && { materialStatusId: allowed.materialStatusId as number }),
+        ...(allowed.materialStatusLabel !== undefined && { materialStatusLabel: allowed.materialStatusLabel as string }),
+        ...(allowed.materialRequiredDate !== undefined && {
+          materialRequiredDate: allowed.materialRequiredDate ? new Date(allowed.materialRequiredDate as string) : null,
         }),
-        ...(body.materialOk !== undefined && { materialOk: body.materialOk }),
+        ...(allowed.materialOk !== undefined && { materialOk: allowed.materialOk as boolean }),
         // BARVY
-        ...(body.barvyStatusId !== undefined && { barvyStatusId: body.barvyStatusId }),
-        ...(body.barvyStatusLabel !== undefined && { barvyStatusLabel: body.barvyStatusLabel }),
+        ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
+        ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),
         // LAK
-        ...(body.lakStatusId !== undefined && { lakStatusId: body.lakStatusId }),
-        ...(body.lakStatusLabel !== undefined && { lakStatusLabel: body.lakStatusLabel }),
+        ...(allowed.lakStatusId !== undefined && { lakStatusId: allowed.lakStatusId as number }),
+        ...(allowed.lakStatusLabel !== undefined && { lakStatusLabel: allowed.lakStatusLabel as string }),
         // SPECIFIKACE
-        ...(body.specifikace !== undefined && { specifikace: body.specifikace }),
+        ...(allowed.specifikace !== undefined && { specifikace: allowed.specifikace as string }),
         // OPAKOVÁNÍ
-        ...(body.recurrenceType !== undefined && { recurrenceType: body.recurrenceType }),
+        ...(allowed.recurrenceType !== undefined && { recurrenceType: allowed.recurrenceType as string }),
       },
     });
 
@@ -83,6 +111,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(_: NextRequest, { params }: RouteContext) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!["ADMIN", "PLANOVAT"].includes(session.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const { id: rawId } = await params;
   const id = parseInt(rawId, 10);
   if (isNaN(id)) {

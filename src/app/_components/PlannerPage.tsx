@@ -331,6 +331,9 @@ function BlockEdit({
   allBlocks,
   onDeleteAll,
   onSaveAll,
+  canEdit = true,
+  canEditData = true,
+  canEditMat = true,
 }: {
   block: Block;
   onClose: () => void;
@@ -338,6 +341,9 @@ function BlockEdit({
   allBlocks: Block[];
   onDeleteAll: (ids: number[]) => Promise<void>;
   onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<void>;
+  canEdit?: boolean;
+  canEditData?: boolean;
+  canEditMat?: boolean;
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
   const [type, setType]               = useState(block.type);
@@ -553,6 +559,9 @@ function BlockEdit({
           </div>
         )}
 
+        {/* Hlavní pole — disabled pro MTZ/DTP/VIEWER */}
+        <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
+
         {/* Typ */}
         <div style={{ marginTop: 14 }}>
           <SectionLabel>Typ záznamu</SectionLabel>
@@ -614,15 +623,15 @@ function BlockEdit({
 
             {/* Řádek 1: Datumy — DATA | MATERIÁL | EXPEDICE */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-              <div>
+              <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA datum</ColLabel>
                 <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum dodání…" />
               </div>
-              <div>
+              <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <ColLabel>MATERIÁL datum</ColLabel>
                 <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum dodání…" />
               </div>
-              <div>
+              <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
                 <ColLabel>EXPEDICE</ColLabel>
                 <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} placeholder="Datum…" />
               </div>
@@ -631,7 +640,7 @@ function BlockEdit({
             {/* Řádek 2: Poznámky — DATA | MATERIÁL | BARVY | LAK */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 6 }}>
               {/* DATA */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <StatusSelect value={dataStatusId} onChange={setDataStatusId} opts={dataOpts} placeholder="DATA" />
                 <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: dataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer" }}>
                   <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
@@ -639,7 +648,7 @@ function BlockEdit({
                 </label>
               </div>
               {/* MATERIÁL */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <StatusSelect value={materialStatusId} onChange={setMaterialStatusId} opts={materialOpts} placeholder="MAT." />
                 <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: materialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer" }}>
                   <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
@@ -647,13 +656,17 @@ function BlockEdit({
                 </label>
               </div>
               {/* BARVY */}
-              <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="BARVY" />
+              <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
+                <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="BARVY" />
+              </div>
               {/* LAK */}
-              <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="LAK" />
+              <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
+                <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="LAK" />
+              </div>
             </div>
 
             {/* SPECIFIKACE */}
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 8, opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
               <SectionLabel>Specifikace</SectionLabel>
               <Textarea value={specifikace} onChange={(e) => setSpecifikace(e.target.value)} rows={2} placeholder="Speciální požadavky…" className="text-xs resize-none" />
             </div>
@@ -667,6 +680,8 @@ function BlockEdit({
             🔒 Zamčený blok
           </Label>
         </div>
+
+        </div>{/* close: Hlavní pole disabled wrapper */}
 
         {/* Série — inline dialog */}
         {seriesConfirm ? (
@@ -1057,7 +1072,12 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
 }
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks, initialCompanyDays }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[] }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; currentUser: { id: number; username: string; role: string } }) {
+  // Role-based permissions
+  const canEdit     = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
+  const canEditData = canEdit || currentUser.role === "DTP";
+  const canEditMat  = canEdit || currentUser.role === "MTZ";
+
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
   const [showShutdowns, setShowShutdowns] = useState(false);
@@ -1205,6 +1225,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
         .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
     : [];
   const nearestOutOfRange = outOfRangeBlocks[0] ?? null;
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
 
   function handleScrollToNow() {
     const y = dateToY(new Date(), viewStart, slotHeight);
@@ -1731,16 +1756,37 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
         </div>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
-          <Button
-            variant={showShutdowns ? "secondary" : "ghost"}
-            size="sm"
-            onClick={() => setShowShutdowns((s) => !s)}
-            className="h-8 text-xs border-slate-700"
-          >
-            📅 Odstávky
-          </Button>
-          <span className="uppercase tracking-[0.18em]">Etapa 4</span>
+          {canEdit && (
+            <Button
+              variant={showShutdowns ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setShowShutdowns((s) => !s)}
+              className="h-8 text-xs border-slate-700"
+            >
+              📅 Odstávky
+            </Button>
+          )}
           <span>{blocks.length} bloků</span>
+          <span style={{ width: 1, height: 16, background: "rgba(255,255,255,0.1)" }} />
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>
+            {currentUser.username}
+            <span style={{
+              marginLeft: 6, fontSize: 10, color: "#64748b",
+              background: "rgba(255,255,255,0.06)", borderRadius: 4, padding: "1px 5px",
+            }}>
+              {currentUser.role}
+            </span>
+          </span>
+          <button
+            onClick={handleLogout}
+            style={{
+              padding: "3px 10px", fontSize: 11, borderRadius: 6,
+              background: "transparent", border: "1px solid rgba(255,255,255,0.12)",
+              color: "#94a3b8", cursor: "pointer", transition: "all 120ms ease-out",
+            }}
+          >
+            Odhlásit
+          </button>
         </div>
       </header>
 
@@ -1769,18 +1815,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
             onMultiBlockUpdate={handleMultiBlockUpdate}
             daysAhead={daysAhead}
             daysBack={daysBack}
+            canEdit={canEdit}
           />
         </div>
 
-        {/* Resize handle */}
-        <ResizeHandle onMouseDown={() => {
+        {/* Resize handle + aside — skryté pro non-editors (NOTE etapa 8) */}
+        {canEdit && <ResizeHandle onMouseDown={() => {
           isResizing.current = true;
           document.body.style.cursor = "col-resize";
           document.body.style.userSelect = "none";
-        }} />
+        }} />}
 
         {/* PRAVÁ ČÁST – detail nebo builder */}
-        <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {canEdit && <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {showShutdowns ? (
             <ShutdownManager
               companyDays={companyDays}
@@ -1797,6 +1844,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
               allBlocks={blocks}
               onDeleteAll={handleDeleteAll}
               onSaveAll={handleSaveAll}
+              canEdit={canEdit}
+              canEditData={canEditData}
+              canEditMat={canEditMat}
             />
           ) : selectedBlock ? (
             <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />
@@ -2221,7 +2271,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
               </div>
             </div>
           )}
-        </aside>
+        </aside>}
       </section>
 
       {/* ── Push chain notifikace ── */}

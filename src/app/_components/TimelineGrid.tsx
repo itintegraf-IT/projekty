@@ -105,6 +105,7 @@ interface TimelineGridProps {
   selectedBlockIds?: Set<number>;
   onMultiSelect?: (ids: Set<number>) => void;
   onMultiBlockUpdate?: (updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) => void;
+  canEdit?: boolean;
 }
 
 type QueueDropPreview = {
@@ -336,9 +337,9 @@ function BlockCard({
   now: Date;
   onClick: () => void;
   onDoubleClick: () => void;
-  onMouseDown: (e: React.MouseEvent) => void;
-  onResizeMouseDown: (e: React.MouseEvent) => void;
-  onContextMenu: (e: React.MouseEvent) => void;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  onResizeMouseDown?: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onBlockUpdate: (b: Block) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
@@ -504,7 +505,7 @@ function BlockCard({
         <div
           onMouseEnter={() => setResizeHovered(true)}
           onMouseLeave={() => setResizeHovered(false)}
-          onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown(e); }}
+          onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown?.(e); }}
           style={{
             position: "absolute", bottom: 0, left: 0, right: 0, height: 8,
             cursor: "ns-resize", display: "flex", alignItems: "flex-end", justifyContent: "center",
@@ -536,6 +537,7 @@ export default function TimelineGrid({
   selectedBlockIds,
   onMultiSelect,
   onMultiBlockUpdate,
+  canEdit = true,
 }: TimelineGridProps) {
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
   const effectiveDaysAhead = daysAhead ?? VIEW_DAYS_AHEAD;
@@ -1003,18 +1005,18 @@ export default function TimelineGrid({
                 {colIdx > 0 && (
                   <div
                     style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid rgb(30 41 59)", borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(5 8 15)", userSelect: "none", cursor: "crosshair" }}
-                    onMouseDown={(e) => {
+                    onMouseDown={canEdit ? (e) => {
                       if (e.button !== 0) return;
                       if (dragStateRef.current) return;
                       lassoRef.current = { startClientX: e.clientX, startClientY: e.clientY, active: false };
                       e.preventDefault();
-                    }}
+                    } : undefined}
                   />
                 )}
               <div
                 ref={(el) => { colRefs.current[colIdx] = el; }}
                 style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0 }}
-                onDragOver={(e) => {
+                onDragOver={canEdit ? (e) => {
                   if (!queueDragItem) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "copy";
@@ -1027,13 +1029,13 @@ export default function TimelineGrid({
                   const snappedY = dateToY(snappedStart, vs, slotHeight);
                   const height = queueDragItem.durationHours * 2 * slotHeight;
                   setQueueDropPreview({ machine, top: snappedY, height, jobType: queueDragItem.type });
-                }}
-                onDragLeave={(e) => {
+                } : undefined}
+                onDragLeave={canEdit ? (e) => {
                   if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
                     setQueueDropPreview(null);
                   }
-                }}
-                onDrop={(e) => {
+                } : undefined}
+                onDrop={canEdit ? (e) => {
                   e.preventDefault();
                   if (!onQueueDrop || !queueDragItem) return;
                   const vs = viewStartRef.current;
@@ -1044,14 +1046,14 @@ export default function TimelineGrid({
                   const snappedStart = snapToSlot(yToDate(timelineY, vs));
                   setQueueDropPreview(null);
                   onQueueDrop(queueDragItem.id, machine, snappedStart);
-                }}
-                onMouseDown={(e) => {
+                } : undefined}
+                onMouseDown={canEdit ? (e) => {
                   if (e.button !== 0) return;
                   if ((e.target as HTMLElement).closest("[data-block]")) return;
                   if (dragStateRef.current) return;
                   lassoRef.current = { startClientX: e.clientX, startClientY: e.clientY, active: false };
                   e.preventDefault();
-                }}
+                } : undefined}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("[data-block]")) return;
                   const el = scrollRef.current;
@@ -1145,9 +1147,9 @@ export default function TimelineGrid({
                       now={now ?? new Date()}
                       onClick={() => { if (!dragDidMove.current) onBlockClick(block); }}
                       onDoubleClick={() => onBlockDoubleClick?.(block)}
-                      onMouseDown={(e) => handleBlockMouseDown(block, e)}
-                      onResizeMouseDown={(e) => handleResizeMouseDown(block, e)}
-                      onContextMenu={(e) => handleBlockContextMenu(block, e)}
+                      onMouseDown={canEdit ? (e) => handleBlockMouseDown(block, e) : undefined}
+                      onResizeMouseDown={canEdit ? (e) => handleResizeMouseDown(block, e) : undefined}
+                      onContextMenu={canEdit ? (e) => handleBlockContextMenu(block, e) : undefined}
                       onBlockUpdate={callbacksRef.current.onBlockUpdate}
                     />
                   );

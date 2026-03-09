@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -260,6 +261,27 @@ async function main() {
 
   const count = await prisma.block.count();
   console.log(`Seed dokončen: ${count} bloků vloženo.`);
+
+  // 3. Uživatelé — upsert (nemazat existující, jen přidat chybějící)
+  const seedUsers = [
+    { username: "admin",    password: "admin",    role: "ADMIN" },
+    { username: "planovac", password: "planovac", role: "PLANOVAT" },
+    { username: "mtz",      password: "mtz",      role: "MTZ" },
+    { username: "dtp",      password: "dtp",      role: "DTP" },
+    { username: "viewer",   password: "viewer",   role: "VIEWER" },
+  ];
+  for (const u of seedUsers) {
+    await prisma.user.upsert({
+      where: { username: u.username },
+      update: {},
+      create: {
+        username: u.username,
+        passwordHash: await bcrypt.hash(u.password, 10),
+        role: u.role,
+      },
+    });
+  }
+  console.log(`Uživatelé: ${seedUsers.length} účtů připraveno.`);
 }
 
 main()
