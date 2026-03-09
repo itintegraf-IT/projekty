@@ -10,7 +10,8 @@
     "lint": "next lint",
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
-    "prisma:seed": "prisma db seed"
+    "prisma:seed": "prisma db seed",
+    "prisma:bootstrap": "tsx prisma/bootstrap-prod.ts"
   },
   "dependencies": {
     "@prisma/client": "^5",

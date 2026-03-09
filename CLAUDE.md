@@ -25,7 +25,8 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 6 | Opakování | ✅ Hotovo |
 | 7 | Hromadné posuny + zámečky | ✅ Hotovo |
 | 8 | Uživatelé, role a přihlašování | ✅ Hotovo |
-| 9 | Admin dashboard (uživatelé + číselníky) | ⬜ Nezačato |
+| 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
+| 10 | Audit log (kdo co změnil) | ⬜ Nezačato |
 
 ---
 
@@ -71,7 +72,11 @@ npm run prisma:seed
 | `src/app/api/company-days/route.ts` | GET + POST firemních dnů |
 | `src/app/api/company-days/[id]/route.ts` | DELETE firemního dne |
 | `src/app/api/codebook/route.ts` | GET číselníku dle category (etapa 5) |
-| `src/app/api/codebook/[id]/route.ts` | PUT + DELETE položky číselníku (etapa 9) |
+| `src/app/api/codebook/[id]/route.ts` | PUT + DELETE položky číselníku (ADMIN only) |
+| `src/app/api/admin/users/route.ts` | GET (seznam) + POST (nový uživatel) — ADMIN only |
+| `src/app/api/admin/users/[id]/route.ts` | PUT (role/heslo) + DELETE — ADMIN only |
+| `src/app/admin/page.tsx` | Admin dashboard stránka (ADMIN only) |
+| `src/app/admin/_components/AdminDashboard.tsx` | Client component — iOS admin UI |
 | `src/app/_components/PlannerPage.tsx` | Client Component — builder + fronta + detail + ShutdownManager |
 | `src/app/_components/TimelineGrid.tsx` | Vizuální timeline grid (datum 44px + čas 72px + 2 strojové sloupce) |
 | `src/app/api/blocks/route.ts` | GET all + POST (POST: ADMIN/PLANOVAT) |
@@ -186,6 +191,144 @@ Veškeré nové UI komponenty a úpravy existujících musí dodržovat tyto zá
 - **Barvy:** tmavé pozadí `#0a0a0f` / `#111318`, akcenty bílá nebo `#3b82f6` (blue-500), žlutá `#FFE600` pro CTA
 - **Vlastní komponenty místo shadcn:** pro složitější prvky (slider, dropdown, date picker) preferuj custom implementaci která přesně sedí do designu
 - **shadcn/ui:** jen pro jednoduché primitiva (Button, Input, Badge) kde se vizuál hodí
+
+---
+
+## Etapa 10 — Audit log (plán, nezačato)
+
+### Cíl
+Sledovat, kdo a co změnil — ale jen smysluplné akce, ne každý drag & drop.
+
+### Co se loguje (selektivní audit)
+| Akce | Trigger |
+|------|---------|
+| Přidání bloku | POST `/api/blocks` |
+| Smazání bloku | DELETE `/api/blocks/[id]` |
+| Změna DATA stavu / data | PUT — pole `dataStatusId`, `dataStatusLabel`, `dataRequiredDate` |
+| Toggle dataOk | PUT — pole `dataOk` |
+| Změna MATERIÁL stavu / data | PUT — pole `materialStatusId`, `materialStatusLabel`, `materialRequiredDate` |
+| Toggle materialOk | PUT — pole `materialOk` |
+| Změna termínu expedice | PUT — pole `deadlineExpedice` |
+
+### Co se NELOGUJE
+- Drag & drop (startTime/endTime) — příliš časté, nezajímavé pro audit
+- Resize bloků
+- Změna popisu, specifikace, barvy, laku
+- Zamčení/odemčení bloku
+
+### DB schema — nový model `AuditLog`
+```prisma
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  blockId   Int
+  userId    Int
+  username  String
+  action    String   // "CREATE" | "DELETE" | "UPDATE"
+  field     String?  // název pole (např. "dataStatusLabel", "dataOk", "deadlineExpedice")
+  oldValue  String?  // předchozí hodnota (serializovaná jako string)
+  newValue  String?  // nová hodnota
+  createdAt DateTime @default(now())
+}
+```
+
+Pozn.: `blockId` bez FK (blok může být smazán, ale log chceme zachovat).
+
+### Implementace v API routes
+V každé chráněné PUT/POST/DELETE route:
+1. Zjistit `session` (getSession)
+2. Pro PUT: porovnat starý stav (Prisma `findUnique` před update) s novým — logovat jen změněná sledovaná pole
+3. Pro POST: logovat `action: "CREATE"` s `blockId` nového bloku
+4. Pro DELETE: logovat `action: "DELETE"` před smazáním (aby bylo `blockId` ještě platné)
+5. `prisma.auditLog.create({ data: { blockId, userId, username, action, field, oldValue, newValue } })`
+
+### UI
+- **Admin dashboard (etapa 9):** tabulka posledních N záznamů — datum, uživatel, zakázka, akce, stará/nová hodnota
+- **BlockEdit:** mini-sekce "Historie změn" dole — posledních 10 logů pro daný blok (GET `/api/blocks/[id]/audit`)
+- Nová API route: GET `/api/audit?limit=50` (admin) + GET `/api/blocks/[id]/audit`
+
+### Pořadí implementace
+Etapa 10 musí přijít **po Etapě 9** — v admin dashboardu budou reální uživatelé (ne jen seed), takže audit log dává smysl až tehdy.
+
+### Nové soubory pro etapu 10
+- `src/app/api/audit/route.ts` — GET posledních N záznamů (jen ADMIN)
+- `src/app/api/blocks/[id]/audit/route.ts` — GET logu pro konkrétní blok
+
+---
+
+---
+
+## Přechod na produkci — MySQL
+
+### Co NIKDY nedělat na produkci
+- ❌ `npm run prisma:seed` — **smaže všechna data** (bloky + číselníky). Chráněno kontrolou `NODE_ENV=production`.
+- ❌ `npx prisma db push --accept-data-loss` — může dropnout sloupce/tabulky.
+- ❌ `npx prisma migrate dev` — jen pro vývoj, může přetvářet tabulky.
+
+### Co je bezpečné na produkci
+- ✅ `npx prisma migrate deploy` — aplikuje jen pending migrace, data nesmaže.
+- ✅ `npm run prisma:bootstrap` — bezpečná inicializace: vytvoří číselník a admin účet **pouze pokud neexistují**.
+- ✅ `npm run build && npm run start` — standardní spuštění.
+
+### Krok za krokem: přechod SQLite → MySQL
+
+**1. Upravit `prisma/schema.prisma`:**
+```prisma
+datasource db {
+  provider = "mysql"   // bylo "sqlite"
+  url      = env("DATABASE_URL")
+}
+```
+
+**2. Vygenerovat MySQL migrace** (na vývojovém počítači s prázdnou MySQL):
+```bash
+DATABASE_URL="mysql://user:password@localhost:3306/integraf_dev"
+npx prisma migrate dev --name init_mysql
+```
+Starší SQLite migrace (`prisma/migrations/20260303...`) pro MySQL nefungují — nové je nahradí.
+
+**3. Env proměnné na produkčním serveru:**
+```env
+DATABASE_URL="mysql://db_user:db_password@localhost:3306/integraf"
+JWT_SECRET="<min. 32 náhodných znaků — vygeneruj: openssl rand -base64 32>"
+NODE_ENV="production"
+```
+
+**4. První nasazení na server:**
+```bash
+npm install
+npx prisma generate          # vygeneruje Prisma klient
+npx prisma migrate deploy    # vytvoří tabulky v MySQL
+npm run prisma:bootstrap     # vytvoří číselník + admin účet (jen pokud prázdné)
+npm run build
+npm run start
+```
+
+**5. Každé další nasazení (update aplikace):**
+```bash
+npm install
+npx prisma generate
+npx prisma migrate deploy    # aplikuje nové migrace (pokud jsou)
+npm run build
+npm run start
+# ⚠️ NESPOUŠTĚT seed ani bootstrap — data už existují
+```
+
+### Bootstrap vs Seed — rozdíl
+
+| | `prisma:seed` | `prisma:bootstrap` |
+|---|---|---|
+| Maže bloky | ✅ ANO | ❌ NE |
+| Maže číselník | ✅ ANO | ❌ NE |
+| Vytváří číselník | vždy (přepíše) | pouze pokud prázdný |
+| Vytváří admin | upsert | pouze pokud žádný neexistuje |
+| Bezpečné v produkci | ❌ NE | ✅ ANO |
+| Určeno pro | vývoj (reset) | první spuštění v produkci |
+
+### První přihlášení v produkci
+Bootstrap vytvoří `admin` s heslem `ChangeMe123!`.
+**Okamžitě změň heslo** přes Admin dashboard → Uživatelé → Heslo.
+
+---
 
 ## Komunikace
 

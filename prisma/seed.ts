@@ -56,6 +56,12 @@ const LAK_OPTIONS = [
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
+  // Ochrana: seed je jen pro vývoj — v produkci by smazal reálná data!
+  if (process.env.NODE_ENV === "production") {
+    console.error("❌ SEED ODMÍTNUT: NODE_ENV=production. Seed maže data — nikdy nespouštěj v produkci!");
+    process.exit(1);
+  }
+
   // 1. Číselníky — smazat a znovu seedovat
   await prisma.codebookOption.deleteMany();
 

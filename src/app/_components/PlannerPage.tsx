@@ -1777,6 +1777,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               {currentUser.role}
             </span>
           </span>
+          {currentUser.role === "ADMIN" && (
+            <a
+              href="/admin"
+              style={{
+                padding: "3px 10px", fontSize: 11, borderRadius: 6,
+                background: "rgba(255,230,0,0.1)", border: "1px solid rgba(255,230,0,0.2)",
+                color: "#FFE600", cursor: "pointer", textDecoration: "none",
+                whiteSpace: "nowrap", transition: "all 120ms ease-out",
+              }}
+            >
+              Správa
+            </a>
+          )}
           <button
             onClick={handleLogout}
             style={{
