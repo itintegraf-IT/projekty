@@ -9,6 +9,7 @@ import { Button }    from "@/components/ui/button";
 import { Switch }    from "@/components/ui/switch";
 import { Badge }     from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
 type CodebookOption = {
@@ -198,33 +199,127 @@ function formatDuration(hours: number): string {
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
 
 // ─── DatePickerField ──────────────────────────────────────────────────────────
+const MONTH_NAMES_CS = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
+const DAY_NAMES_CS   = ["Po","Út","St","Čt","Pá","So","Ne"];
+const navBtnStyle: React.CSSProperties = {
+  width: 28, height: 28, borderRadius: 8, border: "none",
+  background: "rgba(255,255,255,0.06)", color: "#9ca3af",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  cursor: "pointer", transition: "background 100ms ease-out",
+};
+
 function DatePickerField({
   value,
   onChange,
+  placeholder = "Vyberte datum…",
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const today = new Date();
+  const selected = value ? new Date(value + "T00:00:00") : undefined;
+  const [viewYear,  setViewYear]  = useState(() => selected?.getFullYear()  ?? today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => selected?.getMonth()     ?? today.getMonth());
+
+  function toStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  }
+
+  // Grid Po=0 … Ne=6
+  const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const displayLabel = selected
+    ? selected.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric", year: "numeric" })
+    : placeholder;
+
+  const CELL = 36;
+  const GAP  = 3;
+
   return (
-    <input
-      type="date"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{
-        colorScheme: "dark",
-        height: 32,
-        width: "100%",
-        borderRadius: 6,
-        border: "1px solid rgb(51 65 85)",
-        backgroundColor: "rgb(15 23 42)",
-        color: value ? "#f1f5f9" : "#64748b",
-        fontSize: 12,
-        padding: "0 10px",
-        outline: "none",
-        boxSizing: "border-box",
-      } as React.CSSProperties}
-    />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button style={{
+          height: 32, width: "100%", borderRadius: 6,
+          border: "1px solid rgb(51 65 85)", background: "rgb(15 23 42)",
+          color: selected ? "#f1f5f9" : "#64748b",
+          fontSize: 12, padding: "0 10px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          cursor: "pointer", outline: "none", boxSizing: "border-box",
+          transition: "border-color 120ms ease-out",
+        } as React.CSSProperties}>
+          <span>{displayLabel}</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.4, flexShrink: 0 }}>
+            <rect x="3" y="4" width="18" height="18" rx="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0 border-0" style={{ background: "#1c1c1e", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+        <div style={{ width: 7 * CELL + 6 * GAP + 32, padding: "16px 16px 12px", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
+
+          {/* Hlavička */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <button onClick={prevMonth} style={navBtnStyle}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", letterSpacing: "-0.01em" }}>
+              {MONTH_NAMES_CS[viewMonth]} {viewYear}
+            </span>
+            <button onClick={nextMonth} style={navBtnStyle}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+
+          {/* Zkratky dnů */}
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, marginBottom: 4 }}>
+            {DAY_NAMES_CS.map(d => (
+              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 500, color: "#6b7280", paddingBottom: 4 }}>{d}</div>
+            ))}
+          </div>
+
+          {/* Dny */}
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
+            {cells.map((day, i) => {
+              if (!day) return <div key={i} style={{ width: CELL, height: CELL }} />;
+              const isSelected = !!selected && selected.getDate() === day && selected.getMonth() === viewMonth && selected.getFullYear() === viewYear;
+              const isToday    = today.getDate() === day && today.getMonth() === viewMonth && today.getFullYear() === viewYear;
+              return (
+                <button key={i}
+                  onClick={() => { onChange(toStr(new Date(viewYear, viewMonth, day))); setOpen(false); }}
+                  style={{
+                    width: CELL, height: CELL, borderRadius: "50%",
+                    background: isSelected ? "#3b82f6" : "transparent",
+                    color: isSelected ? "#fff" : isToday ? "#3b82f6" : "#e5e7eb",
+                    border: isToday && !isSelected ? "1.5px solid #3b82f6" : "1.5px solid transparent",
+                    fontSize: 13, fontWeight: isSelected || isToday ? 600 : 400,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "background 100ms ease-out",
+                  }}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -882,11 +977,11 @@ function ShutdownManager({
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <div>
               <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Od</Label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8 text-xs" />
+              <DatePickerField value={startDate} onChange={setStartDate} placeholder="Od…" />
             </div>
             <div>
               <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Do</Label>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-8 text-xs" />
+              <DatePickerField value={endDate} onChange={setEndDate} placeholder="Do…" />
             </div>
           </div>
           <Button
@@ -1014,6 +1109,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   const [filterText, setFilterText] = useState("");
   const [jumpDate, setJumpDate]     = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [daysAhead, setDaysAhead] = useState(60);
+  const [daysBack, setDaysBack]   = useState(3);
 
   // Zoom — kotva pro scroll při změně zoomu
   const [slotHeight, setSlotHeight] = useState(26);
@@ -1077,7 +1174,37 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
     }).catch(() => {/* číselník se nepodařilo načíst */});
   }, []);
 
-  const viewStart = startOfDay(addDays(new Date(), -3));
+  const viewStart = startOfDay(addDays(new Date(), -daysBack));
+
+  // "Přejít na" blok mimo rozsah — ref pro čekající scroll po změně daysBack
+  const pendingScrollMs = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const target = pendingScrollMs.current;
+    if (target === null) return;
+    pendingScrollMs.current = null;
+    const newViewStart = startOfDay(addDays(new Date(), -daysBack));
+    const y = dateToY(new Date(target), newViewStart, slotHeight);
+    scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
+  }, [daysBack]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleJumpToOutOfRange(block: Block) {
+    const blockDate = startOfDay(new Date(block.startTime));
+    const today = startOfDay(new Date());
+    const diffDays = Math.round((today.getTime() - blockDate.getTime()) / (24 * 60 * 60 * 1000));
+    pendingScrollMs.current = new Date(block.startTime).getTime();
+    setDaysBack(Math.max(3, diffDays + 5));
+  }
+
+  // Bloky mimo rozsah (v minulosti) odpovídající aktuálnímu hledání
+  const outOfRangeBlocks = filterText.trim()
+    ? blocks
+        .filter(b =>
+          b.orderNumber.toLowerCase().includes(filterText.trim().toLowerCase()) &&
+          new Date(b.startTime) < viewStart
+        )
+        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
+    : [];
+  const nearestOutOfRange = outOfRangeBlocks[0] ?? null;
 
   function handleScrollToNow() {
     const y = dateToY(new Date(), viewStart, slotHeight);
@@ -1562,12 +1689,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
             placeholder="Hledat zakázku…"
             className="h-8 text-xs w-40 border-slate-700 bg-slate-800 placeholder:text-slate-600 focus-visible:border-yellow-400/50"
           />
-          <Input
-            type="date"
-            value={jumpDate}
-            onChange={(e) => { setJumpDate(e.target.value); handleJumpToDate(e.target.value); }}
-            className="h-8 text-xs border-slate-700 bg-slate-800 focus-visible:border-yellow-400/50 w-auto"
-          />
+          <div style={{ width: 150 }}>
+            <DatePickerField
+              value={jumpDate}
+              onChange={(v) => { setJumpDate(v); if (v) handleJumpToDate(v); }}
+              placeholder="Přejít na datum…"
+            />
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -1577,6 +1705,29 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
             Dnes
           </Button>
           <ZoomSlider value={slotHeight} onChange={handleZoomChange} />
+          <div style={{ display: "flex", gap: 3 }}>
+            {[30, 60, 90].map(d => (
+              <button key={d} onClick={() => setDaysAhead(d)} style={{
+                padding: "2px 7px", fontSize: 11, borderRadius: 5,
+                background: daysAhead === d ? "rgba(255,230,0,0.12)" : "transparent",
+                border: `1px solid ${daysAhead === d ? "#FFE600" : "rgba(255,255,255,0.1)"}`,
+                color: daysAhead === d ? "#FFE600" : "#94a3b8",
+                cursor: "pointer", transition: "all 120ms ease-out", lineHeight: 1.4,
+              }}>{d}d</button>
+            ))}
+          </div>
+          {nearestOutOfRange && (
+            <button onClick={() => handleJumpToOutOfRange(nearestOutOfRange)} style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "2px 8px", fontSize: 11, borderRadius: 5,
+              background: "rgba(255,230,0,0.08)",
+              border: "1px solid rgba(255,230,0,0.25)",
+              color: "#FFE600", cursor: "pointer",
+              transition: "all 120ms ease-out", whiteSpace: "nowrap",
+            }}>
+              ↑ {nearestOutOfRange.orderNumber} v minulosti{outOfRangeBlocks.length > 1 ? ` (+${outOfRangeBlocks.length - 1})` : ""} — přejít
+            </button>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
@@ -1616,6 +1767,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
             selectedBlockIds={selectedBlockIds}
             onMultiSelect={setSelectedBlockIds}
             onMultiBlockUpdate={handleMultiBlockUpdate}
+            daysAhead={daysAhead}
+            daysBack={daysBack}
           />
         </div>
 
@@ -1799,18 +1952,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                       <div>
                         <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Data</label>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <input
-                            type="date"
-                            value={bDataRequiredDate}
-                            onChange={(e) => setBDataRequiredDate(e.target.value)}
-                            style={{
-                              flex: "0 0 130px", height: 32, background: "#181b22",
-                              border: "1px solid #1e2130", borderRadius: 10, color: bDataRequiredDate ? "#e8eaf0" : "#64748b",
-                              fontSize: 12, padding: "0 10px", outline: "none", colorScheme: "dark",
-                            }}
-                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-                          />
+                          <div style={{ flex: "0 0 130px" }}>
+                            <DatePickerField value={bDataRequiredDate} onChange={setBDataRequiredDate} placeholder="Datum dodání…" />
+                          </div>
                           <div style={{ position: "relative", flex: 1 }}>
                             <select
                               value={bDataStatusId}
@@ -1843,18 +1987,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
                       <div>
                         <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Materiál</label>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <input
-                            type="date"
-                            value={bMaterialRequiredDate}
-                            onChange={(e) => setBMaterialRequiredDate(e.target.value)}
-                            style={{
-                              flex: "0 0 130px", height: 32, background: "#181b22",
-                              border: "1px solid #1e2130", borderRadius: 10, color: bMaterialRequiredDate ? "#e8eaf0" : "#64748b",
-                              fontSize: 12, padding: "0 10px", outline: "none", colorScheme: "dark",
-                            }}
-                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-                          />
+                          <div style={{ flex: "0 0 130px" }}>
+                            <DatePickerField value={bMaterialRequiredDate} onChange={setBMaterialRequiredDate} placeholder="Datum dodání…" />
+                          </div>
                           <div style={{ position: "relative", flex: 1 }}>
                             <select
                               value={bMaterialStatusId}

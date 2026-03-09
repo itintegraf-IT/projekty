@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
 const HEADER_HEIGHT = 33;       // výška sticky headeru (px) — pro sticky label uvnitř dne
 const TIME_COL_W = 72;          // šířka sloupce s časy (px)
+const MACHINE_GAP_W = 10;       // šířka neutrálního mezisloupce mezi stroji (px)
 const VIEW_DAYS_BACK = 3;
 const VIEW_DAYS_AHEAD = 30;
-const TOTAL_DAYS = VIEW_DAYS_BACK + VIEW_DAYS_AHEAD + 1;
-const TOTAL_SLOTS = TOTAL_DAYS * 48;
+
 const WORK_START_H = 6;
 const WORK_END_H = 22;
 const MACHINES = ["XL_105", "XL_106"] as const;
@@ -97,6 +97,8 @@ interface TimelineGridProps {
   onBlockDoubleClick?: (block: Block) => void;
   companyDays?: CompanyDay[];
   slotHeight?: number;
+  daysAhead?: number;
+  daysBack?: number;
   copiedBlockId?: number | null;
   onGridClick?: (machine: string, time: Date) => void;
   onBlockCopy?: (block: Block) => void;
@@ -526,6 +528,8 @@ export default function TimelineGrid({
   queueDragItem, onQueueDrop, onBlockDoubleClick,
   companyDays,
   slotHeight = SLOT_HEIGHT,
+  daysAhead,
+  daysBack,
   copiedBlockId,
   onGridClick,
   onBlockCopy,
@@ -533,8 +537,11 @@ export default function TimelineGrid({
   onMultiSelect,
   onMultiBlockUpdate,
 }: TimelineGridProps) {
-  const dayHeight   = slotHeight * 48;
-  const totalHeight = TOTAL_DAYS * dayHeight;
+  const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
+  const effectiveDaysAhead = daysAhead ?? VIEW_DAYS_AHEAD;
+  const totalDays  = effectiveDaysBack + effectiveDaysAhead + 1;
+  const dayHeight  = slotHeight * 48;
+  const totalHeight = totalDays * dayHeight;
 
   const [viewStart, setViewStart] = useState<Date | null>(null);
   const [now, setNow]             = useState<Date | null>(null);
@@ -563,17 +570,23 @@ export default function TimelineGrid({
   }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate]);
 
   useEffect(() => {
-    const start = startOfDay(addDays(new Date(), -VIEW_DAYS_BACK));
-    setViewStart(start);
-    viewStartRef.current = start;
     setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(t);
   }, []);
 
-  // Scroll na aktuální čas po mountu
+  useEffect(() => {
+    const start = startOfDay(addDays(new Date(), -effectiveDaysBack));
+    setViewStart(start);
+    viewStartRef.current = start;
+  }, [effectiveDaysBack]); // eslint-disable-line
+
+  // Scroll na aktuální čas pouze při prvním nastavení viewStart (ne při změně daysBack)
+  const hasScrolledToNow = useRef(false);
   useEffect(() => {
     if (!viewStart || !scrollRef.current) return;
+    if (hasScrolledToNow.current) return;
+    hasScrolledToNow.current = true;
     const y = dateToY(new Date(), viewStart);
     scrollRef.current.scrollTop = Math.max(0, y - 200);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -824,15 +837,12 @@ export default function TimelineGrid({
       <div style={{ width: TIME_COL_W, flexShrink: 0, borderRight: "1px solid rgb(30 41 59)", display: "flex", alignItems: "center", padding: "0 8px" }}>
         <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "rgb(71 85 105)", textTransform: "uppercase" }}>ČAS</span>
       </div>
-      {MACHINES.map((machine, idx) => (
-        <div
-          key={machine}
-          style={{ flex: 1, padding: "8px 12px", borderRight: idx === 0 ? "1px solid rgb(30 41 59)" : undefined }}
-          className="text-xs font-bold text-slate-200"
-        >
+      {MACHINES.flatMap((machine, idx) => [
+        idx > 0 ? <div key={`hgap-${idx}`} style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid rgb(30 41 59)", borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(5 8 15)" }} /> : null,
+        <div key={machine} style={{ flex: 1, padding: "8px 12px" }} className="text-xs font-bold text-slate-200">
           {machine.replace("_", "\u00a0")}
-        </div>
-      ))}
+        </div>,
+      ])}
     </div>
   );
 
@@ -854,7 +864,7 @@ export default function TimelineGrid({
   // Výpočet svátkové sady pro všechny roky v zobrazovaném rozsahu
   const holidays = (() => {
     const years = new Set<number>();
-    for (let i = 0; i < TOTAL_DAYS; i++) years.add(addDays(viewStart, i).getFullYear());
+    for (let i = 0; i < totalDays; i++) years.add(addDays(viewStart, i).getFullYear());
     const s = new Set<string>();
     years.forEach((y) => czechHolidaySet(y).forEach((d) => s.add(d)));
     return s;
@@ -867,7 +877,7 @@ export default function TimelineGrid({
 
   const nightOverlays: { top: number; height: number; key: string }[] = [];
 
-  for (let di = 0; di < TOTAL_DAYS; di++) {
+  for (let di = 0; di < totalDays; di++) {
     const day      = addDays(viewStart, di);
     const dayY     = di * dayHeight;
     const isWeekend = day.getDay() === 0 || day.getDay() === 6;
@@ -989,10 +999,21 @@ export default function TimelineGrid({
             const machineBlocks = blocks.filter((b) => b.machine === machine);
 
             return (
+              <Fragment key={machine}>
+                {colIdx > 0 && (
+                  <div
+                    style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid rgb(30 41 59)", borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(5 8 15)", userSelect: "none", cursor: "crosshair" }}
+                    onMouseDown={(e) => {
+                      if (e.button !== 0) return;
+                      if (dragStateRef.current) return;
+                      lassoRef.current = { startClientX: e.clientX, startClientY: e.clientY, active: false };
+                      e.preventDefault();
+                    }}
+                  />
+                )}
               <div
-                key={machine}
                 ref={(el) => { colRefs.current[colIdx] = el; }}
-                style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0, borderRight: colIdx === 0 ? "1px solid rgb(30 41 59)" : undefined }}
+                style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0 }}
                 onDragOver={(e) => {
                   if (!queueDragItem) return;
                   e.preventDefault();
@@ -1186,6 +1207,7 @@ export default function TimelineGrid({
                   }} />
                 )}
               </div>
+              </Fragment>
             );
           })}
         </div>

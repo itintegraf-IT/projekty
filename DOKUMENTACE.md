@@ -24,9 +24,9 @@ Webová aplikace pro plánování výroby na strojích XL 105 a XL 106. Umožňu
 | 2 | Timeline render (grid + scroll + filtry) | ✅ Hotovo |
 | 3 | Drag & drop + resize + rozdělení | ✅ Hotovo |
 | 4 | Směny + svátky + background | ✅ Hotovo |
-| 5 | Výrobní sloupečky, stavy, overdue indikace | ⬜ Nezačato |
-| 6 | Opakování | ⬜ Nezačato |
-| 7 | Hromadné posuny + zámečky | ⬜ Nezačato |
+| 5 | Výrobní sloupečky, stavy, overdue indikace | ✅ Hotovo |
+| 6 | Opakování | ✅ Hotovo |
+| 7 | Hromadné posuny + zámečky | ✅ Hotovo |
 | 8 | Uživatelé, role a přihlašování | ⬜ Nezačato |
 | 9 | Admin dashboard (uživatelé + číselníky) | ⬜ Nezačato |
 
@@ -60,7 +60,7 @@ Veškeré UI komponenty musí vizuálně odpovídat kvalitě aplikací Apple. To
 ### Příklady dodržení standardu
 - `ZoomSlider` v `PlannerPage.tsx` — custom drag slider, bílý thumb se stínem, ikony lupy
 - `<select>` pole — jednotný styl `#181b22` bg, `border-radius: 10`, `height: 32–40`
-- `<input type="date">` — `colorScheme: "dark"`, jednotný border a background
+- `DatePickerField` — vlastní iOS-style kalendářový popup, kulaté buňky, tmavé pozadí `#1c1c1e`
 
 ---
 
@@ -109,9 +109,6 @@ Pět sloupečků viditelných přímo na bloku v timeline. Slouží k rychlé or
 | **LAK** | status z číselníku | ❌ ne | ❌ ne |
 | **SPECIFIKACE** | volný text | ❌ ne | ❌ ne |
 
-#### Pantone — řešení doplňkového datumu
-Sloupec MATERIÁL obsahuje volitelnou položku `pantone` v číselníku. Pro sledování očekávaného data dodání pantonu existuje **samostatné pole** `pantoneExpectedDate` (nullable DateTime) přímo na bloku. Toto pole je viditelné a editovatelné v detailu bloku, pokud má blok v MATERIÁL zvolenou hodnotu obsahující „pantone". Uloženo jako samostatné DB pole — není součástí číselníku.
-
 #### DB pole bloku pro výrobní sloupečky
 
 ```
@@ -126,7 +123,6 @@ materialStatusId     Int?       FK → CodebookOption (category = MATERIAL)
 materialStatusLabel  String?    snapshot
 materialRequiredDate DateTime?  doplňkový datum (nepovinný)
 materialOk           Boolean    default false
-pantoneExpectedDate  DateTime?  samostatné pole pro pantone dodání
 
 // BARVY
 barvyStatusId        Int?       FK → CodebookOption (category = BARVY)
@@ -216,7 +212,7 @@ Blok nikdy neukládá přímo label — ukládá `optionId` + `snapshotLabel`. S
 ### Logika
 
 ```
-pokud (startTime bloku < requiredDate) A (ok !== true)
+pokud (now > requiredDate) A (ok !== true)
 → zobraz ⚠ u konkrétního sloupce
 ```
 
@@ -252,17 +248,16 @@ Formulář pro vytvoření nového bloku. Pole:
 
 ## shadcn/ui — UX poznámky
 
-V projektu je aktivní shadcn/ui (New York styl). Aktuálně nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator.
+V projektu je aktivní shadcn/ui (New York styl). Aktuálně nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator, Select, Popover, Calendar.
 
-**Důležité:** Shadcn `Select`, `Popover` a `Calendar` jsou v projektu **záměrně nahrazeny nativními HTML prvky** — Radix portály konfliktuji s CSS proměnnými v dark modu (průhledná pozadí). Toto rozhodnutí platí pro celý projekt, nevracet se k shadcn komponentám pro tyto prvky.
+**Pravidlo pro datumové inputy:** `<input type="date">` je **zakázán** — všude se používá vlastní komponenta `DatePickerField` (viz níže).
 
 | Prvek | Řešení |
 |-------|--------|
-| Všechna dropdown menu | Nativní `<select>` — styl: background `#181b22`, border `#1e2130`, borderRadius 10, height 40, chevron SVG přes wrapper |
-| Date picker (doplňkový datum, pantone datum) | Nativní `<input type="date" style={{ colorScheme: "dark" }}>` |
+| Všechna dropdown menu | Nativní `<select>` — styl: background `#181b22`, border `#1e2130`, borderRadius 10, height 32–40, chevron SVG přes wrapper |
+| Date picker | Vlastní `DatePickerField` komponenta (iOS-style popup, bez react-day-picker) |
 | Badge ve sloupečcích | `Badge` (shadcn, variant dle stavu) |
-| Warning ikonka | `Icon` (AlertTriangle z lucide-react) + `Tooltip` |
-| Tooltip detail | shadcn `Tooltip` |
+| Warning ikonka | `AlertTriangle` z lucide-react |
 | Admin tabulky (uživatelé, číselníky) | Data Table pattern (`Table` + `ColumnDef` s TanStack Table) |
 | Edit dialogy (uživatel, položka číselníku) | shadcn `Dialog` |
 
@@ -373,16 +368,16 @@ Pokud datum existuje a není OK a blok ještě nezačal → červené zvýrazně
 
 ---
 
-## Etapa 6 — Opakování
+## Etapa 6 — Opakování ✅
 
-- Opakování operace: každý den / každý týden / každý měsíc
-- Nastavitelné v detailu zakázky jedním zaškrtnutím (checkbox/radio)
-- Série: vytvoření instancí dopředu (6–12 měsíců) nebo generování „on the fly"
+- Opakování bloku: DAILY / WEEKLY / MONTHLY (field `recurrenceType` na Block)
+- `recurrenceParentId` — self-relace, instance odkazuje na rodičovský blok
 - Při editaci výběr: upravit jen tuto instanci, nebo celou sérii
+- UI v detailu bloku: dropdown pro typ opakování + počet opakování
 
 ---
 
-## Etapa 7 — Hromadné posuny + zámečky bloků
+## Etapa 7 — Hromadné posuny + zámečky bloků ✅
 
 **Multi-select:**
 - Tažením myši výběrový obdélník (lasso/box select) označí více bloků
@@ -398,6 +393,26 @@ Pokud datum existuje a není OK a blok ještě nezačal → červené zvýrazně
   - Systém zastaví posun a zobrazí hlášku „Nelze posunout přes zamknutý blok"
   - Nebo nabídne alternativu (posun jen do okamžiku před lockem)
 - UX: ikona zámku přímo na bloku + přepínač v detailu
+
+---
+
+---
+
+## QoL vylepšení (po etapě 7)
+
+### Konfigurovatelný rozsah timeline
+- Header: segmented buttons [30d | 60d | 90d] pro přepínání rozsahu dopředu (výchozí 60 dní)
+- State `daysAhead` + `daysBack` v PlannerPage; TimelineGrid přijímá je jako props a počítá `totalDays` dynamicky
+
+### „Přejít na" pro historické bloky
+- Při hledání zakázky (filterText) se zobrazí žlutý banner, pokud zakázka leží před viewStart
+- Klik rozšíří `daysBack` a scrollne timeline na daný blok
+
+### DatePickerField — vlastní iOS-style kalendář
+- Nahrazuje všechny `<input type="date">` v celé aplikaci
+- Vlastní React komponenta bez závislosti na react-day-picker nebo shadcn Calendar
+- Tmavé popup okno `#1c1c1e`, kulaté buňky 36×36px, česká lokalizace (Po–Ne, Leden–Prosinec)
+- Nasazeno: Job Builder, BlockEdit, ShutdownManager, header toolbar
 
 ---
 
@@ -482,4 +497,4 @@ Samostatná stránka nebo sekce přístupná pouze roli Admin.
 
 ---
 
-*Dokument naposledy aktualizován: 2026-03 — verze VII*
+*Dokument naposledy aktualizován: 2026-03 — verze VIII*

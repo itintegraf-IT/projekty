@@ -80,6 +80,7 @@ npm run prisma:seed
 
 ### TimelineGrid.tsx
 - `SLOT_HEIGHT = 26px` výchozí, ale dynamický — předává se jako prop `slotHeight` z PlannerPage
+- **Konfigurovatelný rozsah:** props `daysAhead?: number` (default 30) a `daysBack?: number` (default 3). Uvnitř komponenty se počítá `effectiveDaysBack`/`effectiveDaysAhead`/`totalDays` dynamicky.
 - Zoom slider v headeru mění `slotHeight` (3–26 px), zoom kotví na střed viewportu (`zoomAnchorMs` ref)
 - Adaptivní časové štítky: krok štítků se mění dle `slotHeight` (každých 30 min / 1 hod / 2 hod / 4 hod)
 - `DATE_COL_W = 44px` sticky left:0 — datum, barva dne (dnes=modrá, víkend=oranžová)
@@ -101,12 +102,23 @@ npm run prisma:seed
 - Fronta: kartičky s `draggable`, přetažením na timeline vznikne blok (stroj = cílový sloupec, čas = pozice puštění)
 - `QueueItem` typ: id, orderNumber, type, durationHours, description, dataStatusId, materialStatusId, barvyStatusId, lakStatusId, specifikace, deadlineExpedice
 - Aside panel je resizable (8px handle), zIndex: 10; timeline container zIndex: 0; sticky header zIndex: 30
+- **Konfigurovatelný rozsah:** state `daysAhead` (default 60) a `daysBack` (default 3). V headeru segmented buttons [30d|60d|90d] pro přepínání dopředu.
+- **„Přejít na" pro historické bloky:** pokud hledaná zakázka (filterText) leží před viewStart, zobrazí se žlutý banner s tlačítkem. Klik rozšíří `daysBack` a scrollne na blok. Logika: `pendingScrollMs` ref + `useLayoutEffect([daysBack])`.
+- **DatePickerField** — viz sekce níže
+
+### DatePickerField (vlastní komponenta)
+- Plně vlastní custom komponenta v `PlannerPage.tsx` — **bez react-day-picker ani shadcn Calendar**
+- iOS-style popup: tmavé pozadí `#1c1c1e`, kulaté buňky 36×36px, CSS grid s pevnými rozměry
+- Dnes = modrý rámeček + tučné číslo; vybraný den = plné modré kolečko
+- Měsíc/rok v hlavičce, šipky pro navigaci
+- **Použití všude místo `<input type="date">`** — Job Builder (DATA datum, MATERIÁL datum, Expedice), BlockEdit (DATA, MATERIÁL, Expedice), ShutdownManager (Od/Do), header toolbar (skok na datum)
+- Konstanty `MONTH_NAMES_CS`, `DAY_NAMES_CS`, `navBtnStyle` definovány mimo komponentu na module level
 
 ### shadcn/ui
 - Styl: New York
-- Nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator, **Select, Popover, Calendar**
+- Nainstalované: Button, Input, Textarea, Label, Switch, Badge, Separator, **Select, Popover, Calendar** (Calendar se nepoužívá — nahrazena vlastní DatePickerField)
 - **Select:** `<SelectContent>` musí vždy dostat `className="bg-slate-900 border-slate-700"` — jinak Radix portál nezdědí dark mode a zobrazí bílé pozadí
-- **DatePickerField:** helper komponenta v PlannerPage.tsx — `Popover` + `Calendar` + `Button`. Použití všude místo `<input type="date">`.
+- **Popover:** stále používán jako obal DatePickerField (`PopoverContent` s `border-0` a inline `background: "#1c1c1e"`)
 - Pro etapu 9 doinstalovat: Tooltip, Dialog, AlertDialog, Table, Tabs
 
 ---
