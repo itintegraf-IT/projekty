@@ -22,8 +22,8 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 3 | Drag & drop + resize + rozdělení | ✅ Hotovo |
 | 4 | Směny + svátky + background | ✅ Hotovo |
 | 5 | Výrobní sloupečky, stavy, overdue indikace | ✅ Hotovo |
-| 6 | Opakování | ⬜ Nezačato |
-| 7 | Hromadné posuny + zámečky | ⬜ Nezačato |
+| 6 | Opakování | ✅ Hotovo |
+| 7 | Hromadné posuny + zámečky | ✅ Hotovo |
 | 8 | Uživatelé, role a přihlašování | ⬜ Nezačato |
 | 9 | Admin dashboard (uživatelé + číselníky) | ⬜ Nezačato |
 

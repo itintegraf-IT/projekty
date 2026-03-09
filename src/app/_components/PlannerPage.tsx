@@ -43,6 +43,16 @@ type QueueItem = {
   recurrenceCount: number;
 };
 
+type PushSuggestion = {
+  chain: Block[];
+  shiftMs: number;
+  blockedByLock: boolean;
+  lockedBlock: Block | null;
+};
+
+// ─── Push chain helper ────────────────────────────────────────────────────────
+const CHAIN_GAP_MS = 30 * 60 * 1000; // 30 min = stále "navazující"
+
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const TYPE_LABELS: Record<string, string> = {
   ZAKAZKA: "Zakázka",
@@ -672,7 +682,20 @@ function BlockDetail({
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             Detail bloku
           </div>
-          <div className="mt-0.5 text-sm font-bold text-slate-100">{block.orderNumber}</div>
+          <div className="mt-0.5 flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-100">{block.orderNumber}</span>
+            <button
+              type="button"
+              onClick={() => navigator.clipboard.writeText([block.orderNumber, block.description].filter(Boolean).join(" – "))}
+              title="Kopírovat číslo zakázky a popis"
+              style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "#6b7a99", background: "none", border: "none", cursor: "pointer", padding: "1px 3px", lineHeight: 1, transition: "color 120ms ease-out" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#c8d0e0")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "#6b7a99")}
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Kopírovat
+            </button>
+          </div>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">
           ← Zpět
@@ -977,6 +1000,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
+  const [pushSuggestion, setPushSuggestion] = useState<PushSuggestion | null>(null);
+  const blocksRef = useRef<Block[]>([]);
+  blocksRef.current = blocks;
   const [isCut, setIsCut] = useState(false);
   const [pasteTarget, setPasteTarget] = useState<{ machine: string; time: Date } | null>(null);
   const copiedBlockRef = useRef<Block | null>(null);
@@ -1065,12 +1091,154 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 100), behavior: "smooth" });
   }
 
-  function handleBlockUpdate(updated: Block) {
-    setBlocks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+  // Automaticky vyřeší jakýkoli překryv po přesunu/resize bloku:
+  //  1. Překryv dozadu (přesunutý blok narazí na předchozí) → snap dopředu
+  //  2. Překryv dopředu → auto-push navazující bloky
+  // excludeIds = bloky které mají být při kontrole přeskočeny (přesouvané bloky ve skupině)
+  async function autoResolveOverlap(movedBlock: Block, excludeIds: Set<number> = new Set([movedBlock.id]), prevBlock?: Block) {
+    const duration = new Date(movedBlock.endTime).getTime() - new Date(movedBlock.startTime).getTime();
+    const otherBlocks = blocksRef.current.filter(b => !excludeIds.has(b.id));
+    const sameMachine = otherBlocks
+      .filter(b => b.machine === movedBlock.machine)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+    let current = movedBlock;
+
+    // Helper: vrátit blok zpět na původní pozici
+    async function revertMovedBlock() {
+      const orig = prevBlock ?? movedBlock;
+      try {
+        const res = await fetch(`/api/blocks/${current.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ startTime: new Date(orig.startTime).toISOString(), endTime: new Date(orig.endTime).toISOString(), machine: orig.machine }),
+        });
+        if (res.ok) {
+          const reverted = await res.json() as Block;
+          setBlocks(prev => prev.map(b => b.id === reverted.id ? reverted : b));
+          setSelectedBlock(sel => sel?.id === reverted.id ? reverted : sel);
+        }
+      } catch { /* silent */ }
+    }
+
+    // ── Krok 1: Překryv dozadu ────────────────────────────────────────────────
+    const ms = new Date(current.startTime).getTime();
+    const preceding = sameMachine.find(b =>
+      new Date(b.startTime).getTime() < ms && new Date(b.endTime).getTime() > ms
+    );
+    if (preceding) {
+      const newStart = new Date(preceding.endTime).getTime();
+      try {
+        const res = await fetch(`/api/blocks/${current.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ startTime: new Date(newStart).toISOString(), endTime: new Date(newStart + duration).toISOString() }),
+        });
+        if (res.ok) {
+          current = await res.json() as Block;
+          setBlocks(prev => prev.map(b => b.id === current.id ? current : b));
+        }
+      } catch { /* silent */ }
+    }
+
+    // ── Krok 2: Překryv dopředu → auto-push ──────────────────────────────────
+    const curEnd   = new Date(current.endTime).getTime();
+    const curStart = new Date(current.startTime).getTime();
+    const firstFollowing = sameMachine.find(b =>
+      new Date(b.startTime).getTime() >= curStart && new Date(b.startTime).getTime() < curEnd
+    );
+    if (!firstFollowing) return;
+
+    const shiftMs = curEnd - new Date(firstFollowing.startTime).getTime();
+    if (shiftMs <= 0) return;
+
+    if (firstFollowing.locked) {
+      await revertMovedBlock();
+      setPushSuggestion({ chain: [], shiftMs, blockedByLock: true, lockedBlock: firstFollowing });
+      return;
+    }
+
+    const chain: Block[] = [firstFollowing];
+    let blockedByLocked = false;
+    let lockedBlockRef: Block | null = null;
+    for (let i = 0; i < 200; i++) {
+      const cursor = chain[chain.length - 1];
+      const cursorEnd = new Date(cursor.endTime).getTime();
+      const next = sameMachine.find(b =>
+        !chain.find(c => c.id === b.id) &&
+        new Date(b.startTime).getTime() >= cursorEnd - 60_000 &&
+        new Date(b.startTime).getTime() <= cursorEnd + CHAIN_GAP_MS
+      );
+      if (!next) break;
+      if (next.locked) {
+        const availableRoom = new Date(next.startTime).getTime() - new Date(cursor.endTime).getTime();
+        if (availableRoom >= shiftMs) {
+          // Dost místa před zamknutým blokem — chain posuneme, zamknutý zůstane
+          break;
+        }
+        // Nedost místa — vrátit přesunutý blok zpět
+        blockedByLocked = true;
+        lockedBlockRef = next;
+        break;
+      }
+      chain.push(next);
+    }
+
+    // Zkontrolovat, zda posunutý chain nepřekryje locked blok mimo chain gap
+    if (!blockedByLocked) {
+      const lockedOnMachine = sameMachine.filter(b => b.locked && !chain.find(c => c.id === b.id));
+      for (const b of chain) {
+        const newStart = new Date(b.startTime).getTime() + shiftMs;
+        const newEnd   = new Date(b.endTime).getTime()   + shiftMs;
+        const hit = lockedOnMachine.find(l =>
+          new Date(l.startTime).getTime() < newEnd && new Date(l.endTime).getTime() > newStart
+        );
+        if (hit) {
+          blockedByLocked = true;
+          lockedBlockRef = hit;
+          break;
+        }
+      }
+    }
+
+    if (blockedByLocked) {
+      await revertMovedBlock();
+      setPushSuggestion({ chain, shiftMs, blockedByLock: true, lockedBlock: lockedBlockRef });
+      return;
+    }
+
+    if (chain.length === 0) return;
+
+    try {
+      const results = await Promise.all(
+        chain.map(b => {
+          const newStart = new Date(new Date(b.startTime).getTime() + shiftMs);
+          const newEnd   = new Date(new Date(b.endTime).getTime()   + shiftMs);
+          return fetch(`/api/blocks/${b.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString() }),
+          }).then(r => r.json() as Promise<Block>);
+        })
+      );
+      setBlocks(prev => prev.map(b => (results as Block[]).find(r => r.id === b.id) ?? b));
+    } catch { /* tiché selhání */ }
+  }
+
+  function handleBlockUpdate(updated: Block, skipPushCheck = false) {
+    const prev = blocksRef.current.find(b => b.id === updated.id);
+    setBlocks((arr) => arr.map((b) => (b.id === updated.id ? updated : b)));
     setSelectedBlock((sel) => (sel?.id === updated.id ? updated : sel));
+    if (!skipPushCheck && prev) {
+      const timeChanged =
+        new Date(prev.startTime).getTime() !== new Date(updated.startTime).getTime() ||
+        new Date(prev.endTime).getTime()   !== new Date(updated.endTime).getTime();
+      if (timeChanged) void autoResolveOverlap(updated, new Set([updated.id]), prev);
+    }
   }
 
   async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) {
+    const originals = new Map(updates.map(u => [u.id, blocksRef.current.find(b => b.id === u.id)]));
     try {
       const results = await Promise.all(
         updates.map((u) =>
@@ -1081,7 +1249,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
           }).then((r) => r.json() as Promise<Block>)
         )
       );
-      setBlocks((prev) => prev.map((b) => results.find((r) => r.id === b.id) ?? b));
+      setBlocks((prev) => prev.map((b) => (results as Block[]).find((r) => r.id === b.id) ?? b));
+
+      const excludeIds = new Set(updates.map(u => u.id));
+      for (const moved of results as Block[]) {
+        await autoResolveOverlap(moved, excludeIds, originals.get(moved.id));
+      }
     } catch { /* tiché selhání */ }
   }
 
@@ -1594,7 +1767,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
 
                     {/* Popis */}
                     <div>
-                      <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Popis</Label>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
+                        <Label style={{ fontSize: 10, color: "#9ba8c0" }}>Popis</Label>
+                        <button
+                          type="button"
+                          onClick={() => navigator.clipboard.writeText(description)}
+                          title="Kopírovat popis"
+                          style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "#6b7a99", background: "none", border: "none", cursor: "pointer", padding: "0 2px", lineHeight: 1, transition: "color 120ms ease-out" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = "#c8d0e0")}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = "#6b7a99")}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                          Kopírovat
+                        </button>
+                      </div>
                       <Textarea
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
@@ -1902,6 +2088,30 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays }: { ini
           )}
         </aside>
       </section>
+
+      {/* ── Push chain notifikace ── */}
+      {pushSuggestion?.blockedByLock && (
+        <div style={{
+          position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
+          background: "#1a1d27", border: "1px solid rgba(248,113,113,0.3)",
+          borderRadius: 12, padding: "10px 16px",
+          display: "flex", alignItems: "center", gap: 12,
+          zIndex: 200, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+          whiteSpace: "nowrap",
+        }}>
+          <span style={{ fontSize: 11, color: "#f87171" }}>
+            🔒 Blok vrácen — v cestě je zamknutý blok
+            {pushSuggestion.lockedBlock && <b> {pushSuggestion.lockedBlock.orderNumber}</b>}
+          </span>
+          <button
+            onClick={() => setPushSuggestion(null)}
+            style={{ fontSize: 11, color: "#c8d0e0", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}
+          >
+            OK
+          </button>
+        </div>
+      )}
     </main>
   );
 }
