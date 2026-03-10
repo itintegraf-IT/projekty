@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
+import { snapGroupDelta } from "@/lib/workingTime";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
 import { Label }     from "@/components/ui/label";
@@ -1178,6 +1179,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [workingTimeLock, setWorkingTimeLock] = useState(true);
+  const workingTimeLockRef = useRef(true);
+  workingTimeLockRef.current = workingTimeLock;
   const MAX_HISTORY = 30;
 
   // Builder form fields
@@ -1474,11 +1477,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
     if (chain.length === 0) return;
 
+    // Pokud je zamknutý pracovní čas, snapneme push chain přes blokované časy
+    let effectiveShiftMs = shiftMs;
+    if (workingTimeLockRef.current) {
+      const { deltaMs } = snapGroupDelta(
+        chain.map(b => ({ machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
+        shiftMs
+      );
+      effectiveShiftMs = deltaMs;
+    }
+
     try {
       const results = await Promise.all(
         chain.map(b => {
-          const newStart = new Date(new Date(b.startTime).getTime() + shiftMs);
-          const newEnd   = new Date(new Date(b.endTime).getTime()   + shiftMs);
+          const newStart = new Date(new Date(b.startTime).getTime() + effectiveShiftMs);
+          const newEnd   = new Date(new Date(b.endTime).getTime()   + effectiveShiftMs);
           return fetch(`/api/blocks/${b.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -1487,6 +1500,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         })
       );
       setBlocks(prev => prev.map(b => (results as Block[]).find(r => r.id === b.id) ?? b));
+      // Pokud snap přeskočil víkend/noc a zvětšil posun, chain mohl přistát na bloku,
+      // který nebyl v původním chainu — rekurzivně vyřešit překryv posledního bloku chainu
+      if (effectiveShiftMs > shiftMs) {
+        const allExcluded = new Set([...Array.from(excludeIds), ...chain.map(b => b.id)]);
+        const lastResult = (results as Block[])[results.length - 1];
+        if (lastResult) void autoResolveOverlap(lastResult, allExcluded);
+      }
     } catch { /* tiché selhání */ }
   }
 

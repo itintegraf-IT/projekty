@@ -270,71 +270,26 @@ function fmtDateShort(s: string | null | undefined): string {
   return `${d.getDate()}.${d.getMonth() + 1}.`;
 }
 
-// ─── CompactDateColumn — levý sloupec s D/M/E pro střední bloky ──────────────
-function CompactDateColumn({ block, now, onToggleData, onToggleMat }: {
-  block: Block; now: Date; onToggleData: () => void; onToggleMat: () => void;
-}) {
-  const dataWarn = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
-  const matWarn  = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
-  const keyClr  = (ok: boolean, warn: boolean) => ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
-  const dateClr = (ok: boolean, warn: boolean) => ok ? "#86efac" : warn ? "#fde68a" : "#e2e8f0";
-  const rowBase: React.CSSProperties = { display: "flex", alignItems: "center", gap: 2, lineHeight: 1 };
-  const keyStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
-    fontSize: 6.5, fontWeight: 800, color: keyClr(ok, warn), width: 9, flexShrink: 0, lineHeight: 1,
-  });
-  const dateStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
-    fontSize: 9, fontWeight: 600, color: dateClr(ok, warn), lineHeight: 1,
-  });
-  const iconStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
-    fontSize: 7, color: keyClr(ok, warn), lineHeight: 1, flexShrink: 0,
-  });
-  return (
-    <div style={{
-      display: "flex", flexDirection: "column", justifyContent: "center",
-      gap: 3, flexShrink: 0, paddingRight: 6, marginRight: 5,
-      borderRight: "1px solid rgba(255,255,255,0.07)",
-    }}>
-      {block.dataRequiredDate && (
-        <div style={{ ...rowBase, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onToggleData(); }}>
-          <span style={keyStyle(block.dataOk, dataWarn)}>D</span>
-          <span style={dateStyle(block.dataOk, dataWarn)}>{fmtDateShort(block.dataRequiredDate)}</span>
-          {(block.dataOk || dataWarn) && <span style={iconStyle(block.dataOk, dataWarn)}>{block.dataOk ? "✓" : "!"}</span>}
-        </div>
-      )}
-      {block.materialRequiredDate && (
-        <div style={{ ...rowBase, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onToggleMat(); }}>
-          <span style={keyStyle(block.materialOk, matWarn)}>M</span>
-          <span style={dateStyle(block.materialOk, matWarn)}>{fmtDateShort(block.materialRequiredDate)}</span>
-          {(block.materialOk || matWarn) && <span style={iconStyle(block.materialOk, matWarn)}>{block.materialOk ? "✓" : "!"}</span>}
-        </div>
-      )}
-      {block.deadlineExpedice && (
-        <div style={rowBase}>
-          <span style={keyStyle(false, false)}>E</span>
-          <span style={dateStyle(false, false)}>{fmtDateShort(block.deadlineExpedice)}</span>
-        </div>
-      )}
-    </div>
-  );
-}
+
 
 // ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
 function DateBadge({
   label, dateStr, ok, warn, onToggle,
 }: {
-  label: string; dateStr: string; ok: boolean; warn: boolean; onToggle: () => void;
+  label: string; dateStr: string | null; ok: boolean; warn: boolean; onToggle: () => void;
 }) {
   const [loading, setLoading] = useState(false);
-  const fmt = fmtDate(dateStr);
+  const empty = !dateStr;
+  const fmt = dateStr ? fmtDate(dateStr) : "—";
 
-  const bg          = ok ? "rgba(74,222,128,0.12)" : warn ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.07)";
-  const borderColor = ok ? "rgba(74,222,128,0.4)"  : warn ? "rgba(251,191,36,0.4)"  : "rgba(255,255,255,0.14)";
-  const labelColor  = ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
-  const dateColor   = ok ? "#86efac" : warn ? "#fde68a" : "#e2e8f0";
+  const bg          = empty ? "rgba(255,255,255,0.03)" : ok ? "rgba(74,222,128,0.12)" : warn ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.07)";
+  const borderColor = empty ? "rgba(255,255,255,0.07)" : ok ? "rgba(74,222,128,0.4)"  : warn ? "rgba(251,191,36,0.4)"  : "rgba(255,255,255,0.14)";
+  const labelColor  = empty ? "#475569" : ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
+  const dateColor   = empty ? "#334155" : ok ? "#86efac" : warn ? "#fde68a" : "#e2e8f0";
 
   async function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
-    if (loading) return;
+    if (empty || loading) return;
     setLoading(true);
     onToggle();
     setLoading(false);
@@ -347,7 +302,7 @@ function DateBadge({
         display: "flex", flexDirection: "column", gap: 2,
         padding: "5px 9px", borderRadius: 5,
         background: bg, border: `1px solid ${borderColor}`,
-        cursor: "pointer", flex: "1 1 0", minWidth: 0,
+        cursor: empty ? "default" : "pointer", flex: "0 0 auto",
         transition: "all 0.12s", opacity: loading ? 0.6 : 1,
       }}
     >
@@ -356,9 +311,11 @@ function DateBadge({
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
-        <span style={{ fontSize: 10, lineHeight: 1, color: ok ? "#4ade80" : warn ? "#fbbf24" : "#334155" }}>
-          {ok ? "✓" : warn ? "!" : "·"}
-        </span>
+        {!empty && (
+          <span style={{ fontSize: 10, lineHeight: 1, color: ok ? "#4ade80" : warn ? "#fbbf24" : "#334155" }}>
+            {ok ? "✓" : warn ? "!" : "·"}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -411,12 +368,11 @@ function BlockCard({
 
   const s = isOverdue ? BLOCK_OVERDUE : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
 
-  const hasDateRow = (block.dataRequiredDate || block.materialRequiredDate || block.deadlineExpedice);
   const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
 
   // Výškové mody (vzájemně se vylučují)
   const MODE_FULL    = clampedHeight >= 70;                              // plný layout
-  const MODE_COMPACT = !MODE_FULL && clampedHeight >= 44 && hasDateRow; // levý sloupec D/M/E
+  const MODE_COMPACT = !MODE_FULL && clampedHeight >= 44 && block.type !== "UDRZBA";
   const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && clampedHeight >= 24; // micro tečky
   // Výškové prahy pro FULL mode
   const showDates  = MODE_FULL;           // 2. řádek — date badges
@@ -476,39 +432,55 @@ function BlockCard({
       <div style={{ height: 2, flexShrink: 0, background: s.accentBar, opacity: isOverdue ? 0.35 : 0.8 }} />
 
 
-      {/* ── MODE_COMPACT: levý sloupec D/M/E + vpravo číslo+popis+chips ── */}
-      {MODE_COMPACT && (
-        <div style={{ display: "flex", flex: 1, minHeight: 0, padding: "4px 7px 4px 8px", gap: 0, overflow: "hidden" }}>
-          <CompactDateColumn
-            block={block} now={now}
-            onToggleData={() => toggleField("dataOk", block.dataOk)}
-            onToggleMat={() => toggleField("materialOk", block.materialOk)}
-          />
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-                {block.orderNumber}{block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+      {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
+      {MODE_COMPACT && (() => {
+        const dClr = block.dataOk ? "#86efac" : dataNotReady ? "#fde68a" : "#e2e8f0";
+        const mClr = block.materialOk ? "#86efac" : materialNotReady ? "#fde68a" : "#e2e8f0";
+        const eClr = "#cbd5e1";
+        const dateChip = (clr: string): React.CSSProperties => ({
+          fontSize: 10, fontWeight: 600, color: clr,
+          background: `${clr}12`, border: `1px solid ${clr}30`,
+          borderRadius: 4, padding: "2px 6px",
+          whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1, cursor: "pointer",
+        });
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
+            {/* Levá část: datumy + separator + číslo + popis */}
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
+              <span style={dateChip(dClr)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+                D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${block.dataOk ? " ✓" : dataNotReady ? " !" : ""}` : "—"}
               </span>
-              {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
-                  {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
-                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
-                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
-                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
-                  {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                    <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
-                  )}
-                </div>
+              <span style={dateChip(mClr)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${block.materialOk ? " ✓" : materialNotReady ? " !" : ""}` : "—"}
+              </span>
+              <span style={{ ...dateChip(eClr), cursor: "default" }}>
+                E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
+              </span>
+              <div style={{ width: 1, height: 12, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
+                {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+              </span>
+              {block.description && (
+                <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, lineHeight: 1 }}>
+                  {block.description}
+                </span>
               )}
             </div>
-            {block.description && (
-              <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {block.description}
-              </span>
+            {/* Pravá část: status chips + série */}
+            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+              <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
+                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
+                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
+                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
+                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
+                {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                  <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
+                )}
+              </div>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
@@ -527,10 +499,18 @@ function BlockCard({
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
-              {block.dataRequiredDate && <span style={chipStyle(dClr)}>D&nbsp;{fmtDateShort(block.dataRequiredDate)}{block.dataOk ? " ✓" : dataWarn ? " !" : ""}</span>}
-              {block.materialRequiredDate && <span style={chipStyle(mClr)}>M&nbsp;{fmtDateShort(block.materialRequiredDate)}{block.materialOk ? " ✓" : matWarn ? " !" : ""}</span>}
-              {block.deadlineExpedice && <span style={chipStyle(eClr)}>E&nbsp;{fmtDateShort(block.deadlineExpedice)}</span>}
-              {hasDateRow && <div style={{ width: 1, height: 10, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />}
+              {block.type !== "UDRZBA" && <>
+                <span style={chipStyle(dClr)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${block.dataOk ? " ✓" : dataWarn ? " !" : ""}` : "—"}
+                </span>
+                <span style={chipStyle(mClr)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+                  M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${block.materialOk ? " ✓" : matWarn ? " !" : ""}` : "—"}
+                </span>
+                <span style={{ ...chipStyle(eClr), cursor: "default" }}>
+                  E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
+                </span>
+                <div style={{ width: 1, height: 10, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />
+              </>}
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 8, opacity: 0.6 }}>🔒</span>}
               </span>
@@ -596,39 +576,27 @@ function BlockCard({
         </div>
       )}
 
-      {/* ── Řádek 2: Klikatelné date badges (FULL mode) ── */}
-      {showDates && hasDateRow && (
+      {/* ── Řádek 2: Klikatelné date badges (FULL mode) — vždy všechny 3 ── */}
+      {showDates && block.type !== "UDRZBA" && (
         <div style={{
           padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap",
           flexShrink: 0,
         }}>
-          {block.dataRequiredDate && (
-            <DateBadge
-              label="DATA" dateStr={block.dataRequiredDate}
-              ok={block.dataOk} warn={dataNotReady}
-              onToggle={() => toggleField("dataOk", block.dataOk)}
-            />
-          )}
-          {block.materialRequiredDate && (
-            <DateBadge
-              label="MAT." dateStr={block.materialRequiredDate}
-              ok={block.materialOk} warn={materialNotReady}
-              onToggle={() => toggleField("materialOk", block.materialOk)}
-            />
-          )}
-          {block.deadlineExpedice && (
-            <div style={{
-              display: "flex", flexDirection: "column", gap: 2,
-              padding: "4px 7px", borderRadius: 5,
-              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-              flex: "1 1 0", minWidth: 0,
-            }}>
-              <span style={{ fontSize: 8, fontWeight: 700, color: "#64748b", lineHeight: 1, letterSpacing: "0.06em" }}>EXP.</span>
-              <span style={{ fontSize: 10, fontWeight: 600, color: "#94a3b8", lineHeight: 1 }}>
-                {fmtDate(block.deadlineExpedice)}
-              </span>
-            </div>
-          )}
+          <DateBadge
+            label="DATA" dateStr={block.dataRequiredDate}
+            ok={block.dataOk} warn={dataNotReady}
+            onToggle={() => toggleField("dataOk", block.dataOk)}
+          />
+          <DateBadge
+            label="MAT." dateStr={block.materialRequiredDate}
+            ok={block.materialOk} warn={materialNotReady}
+            onToggle={() => toggleField("materialOk", block.materialOk)}
+          />
+          <DateBadge
+            label="EXP." dateStr={block.deadlineExpedice}
+            ok={false} warn={false}
+            onToggle={() => {}}
+          />
         </div>
       )}
 
