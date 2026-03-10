@@ -89,7 +89,7 @@ interface TimelineGridProps {
   filterText: string;
   selectedBlockId: number | null;
   onBlockClick: (block: Block) => void;
-  onBlockUpdate: (updatedBlock: Block) => void;
+  onBlockUpdate: (updatedBlock: Block, addToHistory?: boolean) => void;
   onBlockCreate: (newBlock: Block) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   queueDragItem?: { id: number; durationHours: number; type: string } | null;
@@ -106,6 +106,7 @@ interface TimelineGridProps {
   onMultiSelect?: (ids: Set<number>) => void;
   onMultiBlockUpdate?: (updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) => void;
   canEdit?: boolean;
+  onError?: (msg: string) => void;
 }
 
 type QueueDropPreview = {
@@ -260,6 +261,61 @@ function fmtDate(s: string | null | undefined): string {
   return d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
+// Zkrácený formát bez roku: "5.1."
+function fmtDateShort(s: string | null | undefined): string {
+  if (!s) return "–";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return "–";
+  return `${d.getDate()}.${d.getMonth() + 1}.`;
+}
+
+// ─── CompactDateColumn — levý sloupec s D/M/E pro střední bloky ──────────────
+function CompactDateColumn({ block, now, onToggleData, onToggleMat }: {
+  block: Block; now: Date; onToggleData: () => void; onToggleMat: () => void;
+}) {
+  const dataWarn = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
+  const matWarn  = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
+  const keyClr = (ok: boolean, warn: boolean) => ok ? "#4ade80" : warn ? "#fbbf24" : "#64748b";
+  const rowBase: React.CSSProperties = { display: "flex", alignItems: "center", gap: 2, lineHeight: 1 };
+  const keyStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
+    fontSize: 6.5, fontWeight: 800, color: keyClr(ok, warn), width: 9, flexShrink: 0, lineHeight: 1,
+  });
+  const dateStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
+    fontSize: 8, fontWeight: 500, color: keyClr(ok, warn), lineHeight: 1,
+  });
+  const iconStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
+    fontSize: 7, color: keyClr(ok, warn), lineHeight: 1, flexShrink: 0,
+  });
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", justifyContent: "center",
+      gap: 3, flexShrink: 0, paddingRight: 6, marginRight: 5,
+      borderRight: "1px solid rgba(255,255,255,0.07)",
+    }}>
+      {block.dataRequiredDate && (
+        <div style={{ ...rowBase, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onToggleData(); }}>
+          <span style={keyStyle(block.dataOk, dataWarn)}>D</span>
+          <span style={dateStyle(block.dataOk, dataWarn)}>{fmtDateShort(block.dataRequiredDate)}</span>
+          {(block.dataOk || dataWarn) && <span style={iconStyle(block.dataOk, dataWarn)}>{block.dataOk ? "✓" : "!"}</span>}
+        </div>
+      )}
+      {block.materialRequiredDate && (
+        <div style={{ ...rowBase, cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); onToggleMat(); }}>
+          <span style={keyStyle(block.materialOk, matWarn)}>M</span>
+          <span style={dateStyle(block.materialOk, matWarn)}>{fmtDateShort(block.materialRequiredDate)}</span>
+          {(block.materialOk || matWarn) && <span style={iconStyle(block.materialOk, matWarn)}>{block.materialOk ? "✓" : "!"}</span>}
+        </div>
+      )}
+      {block.deadlineExpedice && (
+        <div style={rowBase}>
+          <span style={keyStyle(false, false)}>E</span>
+          <span style={dateStyle(false, false)}>{fmtDateShort(block.deadlineExpedice)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
 function DateBadge({
   label, dateStr, ok, warn, onToggle,
@@ -353,11 +409,18 @@ function BlockCard({
 
   const s = isOverdue ? BLOCK_OVERDUE : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
 
-  // Výškové prahy
-  const showDates  = clampedHeight >= 62;   // 2. řádek — date badges
-  const showNotes  = clampedHeight >= 100;  // 3. řádek — status labels
-  const showSpec   = clampedHeight >= 80;   // specifikace (vlastní řádek)
-  const showDesc   = clampedHeight >= 40;   // popis za číslem zakázky
+  const hasDateRow = (block.dataRequiredDate || block.materialRequiredDate || block.deadlineExpedice);
+  const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
+
+  // Výškové mody (vzájemně se vylučují)
+  const MODE_FULL    = clampedHeight >= 70;                              // plný layout
+  const MODE_COMPACT = !MODE_FULL && clampedHeight >= 44 && hasDateRow; // levý sloupec D/M/E
+  const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && clampedHeight >= 24; // micro tečky
+  // Výškové prahy pro FULL mode
+  const showDates  = MODE_FULL;           // 2. řádek — date badges
+  const showNotes  = clampedHeight >= 100; // 4. řádek — status labels
+  const showSpec   = clampedHeight >= 85;  // 3. řádek — specifikace
+  const showDesc   = MODE_FULL && clampedHeight >= 44; // popis za číslem zakázky
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const shadow  = selected
@@ -378,9 +441,6 @@ function BlockCard({
       if (res.ok) onBlockUpdate(await res.json());
     } catch { /* tiché selhání */ }
   }
-
-  const hasDateRow = (block.dataRequiredDate || block.materialRequiredDate || block.deadlineExpedice);
-  const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
 
   return (
     <div
@@ -415,30 +475,98 @@ function BlockCard({
         <span style={{ position: "absolute", top: 5, right: 6, fontSize: 9, opacity: 0.55, color: s.textSub, lineHeight: 1, pointerEvents: "none" }}>↻</span>
       )}
 
-      {/* ── Řádek 1: Číslo zakázky + popis ── */}
-      <div style={{
-        padding: "5px 9px 3px", display: "flex", alignItems: "baseline",
-        gap: 6, minWidth: 0, flexShrink: 0,
-      }}>
-        <span style={{
-          fontSize: 12, fontWeight: 700, color: s.textPrimary,
-          lineHeight: 1.2, flexShrink: 0, maxWidth: "50%",
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
-          {block.orderNumber}
-          {block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
-        </span>
-        {showDesc && block.description && (
-          <span style={{
-            fontSize: 10, color: s.textSub, opacity: 0.8, lineHeight: 1.2,
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
-          }}>
-            {block.description}
-          </span>
-        )}
-      </div>
+      {/* ── MODE_COMPACT: levý sloupec D/M/E + vpravo číslo+popis ── */}
+      {MODE_COMPACT && (
+        <div style={{ display: "flex", flex: 1, minHeight: 0, padding: "4px 7px 4px 8px", gap: 0, overflow: "hidden" }}>
+          <CompactDateColumn
+            block={block} now={now}
+            onToggleData={() => toggleField("dataOk", block.dataOk)}
+            onToggleMat={() => toggleField("materialOk", block.materialOk)}
+          />
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {block.orderNumber}{block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+            </span>
+            {block.description && (
+              <span style={{ fontSize: 9, color: s.textSub, opacity: 0.75, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {block.description}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
-      {/* ── Řádek 2: Klikatelné date badges ── */}
+      {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
+      {MODE_TINY && (() => {
+        const dataWarn = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
+        const matWarn  = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
+        const dClr = block.dataOk ? "#4ade80" : dataWarn ? "#fbbf24" : "#64748b";
+        const mClr = block.materialOk ? "#4ade80" : matWarn ? "#fbbf24" : "#64748b";
+        const eClr = "#475569";
+        const chipStyle = (clr: string): React.CSSProperties => ({
+          fontSize: 8, fontWeight: 700, color: clr,
+          background: `${clr}1a`, border: `1px solid ${clr}38`,
+          borderRadius: 3, padding: "1px 4px",
+          whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
+        });
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
+            {block.dataRequiredDate && (
+              <span style={chipStyle(dClr)}>
+                D&nbsp;{fmtDateShort(block.dataRequiredDate)}{block.dataOk ? " ✓" : dataWarn ? " !" : ""}
+              </span>
+            )}
+            {block.materialRequiredDate && (
+              <span style={chipStyle(mClr)}>
+                M&nbsp;{fmtDateShort(block.materialRequiredDate)}{block.materialOk ? " ✓" : matWarn ? " !" : ""}
+              </span>
+            )}
+            {block.deadlineExpedice && (
+              <span style={chipStyle(eClr)}>
+                E&nbsp;{fmtDateShort(block.deadlineExpedice)}
+              </span>
+            )}
+            {hasDateRow && (
+              <div style={{ width: 1, height: 10, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />
+            )}
+            <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
+              {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 8, opacity: 0.6 }}>🔒</span>}
+            </span>
+            {block.description && (
+              <span style={{ fontSize: 9, color: s.textSub, opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, lineHeight: 1 }}>
+                {block.description}
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Řádek 1: Číslo zakázky + popis (FULL mode) ── */}
+      {MODE_FULL && (
+        <div style={{
+          padding: "5px 9px 3px", display: "flex", alignItems: "baseline",
+          gap: 6, minWidth: 0, flexShrink: 0,
+        }}>
+          <span style={{
+            fontSize: 12, fontWeight: 700, color: s.textPrimary,
+            lineHeight: 1.2, flexShrink: 0, maxWidth: "55%",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {block.orderNumber}
+            {block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+          </span>
+          {showDesc && block.description && (
+            <span style={{
+              fontSize: 10, color: s.textSub, opacity: 0.8, lineHeight: 1.2,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+            }}>
+              {block.description}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Řádek 2: Klikatelné date badges (FULL mode) ── */}
       {showDates && hasDateRow && (
         <div style={{
           padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap",
@@ -500,22 +628,27 @@ function BlockCard({
         </div>
       )}
 
-      {/* Resize handle */}
+      {/* Resize handle — rohový iOS-style */}
       {!block.locked && (
         <div
           onMouseEnter={() => setResizeHovered(true)}
           onMouseLeave={() => setResizeHovered(false)}
           onMouseDown={(e) => { e.stopPropagation(); onResizeMouseDown?.(e); }}
           style={{
-            position: "absolute", bottom: 0, left: 0, right: 0, height: 8,
-            cursor: "ns-resize", display: "flex", alignItems: "flex-end", justifyContent: "center",
+            position: "absolute", bottom: 0, right: 0,
+            width: 20, height: 20,
+            cursor: "ns-resize",
+            display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
+            padding: 4,
           }}
         >
-          <div style={{
-            width: "100%", height: 2,
-            background: resizeHovered ? "rgba(96,165,250,0.7)" : "transparent",
-            transition: "background 0.15s",
-          }} />
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+            style={{ opacity: resizeHovered ? 1 : 0.28, transition: "opacity 0.15s ease-out", flexShrink: 0 }}
+          >
+            <line x1="2" y1="11" x2="11" y2="2" stroke={s.textPrimary} strokeWidth="1.5" strokeLinecap="round" />
+            <line x1="6" y1="11" x2="11" y2="6" stroke={s.textPrimary} strokeWidth="1.5" strokeLinecap="round" />
+            <line x1="10" y1="11" x2="11" y2="10" stroke={s.textPrimary} strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
         </div>
       )}
     </div>
@@ -538,6 +671,7 @@ export default function TimelineGrid({
   onMultiSelect,
   onMultiBlockUpdate,
   canEdit = true,
+  onError,
 }: TimelineGridProps) {
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
   const effectiveDaysAhead = daysAhead ?? VIEW_DAYS_AHEAD;
@@ -557,7 +691,7 @@ export default function TimelineGrid({
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError });
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const blocksRef       = useRef(blocks);
@@ -568,8 +702,8 @@ export default function TimelineGrid({
   useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate };
-  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError]);
 
   useEffect(() => {
     setNow(new Date());
@@ -722,8 +856,8 @@ export default function TimelineGrid({
         try {
           const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine }) });
           const updated: Block = await res.json();
-          callbacksRef.current.onBlockUpdate(updated);
-        } catch { /* blok zůstane nezměněn */ }
+          callbacksRef.current.onBlockUpdate(updated, true);
+        } catch { callbacksRef.current.onError?.("Blok se nepodařilo přesunout."); }
       } else if (ds.type === "resize") {
         const originalTop    = dateToY(ds.originalStart, vs, sh);
         const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
@@ -733,8 +867,8 @@ export default function TimelineGrid({
         try {
           const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString() }) });
           const updated: Block = await res.json();
-          callbacksRef.current.onBlockUpdate(updated);
-        } catch { /* blok zůstane nezměněn */ }
+          callbacksRef.current.onBlockUpdate(updated, true);
+        } catch { callbacksRef.current.onError?.("Blok se nepodařilo změnit."); }
       } else if (ds.type === "multi-move") {
         const deltaMs    = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
         const newMachine = clientXToMachine(e.clientX);

@@ -51,6 +51,10 @@ type PushSuggestion = {
   lockedBlock: Block | null;
 };
 
+type Toast = { id: number; message: string; type: "success" | "error" | "info" };
+
+type HistoryEntry = { undo: () => Promise<void>; redo: () => Promise<void> };
+
 // ─── Push chain helper ────────────────────────────────────────────────────────
 const CHAIN_GAP_MS = 30 * 60 * 1000; // 30 min = stále "navazující"
 
@@ -1071,6 +1075,34 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
   );
 }
 
+// ─── ToastContainer ──────────────────────────────────────────────────────────
+function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
+  if (toasts.length === 0) return null;
+  const borderColor = { success: "#30d158", error: "#ff453a", info: "#3b82f6" };
+  return (
+    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+      {toasts.map((t) => (
+        <div key={t.id} style={{
+          display: "flex", alignItems: "center", gap: 10,
+          background: "#1c1c1e", backdropFilter: "blur(12px)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          borderLeft: `3px solid ${borderColor[t.type]}`,
+          borderRadius: 10, padding: "10px 14px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          minWidth: 220, maxWidth: 340,
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+          fontSize: 13, color: "#e2e8f0",
+          pointerEvents: "auto",
+          animation: "toast-in 0.15s ease-out",
+        }}>
+          <span style={{ flex: 1, lineHeight: 1.4 }}>{t.message}</span>
+          <button onClick={() => onDismiss(t.id)} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
 export default function PlannerPage({ initialBlocks, initialCompanyDays, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; currentUser: { id: number; username: string; role: string } }) {
   // Role-based permissions
@@ -1081,7 +1113,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
   const [showShutdowns, setShowShutdowns] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+
+  // ── Toast systém ──
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastIdRef = useRef(0);
+  function showToast(message: string, type: Toast["type"] = "info") {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  }
+
+  // ── Undo/Redo ──
+  const undoStack = useRef<HistoryEntry[]>([]);
+  const redoStack = useRef<HistoryEntry[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const MAX_HISTORY = 30;
 
   // Builder form fields
   const [orderNumber, setOrderNumber]     = useState("");
@@ -1115,6 +1162,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
+  const [lassoHintSeen, setLassoHintSeen] = useState(false);
+  useEffect(() => {
+    if (localStorage.getItem("integraf-lasso-hint-seen") === "true") setLassoHintSeen(true);
+  }, []);
+  const dismissLassoHint = useCallback(() => {
+    setLassoHintSeen(true);
+    localStorage.setItem("integraf-lasso-hint-seen", "true");
+  }, []);
   const [pushSuggestion, setPushSuggestion] = useState<PushSuggestion | null>(null);
   const blocksRef = useRef<Block[]>([]);
   blocksRef.current = blocks;
@@ -1377,15 +1432,36 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
     } catch { /* tiché selhání */ }
   }
 
-  function handleBlockUpdate(updated: Block, skipPushCheck = false) {
+  function handleBlockUpdate(updated: Block, addToHistory = false) {
     const prev = blocksRef.current.find(b => b.id === updated.id);
     setBlocks((arr) => arr.map((b) => (b.id === updated.id ? updated : b)));
     setSelectedBlock((sel) => (sel?.id === updated.id ? updated : sel));
-    if (!skipPushCheck && prev) {
-      const timeChanged =
+    if (prev) {
+      const timeOrMachineChanged =
         new Date(prev.startTime).getTime() !== new Date(updated.startTime).getTime() ||
-        new Date(prev.endTime).getTime()   !== new Date(updated.endTime).getTime();
-      if (timeChanged) void autoResolveOverlap(updated, new Set([updated.id]), prev);
+        new Date(prev.endTime).getTime()   !== new Date(updated.endTime).getTime()   ||
+        prev.machine !== updated.machine;
+      if (timeOrMachineChanged) {
+        void autoResolveOverlap(updated, new Set([updated.id]), prev);
+        if (addToHistory) {
+          const prevSnap = { startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine };
+          const nextSnap = { startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine };
+          undoStack.current.push({
+            undo: async () => {
+              const res = await fetch(`/api/blocks/${updated.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevSnap) });
+              if (res.ok) { const b: Block = await res.json(); setBlocks(arr => arr.map(x => x.id === b.id ? b : x)); setSelectedBlock(sel => sel?.id === b.id ? b : sel); }
+            },
+            redo: async () => {
+              const res = await fetch(`/api/blocks/${updated.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(nextSnap) });
+              if (res.ok) { const b: Block = await res.json(); setBlocks(arr => arr.map(x => x.id === b.id ? b : x)); setSelectedBlock(sel => sel?.id === b.id ? b : sel); }
+            },
+          });
+          if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
+          redoStack.current = [];
+          setCanUndo(true);
+          setCanRedo(false);
+        }
+      }
     }
   }
 
@@ -1403,11 +1479,30 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       );
       setBlocks((prev) => prev.map((b) => (results as Block[]).find((r) => r.id === b.id) ?? b));
 
+      const prevSnaps = updates.map(u => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime, endTime: o.endTime, machine: o.machine } : null; }).filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[];
+      const nextSnaps = updates.map(u => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }));
+      if (prevSnaps.length > 0) {
+        undoStack.current.push({
+          undo: async () => {
+            const res = await Promise.all(prevSnaps.map(p => fetch(`/api/blocks/${p.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: p.startTime, endTime: p.endTime, machine: p.machine }) }).then(r => r.ok ? r.json() as Promise<Block> : null)));
+            setBlocks(prev => prev.map(b => (res as (Block | null)[]).find(r => r?.id === b.id) ?? b));
+          },
+          redo: async () => {
+            const res = await Promise.all(nextSnaps.map(n => fetch(`/api/blocks/${n.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: n.startTime, endTime: n.endTime, machine: n.machine }) }).then(r => r.ok ? r.json() as Promise<Block> : null)));
+            setBlocks(prev => prev.map(b => (res as (Block | null)[]).find(r => r?.id === b.id) ?? b));
+          },
+        });
+        if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
+        redoStack.current = [];
+        setCanUndo(true);
+        setCanRedo(false);
+      }
+
       const excludeIds = new Set(updates.map(u => u.id));
       for (const moved of results as Block[]) {
         await autoResolveOverlap(moved, excludeIds, originals.get(moved.id));
       }
-    } catch { /* tiché selhání */ }
+    } catch { showToast("Hromadný posun se nepodařilo uložit.", "error"); }
   }
 
   function handleBlockCreate(newBlock: Block) {
@@ -1425,7 +1520,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       setBlocks((prev) => prev.filter((b) => b.id !== id));
       setSelectedBlock(null);
     } catch {
-      setError("Chyba při mazání bloku.");
+      showToast("Chyba při mazání bloku.", "error");
     }
   }
 
@@ -1436,7 +1531,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       if (ids.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
       if (ids.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
     } catch {
-      setError("Chyba při mazání série.");
+      showToast("Chyba při mazání série.", "error");
     }
   }
 
@@ -1462,7 +1557,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         if (updatedEditing) setEditingBlock(updatedEditing);
       }
     } catch {
-      setError("Chyba při ukládání série.");
+      showToast("Chyba při ukládání série.", "error");
     }
   }
 
@@ -1600,7 +1695,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       const y = dateToY(startTime, viewStart);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     } catch {
-      setError("Chyba při vytváření bloku.");
+      showToast("Chyba při vytváření bloku.", "error");
     }
   }
 
@@ -1655,7 +1750,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         setIsCut(false);
       }
     } catch {
-      setError("Chyba při vložení bloku.");
+      showToast("Chyba při vložení bloku.", "error");
     }
   }
 
@@ -1673,6 +1768,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         return;
       }
       if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        const entry = undoStack.current.pop();
+        if (entry) {
+          void entry.undo().then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); });
+        }
+        return;
+      }
+      if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        const entry = redoStack.current.pop();
+        if (entry) {
+          void entry.redo().then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); });
+        }
+        return;
+      }
       if (e.key === "c" && selectedBlock) {
         e.preventDefault();
         setCopiedBlock(selectedBlock);
@@ -1757,6 +1868,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
         <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
           {canEdit && (
+            <div style={{ display: "flex", gap: 2 }}>
+              <button
+                onClick={() => { const entry = undoStack.current.pop(); if (entry) void entry.undo().then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); }); }}
+                disabled={!canUndo}
+                title="Vrátit zpět (Ctrl+Z)"
+                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canUndo ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`, color: canUndo ? "#94a3b8" : "#334155", cursor: canUndo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
+              >↩</button>
+              <button
+                onClick={() => { const entry = redoStack.current.pop(); if (entry) void entry.redo().then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); }); }}
+                disabled={!canRedo}
+                title="Znovu provést (Ctrl+Shift+Z)"
+                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canRedo ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`, color: canRedo ? "#94a3b8" : "#334155", cursor: canRedo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
+              >↪</button>
+            </div>
+          )}
+          {canEdit && (
             <Button
               variant={showShutdowns ? "secondary" : "ghost"}
               size="sm"
@@ -1824,11 +1951,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
             onBlockCopy={(block) => { setCopiedBlock(block); setIsCut(false); }}
             selectedBlockIds={selectedBlockIds}
-            onMultiSelect={setSelectedBlockIds}
+            onMultiSelect={(ids) => { setSelectedBlockIds(ids); if (ids.size > 0) dismissLassoHint(); }}
             onMultiBlockUpdate={handleMultiBlockUpdate}
             daysAhead={daysAhead}
             daysBack={daysBack}
             canEdit={canEdit}
+            onError={(msg) => showToast(msg, "error")}
           />
         </div>
 
@@ -1882,14 +2010,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               {/* ── Formulář ── */}
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
                 <div style={{ padding: "0 16px", flex: 1 }}>
-
-                  {/* Chybová hláška */}
-                  {error && (
-                    <div style={{ margin: "12px 0 0", borderRadius: 6, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", padding: "8px 12px", fontSize: 11, color: "#fca5a5" }}>
-                      {error}
-                      <button onClick={() => setError(null)} style={{ float: "right", background: "none", border: "none", color: "#fca5a5", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
-                    </div>
-                  )}
 
                   {/* ── Typ záznamu ── */}
                   <div style={{ paddingTop: 16, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
@@ -2308,6 +2428,29 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
           >
             OK
           </button>
+        </div>
+      )}
+
+      <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
+
+      {/* Lasso hint — floating badge, zmizí při prvním použití nebo kliknutím × */}
+      {canEdit && !lassoHintSeen && (
+        <div style={{
+          position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "6px 12px", borderRadius: 20, zIndex: 9000,
+          background: "rgba(15,17,24,0.88)", backdropFilter: "blur(12px)",
+          border: "1px solid rgba(59,130,246,0.30)",
+          color: "#93c5fd", fontSize: 12, whiteSpace: "nowrap",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+          animation: "fadeInUp 300ms ease-out",
+        }}>
+          <span style={{ fontSize: 10, background: "rgba(59,130,246,0.20)", borderRadius: 5, padding: "1px 5px", fontFamily: "monospace", color: "#bfdbfe" }}>⌥ Alt</span>
+          <span style={{ opacity: 0.85 }}>+ tah na timeline = výběr více bloků</span>
+          <button
+            onClick={dismissLassoHint}
+            style={{ marginLeft: 4, background: "none", border: "none", color: "#60a5fa", cursor: "pointer", padding: "0 2px", fontSize: 15, lineHeight: 1, opacity: 0.6, display: "flex", alignItems: "center" }}
+          >×</button>
         </div>
       )}
     </main>
