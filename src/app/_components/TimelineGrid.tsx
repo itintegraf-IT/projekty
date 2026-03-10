@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
+import { snapGroupDelta } from "@/lib/workingTime";
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
@@ -107,6 +108,7 @@ interface TimelineGridProps {
   onMultiBlockUpdate?: (updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) => void;
   canEdit?: boolean;
   onError?: (msg: string) => void;
+  workingTimeLock?: boolean;
 }
 
 type QueueDropPreview = {
@@ -162,9 +164,8 @@ function czechHolidaySet(year: number): Set<string> {
   return s;
 }
 
-// XL_105: 2 směny (6–14, 14–22), noční neprovozuje → noční overlay ZAP
-// XL_106: 3 směny = 24h provoz → noční overlay VYP, žádné tintování
-const MACHINES_WITH_NIGHT_OFF = new Set(["XL_105"]);
+// XL_105: 2 směny (6–14, 14–22), noční neprovozuje → weekend Pá 22:00–Po 06:00
+// XL_106: 3 směny = 24h provoz → weekend Pá 22:00–Ne 22:00
 
 // ─── Pomocné funkce ────────────────────────────────────────────────────────────
 function startOfDay(d: Date): Date {
@@ -228,12 +229,12 @@ const BLOCK_STYLES: Record<string, {
     textSub:     "#c4b5fd",
   },
   UDRZBA: {
-    gradient:    "linear-gradient(150deg, #3b0808 0%, #1b0404 100%)",
-    border:      "rgba(220,38,38,0.55)",
-    accentBar:   "#ef4444",
-    leftBg:      "rgba(220,38,38,0.14)",
-    textPrimary: "#fee2e2",
-    textSub:     "#fca5a5",
+    gradient:    "linear-gradient(150deg, #0a2a14 0%, #051408 100%)",
+    border:      "rgba(34,197,94,0.50)",
+    accentBar:   "#22c55e",
+    leftBg:      "rgba(34,197,94,0.12)",
+    textPrimary: "#dcfce7",
+    textSub:     "#86efac",
   },
 };
 const BLOCK_OVERDUE = {
@@ -275,13 +276,14 @@ function CompactDateColumn({ block, now, onToggleData, onToggleMat }: {
 }) {
   const dataWarn = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
   const matWarn  = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
-  const keyClr = (ok: boolean, warn: boolean) => ok ? "#4ade80" : warn ? "#fbbf24" : "#64748b";
+  const keyClr  = (ok: boolean, warn: boolean) => ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
+  const dateClr = (ok: boolean, warn: boolean) => ok ? "#86efac" : warn ? "#fde68a" : "#e2e8f0";
   const rowBase: React.CSSProperties = { display: "flex", alignItems: "center", gap: 2, lineHeight: 1 };
   const keyStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
     fontSize: 6.5, fontWeight: 800, color: keyClr(ok, warn), width: 9, flexShrink: 0, lineHeight: 1,
   });
   const dateStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
-    fontSize: 8, fontWeight: 500, color: keyClr(ok, warn), lineHeight: 1,
+    fontSize: 9, fontWeight: 600, color: dateClr(ok, warn), lineHeight: 1,
   });
   const iconStyle = (ok: boolean, warn: boolean): React.CSSProperties => ({
     fontSize: 7, color: keyClr(ok, warn), lineHeight: 1, flexShrink: 0,
@@ -325,10 +327,10 @@ function DateBadge({
   const [loading, setLoading] = useState(false);
   const fmt = fmtDate(dateStr);
 
-  const bg          = ok ? "rgba(74,222,128,0.12)" : warn ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.05)";
-  const borderColor = ok ? "rgba(74,222,128,0.35)"  : warn ? "rgba(251,191,36,0.35)"  : "rgba(255,255,255,0.08)";
-  const labelColor  = ok ? "#4ade80" : warn ? "#fbbf24" : "#64748b";
-  const dateColor   = ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
+  const bg          = ok ? "rgba(74,222,128,0.12)" : warn ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.07)";
+  const borderColor = ok ? "rgba(74,222,128,0.4)"  : warn ? "rgba(251,191,36,0.4)"  : "rgba(255,255,255,0.14)";
+  const labelColor  = ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
+  const dateColor   = ok ? "#86efac" : warn ? "#fde68a" : "#e2e8f0";
 
   async function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -343,17 +345,17 @@ function DateBadge({
       onClick={handleClick}
       style={{
         display: "flex", flexDirection: "column", gap: 2,
-        padding: "4px 7px", borderRadius: 5,
+        padding: "5px 9px", borderRadius: 5,
         background: bg, border: `1px solid ${borderColor}`,
         cursor: "pointer", flex: "1 1 0", minWidth: 0,
         transition: "all 0.12s", opacity: loading ? 0.6 : 1,
       }}
     >
-      <span style={{ fontSize: 8, fontWeight: 700, color: labelColor, lineHeight: 1, letterSpacing: "0.06em" }}>
+      <span style={{ fontSize: 8, fontWeight: 700, color: labelColor, lineHeight: 1, letterSpacing: "0.07em" }}>
         {label}
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-        <span style={{ fontSize: 10, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
         <span style={{ fontSize: 10, lineHeight: 1, color: ok ? "#4ade80" : warn ? "#fbbf24" : "#334155" }}>
           {ok ? "✓" : warn ? "!" : "·"}
         </span>
@@ -362,17 +364,17 @@ function DateBadge({
   );
 }
 
-// ─── StatusNote — poznámka ze selectu ─────────────────────────────────────────
-function StatusNote({ label, accent }: { label: string; accent: string }) {
+// ─── MiniChip — malý chip vpravo nahoře v bloku ───────────────────────────────
+function MiniChip({ label, accent }: { label: string; accent: string }) {
   return (
     <span style={{
-      fontSize: 8.5, fontWeight: 600, color: accent, lineHeight: 1,
-      background: `${accent}18`, border: `1px solid ${accent}30`,
-      borderRadius: 4, padding: "2px 6px", whiteSpace: "nowrap",
-      overflow: "hidden", textOverflow: "ellipsis", maxWidth: 110,
-      display: "inline-block",
+      fontSize: 7, fontWeight: 700, color: accent, lineHeight: 1.5,
+      background: `${accent}1a`, border: `1px solid ${accent}2e`,
+      borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap",
+      overflow: "hidden", textOverflow: "ellipsis", maxWidth: 56,
+      display: "block",
     }}>
-      {label.length > 14 ? label.slice(0, 14) + "…" : label}
+      {label.length > 10 ? label.slice(0, 10) + "…" : label}
     </span>
   );
 }
@@ -418,7 +420,6 @@ function BlockCard({
   const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && clampedHeight >= 24; // micro tečky
   // Výškové prahy pro FULL mode
   const showDates  = MODE_FULL;           // 2. řádek — date badges
-  const showNotes  = clampedHeight >= 100; // 4. řádek — status labels
   const showSpec   = clampedHeight >= 85;  // 3. řádek — specifikace
   const showDesc   = MODE_FULL && clampedHeight >= 44; // popis za číslem zakázky
 
@@ -465,17 +466,17 @@ function BlockCard({
         display: "flex", flexDirection: "column",
         overflow: "hidden", userSelect: "none",
         transition: isDragging ? "none" : "box-shadow 0.15s",
+        animationName: "blockEnter",
+        animationDuration: "220ms",
+        animationTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        animationFillMode: "backwards",
       }}
     >
       {/* Barevný akcent nahoře (2px) */}
       <div style={{ height: 2, flexShrink: 0, background: s.accentBar, opacity: isOverdue ? 0.35 : 0.8 }} />
 
-      {/* Série indikace ↻ */}
-      {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && clampedHeight >= 26 && (
-        <span style={{ position: "absolute", top: 5, right: 6, fontSize: 9, opacity: 0.55, color: s.textSub, lineHeight: 1, pointerEvents: "none" }}>↻</span>
-      )}
 
-      {/* ── MODE_COMPACT: levý sloupec D/M/E + vpravo číslo+popis ── */}
+      {/* ── MODE_COMPACT: levý sloupec D/M/E + vpravo číslo+popis+chips ── */}
       {MODE_COMPACT && (
         <div style={{ display: "flex", flex: 1, minHeight: 0, padding: "4px 7px 4px 8px", gap: 0, overflow: "hidden" }}>
           <CompactDateColumn
@@ -483,12 +484,25 @@ function BlockCard({
             onToggleData={() => toggleField("dataOk", block.dataOk)}
             onToggleMat={() => toggleField("materialOk", block.materialOk)}
           />
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {block.orderNumber}{block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
-            </span>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 1 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                {block.orderNumber}{block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+              </span>
+              {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
+                  {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
+                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
+                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
+                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
+                  {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                    <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
+                  )}
+                </div>
+              )}
+            </div>
             {block.description && (
-              <span style={{ fontSize: 9, color: s.textSub, opacity: 0.75, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {block.description}
               </span>
             )}
@@ -500,68 +514,84 @@ function BlockCard({
       {MODE_TINY && (() => {
         const dataWarn = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
         const matWarn  = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
-        const dClr = block.dataOk ? "#4ade80" : dataWarn ? "#fbbf24" : "#64748b";
-        const mClr = block.materialOk ? "#4ade80" : matWarn ? "#fbbf24" : "#64748b";
-        const eClr = "#475569";
+        const dClr = block.dataOk ? "#86efac" : dataWarn ? "#fde68a" : "#e2e8f0";
+        const mClr = block.materialOk ? "#86efac" : matWarn ? "#fde68a" : "#e2e8f0";
+        const eClr = "#cbd5e1";
         const chipStyle = (clr: string): React.CSSProperties => ({
-          fontSize: 8, fontWeight: 700, color: clr,
-          background: `${clr}1a`, border: `1px solid ${clr}38`,
-          borderRadius: 3, padding: "1px 4px",
+          fontSize: 9, fontWeight: 600, color: clr,
+          background: `${clr}12`, border: `1px solid ${clr}30`,
+          borderRadius: 3, padding: "1px 5px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
         });
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
-            {block.dataRequiredDate && (
-              <span style={chipStyle(dClr)}>
-                D&nbsp;{fmtDateShort(block.dataRequiredDate)}{block.dataOk ? " ✓" : dataWarn ? " !" : ""}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
+            {/* Levá část: datum chips + číslo + popis */}
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
+              {block.dataRequiredDate && <span style={chipStyle(dClr)}>D&nbsp;{fmtDateShort(block.dataRequiredDate)}{block.dataOk ? " ✓" : dataWarn ? " !" : ""}</span>}
+              {block.materialRequiredDate && <span style={chipStyle(mClr)}>M&nbsp;{fmtDateShort(block.materialRequiredDate)}{block.materialOk ? " ✓" : matWarn ? " !" : ""}</span>}
+              {block.deadlineExpedice && <span style={chipStyle(eClr)}>E&nbsp;{fmtDateShort(block.deadlineExpedice)}</span>}
+              {hasDateRow && <div style={{ width: 1, height: 10, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />}
+              <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
+                {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 8, opacity: 0.6 }}>🔒</span>}
               </span>
-            )}
-            {block.materialRequiredDate && (
-              <span style={chipStyle(mClr)}>
-                M&nbsp;{fmtDateShort(block.materialRequiredDate)}{block.materialOk ? " ✓" : matWarn ? " !" : ""}
-              </span>
-            )}
-            {block.deadlineExpedice && (
-              <span style={chipStyle(eClr)}>
-                E&nbsp;{fmtDateShort(block.deadlineExpedice)}
-              </span>
-            )}
-            {hasDateRow && (
-              <div style={{ width: 1, height: 10, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />
-            )}
-            <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-              {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 8, opacity: 0.6 }}>🔒</span>}
-            </span>
-            {block.description && (
-              <span style={{ fontSize: 9, color: s.textSub, opacity: 0.7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, lineHeight: 1 }}>
-                {block.description}
-              </span>
+              {block.description && (
+                <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, lineHeight: 1 }}>
+                  {block.description}
+                </span>
+              )}
+            </div>
+            {/* Pravá část: status chips + série */}
+            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+              <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
+                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
+                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
+                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
+                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
+                {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                  <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
+                )}
+              </div>
             )}
           </div>
         );
       })()}
 
-      {/* ── Řádek 1: Číslo zakázky + popis (FULL mode) ── */}
+      {/* ── Řádek 1: Číslo zakázky + popis + chips vpravo (FULL mode) ── */}
       {MODE_FULL && (
         <div style={{
-          padding: "5px 9px 3px", display: "flex", alignItems: "baseline",
-          gap: 6, minWidth: 0, flexShrink: 0,
+          padding: "5px 9px 3px", display: "flex", alignItems: "center",
+          gap: 4, minWidth: 0, flexShrink: 0,
         }}>
-          <span style={{
-            fontSize: 12, fontWeight: 700, color: s.textPrimary,
-            lineHeight: 1.2, flexShrink: 0, maxWidth: "55%",
-            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-          }}>
-            {block.orderNumber}
-            {block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
-          </span>
-          {showDesc && block.description && (
+          {/* Levá část: číslo + popis */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, flex: 1, minWidth: 0, overflow: "hidden" }}>
             <span style={{
-              fontSize: 10, color: s.textSub, opacity: 0.8, lineHeight: 1.2,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+              fontSize: 12, fontWeight: 700, color: s.textPrimary,
+              lineHeight: 1.2, flexShrink: 0, maxWidth: "60%",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
-              {block.description}
+              {block.orderNumber}
+              {block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
             </span>
+            {showDesc && block.description && (
+              <span style={{
+                fontSize: 10, fontWeight: 400, color: s.textSub, opacity: 0.62, lineHeight: 1.2,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+              }}>
+                {block.description}
+              </span>
+            )}
+          </div>
+          {/* Pravá část: status chips + série */}
+          {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+            <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
+              {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
+              {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
+              {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
+              {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
+              {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -615,18 +645,6 @@ function BlockCard({
         </div>
       )}
 
-      {/* ── Řádek 4: Poznámky ze selectů ── */}
-      {showNotes && hasNoteRow && (
-        <div style={{
-          padding: "1px 7px 4px", display: "flex", gap: 4, flexWrap: "wrap",
-          flexShrink: 0, overflow: "hidden",
-        }}>
-          {block.dataStatusLabel    && <StatusNote label={block.dataStatusLabel}     accent={s.accentBar} />}
-          {block.materialStatusLabel && <StatusNote label={block.materialStatusLabel} accent={s.textSub} />}
-          {block.barvyStatusLabel    && <StatusNote label={block.barvyStatusLabel}    accent="#94a3b8" />}
-          {block.lakStatusLabel      && <StatusNote label={block.lakStatusLabel}      accent="#94a3b8" />}
-        </div>
-      )}
 
       {/* Resize handle — rohový iOS-style */}
       {!block.locked && (
@@ -672,6 +690,7 @@ export default function TimelineGrid({
   onMultiBlockUpdate,
   canEdit = true,
   onError,
+  workingTimeLock = true,
 }: TimelineGridProps) {
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
   const effectiveDaysAhead = daysAhead ?? VIEW_DAYS_AHEAD;
@@ -696,6 +715,8 @@ export default function TimelineGrid({
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const blocksRef       = useRef(blocks);
   const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
+  const workingTimeLockRef  = useRef(workingTimeLock);
+  workingTimeLockRef.current = workingTimeLock;
 
   useEffect(() => { slotHeightRef.current = slotHeight; }, [slotHeight]);
   useEffect(() => { blocksRef.current = blocks; }, [blocks]);
@@ -870,7 +891,12 @@ export default function TimelineGrid({
           callbacksRef.current.onBlockUpdate(updated, true);
         } catch { callbacksRef.current.onError?.("Blok se nepodařilo změnit."); }
       } else if (ds.type === "multi-move") {
-        const deltaMs    = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        let deltaMs = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        if (workingTimeLockRef.current) {
+          const { deltaMs: snapped, wasSnapped } = snapGroupDelta(ds.blocks, deltaMs);
+          deltaMs = snapped;
+          if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
+        }
         const newMachine = clientXToMachine(e.clientX);
         const updates    = ds.blocks.map(b => ({
           id:        b.id,
@@ -1011,19 +1037,33 @@ export default function TimelineGrid({
   // Kolik slotů (po 30 min) přeskočit mezi viditelnými štítky
   const labelStep = slotHeight >= 14 ? 1 : slotHeight >= 7 ? 2 : slotHeight >= 4 ? 4 : 8;
 
-  const nightOverlays: { top: number; height: number; key: string }[] = [];
+  const blockedOverlays: Record<string, { top: number; height: number; key: string }[]> = { XL_105: [], XL_106: [] };
 
   for (let di = 0; di < totalDays; di++) {
     const day      = addDays(viewStart, di);
     const dayY     = di * dayHeight;
-    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+    const dow      = day.getDay();
+    const isWeekend = dow === 0 || dow === 6;
     const isToday  = isSameDay(day, todayDate);
     const dateStr  = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const isHoliday = holidays.has(dateStr);
     const companyDayMatch = companyDays?.find((cd) => dateStr >= cd.startDate.slice(0, 10) && dateStr <= cd.endDate.slice(0, 10));
     days.push({ date: day, y: dayY, isWeekend, isToday, isHoliday, isCompanyDay: !!companyDayMatch, companyDayLabel: companyDayMatch?.label });
-    nightOverlays.push({ top: dayY,                                height: WORK_START_H * 2 * slotHeight, key: `ns-${di}` });
-    nightOverlays.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `ne-${di}` });
+    // XL_105: Sat+Sun = full day, all other days = two night strips (00-06, 22-24)
+    if (dow === 6 || dow === 0) {
+      blockedOverlays.XL_105.push({ top: dayY, height: dayHeight, key: `b105-we-${di}` });
+    } else {
+      blockedOverlays.XL_105.push({ top: dayY, height: WORK_START_H * 2 * slotHeight, key: `b105-ns-${di}` });
+      blockedOverlays.XL_105.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b105-ne-${di}` });
+    }
+    // XL_106: Fri night (22-24), Sat = full day, Sun = 00-22:00; Mon-Thu = nothing
+    if (dow === 6) {
+      blockedOverlays.XL_106.push({ top: dayY, height: dayHeight, key: `b106-sat-${di}` });
+    } else if (dow === 0) {
+      blockedOverlays.XL_106.push({ top: dayY, height: WORK_END_H * 2 * slotHeight, key: `b106-sun-${di}` });
+    } else if (dow === 5) {
+      blockedOverlays.XL_106.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b106-fri-${di}` });
+    }
     for (let s = 0; s < 48; s++) {
       const h = Math.floor(s / 2);
       const m = s % 2 === 0 ? "00" : "30";
@@ -1087,13 +1127,13 @@ export default function TimelineGrid({
                   paddingTop: 8,
                   gap: 2,
                 }}>
-                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fb923c" : "#94a3b8" }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "#94a3b8" }}>
                     {DAY_ABBR[d.date.getDay()]}
                   </span>
-                  <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: d.isToday ? "#38bdf8" : d.isHoliday ? "#f87171" : d.isCompanyDay ? "#a78bfa" : d.isWeekend ? "#f97316" : "#e2e8f0" }}>
+                  <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: d.isToday ? "#38bdf8" : d.isHoliday ? "#f87171" : d.isCompanyDay ? "#f87171" : d.isWeekend ? "#f87171" : "#e2e8f0" }}>
                     {d.date.getDate()}
                   </span>
-                  <span style={{ fontSize: 8, fontWeight: 600, lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#c4b5fd" : d.isWeekend ? "#fb923c" : "#64748b" }}>
+                  <span style={{ fontSize: 8, fontWeight: 600, lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "#64748b" }}>
                     {MONTH_ABBR[d.date.getMonth()]}
                   </span>
                 </div>
@@ -1106,7 +1146,7 @@ export default function TimelineGrid({
             {/* Firemní den overlay */}
             {days.map((d) =>
               d.isCompanyDay ? (
-                <div key={`ct-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
+                <div key={`ct-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
               ) : null
             )}
             {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
@@ -1118,6 +1158,7 @@ export default function TimelineGrid({
                   left: 0,
                   right: 0,
                   height: slotHeight,
+                  transform: "translateY(-50%)",
                   display: "flex",
                   alignItems: "center",
                   paddingLeft: 8,
@@ -1206,13 +1247,6 @@ export default function TimelineGrid({
                   ) : null
                 )}
 
-                {/* Víkendové pozadí */}
-                {days.map((d) =>
-                  d.isWeekend && !d.isToday ? (
-                    <div key={d.y} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(20,16,12,0.35)", pointerEvents: "none" }} />
-                  ) : null
-                )}
-
                 {/* Svátek overlay */}
                 {days.map((d) =>
                   d.isHoliday && !d.isToday ? (
@@ -1220,16 +1254,16 @@ export default function TimelineGrid({
                   ) : null
                 )}
 
-                {/* Firemní den overlay */}
+                {/* Firemní den overlay (červená — plánovaná odstávka) */}
                 {days.map((d) =>
                   d.isCompanyDay ? (
-                    <div key={`c-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(139,92,246,0.18)", pointerEvents: "none" }} />
+                    <div key={`c-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
                   ) : null
                 )}
 
-                {/* Noční overlay — jen pro stroje bez nočního provozu */}
-                {MACHINES_WITH_NIGHT_OFF.has(machine) && nightOverlays.map((n) => (
-                  <div key={n.key} style={{ position: "absolute", top: n.top, height: n.height, left: 0, right: 0, backgroundColor: "rgba(2,6,23,0.4)", pointerEvents: "none" }} />
+                {/* Blokované časy — víkendy + noční XL_105 (červená) */}
+                {blockedOverlays[machine]?.map((n) => (
+                  <div key={n.key} style={{ position: "absolute", top: n.top, height: n.height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
                 ))}
 
                 {/* Denní oddělovače */}
@@ -1293,7 +1327,7 @@ export default function TimelineGrid({
                 {isMultiDrag && dragPreview!.machine === machine && blocks
                   .filter(b => selectedBlockIds!.has(b.id) && b.id !== dragPreview!.blockId)
                   .map(b => {
-                    const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#c0392b" };
+                    const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#16a34a" };
                     const color = colorMap[b.type] ?? "#475569";
                     const bTop    = dateToY(new Date(b.startTime), viewStart, slotHeight) + multiDelta;
                     const bHeight = dateToY(new Date(b.endTime), viewStart, slotHeight) - dateToY(new Date(b.startTime), viewStart, slotHeight);
@@ -1311,7 +1345,7 @@ export default function TimelineGrid({
                 {dragPreview && dragPreview.machine === machine && (() => {
                   const draggedBlock = blocks.find((b) => b.id === dragPreview.blockId);
                   if (!draggedBlock) return null;
-                  const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#c0392b" };
+                  const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#16a34a" };
                   const color = colorMap[draggedBlock.type] ?? "#475569";
                   return (
                     <div style={{

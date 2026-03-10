@@ -249,7 +249,7 @@ function DatePickerField({
   while (cells.length % 7 !== 0) cells.push(null);
 
   const displayLabel = selected
-    ? selected.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric", year: "numeric" })
+    ? selected.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" })
     : placeholder;
 
   const CELL = 36;
@@ -432,6 +432,14 @@ function BlockEdit({
   }
 
   const pendingSavePayload = useRef<Record<string, unknown> | null>(null);
+  const descRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = descRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.max(32, el.scrollHeight) + "px";
+  }, []);
 
   function buildPayload(): Record<string, unknown> {
     return {
@@ -499,11 +507,10 @@ function BlockEdit({
     return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 5 }}>{children}</div>;
   }
 
-  function StatusSelect({ value, onChange, opts, placeholder }: {
+  function StatusSelect({ value, onChange, opts }: {
     value: string;
     onChange: (v: string) => void;
     opts: CodebookOption[];
-    placeholder: string;
   }) {
     return (
       <div style={{ position: "relative" }}>
@@ -511,17 +518,17 @@ function BlockEdit({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           style={{
-            appearance: "none", width: "100%", height: 40,
-            background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
-            color: value ? "#e8eaf0" : "#64748b", fontSize: 13, fontWeight: 600,
-            padding: "0 40px 0 14px", cursor: "pointer", outline: "none",
+            appearance: "none", width: "100%", height: 34,
+            background: "#181b22", border: "1px solid #1e2130", borderRadius: 8,
+            color: value ? "#e8eaf0" : "#64748b", fontSize: 11, fontWeight: 600,
+            padding: "0 26px 0 10px", cursor: "pointer", outline: "none",
           }}
           onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
           onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
           onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
         >
-          <option value="">— {placeholder} —</option>
+          <option value="">—</option>
           {opts.map((o) => (
             <option key={o.id} value={o.id.toString()}>
               {o.isWarning ? "⚠ " : ""}{o.label}
@@ -529,7 +536,7 @@ function BlockEdit({
           ))}
         </select>
         <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
-          style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 16, height: 16, pointerEvents: "none" }}>
+          style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
           <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </div>
@@ -589,7 +596,27 @@ function BlockEdit({
           </div>
           <div>
             <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Popis</Label>
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="text-xs resize-none" />
+            <textarea
+              ref={descRef}
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                e.currentTarget.style.height = "auto";
+                e.currentTarget.style.height = Math.max(32, e.currentTarget.scrollHeight) + "px";
+              }}
+              placeholder="Volitelný popis…"
+              rows={1}
+              style={{
+                width: "100%", minHeight: 32, resize: "none", overflow: "hidden",
+                background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: 6, color: "#e8eaf0", fontSize: 12, lineHeight: "1.5",
+                padding: "6px 10px", outline: "none", fontFamily: "inherit",
+                transition: "border-color 120ms ease-out",
+                boxSizing: "border-box",
+              }}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(59,130,246,0.6)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
+            />
           </div>
         </div>
 
@@ -625,47 +652,69 @@ function BlockEdit({
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
             <SectionLabel>Výrobní sloupečky</SectionLabel>
 
-            {/* Řádek 1: Datumy — DATA | MATERIÁL | EXPEDICE */}
+            {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | EXPEDICE */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
-                <ColLabel>DATA datum</ColLabel>
-                <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum dodání…" />
+                <ColLabel>DATA</ColLabel>
+                <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum" />
+                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: dataOk ? "#4ade80" : "#64748b", cursor: "pointer", letterSpacing: "0.04em" }}>
+                  <div style={{
+                    width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+                    background: dataOk ? "#4ade80" : "transparent",
+                    border: dataOk ? "1.5px solid #4ade80" : "1.5px solid rgba(255,255,255,0.2)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 120ms ease-out",
+                  }}>
+                    {dataOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#111318" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </div>
+                  <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                  OK
+                </label>
               </div>
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
-                <ColLabel>MATERIÁL datum</ColLabel>
-                <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum dodání…" />
+                <ColLabel>Materiál</ColLabel>
+                <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum" />
+                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: materialOk ? "#4ade80" : "#64748b", cursor: "pointer", letterSpacing: "0.04em" }}>
+                  <div style={{
+                    width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+                    background: materialOk ? "#4ade80" : "transparent",
+                    border: materialOk ? "1.5px solid #4ade80" : "1.5px solid rgba(255,255,255,0.2)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "all 120ms ease-out",
+                  }}>
+                    {materialOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#111318" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </div>
+                  <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                  OK
+                </label>
               </div>
               <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
-                <ColLabel>EXPEDICE</ColLabel>
-                <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} placeholder="Datum…" />
+                <ColLabel>Expedice</ColLabel>
+                <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} placeholder="Datum" />
               </div>
             </div>
 
-            {/* Řádek 2: Poznámky — DATA | MATERIÁL | BARVY | LAK */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 6 }}>
+            {/* Řádek 2: Stavy — DATA | MATERIÁL | BARVY | LAK */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 10 }}>
               {/* DATA */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
-                <StatusSelect value={dataStatusId} onChange={setDataStatusId} opts={dataOpts} placeholder="DATA" />
-                <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: dataOk ? "#4ade80" : "#9ba8c0", cursor: "pointer" }}>
-                  <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
-                  OK
-                </label>
+              <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
+                <ColLabel>DATA</ColLabel>
+                <StatusSelect value={dataStatusId} onChange={setDataStatusId} opts={dataOpts} />
               </div>
               {/* MATERIÁL */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
-                <StatusSelect value={materialStatusId} onChange={setMaterialStatusId} opts={materialOpts} placeholder="MAT." />
-                <label style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: materialOk ? "#4ade80" : "#9ba8c0", cursor: "pointer" }}>
-                  <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ accentColor: "#4ade80" }} />
-                  OK
-                </label>
+              <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
+                <ColLabel>Materiál</ColLabel>
+                <StatusSelect value={materialStatusId} onChange={setMaterialStatusId} opts={materialOpts} />
               </div>
               {/* BARVY */}
               <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
-                <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} placeholder="BARVY" />
+                <ColLabel>Barvy</ColLabel>
+                <StatusSelect value={barvyStatusId} onChange={setBarvyStatusId} opts={barvyOpts} />
               </div>
               {/* LAK */}
               <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
-                <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} placeholder="LAK" />
+                <ColLabel>Lak</ColLabel>
+                <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} />
               </div>
             </div>
 
@@ -1128,6 +1177,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const redoStack = useRef<HistoryEntry[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [workingTimeLock, setWorkingTimeLock] = useState(true);
   const MAX_HISTORY = 30;
 
   // Builder form fields
@@ -1184,6 +1234,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const [filterText, setFilterText] = useState("");
   const [jumpDate, setJumpDate]     = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [headerScrolled, setHeaderScrolled] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => setHeaderScrolled(el.scrollTop > 20);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [daysAhead, setDaysAhead] = useState(60);
   const [daysBack, setDaysBack]   = useState(3);
 
@@ -1808,7 +1866,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   return (
     <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-slate-950 text-slate-100">
       {/* ── Header ── */}
-      <header className="flex-shrink-0 border-b border-slate-800 bg-slate-900/80 backdrop-blur px-4 py-2 flex items-center gap-4">
+      <header className="flex-shrink-0 px-4 py-2 flex items-center gap-4" style={{
+          borderBottom: `1px solid ${headerScrolled ? "rgba(255,255,255,0.10)" : "rgba(30,41,59,0.7)"}`,
+          background: headerScrolled ? "rgba(7,8,14,0.95)" : "rgba(10,12,20,0.72)",
+          backdropFilter: headerScrolled ? "blur(24px) saturate(180%)" : "blur(8px)",
+          transition: "background 250ms ease-out, backdrop-filter 250ms ease-out, border-color 250ms ease-out",
+        }}>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center font-black text-white">I</div>
           <div>
@@ -1881,6 +1944,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                 title="Znovu provést (Ctrl+Shift+Z)"
                 style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canRedo ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`, color: canRedo ? "#94a3b8" : "#334155", cursor: canRedo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
               >↪</button>
+              <button
+                onClick={() => setWorkingTimeLock(p => !p)}
+                title={workingTimeLock ? "Víkendy/noc blokovány — klik pro flexibilní mód" : "Flexibilní mód — klik pro zamknutí"}
+                style={{
+                  marginLeft: 4, padding: "2px 8px", fontSize: 13, borderRadius: 5, lineHeight: 1.4,
+                  background: workingTimeLock ? "rgba(251,146,60,0.10)" : "rgba(255,255,255,0.05)",
+                  border: `1px solid ${workingTimeLock ? "rgba(251,146,60,0.30)" : "rgba(255,255,255,0.12)"}`,
+                  color: workingTimeLock ? "#fb923c" : "#475569",
+                  cursor: "pointer", transition: "all 120ms ease-out",
+                }}
+              >{workingTimeLock ? "🔒" : "🔓"}</button>
             </div>
           )}
           {canEdit && (
@@ -1957,6 +2031,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             daysBack={daysBack}
             canEdit={canEdit}
             onError={(msg) => showToast(msg, "error")}
+            workingTimeLock={workingTimeLock}
           />
         </div>
 
@@ -2358,6 +2433,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                           <div
                             key={item.id}
                             draggable
+                            className="pressable-card"
                             onDragStart={(e) => {
                               e.dataTransfer.effectAllowed = "copy";
                               e.dataTransfer.setData("text/plain", String(item.id));

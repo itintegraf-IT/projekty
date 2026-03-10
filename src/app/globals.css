@@ -12,6 +12,29 @@
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
+/* Entrance animace pro nové bloky na timeline */
+@keyframes blockEnter {
+  from { transform: scale(0.88) translateY(-5px); opacity: 0; }
+  to   { transform: scale(1)    translateY(0);    opacity: 1; }
+}
+
+/* Active/pressed stav pro tlačítka (iOS standard) */
+button:not(:disabled) {
+  transition: transform 120ms ease-out, filter 100ms ease-out;
+}
+button:not(:disabled):active {
+  transform: scale(0.96);
+  filter: brightness(0.84);
+}
+
+/* Pressable cards (queue kartičky, div elementy) */
+.pressable-card {
+  transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+}
+.pressable-card:active {
+  transform: scale(0.97);
+}
+
 html,
 body {
   height: 100%;
