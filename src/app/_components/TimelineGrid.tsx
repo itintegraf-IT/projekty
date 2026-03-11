@@ -400,7 +400,7 @@ function BlockCard({
   const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && clampedHeight >= 24; // micro tečky
   // Výškové prahy pro FULL mode
   const showDates  = MODE_FULL;           // 2. řádek — date badges
-  const showSpec   = clampedHeight >= 85;  // 3. řádek — specifikace
+  const showSpec   = clampedHeight >= 70;  // 3. řádek — specifikace (od FULL modu)
   const showDesc   = MODE_FULL && clampedHeight >= 44; // popis za číslem zakázky
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
@@ -487,9 +487,18 @@ function BlockCard({
               <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 9, opacity: 0.6 }}>🔒</span>}
               </span>
-              {block.description && (
-                <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, lineHeight: 1 }}>
-                  {block.description}
+              {(block.description || block.specifikace) && (
+                <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
+                  {block.description && (
+                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                      {block.description}
+                    </span>
+                  )}
+                  {block.specifikace && (
+                    <span style={{ fontSize: 9, fontStyle: "italic", color: "var(--text-muted)", opacity: 0.72, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 2, minWidth: 0 }}>
+                      {block.description ? "· " : ""}{block.specifikace}
+                    </span>
+                  )}
                 </span>
               )}
             </div>
@@ -542,9 +551,18 @@ function BlockCard({
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 8, opacity: 0.6 }}>🔒</span>}
               </span>
-              {block.description && (
-                <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, lineHeight: 1 }}>
-                  {block.description}
+              {(block.description || block.specifikace) && (
+                <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
+                  {block.description && (
+                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                      {block.description}
+                    </span>
+                  )}
+                  {block.specifikace && (
+                    <span style={{ fontSize: 9, fontStyle: "italic", color: "var(--text-muted)", opacity: 0.72, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 2, minWidth: 0 }}>
+                      {block.description ? "· " : ""}{block.specifikace}
+                    </span>
+                  )}
                 </span>
               )}
             </div>
@@ -1311,7 +1329,18 @@ export default function TimelineGrid({
                       isCopied={block.id === copiedBlockId}
                       multiSelected={!!selectedBlockIds?.has(block.id)}
                       now={now ?? new Date()}
-                      onClick={() => { if (!dragDidMove.current) onBlockClick(block); }}
+                      onClick={(e) => {
+                        if (dragDidMove.current) return;
+                        if (e.shiftKey) {
+                          const next = new Set(selectedBlockIdsRef.current);
+                          // Pokud začínáme nový multi-select, zahrnout i aktuálně otevřený blok v detailu
+                          if (next.size === 0 && selectedBlockId != null) next.add(selectedBlockId);
+                          if (next.has(block.id)) { next.delete(block.id); } else { next.add(block.id); }
+                          callbacksRef.current.onMultiSelect?.(next);
+                        } else {
+                          onBlockClick(block);
+                        }
+                      }}
                       onDoubleClick={() => onBlockDoubleClick?.(block)}
                       onMouseDown={canEdit ? (e) => handleBlockMouseDown(block, e) : undefined}
                       onResizeMouseDown={canEdit ? (e) => handleResizeMouseDown(block, e) : undefined}

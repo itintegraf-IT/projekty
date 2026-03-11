@@ -792,15 +792,30 @@ function BlockEdit({
           <>
             {/* Tlačítka */}
             <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-              <Button
+              <button
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="flex-1 font-bold text-xs"
-                style={{ background: "var(--brand)", color: "var(--brand-contrast)" }}
+                style={{
+                  flex: 1,
+                  height: 32,
+                  borderRadius: 8,
+                  border: "1px solid color-mix(in oklab, var(--brand) 80%, var(--text) 20%)",
+                  background: "linear-gradient(135deg, color-mix(in oklab, var(--brand) 90%, white 10%) 0%, var(--brand) 100%)",
+                  color: "var(--brand-contrast)",
+                  fontWeight: 800,
+                  fontSize: 11,
+                  letterSpacing: "0.01em",
+                  cursor: saving ? "default" : "pointer",
+                  opacity: saving ? 0.7 : 1,
+                  boxShadow: "0 2px 8px color-mix(in oklab, var(--brand) 28%, transparent)",
+                  transition: "filter 120ms ease-out, transform 120ms ease-out, box-shadow 120ms ease-out",
+                }}
+                onMouseEnter={(e) => { if (!saving) (e.currentTarget as HTMLButtonElement).style.filter = "brightness(0.96)"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "none"; }}
               >
                 {saving ? "Ukládám…" : "Uložit změny →"}
-              </Button>
+              </button>
               <Button type="button" variant="ghost" onClick={onClose} className="text-slate-400 text-xs">
                 Zrušit
               </Button>
