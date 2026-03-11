@@ -924,7 +924,7 @@ function BlockDetail({
             <Separator className="my-1 bg-slate-800" />
             <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2">
               <div className="text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Popis</div>
-              <div className="text-slate-300 leading-relaxed">{block.description}</div>
+              <div className="text-slate-300 leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>{block.description}</div>
             </div>
           </>
         )}

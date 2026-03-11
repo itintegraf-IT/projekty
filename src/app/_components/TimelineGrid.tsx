@@ -403,6 +403,8 @@ function BlockCard({
   const showDates  = MODE_FULL;           // 2. řádek — date badges
   const showSpec   = clampedHeight >= 70;  // 3. řádek — specifikace (od FULL modu)
   const showDesc   = MODE_FULL && clampedHeight >= 44; // popis za číslem zakázky
+  // Počet řádků popisu — roste s výškou bloku (13px/řádek, od ~55px výšky)
+  const descLineClamp = Math.max(2, Math.floor((clampedHeight - 55) / 13));
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const shadow  = selected
@@ -589,11 +591,11 @@ function BlockCard({
       {/* ── Řádek 1: Číslo zakázky + popis + chips vpravo (FULL mode) ── */}
       {MODE_FULL && (
         <div style={{
-          padding: "5px 9px 3px", display: "flex", alignItems: "center",
+          padding: "5px 9px 3px", display: "flex", alignItems: "flex-start",
           gap: 4, minWidth: 0, flexShrink: 0,
         }}>
           {/* Levá část: číslo + popis */}
-          <div style={{ display: "flex", alignItems: "baseline", gap: 6, flex: 1, minWidth: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 6, flex: 1, minWidth: 0, overflow: "hidden" }}>
             <span style={{
               fontSize: 12, fontWeight: 700, color: s.textPrimary,
               lineHeight: 1.2, flexShrink: 0, maxWidth: "60%",
@@ -604,8 +606,11 @@ function BlockCard({
             </span>
             {showDesc && block.description && (
               <span style={{
-                fontSize: 10, fontWeight: 400, color: s.textSub, opacity: 0.62, lineHeight: 1.2,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1,
+                fontSize: 10, fontWeight: 400, color: s.textSub, opacity: 0.62, lineHeight: 1.3,
+                overflow: "hidden", display: "-webkit-box",
+                WebkitLineClamp: descLineClamp, WebkitBoxOrient: "vertical",
+                whiteSpace: "pre-wrap",
+                flex: 1, minWidth: 0,
               }}>
                 {block.description}
               </span>
