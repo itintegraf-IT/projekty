@@ -1398,8 +1398,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   function handleJumpToDate(dateStr: string) {
     if (!dateStr) return;
     const d = new Date(dateStr + "T00:00:00");
-    const y = dateToY(d, viewStart, slotHeight);
-    scrollRef.current?.scrollTo({ top: Math.max(0, y - 100), behavior: "smooth" });
+    const today = startOfDay(new Date());
+    const diffDays = Math.round((today.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
+    if (diffDays > daysBack) {
+      // Datum je před aktuálním viewStart — nejdřív rozšíř rozsah, pak scrollni
+      pendingScrollMs.current = d.getTime();
+      setDaysBack(diffDays + 3);
+    } else {
+      const y = dateToY(d, viewStart, slotHeight);
+      scrollRef.current?.scrollTo({ top: Math.max(0, y - 100), behavior: "smooth" });
+    }
   }
 
   // Automaticky vyřeší jakýkoli překryv po přesunu/resize bloku:
