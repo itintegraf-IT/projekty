@@ -11,6 +11,7 @@ import { Switch }    from "@/components/ui/switch";
 import { Badge }     from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import ThemeToggle from "./ThemeToggle";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
 type CodebookOption = {
@@ -1884,11 +1885,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const typeConfig = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
 
   return (
-    <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-slate-950 text-slate-100">
+    <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-background text-foreground">
       {/* ── Header ── */}
       <header className="flex-shrink-0 px-4 py-2 flex items-center gap-4" style={{
-          borderBottom: `1px solid ${headerScrolled ? "rgba(255,255,255,0.10)" : "rgba(30,41,59,0.7)"}`,
-          background: headerScrolled ? "rgba(7,8,14,0.95)" : "rgba(10,12,20,0.72)",
+          borderBottom: `1px solid ${headerScrolled ? "color-mix(in oklab, var(--border) 100%, transparent)" : "color-mix(in oklab, var(--border) 70%, transparent)"}`,
+          background: headerScrolled ? "color-mix(in oklab, var(--surface) 95%, transparent)" : "color-mix(in oklab, var(--surface) 72%, transparent)",
           backdropFilter: headerScrolled ? "blur(24px) saturate(180%)" : "blur(8px)",
           transition: "background 250ms ease-out, backdrop-filter 250ms ease-out, border-color 250ms ease-out",
         }}>
@@ -1949,7 +1950,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
+        <div className="ml-auto flex items-center gap-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
           {canEdit && (
             <div style={{ display: "flex", gap: 2 }}>
               <button
@@ -2011,12 +2012,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               Správa
             </a>
           )}
+          <ThemeToggle />
           <button
             onClick={handleLogout}
             style={{
               padding: "3px 10px", fontSize: 11, borderRadius: 6,
               background: "transparent", border: "1px solid rgba(255,255,255,0.12)",
-              color: "#94a3b8", cursor: "pointer", transition: "all 120ms ease-out",
+              color: "var(--text-muted)", cursor: "pointer", transition: "all 120ms ease-out",
             }}
           >
             Odhlásit
