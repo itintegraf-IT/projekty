@@ -213,45 +213,45 @@ const BLOCK_STYLES: Record<string, {
   leftBg: string; textPrimary: string; textSub: string;
 }> = {
   ZAKAZKA: {
-    gradient:    "linear-gradient(150deg, #0f2744 0%, #081729 100%)",
-    border:      "rgba(37,99,235,0.55)",
+    gradient:    "linear-gradient(150deg, color-mix(in oklab, #3b82f6 18%, var(--surface)) 0%, color-mix(in oklab, #2563eb 12%, var(--surface)) 100%)",
+    border:      "color-mix(in oklab, #3b82f6 45%, var(--border))",
     accentBar:   "#3b82f6",
-    leftBg:      "rgba(37,99,235,0.14)",
-    textPrimary: "#dbeafe",
-    textSub:     "#93c5fd",
+    leftBg:      "color-mix(in oklab, #3b82f6 14%, transparent)",
+    textPrimary: "var(--text)",
+    textSub:     "color-mix(in oklab, var(--text) 68%, #3b82f6)",
   },
   REZERVACE: {
-    gradient:    "linear-gradient(150deg, #1e0a40 0%, #0d0522 100%)",
-    border:      "rgba(124,58,237,0.55)",
+    gradient:    "linear-gradient(150deg, color-mix(in oklab, #8b5cf6 18%, var(--surface)) 0%, color-mix(in oklab, #7c3aed 12%, var(--surface)) 100%)",
+    border:      "color-mix(in oklab, #8b5cf6 48%, var(--border))",
     accentBar:   "#8b5cf6",
-    leftBg:      "rgba(124,58,237,0.14)",
-    textPrimary: "#ede9fe",
-    textSub:     "#c4b5fd",
+    leftBg:      "color-mix(in oklab, #8b5cf6 14%, transparent)",
+    textPrimary: "var(--text)",
+    textSub:     "color-mix(in oklab, var(--text) 68%, #8b5cf6)",
   },
   UDRZBA: {
-    gradient:    "linear-gradient(150deg, #0a2a14 0%, #051408 100%)",
-    border:      "rgba(34,197,94,0.50)",
+    gradient:    "linear-gradient(150deg, color-mix(in oklab, #22c55e 18%, var(--surface)) 0%, color-mix(in oklab, #16a34a 12%, var(--surface)) 100%)",
+    border:      "color-mix(in oklab, #22c55e 44%, var(--border))",
     accentBar:   "#22c55e",
-    leftBg:      "rgba(34,197,94,0.12)",
-    textPrimary: "#dcfce7",
-    textSub:     "#86efac",
+    leftBg:      "color-mix(in oklab, #22c55e 14%, transparent)",
+    textPrimary: "var(--text)",
+    textSub:     "color-mix(in oklab, var(--text) 68%, #16a34a)",
   },
 };
 const BLOCK_OVERDUE = {
-  gradient:    "linear-gradient(150deg, #18191f 0%, #0d0f14 100%)",
-  border:      "rgba(71,85,105,0.35)",
-  accentBar:   "#334155",
-  leftBg:      "rgba(71,85,105,0.08)",
-  textPrimary: "#475569",
-  textSub:     "#334155",
+  gradient:    "linear-gradient(150deg, color-mix(in oklab, var(--surface-2) 86%, var(--text-muted)) 0%, color-mix(in oklab, var(--surface) 92%, color-mix(in oklab, var(--text-muted) 85%, #334155)) 100%)",
+  border:      "color-mix(in oklab, var(--text-muted) 38%, var(--border))",
+  accentBar:   "var(--text-muted)",
+  leftBg:      "color-mix(in oklab, var(--text-muted) 10%, transparent)",
+  textPrimary: "var(--text-muted)",
+  textSub:     "color-mix(in oklab, var(--text-muted) 80%, color-mix(in oklab, var(--text-muted) 85%, #334155))",
 };
 const BLOCK_DEFAULT = {
-  gradient:    "linear-gradient(150deg, #1e2433 0%, #111720 100%)",
-  border:      "rgba(71,85,105,0.4)",
-  accentBar:   "#64748b",
-  leftBg:      "rgba(71,85,105,0.12)",
-  textPrimary: "#94a3b8",
-  textSub:     "#64748b",
+  gradient:    "linear-gradient(150deg, var(--surface-2) 0%, var(--surface) 100%)",
+  border:      "var(--border)",
+  accentBar:   "color-mix(in oklab, var(--text-muted) 70%, var(--text-muted))",
+  leftBg:      "color-mix(in oklab, var(--border) 45%, transparent)",
+  textPrimary: "var(--text)",
+  textSub:     "var(--text-muted)",
 };
 
 // ─── Pomocná funkce — bezpečný parse data z DB (ISO timestamp i date string) ──
@@ -270,22 +270,46 @@ function fmtDateShort(s: string | null | undefined): string {
   return `${d.getDate()}.${d.getMonth() + 1}.`;
 }
 
+function deadlineState(requiredDate: string | null | undefined, ok: boolean, now: Date): "none" | "ok" | "warning" | "danger" {
+  if (!requiredDate) return "none";
+  if (ok) return "ok";
+  const due = new Date(requiredDate);
+  if (isNaN(due.getTime())) return "none";
+  if (isSameDay(due, now)) return "warning";
+  if (startOfDay(now).getTime() > startOfDay(due).getTime()) return "danger";
+  return "none";
+}
+
+function tint(color: string, percent: number): string {
+  return `color-mix(in oklab, ${color} ${percent}%, transparent)`;
+}
+
+const FIELD_ACCENT = {
+  DATA: "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",
+  MATERIAL: "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",
+  EXPEDICE: "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",
+};
+
 
 
 // ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
 function DateBadge({
-  label, dateStr, ok, warn, onToggle,
+  label, dateStr, ok, warn, danger, accent, onToggle,
 }: {
-  label: string; dateStr: string | null; ok: boolean; warn: boolean; onToggle: () => void;
+  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; accent?: string; onToggle: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const empty = !dateStr;
   const fmt = dateStr ? fmtDate(dateStr) : "—";
 
-  const bg          = empty ? "rgba(255,255,255,0.03)" : ok ? "rgba(74,222,128,0.12)" : warn ? "rgba(251,191,36,0.12)" : "rgba(255,255,255,0.07)";
-  const borderColor = empty ? "rgba(255,255,255,0.07)" : ok ? "rgba(74,222,128,0.4)"  : warn ? "rgba(251,191,36,0.4)"  : "rgba(255,255,255,0.14)";
-  const labelColor  = empty ? "#475569" : ok ? "#4ade80" : warn ? "#fbbf24" : "#94a3b8";
-  const dateColor   = empty ? "#334155" : ok ? "#86efac" : warn ? "#fde68a" : "#e2e8f0";
+  const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
+  const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
+  const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
+  const neutralAccent = accent ?? "var(--text-muted)";
+  const bg          = empty ? "color-mix(in oklab, var(--surface) 96%, transparent)" : ok ? tint(successStrong, 16) : danger ? tint(dangerStrong, 16) : warn ? tint(warningStrong, 18) : tint(neutralAccent, 14);
+  const borderColor = empty ? "var(--border)" : ok ? tint(successStrong, 45)  : danger ? tint(dangerStrong, 56)  : warn ? tint(warningStrong, 52)  : tint(neutralAccent, 38);
+  const labelColor  = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : neutralAccent;
+  const dateColor   = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : neutralAccent;
 
   async function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -312,8 +336,8 @@ function DateBadge({
       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
         {!empty && (
-          <span style={{ fontSize: 10, lineHeight: 1, color: ok ? "#4ade80" : warn ? "#fbbf24" : "#334155" }}>
-            {ok ? "✓" : warn ? "!" : "·"}
+          <span style={{ fontSize: 10, lineHeight: 1, color: ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : "var(--text-muted)" }}>
+            {ok ? "✓" : danger ? "‼" : warn ? "!" : "·"}
           </span>
         )}
       </div>
@@ -326,7 +350,7 @@ function MiniChip({ label, accent }: { label: string; accent: string }) {
   return (
     <span style={{
       fontSize: 7, fontWeight: 700, color: accent, lineHeight: 1.5,
-      background: `${accent}1a`, border: `1px solid ${accent}2e`,
+      background: tint(accent, 14), border: `1px solid ${tint(accent, 28)}`,
       borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap",
       overflow: "hidden", textOverflow: "ellipsis", maxWidth: 56,
       display: "block",
@@ -363,8 +387,8 @@ function BlockCard({
   const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now;
   const clampedHeight = Math.max(height, 20);
 
-  const dataNotReady     = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
-  const materialNotReady = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
+  const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now);
+  const materialDeadlineState = deadlineState(block.materialRequiredDate, block.materialOk, now);
 
   const s = isOverdue ? BLOCK_OVERDUE : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
 
@@ -434,12 +458,15 @@ function BlockCard({
 
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
-        const dClr = block.dataOk ? "#86efac" : dataNotReady ? "#fde68a" : "#e2e8f0";
-        const mClr = block.materialOk ? "#86efac" : materialNotReady ? "#fde68a" : "#e2e8f0";
-        const eClr = "#cbd5e1";
+        const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
+        const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
+        const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
+        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.DATA;
+        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.MATERIAL;
+        const eClr = FIELD_ACCENT.EXPEDICE;
         const dateChip = (clr: string): React.CSSProperties => ({
           fontSize: 10, fontWeight: 600, color: clr,
-          background: `${clr}12`, border: `1px solid ${clr}30`,
+          background: tint(clr, 14), border: `1px solid ${tint(clr, 36)}`,
           borderRadius: 4, padding: "2px 6px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1, cursor: "pointer",
         });
@@ -448,15 +475,15 @@ function BlockCard({
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               <span style={dateChip(dClr)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
-                D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${block.dataOk ? " ✓" : dataNotReady ? " !" : ""}` : "—"}
+                D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : ""}` : "—"}
               </span>
               <span style={dateChip(mClr)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
-                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${block.materialOk ? " ✓" : materialNotReady ? " !" : ""}` : "—"}
+                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : ""}` : "—"}
               </span>
               <span style={{ ...dateChip(eClr), cursor: "default" }}>
                 E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
               </span>
-              <div style={{ width: 1, height: 12, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />
+              <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 9, opacity: 0.6 }}>🔒</span>}
               </span>
@@ -471,8 +498,8 @@ function BlockCard({
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
                 {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
-                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
-                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
+                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="var(--text-muted)" />}
+                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="var(--text-muted)" />}
                 {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                   <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
                 )}
@@ -484,14 +511,15 @@ function BlockCard({
 
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
-        const dataWarn = !!block.dataRequiredDate && !block.dataOk && now > new Date(block.dataRequiredDate);
-        const matWarn  = !!block.materialRequiredDate && !block.materialOk && now > new Date(block.materialRequiredDate);
-        const dClr = block.dataOk ? "#86efac" : dataWarn ? "#fde68a" : "#e2e8f0";
-        const mClr = block.materialOk ? "#86efac" : matWarn ? "#fde68a" : "#e2e8f0";
-        const eClr = "#cbd5e1";
+        const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
+        const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
+        const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
+        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.DATA;
+        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.MATERIAL;
+        const eClr = FIELD_ACCENT.EXPEDICE;
         const chipStyle = (clr: string): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600, color: clr,
-          background: `${clr}12`, border: `1px solid ${clr}30`,
+          background: tint(clr, 14), border: `1px solid ${tint(clr, 36)}`,
           borderRadius: 3, padding: "1px 5px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
         });
@@ -501,15 +529,15 @@ function BlockCard({
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {block.type !== "UDRZBA" && <>
                 <span style={chipStyle(dClr)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
-                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${block.dataOk ? " ✓" : dataWarn ? " !" : ""}` : "—"}
+                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : ""}` : "—"}
                 </span>
                 <span style={chipStyle(mClr)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
-                  M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${block.materialOk ? " ✓" : matWarn ? " !" : ""}` : "—"}
+                  M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : ""}` : "—"}
                 </span>
                 <span style={{ ...chipStyle(eClr), cursor: "default" }}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
-                <div style={{ width: 1, height: 10, background: "rgba(255,255,255,0.1)", flexShrink: 0 }} />
+                <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 8, opacity: 0.6 }}>🔒</span>}
@@ -525,8 +553,8 @@ function BlockCard({
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
                 {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
-                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
-                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
+                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="var(--text-muted)" />}
+                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="var(--text-muted)" />}
                 {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                   <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
                 )}
@@ -566,8 +594,8 @@ function BlockCard({
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
               {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
-              {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="#94a3b8" />}
-              {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="#94a3b8" />}
+              {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="var(--text-muted)" />}
+              {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="var(--text-muted)" />}
               {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                 <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
               )}
@@ -584,17 +612,19 @@ function BlockCard({
         }}>
           <DateBadge
             label="DATA" dateStr={block.dataRequiredDate}
-            ok={block.dataOk} warn={dataNotReady}
+            ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"}
+            accent={FIELD_ACCENT.DATA}
             onToggle={() => toggleField("dataOk", block.dataOk)}
           />
           <DateBadge
             label="MAT." dateStr={block.materialRequiredDate}
-            ok={block.materialOk} warn={materialNotReady}
+            ok={materialDeadlineState === "ok"} warn={materialDeadlineState === "warning"} danger={materialDeadlineState === "danger"}
+            accent={FIELD_ACCENT.MATERIAL}
             onToggle={() => toggleField("materialOk", block.materialOk)}
           />
           <DateBadge
             label="EXP." dateStr={block.deadlineExpedice}
-            ok={false} warn={false}
+            ok={false} warn={false} danger={false} accent={FIELD_ACCENT.EXPEDICE}
             onToggle={() => {}}
           />
         </div>
@@ -604,7 +634,7 @@ function BlockCard({
       {showSpec && block.specifikace && (
         <div style={{ padding: "0 9px 3px", flexShrink: 0 }}>
           <span style={{
-            fontSize: 9, color: "#94a3b8", lineHeight: 1.3,
+            fontSize: 9, color: "var(--text-muted)", lineHeight: 1.3,
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
             overflow: "hidden",
           }}>
@@ -960,16 +990,16 @@ export default function TimelineGrid({
 
   // ── Sticky header ──────────────────────────────────────────────────────────
   const header = (
-    <div style={{ position: "sticky", top: 0, zIndex: 30, display: "flex", flexShrink: 0, backgroundColor: "rgb(15 23 42)", borderBottom: "1px solid rgb(51 65 85)" }}>
+    <div style={{ position: "sticky", top: 0, zIndex: 30, display: "flex", flexShrink: 0, backgroundColor: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
       {/* datum placeholder */}
-      <div style={{ width: DATE_COL_W, flexShrink: 0, borderRight: "1px solid rgb(30 41 59)" }} />
+      <div style={{ width: DATE_COL_W, flexShrink: 0, borderRight: "1px solid var(--border)" }} />
       {/* čas placeholder */}
-      <div style={{ width: TIME_COL_W, flexShrink: 0, borderRight: "1px solid rgb(30 41 59)", display: "flex", alignItems: "center", padding: "0 8px" }}>
-        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "rgb(71 85 105)", textTransform: "uppercase" }}>ČAS</span>
+      <div style={{ width: TIME_COL_W, flexShrink: 0, borderRight: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 8px" }}>
+        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "var(--text-muted)", textTransform: "uppercase" }}>ČAS</span>
       </div>
       {MACHINES.flatMap((machine, idx) => [
-        idx > 0 ? <div key={`hgap-${idx}`} style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid rgb(30 41 59)", borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(5 8 15)" }} /> : null,
-        <div key={machine} style={{ flex: 1, padding: "8px 12px" }} className="text-xs font-bold text-slate-200">
+        idx > 0 ? <div key={`hgap-${idx}`} style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface-2)" }} /> : null,
+        <div key={machine} style={{ flex: 1, padding: "8px 12px", color: "var(--text)" }} className="text-xs font-bold">
           {machine.replace("_", "\u00a0")}
         </div>,
       ])}
@@ -1051,11 +1081,11 @@ export default function TimelineGrid({
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, cursor: dragPreview ? "grabbing" : "default" }}>
       {header}
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", minHeight: 0, backgroundColor: "var(--timeline-bg)" }}>
         <div style={{ height: totalHeight, display: "flex" }}>
 
           {/* ── Datum sloupec ─────────────────────────────────────────────── */}
-          <div style={{ width: DATE_COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(7 11 22)" }}>
+          <div style={{ width: DATE_COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>
             {days.map((d) => (
               <div
                 key={d.y}
@@ -1095,13 +1125,13 @@ export default function TimelineGrid({
                   paddingTop: 8,
                   gap: 2,
                 }}>
-                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "#94a3b8" }}>
+                  <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "var(--text-muted)" }}>
                     {DAY_ABBR[d.date.getDay()]}
                   </span>
-                  <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: d.isToday ? "#38bdf8" : d.isHoliday ? "#f87171" : d.isCompanyDay ? "#f87171" : d.isWeekend ? "#f87171" : "#e2e8f0" }}>
+                  <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: d.isToday ? "#38bdf8" : d.isHoliday ? "#f87171" : d.isCompanyDay ? "#f87171" : d.isWeekend ? "#f87171" : "var(--text)" }}>
                     {d.date.getDate()}
                   </span>
-                  <span style={{ fontSize: 8, fontWeight: 600, lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "#64748b" }}>
+                  <span style={{ fontSize: 8, fontWeight: 600, lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "var(--text-muted)" }}>
                     {MONTH_ABBR[d.date.getMonth()]}
                   </span>
                 </div>
@@ -1110,7 +1140,7 @@ export default function TimelineGrid({
           </div>
 
           {/* ── Čas sloupec ───────────────────────────────────────────────── */}
-          <div style={{ width: TIME_COL_W, flexShrink: 0, position: "relative", zIndex: 9, borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(7 11 22)" }}>
+          <div style={{ width: TIME_COL_W, flexShrink: 0, position: "relative", zIndex: 9, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>
             {/* Firemní den overlay */}
             {days.map((d) =>
               d.isCompanyDay ? (
@@ -1132,7 +1162,7 @@ export default function TimelineGrid({
                   paddingLeft: 8,
                 }}
               >
-                <span style={{ fontSize: 9, lineHeight: 1, color: m.isFullHour ? "rgb(100 116 139)" : "rgb(51 65 85)", fontWeight: m.isFullHour ? 500 : 400 }}>
+                <span style={{ fontSize: 9, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
                   {m.label}
                 </span>
               </div>
@@ -1147,7 +1177,7 @@ export default function TimelineGrid({
               <Fragment key={machine}>
                 {colIdx > 0 && (
                   <div
-                    style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid rgb(30 41 59)", borderRight: "1px solid rgb(30 41 59)", backgroundColor: "rgb(5 8 15)", userSelect: "none", cursor: "crosshair" }}
+                    style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface-2)", userSelect: "none", cursor: "crosshair" }}
                     onMouseDown={canEdit ? (e) => {
                       if (e.button !== 0) return;
                       if (dragStateRef.current) return;
@@ -1158,7 +1188,7 @@ export default function TimelineGrid({
                 )}
               <div
                 ref={(el) => { colRefs.current[colIdx] = el; }}
-                style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0 }}
+                style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0, backgroundColor: "var(--timeline-bg)" }}
                 onDragOver={canEdit ? (e) => {
                   if (!queueDragItem) return;
                   e.preventDefault();
@@ -1236,17 +1266,17 @@ export default function TimelineGrid({
 
                 {/* Denní oddělovače */}
                 {days.map((d) => (
-                  <div key={d.y} style={{ position: "absolute", top: d.y, left: 0, right: 0, height: 1, backgroundColor: "rgba(51,65,85,0.7)" }} />
+                  <div key={d.y} style={{ position: "absolute", top: d.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 85%, transparent)" }} />
                 ))}
 
                 {/* Hodinové čáry */}
                 {halfHourMarkers.filter((m) => m.isLabel && m.isFullHour).map((m) => (
-                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "rgba(30,41,59,0.7)" }} />
+                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 70%, transparent)" }} />
                 ))}
 
                 {/* Půlhodinové čáry */}
                 {halfHourMarkers.filter((m) => m.isLabel && !m.isFullHour).map((m) => (
-                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "rgba(30,41,59,0.35)" }} />
+                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 45%, transparent)" }} />
                 ))}
 
                 {/* Aktuální čas */}
@@ -1296,7 +1326,7 @@ export default function TimelineGrid({
                   .filter(b => selectedBlockIds!.has(b.id) && b.id !== dragPreview!.blockId)
                   .map(b => {
                     const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#16a34a" };
-                    const color = colorMap[b.type] ?? "#475569";
+                    const color = colorMap[b.type] ?? "color-mix(in oklab, var(--text-muted) 85%, #334155)";
                     const bTop    = dateToY(new Date(b.startTime), viewStart, slotHeight) + multiDelta;
                     const bHeight = dateToY(new Date(b.endTime), viewStart, slotHeight) - dateToY(new Date(b.startTime), viewStart, slotHeight);
                     return (
@@ -1314,7 +1344,7 @@ export default function TimelineGrid({
                   const draggedBlock = blocks.find((b) => b.id === dragPreview.blockId);
                   if (!draggedBlock) return null;
                   const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#16a34a" };
-                  const color = colorMap[draggedBlock.type] ?? "#475569";
+                  const color = colorMap[draggedBlock.type] ?? "color-mix(in oklab, var(--text-muted) 85%, #334155)";
                   return (
                     <div style={{
                       position: "absolute",

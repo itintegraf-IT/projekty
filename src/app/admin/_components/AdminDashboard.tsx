@@ -66,16 +66,16 @@ function userInitial(username: string): string {
 
 // ─── Styly ───────────────────────────────────────────────────────────────────
 
-const PAGE_BG = "#0a0a0f";
-const SECTION_BG = "#111318";
-const SEPARATOR = "rgba(255,255,255,0.06)";
-const TEXT_PRIMARY = "#ffffff";
-const TEXT_SECONDARY = "#8e8e93";
-const BORDER_SUBTLE = "rgba(255,255,255,0.08)";
+const PAGE_BG = "var(--bg)";
+const SECTION_BG = "var(--surface)";
+const SEPARATOR = "color-mix(in oklab, var(--border) 70%, transparent)";
+const TEXT_PRIMARY = "var(--text)";
+const TEXT_SECONDARY = "var(--text-muted)";
+const BORDER_SUBTLE = "var(--border)";
 
 const inputStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.1)",
+  background: "var(--surface-2)",
+  border: "1px solid var(--border)",
   borderRadius: 8,
   padding: "7px 11px",
   color: TEXT_PRIMARY,
@@ -87,8 +87,8 @@ const inputStyle: React.CSSProperties = {
 };
 
 const btnPrimary: React.CSSProperties = {
-  background: "#FFE600",
-  color: "#000",
+  background: "var(--brand)",
+  color: "var(--brand-contrast)",
   border: "none",
   borderRadius: 8,
   padding: "7px 16px",
@@ -100,9 +100,9 @@ const btnPrimary: React.CSSProperties = {
 };
 
 const btnSecondary: React.CSSProperties = {
-  background: "rgba(255,255,255,0.07)",
+  background: "var(--surface-2)",
   color: TEXT_SECONDARY,
-  border: "1px solid rgba(255,255,255,0.1)",
+  border: "1px solid var(--border)",
   borderRadius: 8,
   padding: "7px 16px",
   fontSize: 13,
@@ -112,9 +112,9 @@ const btnSecondary: React.CSSProperties = {
 };
 
 const btnDanger: React.CSSProperties = {
-  background: "rgba(255,69,58,0.15)",
-  color: "#ff453a",
-  border: "1px solid rgba(255,69,58,0.25)",
+  background: "color-mix(in oklab, var(--danger) 15%, transparent)",
+  color: "var(--danger)",
+  border: "1px solid color-mix(in oklab, var(--danger) 25%, transparent)",
   borderRadius: 8,
   padding: "5px 12px",
   fontSize: 12,
@@ -140,7 +140,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
         position: "sticky",
         top: 0,
         zIndex: 50,
-        background: "rgba(10,10,15,0.85)",
+        background: "color-mix(in oklab, var(--surface) 88%, transparent)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         borderBottom: `1px solid ${SEPARATOR}`,
@@ -152,11 +152,11 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
       }}>
         <a href="/" style={{
           display: "flex", alignItems: "center", gap: 6,
-          color: "#3b82f6", fontSize: 14, textDecoration: "none",
+          color: "var(--accent)", fontSize: 14, textDecoration: "none",
           fontWeight: 500,
         }}>
           <svg width="8" height="13" viewBox="0 0 8 13" fill="none">
-            <path d="M7 1L1 6.5L7 12" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M7 1L1 6.5L7 12" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Plánování
         </a>
@@ -170,7 +170,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
       <div style={{ padding: "20px 20px 0", display: "flex", justifyContent: "center" }}>
         <div style={{
           display: "flex",
-          background: "rgba(255,255,255,0.06)",
+          background: "var(--surface-2)",
           borderRadius: 10,
           padding: 3,
           gap: 3,
@@ -188,7 +188,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
                 cursor: "pointer",
                 fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
                 transition: "all 0.15s ease-out",
-                background: activeTab === tab ? "rgba(255,255,255,0.12)" : "transparent",
+                background: activeTab === tab ? "var(--surface-3)" : "transparent",
                 color: activeTab === tab ? TEXT_PRIMARY : TEXT_SECONDARY,
               }}
             >
@@ -263,15 +263,15 @@ function UsersSection({ currentUserId }: { currentUserId: number }) {
           style={{
             display: "flex", alignItems: "center", gap: 5,
             background: "transparent", border: "none",
-            color: "#3b82f6", fontSize: 13, fontWeight: 500,
+            color: "var(--accent)", fontSize: 13, fontWeight: 500,
             cursor: "pointer", padding: "4px 8px",
             fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
           }}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.25" stroke="#3b82f6" strokeWidth="1.5"/>
-            <line x1="7" y1="4" x2="7" y2="10" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="7" x2="10" y2="7" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
+            <circle cx="7" cy="7" r="6.25" stroke="var(--accent)" strokeWidth="1.5"/>
+            <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
           Přidat
         </button>
@@ -322,7 +322,7 @@ function UsersSection({ currentUserId }: { currentUserId: number }) {
                 </div>
               </div>
               <RoleSelect value={addRole} onChange={(r) => setAddRole(r as Role)} />
-              {addError && <span style={{ fontSize: 12, color: "#ff453a" }}>{addError}</span>}
+              {addError && <span style={{ fontSize: 12, color: "var(--danger)" }}>{addError}</span>}
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button type="button" style={btnSecondary} onClick={() => { setShowAddForm(false); setAddError(""); }}>Zrušit</button>
                 <button type="submit" style={btnPrimary} disabled={addLoading || !addUsername.trim() || !addPassword.trim()}>
@@ -391,7 +391,7 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
     onUpdate();
   }
 
-  const bgColor = isSelf ? "rgba(59,130,246,0.06)" : "transparent";
+  const bgColor = isSelf ? "color-mix(in oklab, #3b82f6 10%, transparent)" : "transparent";
 
   return (
     <div
@@ -414,10 +414,10 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
         {/* Avatar */}
         <div style={{
           width: 34, height: 34, borderRadius: "50%",
-          background: ROLE_BG[user.role] ?? "rgba(255,255,255,0.1)",
+          background: ROLE_BG[user.role] ?? "var(--surface-2)",
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 14, fontWeight: 600,
-          color: ROLE_COLORS[user.role] ?? "#fff",
+          color: ROLE_COLORS[user.role] ?? "var(--text)",
           flexShrink: 0,
         }}>
           {userInitial(user.username)}
@@ -438,8 +438,8 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
           <button
             onClick={() => !isSelf && setShowRolePopover(!showRolePopover)}
             style={{
-              background: ROLE_BG[user.role] ?? "rgba(255,255,255,0.1)",
-              color: ROLE_COLORS[user.role] ?? "#fff",
+              background: ROLE_BG[user.role] ?? "var(--surface-2)",
+              color: ROLE_COLORS[user.role] ?? "var(--text)",
               border: "none",
               borderRadius: 6,
               padding: "3px 9px",
@@ -461,7 +461,7 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
               position: "absolute",
               top: "calc(100% + 6px)",
               right: 0,
-              background: "#1c1c1e",
+              background: "var(--surface)",
               border: `1px solid ${BORDER_SUBTLE}`,
               borderRadius: 10,
               overflow: "hidden",
@@ -479,7 +479,7 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
                     gap: 10,
                     width: "100%",
                     padding: "10px 14px",
-                    background: role === user.role ? "rgba(255,255,255,0.06)" : "transparent",
+                    background: role === user.role ? "var(--surface-2)" : "transparent",
                     border: "none",
                     borderBottom: role !== "VIEWER" ? `1px solid ${SEPARATOR}` : "none",
                     color: TEXT_PRIMARY,
@@ -489,8 +489,8 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
                     fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
                     transition: "background 0.1s",
                   }}
-                  onMouseEnter={(e) => { if (role !== user.role) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = role === user.role ? "rgba(255,255,255,0.06)" : "transparent"; }}
+                  onMouseEnter={(e) => { if (role !== user.role) (e.currentTarget as HTMLElement).style.background = "var(--surface-2)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = role === user.role ? "var(--surface-2)" : "transparent"; }}
                 >
                   <span style={{
                     width: 8, height: 8, borderRadius: "50%",
@@ -500,7 +500,7 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
                   <span style={{ flex: 1 }}>{ROLE_LABELS[role]}</span>
                   {role === user.role && (
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 6l3 3 5-5" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M2 6l3 3 5-5" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   )}
                 </button>
@@ -539,12 +539,12 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
               opacity: hovered ? 1 : 0,
               transition: "opacity 0.15s ease-out",
               display: "flex", alignItems: "center",
-              color: "#ff453a",
+              color: "var(--danger)",
             }}
             title="Smazat uživatele"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7.5h5L10 3.5" stroke="#ff453a" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7.5h5L10 3.5" stroke="var(--danger)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
         )}
@@ -701,9 +701,9 @@ function CodebookSection() {
             style={{
               padding: "6px 16px",
               borderRadius: 20,
-              border: `1px solid ${category === cat ? "#3b82f6" : BORDER_SUBTLE}`,
-              background: category === cat ? "rgba(59,130,246,0.15)" : "transparent",
-              color: category === cat ? "#3b82f6" : TEXT_SECONDARY,
+              border: `1px solid ${category === cat ? "var(--accent)" : BORDER_SUBTLE}`,
+              background: category === cat ? "color-mix(in oklab, var(--accent) 15%, transparent)" : "transparent",
+              color: category === cat ? "var(--accent)" : TEXT_SECONDARY,
               fontSize: 13,
               fontWeight: category === cat ? 600 : 400,
               cursor: "pointer",
@@ -726,15 +726,15 @@ function CodebookSection() {
           style={{
             display: "flex", alignItems: "center", gap: 5,
             background: "transparent", border: "none",
-            color: "#3b82f6", fontSize: 13, fontWeight: 500,
+            color: "var(--accent)", fontSize: 13, fontWeight: 500,
             cursor: "pointer", padding: "4px 8px",
             fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
           }}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.25" stroke="#3b82f6" strokeWidth="1.5"/>
-            <line x1="7" y1="4" x2="7" y2="10" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="7" x2="10" y2="7" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round"/>
+            <circle cx="7" cy="7" r="6.25" stroke="var(--accent)" strokeWidth="1.5"/>
+            <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
           Přidat
         </button>
@@ -843,7 +843,7 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
       onMouseLeave={() => setHovered(false)}
       style={{
         borderBottom: isLast ? "none" : `1px solid ${SEPARATOR}`,
-        background: isInactive ? "rgba(255,255,255,0.02)" : "transparent",
+        background: isInactive ? "color-mix(in oklab, var(--surface-2) 65%, transparent)" : "transparent",
         transition: "background 0.1s",
       }}
     >
@@ -861,7 +861,7 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
             disabled={isFirst}
             style={{
               background: "transparent", border: "none",
-              color: isFirst ? "rgba(255,255,255,0.15)" : TEXT_SECONDARY,
+              color: isFirst ? "color-mix(in oklab, var(--text-muted) 35%, transparent)" : TEXT_SECONDARY,
               cursor: isFirst ? "default" : "pointer",
               padding: "1px 4px", lineHeight: 1, fontSize: 10,
               transition: "color 0.1s",
@@ -873,7 +873,7 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
             disabled={isLast}
             style={{
               background: "transparent", border: "none",
-              color: isLast ? "rgba(255,255,255,0.15)" : TEXT_SECONDARY,
+              color: isLast ? "color-mix(in oklab, var(--text-muted) 35%, transparent)" : TEXT_SECONDARY,
               cursor: isLast ? "default" : "pointer",
               padding: "1px 4px", lineHeight: 1, fontSize: 10,
               transition: "color 0.1s",
@@ -901,7 +901,7 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
               onClick={() => { setEditing(true); setEditLabel(item.label); }}
               style={{
                 fontSize: 13,
-                color: isInactive ? TEXT_SECONDARY : (item.isWarning ? "#ff9f0a" : TEXT_PRIMARY),
+                color: isInactive ? TEXT_SECONDARY : (item.isWarning ? "var(--warning)" : TEXT_PRIMARY),
                 cursor: "text",
                 display: "block",
                 overflow: "hidden",
@@ -926,7 +926,7 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
           title={item.isActive ? "Aktivní (klikněte pro deaktivaci)" : "Neaktivní (klikněte pro aktivaci)"}
           style={{
             width: 32, height: 18, borderRadius: 9,
-            background: item.isActive ? "#30d158" : "rgba(255,255,255,0.12)",
+            background: item.isActive ? "var(--success)" : "var(--surface-3)",
             border: "none", cursor: "pointer",
             position: "relative", flexShrink: 0,
             transition: "background 0.15s ease-out",
@@ -936,7 +936,7 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
             position: "absolute",
             width: 14, height: 14,
             borderRadius: "50%",
-            background: "#fff",
+            background: "var(--text)",
             top: 2,
             left: item.isActive ? 16 : 2,
             transition: "left 0.15s ease-out",
@@ -951,13 +951,13 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
             padding: "4px", cursor: "pointer",
             opacity: hovered ? 1 : 0,
             transition: "opacity 0.15s ease-out",
-            color: "#ff453a",
+            color: "var(--danger)",
             display: "flex", alignItems: "center",
           }}
           title="Smazat položku"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7.5h5L10 3.5" stroke="#ff453a" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M2 3.5h10M5.5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M4 3.5l.5 7.5h5L10 3.5" stroke="var(--danger)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
       </div>
@@ -991,11 +991,11 @@ function WarningToggle({ value, onChange, compact }: {
       title={value ? "Upozornění zapnuto" : "Upozornění vypnuto"}
       style={{
         display: "flex", alignItems: "center", gap: compact ? 0 : 5,
-        background: value ? "rgba(255,159,10,0.15)" : "rgba(255,255,255,0.06)",
-        border: `1px solid ${value ? "rgba(255,159,10,0.4)" : BORDER_SUBTLE}`,
+        background: value ? "color-mix(in oklab, var(--warning) 15%, transparent)" : "var(--surface-2)",
+        border: `1px solid ${value ? "color-mix(in oklab, var(--warning) 40%, transparent)" : BORDER_SUBTLE}`,
         borderRadius: 6,
         padding: compact ? "4px 6px" : "5px 10px",
-        color: value ? "#ff9f0a" : TEXT_SECONDARY,
+        color: value ? "var(--warning)" : TEXT_SECONDARY,
         fontSize: 13,
         cursor: "pointer",
         fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",

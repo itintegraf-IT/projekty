@@ -144,9 +144,13 @@ body {
   --text-muted: oklch(0.48 0.02 250);
   --bg: var(--background);
   --text: var(--foreground);
+  --info: var(--accent);
   --danger: oklch(0.62 0.23 25);
   --success: oklch(0.62 0.18 152);
   --warning: oklch(0.78 0.16 85);
+  --brand: oklch(0.9 0.19 102);
+  --brand-contrast: oklch(0.2 0.015 248.39);
+  --timeline-bg: oklch(0.94 0.01 250);
 }
 
 .dark {
@@ -187,7 +191,42 @@ body {
   --text-muted: oklch(0.72 0 0);
   --bg: var(--background);
   --text: var(--foreground);
+  --info: var(--accent);
   --danger: oklch(0.66 0.21 25);
   --success: oklch(0.72 0.18 152);
   --warning: oklch(0.82 0.16 90);
+  --brand: oklch(0.9 0.19 102);
+  --brand-contrast: oklch(0.2 0.015 248.39);
+  --timeline-bg: oklch(0.2 0.01 250);
 }
+
+/* Bridge vrstva pro rychlou čitelnost v light mode:
+   komponenty s utility třídami slate-* se zatím přemapují na theme tokeny. */
+:root:not(.dark) .bg-slate-950 { background-color: var(--bg) !important; }
+:root:not(.dark) .bg-slate-900 { background-color: var(--surface) !important; }
+:root:not(.dark) .bg-slate-800 { background-color: var(--surface-2) !important; }
+:root:not(.dark) .bg-slate-700 { background-color: var(--surface-3) !important; }
+:root:not(.dark) .text-slate-100 { color: var(--text) !important; }
+:root:not(.dark) .text-slate-200 { color: var(--text) !important; }
+:root:not(.dark) .text-slate-300 { color: color-mix(in oklab, var(--text) 88%, var(--text-muted)) !important; }
+:root:not(.dark) .text-slate-400 { color: var(--text-muted) !important; }
+:root:not(.dark) .text-slate-500 { color: color-mix(in oklab, var(--text-muted) 90%, #475569) !important; }
+:root:not(.dark) .text-slate-600 { color: color-mix(in oklab, var(--text-muted) 80%, #334155) !important; }
+:root:not(.dark) .border-slate-800 { border-color: var(--border) !important; }
+:root:not(.dark) .border-slate-700 { border-color: var(--border) !important; }
+:root:not(.dark) .placeholder\:text-slate-600::placeholder { color: var(--text-muted) !important; opacity: 0.8; }
+:root:not(.dark) .hover\:bg-slate-700:hover { background-color: var(--surface-3) !important; }
+
+/* Fallback pro utility s opacity suffixem (např. bg-slate-800/40) */
+:root:not(.dark) [class*="bg-slate-95"] { background-color: var(--bg) !important; }
+:root:not(.dark) [class*="bg-slate-90"] { background-color: var(--surface) !important; }
+:root:not(.dark) [class*="bg-slate-80"] { background-color: var(--surface-2) !important; }
+:root:not(.dark) [class*="bg-slate-70"] { background-color: var(--surface-3) !important; }
+:root:not(.dark) [class*="text-slate-1"] { color: var(--text) !important; }
+:root:not(.dark) [class*="text-slate-2"] { color: var(--text) !important; }
+:root:not(.dark) [class*="text-slate-3"] { color: color-mix(in oklab, var(--text) 88%, var(--text-muted)) !important; }
+:root:not(.dark) [class*="text-slate-4"] { color: var(--text-muted) !important; }
+:root:not(.dark) [class*="text-slate-5"] { color: color-mix(in oklab, var(--text-muted) 90%, #475569) !important; }
+:root:not(.dark) [class*="text-slate-6"] { color: color-mix(in oklab, var(--text-muted) 80%, #334155) !important; }
+:root:not(.dark) [class*="border-slate-8"] { border-color: var(--border) !important; }
+:root:not(.dark) [class*="border-slate-7"] { border-color: var(--border) !important; }

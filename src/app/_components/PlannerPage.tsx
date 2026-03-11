@@ -107,9 +107,9 @@ function ZoomSlider({ value, onChange, min = 3, max = 26 }: {
         onClick={() => onChange(Math.max(min, value - 1))}
         style={{ flexShrink: 0, opacity: value <= min ? 0.2 : 0.5, cursor: value <= min ? "default" : "pointer", transition: "opacity 0.15s" }}
       >
-        <circle cx="6.5" cy="6.5" r="5" stroke="#e2e8f0" strokeWidth="1.5"/>
-        <line x1="4" y1="6.5" x2="9" y2="6.5" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
-        <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="6.5" cy="6.5" r="5" stroke="var(--text-muted)" strokeWidth="1.5"/>
+        <line x1="4" y1="6.5" x2="9" y2="6.5" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
 
       {/* track */}
@@ -119,17 +119,17 @@ function ZoomSlider({ value, onChange, min = 3, max = 26 }: {
         style={{ position: "relative", width: 80, height: 20, display: "flex", alignItems: "center", cursor: "ew-resize", flexShrink: 0 }}
       >
         {/* bg track */}
-        <div style={{ position: "absolute", inset: "0 0 0 0", margin: "auto", height: 2, borderRadius: 2, background: "rgba(255,255,255,0.1)" }} />
+        <div style={{ position: "absolute", inset: "0 0 0 0", margin: "auto", height: 2, borderRadius: 2, background: "color-mix(in oklab, var(--border) 90%, transparent)" }} />
         {/* fill */}
-        <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", height: 2, width: `${pct * 100}%`, borderRadius: 2, background: "rgba(255,255,255,0.55)", transition: isDragging.current ? undefined : "width 0.05s" }} />
+        <div style={{ position: "absolute", left: 0, top: "50%", transform: "translateY(-50%)", height: 2, width: `${pct * 100}%`, borderRadius: 2, background: "color-mix(in oklab, var(--text) 65%, transparent)", transition: isDragging.current ? undefined : "width 0.05s" }} />
         {/* thumb */}
         <div style={{
           position: "absolute",
           left: `calc(${pct * 100}% - 7px)`,
           top: "50%", transform: "translateY(-50%)",
           width: 14, height: 14, borderRadius: "50%",
-          background: "#fff",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(0,0,0,0.2)",
+          background: "var(--text)",
+          boxShadow: "0 1px 4px color-mix(in oklab, var(--text) 25%, transparent), 0 0 0 0.5px color-mix(in oklab, var(--text) 15%, transparent)",
           transition: isDragging.current ? undefined : "left 0.05s",
           flexShrink: 0,
         }} />
@@ -141,10 +141,10 @@ function ZoomSlider({ value, onChange, min = 3, max = 26 }: {
         onClick={() => onChange(Math.min(max, value + 1))}
         style={{ flexShrink: 0, opacity: value >= max ? 0.2 : 0.5, cursor: value >= max ? "default" : "pointer", transition: "opacity 0.15s" }}
       >
-        <circle cx="6.5" cy="6.5" r="5" stroke="#e2e8f0" strokeWidth="1.5"/>
-        <line x1="4" y1="6.5" x2="9" y2="6.5" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
-        <line x1="6.5" y1="4" x2="6.5" y2="9" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
-        <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round"/>
+        <circle cx="6.5" cy="6.5" r="5" stroke="var(--text-muted)" strokeWidth="1.5"/>
+        <line x1="4" y1="6.5" x2="9" y2="6.5" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="6.5" y1="4" x2="6.5" y2="9" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round"/>
+        <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round"/>
       </svg>
     </div>
   );
@@ -209,7 +209,7 @@ const MONTH_NAMES_CS = ["Leden","Únor","Březen","Duben","Květen","Červen","�
 const DAY_NAMES_CS   = ["Po","Út","St","Čt","Pá","So","Ne"];
 const navBtnStyle: React.CSSProperties = {
   width: 28, height: 28, borderRadius: 8, border: "none",
-  background: "rgba(255,255,255,0.06)", color: "#9ca3af",
+  background: "var(--surface-2)", color: "var(--text-muted)",
   display: "flex", alignItems: "center", justifyContent: "center",
   cursor: "pointer", transition: "background 100ms ease-out",
 };
@@ -262,8 +262,8 @@ function DatePickerField({
       <PopoverTrigger asChild>
         <button style={{
           height: 32, width: "100%", borderRadius: 6,
-          border: "1px solid rgb(51 65 85)", background: "rgb(15 23 42)",
-          color: selected ? "#f1f5f9" : "#64748b",
+          border: "1px solid var(--border)", background: "var(--surface-2)",
+          color: selected ? "var(--text)" : "var(--text-muted)",
           fontSize: 12, padding: "0 10px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           cursor: "pointer", outline: "none", boxSizing: "border-box",
@@ -276,7 +276,7 @@ function DatePickerField({
           </svg>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0 border-0" style={{ background: "#1c1c1e", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.6)" }}>
+      <PopoverContent align="start" className="w-auto p-0 border-0" style={{ background: "var(--surface)", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }}>
         <div style={{ width: 7 * CELL + 6 * GAP + 32, padding: "16px 16px 12px", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
 
           {/* Hlavička */}
@@ -284,7 +284,7 @@ function DatePickerField({
             <button onClick={prevMonth} style={navBtnStyle}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "#f1f5f9", letterSpacing: "-0.01em" }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em" }}>
               {MONTH_NAMES_CS[viewMonth]} {viewYear}
             </span>
             <button onClick={nextMonth} style={navBtnStyle}>
@@ -295,7 +295,7 @@ function DatePickerField({
           {/* Zkratky dnů */}
           <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, marginBottom: 4 }}>
             {DAY_NAMES_CS.map(d => (
-              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 500, color: "#6b7280", paddingBottom: 4 }}>{d}</div>
+              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 500, color: "var(--text-muted)", paddingBottom: 4 }}>{d}</div>
             ))}
           </div>
 
@@ -310,9 +310,9 @@ function DatePickerField({
                   onClick={() => { onChange(toStr(new Date(viewYear, viewMonth, day))); setOpen(false); }}
                   style={{
                     width: CELL, height: CELL, borderRadius: "50%",
-                    background: isSelected ? "#3b82f6" : "transparent",
-                    color: isSelected ? "#fff" : isToday ? "#3b82f6" : "#e5e7eb",
-                    border: isToday && !isSelected ? "1.5px solid #3b82f6" : "1.5px solid transparent",
+                    background: isSelected ? "var(--accent)" : "transparent",
+                    color: isSelected ? "var(--background)" : isToday ? "var(--accent)" : "var(--text)",
+                    border: isToday && !isSelected ? "1.5px solid var(--accent)" : "1.5px solid transparent",
                     fontSize: 13, fontWeight: isSelected || isToday ? 600 : 400,
                     cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "background 100ms ease-out",
@@ -498,15 +498,15 @@ function BlockEdit({
   }
 
   const typeCfg = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
-  const SECTION = "fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: '#9ba8c0'";
+  const SECTION = "fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--text-muted)'";
   void SECTION;
 
   function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 8 }}>{children}</div>;
+    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{children}</div>;
   }
 
   function ColLabel({ children }: { children: React.ReactNode }) {
-    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 5 }}>{children}</div>;
+    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 5 }}>{children}</div>;
   }
 
   function StatusSelect({ value, onChange, opts }: {
@@ -521,14 +521,14 @@ function BlockEdit({
           onChange={(e) => onChange(e.target.value)}
           style={{
             appearance: "none", width: "100%", height: 34,
-            background: "#181b22", border: "1px solid #1e2130", borderRadius: 8,
-            color: value ? "#e8eaf0" : "#64748b", fontSize: 11, fontWeight: 600,
+            background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,
+            color: value ? "var(--text)" : "var(--text-muted)", fontSize: 11, fontWeight: 600,
             padding: "0 26px 0 10px", cursor: "pointer", outline: "none",
           }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-          onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+          onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+          onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
         >
           <option value="">—</option>
           {opts.map((o) => (
@@ -537,7 +537,8 @@ function BlockEdit({
             </option>
           ))}
         </select>
-        <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"
+          color="var(--text-muted)"
           style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
           <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -546,15 +547,15 @@ function BlockEdit({
   }
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid rgb(30 41 59)" }}>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)" }}>
       {/* Hlavička */}
-      <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, #1a1d25 0%, #111318 100%)", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 95%, transparent) 0%, var(--surface) 100%)", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Upravit záznam</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Upravit záznam</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
             {block.orderNumber}
             {isInSeries && (
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#3b82f6", background: "rgba(59,130,246,0.14)", borderRadius: 4, padding: "1px 5px" }}>↻ Série</span>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--accent)", background: "color-mix(in oklab, var(--accent) 14%, transparent)", borderRadius: 4, padding: "1px 5px" }}>↻ Série</span>
             )}
           </div>
         </div>
@@ -567,7 +568,7 @@ function BlockEdit({
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 16px 16px" }}>
 
         {error && (
-          <div style={{ margin: "12px 0 0", borderRadius: 6, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", padding: "8px 12px", fontSize: 11, color: "#fca5a5" }}>
+          <div style={{ margin: "12px 0 0", borderRadius: 6, background: "color-mix(in oklab, var(--danger) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)", padding: "8px 12px", fontSize: 11, color: "var(--danger)" }}>
             {error}
           </div>
         )}
@@ -580,9 +581,9 @@ function BlockEdit({
           <SectionLabel>Typ záznamu</SectionLabel>
           <div style={{ display: "flex", gap: 6 }}>
             {(Object.entries(TYPE_BUILDER_CONFIG) as [string, typeof TYPE_BUILDER_CONFIG[keyof typeof TYPE_BUILDER_CONFIG]][]).map(([key, cfg]) => (
-              <button key={key} type="button" onClick={() => setType(key)} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid rgba(255,255,255,0.08)", background: type === key ? `${cfg.color}22` : "rgba(255,255,255,0.02)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <button key={key} type="button" onClick={() => setType(key)} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)", background: type === key ? `${cfg.color}22` : "var(--surface-2)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                 <span style={{ fontSize: 14 }}>{cfg.emoji}</span>
-                <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "#9ba8c0", textAlign: "center" }}>{cfg.label}</span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "var(--text-muted)", textAlign: "center" }}>{cfg.label}</span>
               </button>
             ))}
           </div>
@@ -591,13 +592,13 @@ function BlockEdit({
         {/* Číslo zakázky + Popis — side by side */}
         <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <div>
-            <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>
+            <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>
               {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
             </Label>
             <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="h-8 text-xs" />
           </div>
           <div>
-            <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Popis</Label>
+            <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>Popis</Label>
             <textarea
               ref={descRef}
               value={description}
@@ -610,39 +611,40 @@ function BlockEdit({
               rows={1}
               style={{
                 width: "100%", minHeight: 32, resize: "none", overflow: "hidden",
-                background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: 6, color: "#e8eaf0", fontSize: 12, lineHeight: "1.5",
+                background: "var(--surface-2)", border: "1px solid var(--border)",
+                borderRadius: 6, color: "var(--text)", fontSize: 12, lineHeight: "1.5",
                 padding: "6px 10px", outline: "none", fontFamily: "inherit",
                 transition: "border-color 120ms ease-out",
                 boxSizing: "border-box",
               }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(59,130,246,0.6)")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
             />
           </div>
         </div>
 
         {/* Délka tisku */}
         <div style={{ marginTop: 8 }}>
-          <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Délka tisku</Label>
+          <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>Délka tisku</Label>
           <div style={{ position: "relative" }}>
             <select
               value={String(durationHours)}
               onChange={(e) => setDurationHours(Number(e.target.value))}
               style={{
                 appearance: "none", width: "100%", height: 32,
-                background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
-                color: "#e8eaf0", fontSize: 12, fontWeight: 600,
+                background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
+                color: "var(--text)", fontSize: 12, fontWeight: 600,
                 padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
               }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
             >
               {DURATION_OPTIONS.map((opt) => (
                 <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
               ))}
             </select>
-            <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"
+              color="var(--text-muted)"
               style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
               <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
@@ -651,7 +653,7 @@ function BlockEdit({
 
         {/* ── Výrobní sloupečky ── */}
         {type !== "UDRZBA" && (
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
             <SectionLabel>Výrobní sloupečky</SectionLabel>
 
             {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | EXPEDICE */}
@@ -659,15 +661,15 @@ function BlockEdit({
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA</ColLabel>
                 <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum" />
-                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: dataOk ? "#4ade80" : "#64748b", cursor: "pointer", letterSpacing: "0.04em" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: dataOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
                   <div style={{
                     width: 15, height: 15, borderRadius: 4, flexShrink: 0,
-                    background: dataOk ? "#4ade80" : "transparent",
-                    border: dataOk ? "1.5px solid #4ade80" : "1.5px solid rgba(255,255,255,0.2)",
+                    background: dataOk ? "var(--success)" : "transparent",
+                    border: dataOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "all 120ms ease-out",
                   }}>
-                    {dataOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#111318" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    {dataOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                   <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
                   OK
@@ -676,15 +678,15 @@ function BlockEdit({
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <ColLabel>Materiál</ColLabel>
                 <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum" />
-                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: materialOk ? "#4ade80" : "#64748b", cursor: "pointer", letterSpacing: "0.04em" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: materialOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
                   <div style={{
                     width: 15, height: 15, borderRadius: 4, flexShrink: 0,
-                    background: materialOk ? "#4ade80" : "transparent",
-                    border: materialOk ? "1.5px solid #4ade80" : "1.5px solid rgba(255,255,255,0.2)",
+                    background: materialOk ? "var(--success)" : "transparent",
+                    border: materialOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "all 120ms ease-out",
                   }}>
-                    {materialOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#111318" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    {materialOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                   <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
                   OK
@@ -731,7 +733,7 @@ function BlockEdit({
         {/* Zamčeno */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
           <Switch checked={locked} onCheckedChange={setLocked} />
-          <Label style={{ fontSize: 11, color: locked ? "#FFE600" : "#64748b", cursor: "pointer" }}>
+          <Label style={{ fontSize: 11, color: locked ? "var(--brand)" : "var(--text-muted)", cursor: "pointer" }}>
             🔒 Zamčený blok
           </Label>
         </div>
@@ -740,8 +742,8 @@ function BlockEdit({
 
         {/* Série — inline dialog */}
         {seriesConfirm ? (
-          <div style={{ marginTop: 16, borderRadius: 8, border: "1px solid rgba(59,130,246,0.3)", background: "rgba(59,130,246,0.08)", padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#93c5fd", marginBottom: 8 }}>
+          <div style={{ marginTop: 16, borderRadius: 8, border: "1px solid color-mix(in oklab, var(--accent) 30%, transparent)", background: "color-mix(in oklab, var(--accent) 8%, transparent)", padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 8 }}>
               {seriesConfirm === "save" ? "Uložit změny pro…" : "Smazat…"}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -755,7 +757,7 @@ function BlockEdit({
                   }
                   setSeriesConfirm(null);
                 }}
-                style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.35)", borderRadius: 7, color: "#93c5fd", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
+                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
               >
                 Jen tuto instanci
               </button>
@@ -772,7 +774,7 @@ function BlockEdit({
                   }
                   setSeriesConfirm(null);
                 }}
-                style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.35)", borderRadius: 7, color: "#93c5fd", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
+                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
               >
                 {seriesConfirm === "delete"
                   ? `Tuto a následující (${getFollowingSeriesIds().length} bloků)`
@@ -780,7 +782,7 @@ function BlockEdit({
               </button>
               <button
                 onClick={() => setSeriesConfirm(null)}
-                style={{ background: "none", border: "none", color: "#64748b", fontSize: 11, padding: "4px 0", cursor: "pointer", textAlign: "left" }}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, padding: "4px 0", cursor: "pointer", textAlign: "left" }}
               >
                 Zrušit
               </button>
@@ -790,7 +792,13 @@ function BlockEdit({
           <>
             {/* Tlačítka */}
             <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
-              <Button type="button" onClick={handleSave} disabled={saving} className="flex-1 bg-[#FFE600] text-[#111318] hover:bg-[#FFE600]/90 font-bold text-xs">
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 font-bold text-xs"
+                style={{ background: "var(--brand)", color: "var(--brand-contrast)" }}
+              >
                 {saving ? "Ukládám…" : "Uložit změny →"}
               </Button>
               <Button type="button" variant="ghost" onClick={onClose} className="text-slate-400 text-xs">
@@ -808,9 +816,9 @@ function BlockEdit({
                   onDeleteAll([block.id]).then(onClose);
                 }
               }}
-              style={{ marginTop: 8, width: "100%", background: "none", border: "none", color: "#475569", fontSize: 11, padding: "6px 0", cursor: "pointer", textAlign: "center", transition: "color 0.1s" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#f87171")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "#475569")}
+              style={{ marginTop: 8, width: "100%", background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, padding: "6px 0", cursor: "pointer", textAlign: "center", transition: "color 0.1s" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
             >
               Smazat blok
             </button>
@@ -818,7 +826,7 @@ function BlockEdit({
         )}
 
         {/* Barva náhledu */}
-        <div style={{ marginTop: 12, borderRadius: 6, padding: "8px 10px", background: `${typeCfg?.color ?? "#334155"}14`, borderLeft: `3px solid ${typeCfg?.color ?? "#475569"}`, fontSize: 11, color: typeCfg?.color ?? "#64748b" }}>
+        <div style={{ marginTop: 12, borderRadius: 6, padding: "8px 10px", background: `${typeCfg?.color ?? "#334155"}14`, borderLeft: `3px solid ${typeCfg?.color ?? "var(--text-muted)"}`, fontSize: 11, color: typeCfg?.color ?? "var(--text-muted)" }}>
           {typeCfg?.emoji} {typeCfg?.label}
         </div>
       </div>
@@ -840,9 +848,15 @@ function BlockDetail({
   const typeCfg = TYPE_BUILDER_CONFIG[block.type as keyof typeof TYPE_BUILDER_CONFIG];
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid rgb(30 41 59)" }}>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)" }}>
       {/* Hlavička */}
-      <div className="px-4 py-3 border-b border-slate-800 bg-gradient-to-br from-slate-900 to-slate-950 flex items-center justify-between">
+      <div
+        className="px-4 py-3 flex items-center justify-between"
+        style={{
+          borderBottom: "1px solid var(--border)",
+          background: "linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 96%, transparent) 0%, var(--surface) 100%)",
+        }}
+      >
         <div>
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
             Detail bloku
@@ -853,9 +867,9 @@ function BlockDetail({
               type="button"
               onClick={() => navigator.clipboard.writeText([block.orderNumber, block.description].filter(Boolean).join(" – "))}
               title="Kopírovat číslo zakázky a popis"
-              style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "#6b7a99", background: "none", border: "none", cursor: "pointer", padding: "1px 3px", lineHeight: 1, transition: "color 120ms ease-out" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#c8d0e0")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "#6b7a99")}
+              style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: "1px 3px", lineHeight: 1, transition: "color 120ms ease-out" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               Kopírovat
@@ -875,7 +889,7 @@ function BlockDetail({
             <span className="text-[10px] text-slate-500 w-16 flex-shrink-0">Typ</span>
             <Badge
               variant="secondary"
-              style={{ fontSize: 10, background: `${typeCfg?.color ?? "#475569"}22`, color: typeCfg?.color ?? "#94a3b8", border: `1px solid ${typeCfg?.color ?? "#475569"}44` }}
+              style={{ fontSize: 10, background: `${typeCfg?.color ?? "var(--text-muted)"}22`, color: typeCfg?.color ?? "var(--text-muted)", border: `1px solid ${typeCfg?.color ?? "var(--text-muted)"}44` }}
             >
               {typeCfg?.emoji} {TYPE_LABELS[block.type] ?? block.type}
             </Badge>
@@ -1023,34 +1037,34 @@ function ShutdownManager({
   }
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid rgb(30 41 59)" }}>
-      <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, #1a1d25 0%, #111318 100%)", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)" }}>
+      <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 95%, transparent) 0%, var(--surface) 100%)", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Firemní dny</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", marginTop: 2 }}>Odstávky a svátky</div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Firemní dny</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginTop: 2 }}>Odstávky a svátky</div>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">← Zpět</Button>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>
         {error && (
-          <div style={{ marginBottom: 12, borderRadius: 6, background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)", padding: "8px 12px", fontSize: 11, color: "#fca5a5" }}>{error}</div>
+          <div style={{ marginBottom: 12, borderRadius: 6, background: "color-mix(in oklab, var(--danger) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)", padding: "8px 12px", fontSize: 11, color: "var(--danger)" }}>{error}</div>
         )}
 
         {/* Formulář */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Přidat odstávku</div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Přidat odstávku</div>
           <div>
-            <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Název</Label>
+            <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Název</Label>
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Velikonoce, dovolená…" className="h-8 text-xs" />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Od</Label>
+              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Od</Label>
               <DatePickerField value={startDate} onChange={setStartDate} placeholder="Od…" />
             </div>
             <div>
-              <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 4, display: "block" }}>Do</Label>
+              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Do</Label>
               <DatePickerField value={endDate} onChange={setEndDate} placeholder="Do…" />
             </div>
           </div>
@@ -1069,17 +1083,17 @@ function ShutdownManager({
 
         {/* Seznam */}
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 4 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>
             Uložené ({companyDays.length})
           </div>
           {companyDays.length === 0 && (
-            <div style={{ fontSize: 11, color: "#475569", textAlign: "center", padding: "12px 0" }}>Žádné záznamy</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", padding: "12px 0" }}>Žádné záznamy</div>
           )}
           {companyDays.map((cd) => (
             <div key={cd.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)", borderRadius: 6, padding: "8px 10px" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#c4b5fd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cd.label}</div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
                   {new Date(cd.startDate).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" })}
                   {cd.startDate.slice(0, 10) !== cd.endDate.slice(0, 10) && (
                     <> – {new Date(cd.endDate).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" })}</>
@@ -1090,7 +1104,7 @@ function ShutdownManager({
                 type="button"
                 onClick={() => handleDelete(cd.id)}
                 disabled={deleting === cd.id}
-                style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "#475569", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
+                style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
               >
                 {deleting === cd.id ? "…" : "×"}
               </button>
@@ -1113,7 +1127,7 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
       style={{
         width: 8, flexShrink: 0, position: "relative", zIndex: 20,
         cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center",
-        backgroundColor: hovered ? "rgb(59 130 246 / 0.4)" : "rgb(30 41 59)",
+        backgroundColor: hovered ? "rgb(59 130 246 / 0.4)" : "var(--border)",
         transition: "background-color 0.15s",
       }}
     >
@@ -1129,25 +1143,25 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
 // ─── ToastContainer ──────────────────────────────────────────────────────────
 function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
   if (toasts.length === 0) return null;
-  const borderColor = { success: "#30d158", error: "#ff453a", info: "#3b82f6" };
+  const borderColor = { success: "var(--success)", error: "var(--danger)", info: "var(--info)" };
   return (
     <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
       {toasts.map((t) => (
         <div key={t.id} style={{
           display: "flex", alignItems: "center", gap: 10,
-          background: "#1c1c1e", backdropFilter: "blur(12px)",
-          border: "1px solid rgba(255,255,255,0.1)",
+          background: "color-mix(in oklab, var(--surface) 92%, transparent)", backdropFilter: "blur(12px)",
+          border: "1px solid var(--border)",
           borderLeft: `3px solid ${borderColor[t.type]}`,
           borderRadius: 10, padding: "10px 14px",
           boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
           minWidth: 220, maxWidth: 340,
           fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-          fontSize: 13, color: "#e2e8f0",
+          fontSize: 13, color: "var(--text)",
           pointerEvents: "auto",
           animation: "toast-in 0.15s ease-out",
         }}>
           <span style={{ flex: 1, lineHeight: 1.4 }}>{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+          <button onClick={() => onDismiss(t.id)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
         </div>
       ))}
     </div>
@@ -1896,8 +1910,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center font-black text-white">I</div>
           <div>
-            <div className="text-xs font-semibold tracking-wide text-slate-100">INTEGRAF</div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Výrobní plán</div>
+            <div className="text-xs font-semibold tracking-wide" style={{ color: "var(--text)" }}>INTEGRAF</div>
+            <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-muted)" }}>Výrobní plán</div>
           </div>
         </div>
 
@@ -1907,7 +1921,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Hledat zakázku…"
-            className="h-8 text-xs w-40 border-slate-700 bg-slate-800 placeholder:text-slate-600 focus-visible:border-yellow-400/50"
+            className="h-8 text-xs w-40 theme-transition-fast"
+            style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)" }}
           />
           <div style={{ width: 150 }}>
             <DatePickerField
@@ -1920,29 +1935,58 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             variant="outline"
             size="sm"
             onClick={handleScrollToNow}
-            className="h-8 text-xs border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+            className="h-8 text-xs theme-transition-fast"
+            style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-muted)" }}
           >
             Dnes
           </Button>
           <ZoomSlider value={slotHeight} onChange={handleZoomChange} />
-          <div style={{ display: "flex", gap: 3 }}>
+          <div
+            role="group"
+            aria-label="Rozsah plánování ve dnech"
+            style={{
+              display: "flex",
+              gap: 2,
+              padding: 2,
+              borderRadius: 999,
+              background: "var(--surface-2)",
+              border: "1px solid var(--border)",
+              boxShadow: "inset 0 1px 0 color-mix(in oklab, var(--text) 8%, transparent)",
+            }}
+          >
             {[30, 60, 90].map(d => (
-              <button key={d} onClick={() => setDaysAhead(d)} style={{
-                padding: "2px 7px", fontSize: 11, borderRadius: 5,
-                background: daysAhead === d ? "rgba(255,230,0,0.12)" : "transparent",
-                border: `1px solid ${daysAhead === d ? "#FFE600" : "rgba(255,255,255,0.1)"}`,
-                color: daysAhead === d ? "#FFE600" : "#94a3b8",
-                cursor: "pointer", transition: "all 120ms ease-out", lineHeight: 1.4,
-              }}>{d}d</button>
+              <button
+                key={d}
+                type="button"
+                aria-pressed={daysAhead === d}
+                onClick={() => setDaysAhead(d)}
+                style={{
+                  minWidth: 36,
+                  height: 24,
+                  padding: "0 8px",
+                  fontSize: 11,
+                  fontWeight: daysAhead === d ? 700 : 600,
+                  borderRadius: 999,
+                  background: daysAhead === d ? "var(--brand)" : "transparent",
+                  border: daysAhead === d ? "1px solid color-mix(in oklab, var(--brand) 75%, var(--text))" : "1px solid transparent",
+                  color: daysAhead === d ? "var(--brand-contrast)" : "var(--text-muted)",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                  transition: "all 140ms ease-out",
+                  boxShadow: daysAhead === d ? "0 2px 8px color-mix(in oklab, var(--text) 20%, transparent)" : "none",
+                }}
+              >
+                {d}d
+              </button>
             ))}
           </div>
           {nearestOutOfRange && (
             <button onClick={() => handleJumpToOutOfRange(nearestOutOfRange)} style={{
               display: "flex", alignItems: "center", gap: 4,
               padding: "2px 8px", fontSize: 11, borderRadius: 5,
-              background: "rgba(255,230,0,0.08)",
-              border: "1px solid rgba(255,230,0,0.25)",
-              color: "#FFE600", cursor: "pointer",
+              background: "color-mix(in oklab, var(--brand) 8%, transparent)",
+              border: "1px solid color-mix(in oklab, var(--brand) 25%, transparent)",
+              color: "var(--brand)", cursor: "pointer",
               transition: "all 120ms ease-out", whiteSpace: "nowrap",
             }}>
               ↑ {nearestOutOfRange.orderNumber} v minulosti{outOfRangeBlocks.length > 1 ? ` (+${outOfRangeBlocks.length - 1})` : ""} — přejít
@@ -1957,22 +2001,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                 onClick={() => { const entry = undoStack.current.pop(); if (entry) void entry.undo().then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); }); }}
                 disabled={!canUndo}
                 title="Vrátit zpět (Ctrl+Z)"
-                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canUndo ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`, color: canUndo ? "#94a3b8" : "#334155", cursor: canUndo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
+                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canUndo ? "var(--border)" : "color-mix(in oklab, var(--border) 50%, transparent)"}`, color: canUndo ? "var(--text-muted)" : "color-mix(in oklab, var(--text-muted) 45%, transparent)", cursor: canUndo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
               >↩</button>
               <button
                 onClick={() => { const entry = redoStack.current.pop(); if (entry) void entry.redo().then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); }); }}
                 disabled={!canRedo}
                 title="Znovu provést (Ctrl+Shift+Z)"
-                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canRedo ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.05)"}`, color: canRedo ? "#94a3b8" : "#334155", cursor: canRedo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
+                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canRedo ? "var(--border)" : "color-mix(in oklab, var(--border) 50%, transparent)"}`, color: canRedo ? "var(--text-muted)" : "color-mix(in oklab, var(--text-muted) 45%, transparent)", cursor: canRedo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
               >↪</button>
               <button
                 onClick={() => setWorkingTimeLock(p => !p)}
                 title={workingTimeLock ? "Víkendy/noc blokovány — klik pro flexibilní mód" : "Flexibilní mód — klik pro zamknutí"}
                 style={{
                   marginLeft: 4, padding: "2px 8px", fontSize: 13, borderRadius: 5, lineHeight: 1.4,
-                  background: workingTimeLock ? "rgba(251,146,60,0.10)" : "rgba(255,255,255,0.05)",
-                  border: `1px solid ${workingTimeLock ? "rgba(251,146,60,0.30)" : "rgba(255,255,255,0.12)"}`,
-                  color: workingTimeLock ? "#fb923c" : "#475569",
+                  background: workingTimeLock ? "rgba(251,146,60,0.10)" : "var(--surface-2)",
+                  border: `1px solid ${workingTimeLock ? "rgba(251,146,60,0.30)" : "var(--border)"}`,
+                  color: workingTimeLock ? "#fb923c" : "var(--text-muted)",
                   cursor: "pointer", transition: "all 120ms ease-out",
                 }}
               >{workingTimeLock ? "🔒" : "🔓"}</button>
@@ -1989,12 +2033,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             </Button>
           )}
           <span>{blocks.length} bloků</span>
-          <span style={{ width: 1, height: 16, background: "rgba(255,255,255,0.1)" }} />
-          <span style={{ fontSize: 12, color: "#94a3b8" }}>
+          <span style={{ width: 1, height: 16, background: "var(--border)" }} />
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
             {currentUser.username}
             <span style={{
-              marginLeft: 6, fontSize: 10, color: "#64748b",
-              background: "rgba(255,255,255,0.06)", borderRadius: 4, padding: "1px 5px",
+              marginLeft: 6, fontSize: 10, color: "var(--text-muted)",
+              background: "var(--surface-2)", borderRadius: 4, padding: "1px 5px",
             }}>
               {currentUser.role}
             </span>
@@ -2004,8 +2048,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               href="/admin"
               style={{
                 padding: "3px 10px", fontSize: 11, borderRadius: 6,
-                background: "rgba(255,230,0,0.1)", border: "1px solid rgba(255,230,0,0.2)",
-                color: "#FFE600", cursor: "pointer", textDecoration: "none",
+                background: "color-mix(in oklab, var(--brand) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--brand) 20%, transparent)",
+                color: "var(--brand)", cursor: "pointer", textDecoration: "none",
                 whiteSpace: "nowrap", transition: "all 120ms ease-out",
               }}
             >
@@ -2017,7 +2061,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             onClick={handleLogout}
             style={{
               padding: "3px 10px", fontSize: 11, borderRadius: 6,
-              background: "transparent", border: "1px solid rgba(255,255,255,0.12)",
+              background: "transparent", border: "1px solid var(--border)",
               color: "var(--text-muted)", cursor: "pointer", transition: "all 120ms ease-out",
             }}
           >
@@ -2089,17 +2133,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
           ) : selectedBlock ? (
             <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />
           ) : (
-            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "#111318", borderLeft: "1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "var(--surface)", borderLeft: "1px solid var(--border)" }}>
 
               {/* ── Builder Header ── */}
-              <div style={{ padding: "12px 16px", background: "linear-gradient(135deg, #1a1d25 0%, #111318 100%)", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+              <div style={{ padding: "12px 16px", background: "linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 95%, transparent) 0%, var(--surface) 100%)", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: "linear-gradient(135deg, #e53e3e 0%, #dd6b20 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, color: "#fff", fontSize: 15, flexShrink: 0 }}>
                     J
                   </div>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 }}>Job Builder</div>
-                    <div style={{ fontSize: 9, color: "#9ba8c0", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>Integraf</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", lineHeight: 1.2 }}>Job Builder</div>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 2 }}>Integraf</div>
                   </div>
                 </div>
               </div>
@@ -2109,8 +2153,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                 <div style={{ padding: "0 16px", flex: 1 }}>
 
                   {/* ── Typ záznamu ── */}
-                  <div style={{ paddingTop: 16, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 10 }}>
+                  <div style={{ paddingTop: 16, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 10 }}>
                       Typ záznamu
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
@@ -2121,14 +2165,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                           onClick={() => setType(key)}
                           style={{
                             flex: 1, padding: "8px 4px", borderRadius: 7,
-                            border: type === key ? `1px solid ${cfg.color}` : "1px solid rgba(255,255,255,0.08)",
-                            background: type === key ? `${cfg.color}22` : "rgba(255,255,255,0.02)",
+                            border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)",
+                            background: type === key ? `${cfg.color}22` : "var(--surface-2)",
                             cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
                             transition: "all 0.15s",
                           }}
                         >
                           <span style={{ fontSize: 16, lineHeight: 1 }}>{cfg.emoji}</span>
-                          <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "#9ba8c0", letterSpacing: "0.04em", lineHeight: 1.3, textAlign: "center" }}>
+                          <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "var(--text-muted)", letterSpacing: "0.04em", lineHeight: 1.3, textAlign: "center" }}>
                             {cfg.label}
                           </span>
                         </button>
@@ -2137,15 +2181,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                   </div>
 
                   {/* ── Zakázka ── */}
-                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>
+                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>
                       {type === "UDRZBA" ? "Popis" : "Zakázka"}
                     </div>
 
                     {/* Číslo zakázky + Délka tisku */}
                     <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
                       <div style={{ flex: "0 0 130px" }}>
-                        <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>
+                        <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>
                           {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
                         </Label>
                         <Input
@@ -2157,7 +2201,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                       </div>
 
                       <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Délka tisku</label>
+                        <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Délka tisku</label>
                         <div style={{ position: "relative" }}>
                           <select
                             value={String(durationHours)}
@@ -2166,20 +2210,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                               appearance: "none",
                               width: "100%",
                               height: 32,
-                              background: "#181b22",
-                              border: "1px solid #1e2130",
+                              background: "var(--surface-2)",
+                              border: "1px solid var(--border)",
                               borderRadius: 10,
-                              color: "#e8eaf0",
+                              color: "var(--text)",
                               fontSize: 13,
                               fontWeight: 600,
                               padding: "0 36px 0 14px",
                               cursor: "pointer",
                               outline: "none",
                             }}
-                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                            onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                            onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
                           >
                             {DURATION_OPTIONS.map((opt) => (
                               <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
@@ -2188,7 +2232,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                           <svg
                             viewBox="0 0 20 20"
                             fill="none"
-                            stroke="#6b7280"
+                            stroke="currentColor"
+                            color="var(--text-muted)"
                             strokeWidth="1.8"
                             style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 14, height: 14, pointerEvents: "none" }}
                           >
@@ -2201,14 +2246,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                     {/* Popis */}
                     <div>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 5 }}>
-                        <Label style={{ fontSize: 10, color: "#9ba8c0" }}>Popis</Label>
+                        <Label style={{ fontSize: 10, color: "var(--text-muted)" }}>Popis</Label>
                         <button
                           type="button"
                           onClick={() => navigator.clipboard.writeText(description)}
                           title="Kopírovat popis"
-                          style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "#6b7a99", background: "none", border: "none", cursor: "pointer", padding: "0 2px", lineHeight: 1, transition: "color 120ms ease-out" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.color = "#c8d0e0")}
-                          onMouseLeave={(e) => (e.currentTarget.style.color = "#6b7a99")}
+                          style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: "0 2px", lineHeight: 1, transition: "color 120ms ease-out" }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
                         >
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                           Kopírovat
@@ -2226,11 +2271,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
                   {/* ── Výrobní sloupečky (skryté pro Údržbu) ── */}
                   {type !== "UDRZBA" && (
-                    <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Výrobní sloupečky</div>
+                    <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Výrobní sloupečky</div>
                       {/* DATA — datum + dropdown v jednom řádku */}
                       <div>
-                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Data</label>
+                        <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Data</label>
                         <div style={{ display: "flex", gap: 6 }}>
                           <div style={{ flex: "0 0 130px" }}>
                             <DatePickerField value={bDataRequiredDate} onChange={setBDataRequiredDate} placeholder="Datum dodání…" />
@@ -2241,21 +2286,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                               onChange={(e) => setBDataStatusId(e.target.value)}
                               style={{
                                 appearance: "none", width: "100%", height: 32,
-                                background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
-                                color: bDataStatusId ? "#e8eaf0" : "#64748b", fontSize: 12, fontWeight: 600,
+                                background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
+                                color: bDataStatusId ? "var(--text)" : "var(--text-muted)", fontSize: 12, fontWeight: 600,
                                 padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
                               }}
-                              onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                              onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
                             >
                               <option value="">— info —</option>
                               {bDataOpts.map((o) => (
                                 <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
                               ))}
                             </select>
-                            <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
                               style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
                               <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
@@ -2265,7 +2310,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
                       {/* Materiál — datum + dropdown v jednom řádku */}
                       <div>
-                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Materiál</label>
+                        <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Materiál</label>
                         <div style={{ display: "flex", gap: 6 }}>
                           <div style={{ flex: "0 0 130px" }}>
                             <DatePickerField value={bMaterialRequiredDate} onChange={setBMaterialRequiredDate} placeholder="Datum dodání…" />
@@ -2276,21 +2321,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                               onChange={(e) => setBMaterialStatusId(e.target.value)}
                               style={{
                                 appearance: "none", width: "100%", height: 32,
-                                background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
-                                color: bMaterialStatusId ? "#e8eaf0" : "#64748b", fontSize: 12, fontWeight: 600,
+                                background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
+                                color: bMaterialStatusId ? "var(--text)" : "var(--text-muted)", fontSize: 12, fontWeight: 600,
                                 padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
                               }}
-                              onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                              onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
                             >
                               <option value="">— info —</option>
                               {bMaterialOpts.map((o) => (
                                 <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
                               ))}
                             </select>
-                            <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
                               style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
                               <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
@@ -2305,28 +2350,28 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                           { label: "Lak",     value: bLakStatusId,      setter: setBLakStatusId,      opts: bLakOpts },
                         ] as { label: string; value: string; setter: (v: string) => void; opts: CodebookOption[] }[]).map(({ label, value, setter, opts }) => (
                           <div key={label}>
-                            <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>{label}</label>
+                            <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>{label}</label>
                             <div style={{ position: "relative" }}>
                               <select
                                 value={value}
                                 onChange={(e) => setter(e.target.value)}
                                 style={{
                                   appearance: "none", width: "100%", height: 32,
-                                  background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
-                                  color: value ? "#e8eaf0" : "#64748b", fontSize: 12, fontWeight: 600,
+                                  background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
+                                  color: value ? "var(--text)" : "var(--text-muted)", fontSize: 12, fontWeight: 600,
                                   padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
                                 }}
-                                onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                                onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = "#1e2232")}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = "#181b22")}
+                                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
                               >
                                 <option value="">— nezadáno —</option>
                                 {opts.map((o) => (
                                   <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
                                 ))}
                               </select>
-                              <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
                                 style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
                                 <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
                               </svg>
@@ -2335,41 +2380,41 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                         ))}
                       </div>
                       <div>
-                        <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Specifikace</Label>
+                        <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>Specifikace</Label>
                         <Input value={bSpecifikace} onChange={(e) => setBSpecifikace(e.target.value)} placeholder="Volný text…" className="h-8 text-xs" />
                       </div>
                       <div>
-                        <Label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block" }}>Termín expedice</Label>
+                        <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>Termín expedice</Label>
                         <DatePickerField value={bDeadlineExpedice} onChange={setBDeadlineExpedice} placeholder="Datum expedice…" />
                       </div>
                     </div>
                   )}
 
                   {/* ── Opakování ── */}
-                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 10 }}>Opakování</div>
+                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 10 }}>Opakování</div>
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                       <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Interval</label>
+                        <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Interval</label>
                         <div style={{ position: "relative" }}>
                           <select
                             value={bRecurrenceType}
                             onChange={(e) => setBRecurrenceType(e.target.value)}
                             style={{
                               appearance: "none", width: "100%", height: 32,
-                              background: "#181b22", border: "1px solid #1e2130", borderRadius: 10,
-                              color: bRecurrenceType !== "NONE" ? "#3b82f6" : "#e8eaf0", fontSize: 12, fontWeight: 600,
+                              background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
+                              color: bRecurrenceType !== "NONE" ? "var(--accent)" : "var(--text)", fontSize: 12, fontWeight: 600,
                               padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
                             }}
-                            onFocus={(e) => (e.currentTarget.style.borderColor = "#3a5a9a")}
-                            onBlur={(e) => (e.currentTarget.style.borderColor = "#1e2130")}
+                            onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                            onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                           >
                             <option value="NONE">— bez opakování —</option>
                             <option value="DAILY">↻ Každý den</option>
                             <option value="WEEKLY">↻ Každý týden</option>
                             <option value="MONTHLY">↻ Každý měsíc</option>
                           </select>
-                          <svg viewBox="0 0 20 20" fill="none" stroke="#6b7280" strokeWidth="1.8"
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
                             style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
                             <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
@@ -2377,7 +2422,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                       </div>
                       {bRecurrenceType !== "NONE" && (
                         <div style={{ flex: "0 0 90px" }}>
-                          <label style={{ fontSize: 10, color: "#9ba8c0", marginBottom: 5, display: "block", fontWeight: 500 }}>Počet bloků</label>
+                          <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Počet bloků</label>
                           <input
                             type="number"
                             min={2}
@@ -2385,9 +2430,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                             value={bRecurrenceCount}
                             onChange={(e) => setBRecurrenceCount(Math.max(2, Math.min(52, parseInt(e.target.value) || 2)))}
                             style={{
-                              width: "100%", height: 32, background: "#181b22",
-                              border: "1px solid #3b82f6", borderRadius: 10,
-                              color: "#3b82f6", fontSize: 13, fontWeight: 700,
+                              width: "100%", height: 32, background: "var(--surface-2)",
+                              border: "1px solid var(--accent)", borderRadius: 10,
+                              color: "var(--accent)", fontSize: 13, fontWeight: 700,
                               padding: "0 10px", outline: "none", textAlign: "center",
                             }}
                           />
@@ -2395,28 +2440,28 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                       )}
                     </div>
                     {bRecurrenceType !== "NONE" && (
-                      <div style={{ fontSize: 10, color: "#3b82f6", marginTop: 6, opacity: 0.8 }}>
+                      <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 6, opacity: 0.8 }}>
                         Vytvoří se {bRecurrenceCount} bloků · interval: {bRecurrenceType === "DAILY" ? "1 den" : bRecurrenceType === "WEEKLY" ? "7 dní" : "1 měsíc"}
                       </div>
                     )}
                   </div>
 
                   {/* ── Live náhled ── */}
-                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0", marginBottom: 8 }}>Náhled bloku</div>
+                  <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>Náhled bloku</div>
                     <div style={{
                       borderRadius: 6, padding: "9px 11px",
                       background: `${typeConfig?.color ?? "#334155"}18`,
-                      borderLeft: `3px solid ${typeConfig?.color ?? "#475569"}`,
-                      border: `1px solid ${typeConfig?.color ?? "#475569"}33`,
+                      borderLeft: `3px solid ${typeConfig?.color ?? "var(--text-muted)"}`,
+                      border: `1px solid ${typeConfig?.color ?? "var(--text-muted)"}33`,
                     }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#f1f5f9", lineHeight: 1.2 }}>
-                        {orderNumber || <span style={{ color: "#475569", fontWeight: 400 }}>—</span>}
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", lineHeight: 1.2 }}>
+                        {orderNumber || <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>—</span>}
                       </div>
                       {description && (
-                        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 3, lineHeight: 1.4 }}>{description}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.4 }}>{description}</div>
                       )}
-                      <div style={{ fontSize: 10, color: typeConfig?.color ?? "#64748b", marginTop: 5 }}>
+                      <div style={{ fontSize: 10, color: typeConfig?.color ?? "var(--text-muted)", marginTop: 5 }}>
                         {typeConfig?.emoji} {typeConfig?.label} · {formatDuration(durationHours)}
                       </div>
                     </div>
@@ -2433,7 +2478,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                     >
                       ＋ Přidat do fronty
                     </Button>
-                    <div style={{ fontSize: 9, color: "#475569", textAlign: "center", marginTop: 6 }}>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", marginTop: 6 }}>
                       Přetáhni kartu z fronty na timeline → stroj a čas
                     </div>
                   </div>
@@ -2441,10 +2486,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
                 {/* ── Fronta ── */}
                 {queue.length > 0 && (
-                  <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", background: "#0d1017", padding: "12px 16px 16px", flexShrink: 0 }}>
+                  <div style={{ borderTop: "1px solid var(--border)", background: "var(--surface-2)", padding: "12px 16px 16px", flexShrink: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#9ba8c0" }}>Fronta</div>
-                      <div style={{ minWidth: 18, height: 18, borderRadius: 9, background: "#FFE600", color: "#111318", fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Fronta</div>
+                      <div style={{ minWidth: 18, height: 18, borderRadius: 9, background: "var(--brand)", color: "var(--brand-contrast)", fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
                         {queue.length}
                       </div>
                     </div>
@@ -2464,23 +2509,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                             onDragEnd={() => setDraggingQueueItem(null)}
                             style={{
                               display: "flex", alignItems: "stretch",
-                              background: "rgba(255,255,255,0.03)",
+                              background: "var(--surface)",
                               borderRadius: 6,
-                              border: "1px solid rgba(255,255,255,0.07)",
+                              border: "1px solid var(--border)",
                               overflow: "hidden",
                               cursor: "grab",
                             }}
                           >
                             {/* Barevný pruh vlevo */}
-                            <div style={{ width: 3, background: itemCfg?.color ?? "#64748b", flexShrink: 0 }} />
+                            <div style={{ width: 3, background: itemCfg?.color ?? "var(--text-muted)", flexShrink: 0 }} />
                             {/* Obsah */}
                             <div style={{ flex: 1, padding: "7px 9px", minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "#f1f5f9" }}>{item.orderNumber}</div>
-                              <div style={{ fontSize: 10, color: "#9ba8c0", marginTop: 2 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{item.orderNumber}</div>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
                                 {itemCfg?.emoji} {itemCfg?.label} · {formatDuration(item.durationHours)}
                               </div>
                               {item.description && (
-                                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   {item.description}
                                 </div>
                               )}
@@ -2489,7 +2534,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
                             <button
                               type="button"
                               onClick={() => setQueue((prev) => prev.filter((q) => q.id !== item.id))}
-                              style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "#475569", fontSize: 16, padding: "0 10px", display: "flex", alignItems: "center", lineHeight: 1 }}
+                              style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "0 10px", display: "flex", alignItems: "center", lineHeight: 1 }}
                             >
                               ×
                             </button>
@@ -2509,20 +2554,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       {pushSuggestion?.blockedByLock && (
         <div style={{
           position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
-          background: "#1a1d27", border: "1px solid rgba(248,113,113,0.3)",
+          background: "var(--surface)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)",
           borderRadius: 12, padding: "10px 16px",
           display: "flex", alignItems: "center", gap: 12,
           zIndex: 200, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
           fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
           whiteSpace: "nowrap",
         }}>
-          <span style={{ fontSize: 11, color: "#f87171" }}>
+          <span style={{ fontSize: 11, color: "var(--danger)" }}>
             🔒 Blok vrácen — v cestě je zamknutý blok
             {pushSuggestion.lockedBlock && <b> {pushSuggestion.lockedBlock.orderNumber}</b>}
           </span>
           <button
             onClick={() => setPushSuggestion(null)}
-            style={{ fontSize: 11, color: "#c8d0e0", background: "rgba(255,255,255,0.08)", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}
+            style={{ fontSize: 11, color: "var(--text)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}
           >
             OK
           </button>
@@ -2537,17 +2582,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
           position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
           display: "flex", alignItems: "center", gap: 6,
           padding: "6px 12px", borderRadius: 20, zIndex: 9000,
-          background: "rgba(15,17,24,0.88)", backdropFilter: "blur(12px)",
-          border: "1px solid rgba(59,130,246,0.30)",
-          color: "#93c5fd", fontSize: 12, whiteSpace: "nowrap",
+          background: "color-mix(in oklab, var(--surface) 88%, transparent)", backdropFilter: "blur(12px)",
+          border: "1px solid color-mix(in oklab, var(--accent) 30%, transparent)",
+          color: "var(--accent)", fontSize: 12, whiteSpace: "nowrap",
           boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
           animation: "fadeInUp 300ms ease-out",
         }}>
-          <span style={{ fontSize: 10, background: "rgba(59,130,246,0.20)", borderRadius: 5, padding: "1px 5px", fontFamily: "monospace", color: "#bfdbfe" }}>⌥ Alt</span>
+          <span style={{ fontSize: 10, background: "color-mix(in oklab, var(--accent) 20%, transparent)", borderRadius: 5, padding: "1px 5px", fontFamily: "monospace", color: "var(--accent)" }}>⌥ Alt</span>
           <span style={{ opacity: 0.85 }}>+ tah na timeline = výběr více bloků</span>
           <button
             onClick={dismissLassoHint}
-            style={{ marginLeft: 4, background: "none", border: "none", color: "#60a5fa", cursor: "pointer", padding: "0 2px", fontSize: 15, lineHeight: 1, opacity: 0.6, display: "flex", alignItems: "center" }}
+            style={{ marginLeft: 4, background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: "0 2px", fontSize: 15, lineHeight: 1, opacity: 0.6, display: "flex", alignItems: "center" }}
           >×</button>
         </div>
       )}
