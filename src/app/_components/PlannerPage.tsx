@@ -218,10 +218,12 @@ function DatePickerField({
   value,
   onChange,
   placeholder = "Vyberte datum…",
+  asButton = false,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
+  asButton?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const today = new Date();
@@ -260,7 +262,14 @@ function DatePickerField({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button style={{
+        <button style={asButton ? {
+          height: 32, borderRadius: 6,
+          border: "1px solid var(--border)", background: "transparent",
+          color: "var(--text)", fontSize: 11, padding: "0 10px",
+          display: "flex", alignItems: "center", gap: 5,
+          cursor: "pointer", outline: "none", whiteSpace: "nowrap",
+          transition: "background 120ms ease-out",
+        } as React.CSSProperties : {
           height: 32, width: "100%", borderRadius: 6,
           border: "1px solid var(--border)", background: "var(--surface-2)",
           color: selected ? "var(--text)" : "var(--text-muted)",
@@ -269,11 +278,11 @@ function DatePickerField({
           cursor: "pointer", outline: "none", boxSizing: "border-box",
           transition: "border-color 120ms ease-out",
         } as React.CSSProperties}>
-          <span>{displayLabel}</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.4, flexShrink: 0 }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: asButton ? 0.6 : 0.4, flexShrink: 0 }}>
             <rect x="3" y="4" width="18" height="18" rx="2"/>
             <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
           </svg>
+          <span>{displayLabel}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-0 border-0" style={{ background: "var(--surface)", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }}>
@@ -1276,6 +1285,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   pasteTargetRef.current = pasteTarget;
   const [filterText, setFilterText] = useState("");
   const [jumpDate, setJumpDate]     = useState("");
+  const [reportDate, setReportDate] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [headerScrolled, setHeaderScrolled] = useState(false);
   useEffect(() => {
@@ -1961,11 +1971,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
           transition: "background 250ms ease-out, backdrop-filter 250ms ease-out, border-color 250ms ease-out",
         }}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center font-black text-white">I</div>
-          <div>
-            <div className="text-xs font-semibold tracking-wide" style={{ color: "var(--text)" }}>INTEGRAF</div>
-            <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-muted)" }}>Výrobní plán</div>
-          </div>
+          <img src="/logo.png" alt="Integraf" style={{ height: 28, width: "auto", objectFit: "contain", flexShrink: 0 }} />
+          <div style={{ width: 1, height: 20, background: "var(--border)", flexShrink: 0 }} />
+          <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>Výrobní plán</div>
         </div>
 
         <div className="flex items-center gap-2 ml-4 flex-1">
@@ -2085,6 +2093,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               📅 Odstávky
             </Button>
           )}
+          <DatePickerField
+            value={reportDate}
+            onChange={(v) => {
+              setReportDate("");
+              window.open(`/report/daily?date=${v}`, "_blank");
+            }}
+            placeholder="Tisknout den"
+            asButton
+          />
           <span>{blocks.length} bloků</span>
           <span style={{ width: 1, height: 16, background: "var(--border)" }} />
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
