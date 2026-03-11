@@ -16,6 +16,29 @@ Z aktuální funkčně silné aplikace vytvořit:
 
 ---
 
+## Stav realizace (aktualizováno 11. 3. 2026)
+
+| Etapa | Stav | Poznámka |
+|------|------|----------|
+| Etapa 0 — Audit a baseline | ✅ Hotovo | Prošla kritická místa (`PlannerPage`, `TimelineGrid`, `Login`, `AdminDashboard`) a seznam problémů. |
+| Etapa 1 — Theme infrastruktura | ✅ Hotovo | `next-themes`, tokeny, helper transitions, přepínač theme v headeru. |
+| Etapa 2 — Migrace největších ploch | ✅ Hotovo | Hlavní plochy běží korektně v light/dark; sjednoceny CTA, headery, badge/chips a kontrastní stavy. |
+| Etapa 3+ | ⬜ Nezačato | Další krok: responsivita a ergonomie layoutu. |
+
+### Co bylo v etapách 1–2 dokončeno navíc
+
+- iOS-style switch pro light/dark (`☀️/🌙`) bez redundantního badge.
+- Segmented `30/60/90` rozsah s jasným aktivním stavem.
+- Opravený tmavý header v `BlockDetail` pro light mode.
+- Deadline logika ve 3 stavech:
+  - `OK` = zelená,
+  - `dnes bez OK` = žlutá,
+  - `po termínu bez OK` = červená.
+- Sjednocené barevné akcenty DATA/MATERIÁL/EXPEDICE (tyrkysový základ) + stavová barva přebíjí základ.
+- Oprava kontrastu tlačítka `Uložit změny` v `Upravit blok` (dark i light).
+
+---
+
 ## Aktuální slabé stránky (prioritizace)
 
 ### P0 — Kritické
@@ -330,4 +353,3 @@ Od této chvíle:
 1. žádná nová hardcoded barva bez tokenu,
 2. žádná nová klíčová akce bez user feedbacku při failu,
 3. žádná nová UI feature bez ověření v obou theme režimech.
-

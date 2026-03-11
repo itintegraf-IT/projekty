@@ -19,6 +19,8 @@ ale zatím nebyly implementovány. Označeno prioritami a přibližnou náročno
 | Glassmorphism sticky header (blur + opacita reaguje na scroll) | post-9 |
 | Active/pressed stav tlačítek (scale 0.96, brightness) | post-9 |
 | BlockCard typografie — weight hierarchy (orderNumber 700, desc opacity 0.58) | post-9 |
+| Light/Dark migrace hlavních ploch + iOS switch + tokeny + kontrast CTA | 11. 3. 2026 |
+| Deadline stavy: dnes žlutě / po termínu červeně + sjednocené tyrkysové akcenty badge | 11. 3. 2026 |
 
 ---
 
