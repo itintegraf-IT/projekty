@@ -23,7 +23,9 @@ Z aktuální funkčně silné aplikace vytvořit:
 | Etapa 0 — Audit a baseline | ✅ Hotovo | Prošla kritická místa (`PlannerPage`, `TimelineGrid`, `Login`, `AdminDashboard`) a seznam problémů. |
 | Etapa 1 — Theme infrastruktura | ✅ Hotovo | `next-themes`, tokeny, helper transitions, přepínač theme v headeru. |
 | Etapa 2 — Migrace největších ploch | ✅ Hotovo | Hlavní plochy běží korektně v light/dark; sjednoceny CTA, headery, badge/chips a kontrastní stavy. |
-| Etapa 3+ | ⬜ Nezačato | Další krok: responsivita a ergonomie layoutu. |
+| Etapa 3 — Responsivita a layout ergonomie | ⏸️ Odloženo | Záměrně přeskočeno (cíloví uživatelé jedou primárně fullscreen desktop). |
+| Etapa 4 — Přístupnost (a11y) | ⏸️ Odloženo | Záměrně odloženo před dokončením Etapy 5. |
+| Etapa 5 — UX feedback a error handling | ✅ Hotovo | Nahrazeny tiché `catch`, sjednocené chyby/toasty, přidány loading/disabled stavy u kritických akcí. |
 
 ### Co bylo v etapách 1–2 dokončeno navíc
 
@@ -36,6 +38,14 @@ Z aktuální funkčně silné aplikace vytvořit:
   - `po termínu bez OK` = červená.
 - Sjednocené barevné akcenty DATA/MATERIÁL/EXPEDICE (tyrkysový základ) + stavová barva přebíjí základ.
 - Oprava kontrastu tlačítka `Uložit změny` v `Upravit blok` (dark i light).
+
+### Co bylo dokončeno v etapě 5 (UX feedback + error handling)
+
+- Nahrazení tichých `catch {}` v klíčových flow (`PlannerPage`, `TimelineGrid`, login, admin/codebook API, `auth`) kombinací:
+  - `console.error(...)` pro diagnostiku,
+  - uživatelský feedback (`toast` / lokální error text).
+- Sjednocené chybové texty pro nejdůležitější akce (uložení, přesun/resize/split, mazání, načtení číselníků).
+- Přidané loading/disabled stavy do kritických potvrzovacích akcí (zejména série a editace bloku), aby se zabránilo double-submit.
 
 ---
 

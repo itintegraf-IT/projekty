@@ -46,6 +46,9 @@ Webová aplikace pro plánování výroby na strojích XL 105 a XL 106. Umožňu
 - Badge/chips DATA/MATERIÁL/EXPEDICE:
   - stejný tyrkysový základní akcent,
   - stavová barva (`OK/žlutá/červená`) má prioritu nad základem
+- UX feedback a error handling (Etapa 5 roadmapy):
+  - tiché `catch` nahrazené za `console.error` + uživatelský feedback,
+  - kritické akce mají loading/disabled stav proti double-submit.
 
 ---
 

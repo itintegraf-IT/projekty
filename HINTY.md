@@ -21,6 +21,7 @@ ale zatím nebyly implementovány. Označeno prioritami a přibližnou náročno
 | BlockCard typografie — weight hierarchy (orderNumber 700, desc opacity 0.58) | post-9 |
 | Light/Dark migrace hlavních ploch + iOS switch + tokeny + kontrast CTA | 11. 3. 2026 |
 | Deadline stavy: dnes žlutě / po termínu červeně + sjednocené tyrkysové akcenty badge | 11. 3. 2026 |
+| Etapa 5 UX feedback: nahrazení tichých catch + toasty + disabled/loading u kritických akcí | 11. 3. 2026 |
 
 ---
 

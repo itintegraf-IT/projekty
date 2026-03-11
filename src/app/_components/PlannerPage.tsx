@@ -479,7 +479,8 @@ function BlockEdit({
       if (!res.ok) throw new Error("Chyba serveru");
       const updated: Block = await res.json();
       onSave(updated);
-    } catch {
+    } catch (error) {
+      console.error("Block save failed", error);
       setError("Chyba při ukládání.");
     } finally {
       setSaving(false);
@@ -748,6 +749,7 @@ function BlockEdit({
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <button
+                disabled={saving}
                 onClick={async () => {
                   if (seriesConfirm === "save" && pendingSavePayload.current) {
                     await doSave(pendingSavePayload.current);
@@ -757,11 +759,12 @@ function BlockEdit({
                   }
                   setSeriesConfirm(null);
                 }}
-                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
+                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: saving ? "default" : "pointer", opacity: saving ? 0.65 : 1, textAlign: "left" }}
               >
                 Jen tuto instanci
               </button>
               <button
+                disabled={saving}
                 onClick={async () => {
                   if (seriesConfirm === "save" && pendingSavePayload.current) {
                     const ids = getSeriesIds();
@@ -774,15 +777,16 @@ function BlockEdit({
                   }
                   setSeriesConfirm(null);
                 }}
-                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: "pointer", textAlign: "left" }}
+                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: saving ? "default" : "pointer", opacity: saving ? 0.65 : 1, textAlign: "left" }}
               >
                 {seriesConfirm === "delete"
                   ? `Tuto a následující (${getFollowingSeriesIds().length} bloků)`
                   : `Celou sérii (${getSeriesIds().length} bloků)`}
               </button>
               <button
+                disabled={saving}
                 onClick={() => setSeriesConfirm(null)}
-                style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, padding: "4px 0", cursor: "pointer", textAlign: "left" }}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, padding: "4px 0", cursor: saving ? "default" : "pointer", opacity: saving ? 0.65 : 1, textAlign: "left" }}
               >
                 Zrušit
               </button>
@@ -816,7 +820,7 @@ function BlockEdit({
               >
                 {saving ? "Ukládám…" : "Uložit změny →"}
               </button>
-              <Button type="button" variant="ghost" onClick={onClose} className="text-slate-400 text-xs">
+              <Button type="button" variant="ghost" onClick={onClose} disabled={saving} className="text-slate-400 text-xs">
                 Zrušit
               </Button>
             </div>
@@ -1040,14 +1044,20 @@ function ShutdownManager({
     try {
       await onAdd(startDate, endDate, label.trim());
       setStartDate(""); setEndDate(""); setLabel("");
-    } catch { setError("Chyba při ukládání."); }
+    } catch (error) {
+      console.error("Company day save failed", error);
+      setError("Chyba při ukládání.");
+    }
     finally { setSaving(false); }
   }
 
   async function handleDelete(id: number) {
     setDeleting(id);
     try { await onDelete(id); }
-    catch { setError("Chyba při mazání."); }
+    catch (error) {
+      console.error("Company day delete failed", error);
+      setError("Chyba při mazání.");
+    }
     finally { setDeleting(null); }
   }
 
@@ -1337,7 +1347,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       setBMaterialOpts(m);
       setBBarvyOpts(b);
       setBLakOpts(l);
-    }).catch(() => {/* číselník se nepodařilo načíst */});
+    }).catch((error) => {
+      console.error("Codebooks load failed", error);
+      showToast("Nepodařilo se načíst číselníky.", "error");
+    });
   }, []);
 
   const viewStart = startOfDay(addDays(new Date(), -daysBack));
@@ -1416,7 +1429,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
           setBlocks(prev => prev.map(b => b.id === reverted.id ? reverted : b));
           setSelectedBlock(sel => sel?.id === reverted.id ? reverted : sel);
         }
-      } catch { /* silent */ }
+      } catch (error) {
+        console.error("Revert moved block failed", error);
+        showToast("Nepodařilo se vrátit blok na původní pozici.", "error");
+      }
     }
 
     // ── Krok 1: Překryv dozadu ────────────────────────────────────────────────
@@ -1436,7 +1452,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
           current = await res.json() as Block;
           setBlocks(prev => prev.map(b => b.id === current.id ? current : b));
         }
-      } catch { /* silent */ }
+      } catch (error) {
+        console.error("Backward overlap correction failed", error);
+        showToast("Nepodařilo se opravit překryv bloku.", "error");
+      }
     }
 
     // ── Krok 2: Překryv dopředu → auto-push ──────────────────────────────────
@@ -1537,7 +1556,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         const lastResult = (results as Block[])[results.length - 1];
         if (lastResult) void autoResolveOverlap(lastResult, allExcluded);
       }
-    } catch { /* tiché selhání */ }
+    } catch (error) {
+      console.error("Auto-push chain update failed", error);
+      showToast("Nepodařilo se automaticky posunout navazující bloky.", "error");
+    }
   }
 
   function handleBlockUpdate(updated: Block, addToHistory = false) {
@@ -1610,7 +1632,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       for (const moved of results as Block[]) {
         await autoResolveOverlap(moved, excludeIds, originals.get(moved.id));
       }
-    } catch { showToast("Hromadný posun se nepodařilo uložit.", "error"); }
+    } catch (error) {
+      console.error("Multi-block update failed", error);
+      showToast("Hromadný posun se nepodařilo uložit.", "error");
+    }
   }
 
   function handleBlockCreate(newBlock: Block) {
@@ -1627,7 +1652,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       if (!res.ok) throw new Error("Chyba serveru");
       setBlocks((prev) => prev.filter((b) => b.id !== id));
       setSelectedBlock(null);
-    } catch {
+    } catch (error) {
+      console.error("Block delete failed", error);
       showToast("Chyba při mazání bloku.", "error");
     }
   }
@@ -1638,7 +1664,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       setBlocks((prev) => prev.filter((b) => !ids.includes(b.id)));
       if (ids.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
       if (ids.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
-    } catch {
+    } catch (error) {
+      console.error("Series delete failed", error);
       showToast("Chyba při mazání série.", "error");
     }
   }
@@ -1664,7 +1691,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         const updatedEditing = (results as Block[]).find((r) => r.id === editingBlock.id);
         if (updatedEditing) setEditingBlock(updatedEditing);
       }
-    } catch {
+    } catch (error) {
+      console.error("Series save failed", error);
       showToast("Chyba při ukládání série.", "error");
     }
   }
@@ -1802,7 +1830,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       setDraggingQueueItem(null);
       const y = dateToY(startTime, viewStart);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
-    } catch {
+    } catch (error) {
+      console.error("Queue drop block creation failed", error);
       showToast("Chyba při vytváření bloku.", "error");
     }
   }
@@ -1857,7 +1886,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         setCopiedBlock(null);
         setIsCut(false);
       }
-    } catch {
+    } catch (error) {
+      console.error("Block paste failed", error);
       showToast("Chyba při vložení bloku.", "error");
     }
   }

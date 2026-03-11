@@ -363,7 +363,7 @@ function MiniChip({ label, accent }: { label: string; accent: string }) {
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
-  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu, onBlockUpdate,
+  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu, onBlockUpdate, onError,
 }: {
   block: Block;
   top: number;
@@ -374,12 +374,13 @@ function BlockCard({
   isCopied: boolean;
   multiSelected: boolean;
   now: Date;
-  onClick: () => void;
+  onClick: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onMouseDown?: (e: React.MouseEvent) => void;
   onResizeMouseDown?: (e: React.MouseEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   onBlockUpdate: (b: Block) => void;
+  onError?: (msg: string) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
@@ -420,7 +421,10 @@ function BlockCard({
         body: JSON.stringify({ [field]: !current }),
       });
       if (res.ok) onBlockUpdate(await res.json());
-    } catch { /* tiché selhání */ }
+    } catch (error) {
+      console.error("Block field toggle failed", error);
+      onError?.("Změnu sloupce se nepodařilo uložit.");
+    }
   }
 
   return (
@@ -894,7 +898,10 @@ export default function TimelineGrid({
           const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine }) });
           const updated: Block = await res.json();
           callbacksRef.current.onBlockUpdate(updated, true);
-        } catch { callbacksRef.current.onError?.("Blok se nepodařilo přesunout."); }
+        } catch (error) {
+          console.error("Block move failed", error);
+          callbacksRef.current.onError?.("Blok se nepodařilo přesunout.");
+        }
       } else if (ds.type === "resize") {
         const originalTop    = dateToY(ds.originalStart, vs, sh);
         const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
@@ -905,7 +912,10 @@ export default function TimelineGrid({
           const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString() }) });
           const updated: Block = await res.json();
           callbacksRef.current.onBlockUpdate(updated, true);
-        } catch { callbacksRef.current.onError?.("Blok se nepodařilo změnit."); }
+        } catch (error) {
+          console.error("Block resize failed", error);
+          callbacksRef.current.onError?.("Blok se nepodařilo změnit.");
+        }
       } else if (ds.type === "multi-move") {
         let deltaMs = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
         if (workingTimeLockRef.current) {
@@ -1003,7 +1013,10 @@ export default function TimelineGrid({
       onBlockUpdate(await res1.json());
       const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
       onBlockCreate(await res2.json());
-    } catch { /* chyba při dělení */ }
+    } catch (error) {
+      console.error("Block split failed", error);
+      callbacksRef.current.onError?.("Blok se nepodařilo rozdělit.");
+    }
   }
 
   // ── Sticky header ──────────────────────────────────────────────────────────
@@ -1346,6 +1359,7 @@ export default function TimelineGrid({
                       onResizeMouseDown={canEdit ? (e) => handleResizeMouseDown(block, e) : undefined}
                       onContextMenu={canEdit ? (e) => handleBlockContextMenu(block, e) : undefined}
                       onBlockUpdate={callbacksRef.current.onBlockUpdate}
+                      onError={callbacksRef.current.onError}
                     />
                   );
                 })}

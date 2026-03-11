@@ -50,7 +50,8 @@ export async function PUT(
       select: { id: true, username: true, role: true, createdAt: true },
     });
     return NextResponse.json(user);
-  } catch {
+  } catch (error) {
+    console.error("Update admin user failed", error);
     return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
   }
 }
@@ -76,7 +77,8 @@ export async function DELETE(
   try {
     await prisma.user.delete({ where: { id: numId } });
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    console.error("Delete admin user failed", error);
     return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
   }
 }

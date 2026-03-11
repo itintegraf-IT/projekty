@@ -31,7 +31,8 @@ export default function LoginPage() {
       } else {
         router.push("/");
       }
-    } catch {
+    } catch (error) {
+      console.error("Login request failed", error);
       setError("Chyba připojení k serveru");
     } finally {
       setLoading(false);

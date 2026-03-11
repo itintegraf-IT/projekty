@@ -34,7 +34,8 @@ export async function getSession(): Promise<SessionUser | null> {
   try {
     const { payload } = await jwtVerify(c.value, SECRET);
     return payload as unknown as SessionUser;
-  } catch {
+  } catch (error) {
+    console.error("Session verification failed", error);
     return null;
   }
 }

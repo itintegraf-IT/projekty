@@ -40,6 +40,10 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
   - `dnes bez OK` = žlutá
   - `po termínu bez OK` = červená
 - ✅ Sjednocené akcenty DATA/MATERIÁL/EXPEDICE (tyrkysový základ, stav přebíjí barvu)
+- ✅ UX feedback + error handling (Etapa 5 roadmapy):
+  - odstraněny tiché `catch {}` v klíčových akcích,
+  - přidány `console.error(...)` + uživatelské toasty/chybové hlášky,
+  - doplněny loading/disabled stavy u kritických potvrzovacích tlačítek.
 
 ---
 
