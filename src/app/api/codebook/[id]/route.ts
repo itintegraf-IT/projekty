@@ -29,7 +29,8 @@ export async function PUT(
       },
     });
     return NextResponse.json(updated);
-  } catch {
+  } catch (error) {
+    console.error("Update codebook option failed", error);
     return NextResponse.json({ error: "Chyba při ukládání" }, { status: 500 });
   }
 }
@@ -52,7 +53,8 @@ export async function DELETE(
   try {
     await prisma.codebookOption.delete({ where: { id: numId } });
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    console.error("Delete codebook option failed", error);
     return NextResponse.json({ error: "Chyba při mazání" }, { status: 500 });
   }
 }

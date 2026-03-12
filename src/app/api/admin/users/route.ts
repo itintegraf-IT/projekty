@@ -52,7 +52,8 @@ export async function POST(req: NextRequest) {
       select: { id: true, username: true, role: true, createdAt: true },
     });
     return NextResponse.json(user, { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("Create admin user failed", error);
     return NextResponse.json({ error: "Uživatelské jméno již existuje" }, { status: 409 });
   }
 }

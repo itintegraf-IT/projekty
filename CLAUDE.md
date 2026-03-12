@@ -28,6 +28,23 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
 | 10 | Audit log (kdo co změnil) | ⬜ Nezačato |
 
+### UI/UX light-dark migrace (11. 3. 2026)
+
+- ✅ `next-themes` + theme tokeny + helper transitions
+- ✅ Header theme switch (iOS-style, emoji `☀️/🌙`)
+- ✅ Migrace hlavních ploch (`PlannerPage`, `TimelineGrid`, `AdminDashboard`, `Login`) na tokeny
+- ✅ Kontrastní segmented control `30/60/90`
+- ✅ Opravené kontrasty v `BlockDetail` a v CTA `Uložit změny`
+- ✅ Deadline stavy:
+  - `OK` = zelená
+  - `dnes bez OK` = žlutá
+  - `po termínu bez OK` = červená
+- ✅ Sjednocené akcenty DATA/MATERIÁL/EXPEDICE (tyrkysový základ, stav přebíjí barvu)
+- ✅ UX feedback + error handling (Etapa 5 roadmapy):
+  - odstraněny tiché `catch {}` v klíčových akcích,
+  - přidány `console.error(...)` + uživatelské toasty/chybové hlášky,
+  - doplněny loading/disabled stavy u kritických potvrzovacích tlačítek.
+
 ---
 
 ## Spuštění projektu
@@ -105,7 +122,7 @@ Tím označíte migraci jako již aplikovanou (baseline).
 | `src/app/api/blocks/[id]/route.ts` | GET + PUT (role field filter) + DELETE (ADMIN/PLANOVAT) |
 | `src/lib/auth.ts` | createSession / getSession / deleteSession (JWT + cookie) |
 | `src/middleware.ts` | Edge middleware — JWT guard pro všechny routes |
-| `src/app/login/page.tsx` | Login stránka (dark Apple-style) |
+| `src/app/login/page.tsx` | Login stránka (token-based, light/dark) |
 | `src/app/api/auth/login/route.ts` | POST — přihlášení, vytvoření session |
 | `src/app/api/auth/logout/route.ts` | POST — odhlášení, smazání cookie |
 | `DOKUMENTACE.md` | Plná projektová dokumentace (neupravuj ručně) |
@@ -129,9 +146,11 @@ Tím označíte migraci jako již aplikovanou (baseline).
   - `>= 62px`: klikatelné DateBadge (DATA / MAT. / EXP.) — klik toggles `dataOk`/`materialOk` přes PUT API
   - `>= 80px`: specifikace (celý text, max 2 řádky)
   - `>= 100px`: StatusNote labely ze selectů (dataStatusLabel, materialStatusLabel, barvy, lak)
-- **DateBadge:** zelená = ok, amber = `now > requiredDate && !ok`, šedá = datum ještě nenastalo
+- **DateBadge:** zelená = `ok`, žlutá = termín je dnes a není `ok`, červená = termín je po datu a není `ok`, neutrální = datum ještě nenastalo
 - **fmtDate():** helper pro parse DB timestamps (ISO i date string) — nikdy nepoužívat `new Date(s + "T00:00:00")`
-- **Warn logika:** `now > requiredDate && !ok` — NE `blockStart < requiredDate`
+- **Warn/danger logika:** `deadlineState(requiredDate, ok, now)`:
+  - `warning`: `isSameDay(due, now) && !ok`
+  - `danger`: `startOfDay(now) > startOfDay(due) && !ok`
 
 ### PlannerPage.tsx
 - Builder: typ + číslo zakázky + délka + popis + výrobní sloupečky + termín expedice → "Přidat do fronty"

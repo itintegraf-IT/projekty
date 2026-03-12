@@ -62,10 +62,10 @@ async function main() {
   const existingCount = await prisma.codebookOption.count();
   if (existingCount === 0) {
     const allOptions = [
-      ...DATA_OPTIONS.map((o) => ({ category: "DATA", isWarning: false, ...o })),
-      ...MATERIAL_OPTIONS.map((o) => ({ category: "MATERIAL", isWarning: false, ...o })),
-      ...BARVY_OPTIONS.map((o) => ({ category: "BARVY", isWarning: false, ...o })),
-      ...LAK_OPTIONS.map((o) => ({ category: "LAK", isWarning: false, ...o })),
+      ...DATA_OPTIONS.map((o) => ({ category: "DATA", ...o, isWarning: o.isWarning ?? false })),
+      ...MATERIAL_OPTIONS.map((o) => ({ category: "MATERIAL", ...o, isWarning: false })),
+      ...BARVY_OPTIONS.map((o) => ({ category: "BARVY", ...o, isWarning: false })),
+      ...LAK_OPTIONS.map((o) => ({ category: "LAK", ...o, isWarning: false })),
     ];
     await prisma.codebookOption.createMany({ data: allOptions });
     console.log(`✅ Číselníky: ${allOptions.length} výchozích položek vytvořeno.`);

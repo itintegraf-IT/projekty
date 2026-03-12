@@ -31,7 +31,8 @@ export default function LoginPage() {
       } else {
         router.push("/");
       }
-    } catch {
+    } catch (error) {
+      console.error("Login request failed", error);
       setError("Chyba připojení k serveru");
     } finally {
       setLoading(false);
@@ -41,7 +42,7 @@ export default function LoginPage() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "#0a0a0f",
+      background: "var(--bg)",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -49,9 +50,9 @@ export default function LoginPage() {
     }}>
       <div style={{
         width: 380,
-        background: "#111318",
+        background: "var(--surface)",
         borderRadius: 16,
-        border: "1px solid rgba(255,255,255,0.08)",
+        border: "1px solid var(--border)",
         padding: "36px 32px 32px",
         boxShadow: "0 32px 80px rgba(0,0,0,0.6)",
       }}>
@@ -65,10 +66,10 @@ export default function LoginPage() {
             fontWeight: 900, color: "#fff", fontSize: 22,
             margin: "0 auto 14px",
           }}>I</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#f1f5f9", letterSpacing: "-0.01em" }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", letterSpacing: "-0.01em" }}>
             Integraf
           </div>
-          <div style={{ fontSize: 11, color: "#64748b", marginTop: 3, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, letterSpacing: "0.12em", textTransform: "uppercase" }}>
             Výrobní plán
           </div>
         </div>
@@ -76,7 +77,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Username */}
           <div>
-            <label style={{ fontSize: 10, fontWeight: 600, color: "#9ba8c0", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+            <label style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
               Uživatelské jméno
             </label>
             <input
@@ -88,18 +89,18 @@ export default function LoginPage() {
               style={{
                 width: "100%", boxSizing: "border-box",
                 height: 40, borderRadius: 10,
-                background: "#1a1d25", border: "1px solid rgba(255,255,255,0.1)",
-                color: "#f1f5f9", fontSize: 14, padding: "0 12px",
+                background: "var(--surface-2)", border: "1px solid var(--border)",
+                color: "var(--text)", fontSize: 14, padding: "0 12px",
                 outline: "none", transition: "border-color 120ms ease-out",
               }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "#3b82f6")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
             />
           </div>
 
           {/* Password */}
           <div>
-            <label style={{ fontSize: 10, fontWeight: 600, color: "#9ba8c0", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+            <label style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
               Heslo
             </label>
             <input
@@ -110,21 +111,21 @@ export default function LoginPage() {
               style={{
                 width: "100%", boxSizing: "border-box",
                 height: 40, borderRadius: 10,
-                background: "#1a1d25", border: "1px solid rgba(255,255,255,0.1)",
-                color: "#f1f5f9", fontSize: 14, padding: "0 12px",
+                background: "var(--surface-2)", border: "1px solid var(--border)",
+                color: "var(--text)", fontSize: 14, padding: "0 12px",
                 outline: "none", transition: "border-color 120ms ease-out",
               }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "#3b82f6")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
+              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
             />
           </div>
 
           {/* Error */}
           {error && (
             <div style={{
-              fontSize: 11, color: "#fca5a5",
-              background: "rgba(239,68,68,0.12)",
-              border: "1px solid rgba(239,68,68,0.25)",
+              fontSize: 11, color: "var(--danger)",
+              background: "color-mix(in oklab, var(--danger) 12%, transparent)",
+              border: "1px solid color-mix(in oklab, var(--danger) 28%, transparent)",
               borderRadius: 8, padding: "8px 12px",
             }}>
               {error}
@@ -140,7 +141,7 @@ export default function LoginPage() {
               width: "100%", height: 42, borderRadius: 10,
               background: loading || !username || !password ? "rgba(255,230,0,0.35)" : "#FFE600",
               border: "none", cursor: loading || !username || !password ? "not-allowed" : "pointer",
-              color: "#0a0a0f", fontSize: 14, fontWeight: 700,
+              color: "var(--bg)", fontSize: 14, fontWeight: 700,
               transition: "all 120ms ease-out",
               letterSpacing: "0.01em",
             }}

@@ -60,10 +60,28 @@ npm run prisma:seed
 | 5 | Výrobní sloupečky, stavy, overdue indikace | ✅ Hotovo |
 | 6 | Opakování | ✅ Hotovo |
 | 7 | Hromadné posuny + zámečky | ✅ Hotovo |
-| 8 | Uživatelé, role a přihlašování | ⬜ Nezačato |
-| 9 | Admin dashboard (uživatelé + číselníky) | ⬜ Nezačato |
+| 8 | Uživatelé, role a přihlašování | ✅ Hotovo |
+| 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
+| 10 | Light/Dark migrace hlavních ploch | ✅ Hotovo |
+| 11 | Audit log (kdo co změnil) | ⬜ Nezačato |
 
 > Stav měň na: ⬜ Nezačato / 🔄 Rozpracováno / ✅ Hotovo / 🐛 Chyba
+
+### Stav UX light/dark (11. 3. 2026)
+
+- Theme provider: `next-themes`
+- Theme switch: iOS-style (`☀️/🌙`) v headeru
+- Migrace na tokeny: `PlannerPage`, `TimelineGrid`, `AdminDashboard`, `Login`
+- Deadline logika:
+  - `OK` = zelená
+  - `dnes bez OK` = žlutá
+  - `po termínu bez OK` = červená
+- Badge/chips DATA/MATERIÁL/EXPEDICE:
+  - stejný tyrkysový základní akcent,
+  - stavová barva (`OK/žlutá/červená`) má prioritu nad základem
+- UX feedback a error handling (Etapa 5 roadmapy):
+  - tiché `catch` nahrazené za `console.error` + uživatelský feedback,
+  - kritické akce mají loading/disabled stav proti double-submit.
 
 ---
 
@@ -240,22 +258,24 @@ Blok nikdy neukládá přímo label — ukládá `optionId` + `snapshotLabel`. S
 
 ---
 
-## Not-ready indikace
+## Not-ready indikace (deadline stavy)
 
 ### Logika
 
 ```
-pokud (now > requiredDate) A (ok !== true)
-→ zobraz ⚠ u konkrétního sloupce
+if (!requiredDate) => žádný stav
+if (ok === true)   => OK (zelená)
+if (isSameDay(now, requiredDate) && !ok) => warning (žlutá)
+if (startOfDay(now) > startOfDay(requiredDate) && !ok) => danger (červená)
 ```
 
 Indikace se aplikuje pouze tehdy, pokud `requiredDate` existuje (není null). Pokud datum není vyplněno, žádné varování se nezobrazuje.
 
 ### Vizuální provedení
 
-- ⚠ nebo vykřičník přímo u badge sloupce na kartičce v timeline
-- Příklad: `DATA ⚠` | `MAT ⚠`
-- Sloupec může být vizuálně zvýrazněn (oranžový rámeček)
+- ⚠/! (dnes) nebo ‼ (po termínu) přímo u badge sloupce na kartičce v timeline
+- Příklad: `DATA !` (dnes) | `MAT ‼` (po termínu)
+- Sloupec je zvýrazněn podle stavu (žlutá/červená), jinak má tyrkysový základní akcent
 - Tooltip při najetí: „Zakázka startuje 19.2., ale materiál dorazí 20.2."
 - **Primární indikace musí být u konkrétního sloupce**, ne jen na celém bloku
 
