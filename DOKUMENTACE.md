@@ -16,6 +16,39 @@ Webová aplikace pro plánování výroby na strojích XL 105 a XL 106. Umožňu
 
 ---
 
+## Databáze MySQL
+
+Projekt používá MySQL (databáze **IGvyroba**). Konfigurace v `.env`:
+
+| Parametr | Hodnota |
+|----------|---------|
+| Host | localhost:3306 |
+| Databáze | IGvyroba |
+| Uživatel | root |
+| Heslo | mysql |
+
+**Connection string:** `mysql://root:mysql@localhost:3306/IGvyroba?charset=utf8mb4`
+
+### Soubory
+- `prisma/schema.prisma` — Prisma schema (provider: mysql)
+- `prisma/mysql-schema.sql` — ruční SQL pro vytvoření DB a tabulek (volitelné)
+- `prisma/migrations/20260311000000_init_mysql/` — Prisma migrace
+
+### První spuštění
+```bash
+# 1. Vytvořit databázi (nebo spustit mysql-schema.sql)
+# 2. Migrace
+npx prisma migrate deploy
+
+# Pokud databáze už obsahuje tabulky (P3005):
+npx prisma migrate resolve --applied 20260311000000_init_mysql
+
+# 3. Seed (číselníky + admin)
+npm run prisma:seed
+```
+
+---
+
 ## Stav implementace
 
 | Etapa | Název | Stav |

@@ -9,7 +9,7 @@ Tento soubor čte Claude Code automaticky. Udržuj ho aktuální po každé etap
 Interní webová aplikace pro plánování výroby na strojích XL 105 a XL 106.
 Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 
-**Stack:** Next.js + React + TypeScript + Tailwind CSS v4 + Prisma 5 + SQLite (dev) → MySQL (produkce)
+**Stack:** Next.js + React + TypeScript + Tailwind CSS v4 + Prisma 5 + MySQL
 
 ---
 
@@ -41,15 +41,35 @@ Po čistém klonu nebo smazání databáze:
 ```bash
 npm install
 npx prisma generate
-npx prisma migrate dev --name init
-npm run prisma:seed
+npx prisma migrate deploy    # nebo migrate dev — aplikuje migrace na MySQL
+npm run prisma:seed          # vývoj; produkce: prisma:bootstrap
 ```
+
+**MySQL:** Databáze `IGvyroba`, localhost, uživatel `root`, heslo `mysql`. Nastavení v `.env` (DATABASE_URL).
+
+### Chyba P3005 — databáze není prázdná
+Pokud jste tabulky vytvořili ručně (např. `mysql-schema.sql`) a `prisma migrate deploy` hlásí *"The database schema is not empty"*:
+```bash
+npx prisma migrate resolve --applied 20260311000000_init_mysql
+```
+Tím označíte migraci jako již aplikovanou (baseline).
+
+---
+
+## Provedené změny — přechod na MySQL (2026-03)
+
+- **Provider:** SQLite → MySQL (`prisma/schema.prisma`)
+- **Databáze:** `IGvyroba`, localhost, root / heslo `mysql`
+- **Konfigurace:** `.env` a `.env.example` s `DATABASE_URL`
+- **Migrace:** SQLite migrace odstraněny, nová `20260311000000_init_mysql` pro MySQL
+- **SQL schema:** `prisma/mysql-schema.sql` — ruční vytvoření DB a tabulek (volitelné)
+- **Dokumentace:** `docs/MYSQL_SCHEMA_NAVRH.md` — návrh tabulek včetně AuditLog
 
 ---
 
 ## Důležitá rozhodnutí
 
-- **Databáze:** MySQL (IT specialista zná MySQL). Dev = SQLite (zero-config).
+- **Databáze:** MySQL — databáze `IGvyroba`, localhost, root, heslo `mysql`.
 - **Prisma verze:** `^5` — záměrně ne `latest` (v7 má breaking changes s novým config systémem)
 - **Enumy:** uloženy jako string (SQLite kompatibilita), při přechodu na MySQL Prisma vytvoří ENUM sloupce automaticky
 - **Tailwind:** verze 4, používá `@import "tailwindcss"` (ne `@tailwind base`)
@@ -67,6 +87,8 @@ npm run prisma:seed
 | Soubor | Účel |
 |--------|------|
 | `prisma/schema.prisma` | DB schema — Block + CodebookOption + User modely |
+| `prisma/mysql-schema.sql` | Ruční SQL pro vytvoření DB IGvyroba a tabulek (volitelné) |
+| `docs/MYSQL_SCHEMA_NAVRH.md` | Návrh MySQL tabulek včetně AuditLog (Etapa 10) |
 | `src/lib/prisma.ts` | Prisma singleton klient |
 | `src/app/page.tsx` | Server Component — načítá bloky + companyDays z DB |
 | `src/app/api/company-days/route.ts` | GET + POST firemních dnů |
@@ -281,14 +303,14 @@ datasource db {
 
 **2. Vygenerovat MySQL migrace** (na vývojovém počítači s prázdnou MySQL):
 ```bash
-DATABASE_URL="mysql://user:password@localhost:3306/integraf_dev"
+DATABASE_URL="mysql://root:mysql@localhost:3306/IGvyroba"
 npx prisma migrate dev --name init_mysql
 ```
 Starší SQLite migrace (`prisma/migrations/20260303...`) pro MySQL nefungují — nové je nahradí.
 
 **3. Env proměnné na produkčním serveru:**
 ```env
-DATABASE_URL="mysql://db_user:db_password@localhost:3306/integraf"
+DATABASE_URL="mysql://root:mysql@localhost:3306/IGvyroba"
 JWT_SECRET="<min. 32 náhodných znaků — vygeneruj: openssl rand -base64 32>"
 NODE_ENV="production"
 ```
