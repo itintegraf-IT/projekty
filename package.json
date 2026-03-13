@@ -14,7 +14,7 @@
     "prisma:bootstrap": "tsx prisma/bootstrap-prod.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5",
+    "@prisma/client": "^5.22.0",
     "@radix-ui/react-label": "^2.1.8",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-select": "^2.2.6",
@@ -45,7 +45,7 @@
     "eslint": "latest",
     "eslint-config-next": "latest",
     "postcss": "latest",
-    "prisma": "^5",
+    "prisma": "^5.22.0",
     "shadcn": "^3.8.5",
     "tailwindcss": "latest",
     "tsx": "latest",

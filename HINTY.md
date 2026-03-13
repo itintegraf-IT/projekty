@@ -88,11 +88,10 @@ Při 200+ blocích začne timeline lagovat — všechny bloky jsou v DOM najedno
 
 ## Infrastruktura
 
-### 🟡 Přechod na MySQL (produkce)
-Detailní postup je v `CLAUDE.md` sekce "Přechod na produkci".
-Klíčové: změnit `provider` v schema, vygenerovat nové migrace, použít `prisma migrate deploy`.
-Spouštět pouze `npm run prisma:bootstrap` (ne seed) pro první inicializaci.
+### ✅ MySQL — hotovo (2026-03)
+Projekt běží na MySQL (IGvyroba, localhost, root/mysql). Viz `CLAUDE.md` a `DOKUMENTACE.md` → Databáze MySQL.
+Pro produkční nasazení: `CLAUDE.md` sekce "Přechod na produkci — MySQL".
 
 ---
 
-*Poslední aktualizace: po etapě post-9 (iOS grafické vylepšení)*
+*Poslední aktualizace: 2026-03 (přechod na MySQL)*
