@@ -47,22 +47,79 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 
 ---
 
+## Architektura prostředí
+
+### Tři prostředí
+
+| Prostředí | Kde běží | Databáze | Kdo spravuje |
+|-----------|----------|----------|--------------|
+| **Produkce** | Firemní server (vzdálený) | MySQL — ostrá data | Michal |
+| **Vojta local** | MacBook (AMPPS) | MySQL testovací | Vojta |
+| **Michal local** | Michalův počítač | MySQL testovací | Michal |
+
+**Klíčové pravidlo:** Git přenáší **jen kód**, nikdy databázi. Každé prostředí má vlastní `.env` (není v gitu).
+
+---
+
+## Workflow pro úpravy
+
+### A) Změna frontendu (vizuální úpravy, UI, bez změny DB)
+
+1. Uprav soubory lokálně
+2. Otestuj: `npm run dev`
+3. Pushni: `git push origin Vojta`
+4. Řekni Michalovi — on na serveru spustí:
+   ```bash
+   git pull
+   npm run build
+   npm run start
+   ```
+5. ✅ Hotovo — **databáze se nedotýká**
+
+### B) Změna databázového schématu (nový sloupec, nová tabulka)
+
+1. Uprav `prisma/schema.prisma` lokálně
+2. Vytvoř migraci: `npx prisma migrate dev --name popis_zmeny`
+3. Otestuj lokálně
+4. Pushni: `git push origin Vojta`
+5. Řekni Michalovi — on na serveru spustí:
+   ```bash
+   git pull
+   npx prisma generate
+   npx prisma migrate deploy   ← bezpečné, jen přidá sloupce, data nesmaže
+   npm run build
+   npm run start
+   ```
+
+### ⚠️ Co Michal NESMÍ spustit na produkci
+- ❌ `npm run prisma:seed` — **smaže všechna ostrá data**
+- ❌ `npm run prisma:bootstrap` — jen pro první nasazení (prázdná DB)
+- ❌ `npx prisma migrate dev` — jen pro vývoj
+
+---
+
 ## Spuštění projektu
+
+**Předpoklad:** AMPPS spuštěný s MySQL, databáze `IGvyroba` existuje.
 
 ```bash
 npm run dev        # dev server → http://localhost:3000
 npx prisma studio  # prohlížeč databáze → http://localhost:5555
 ```
 
-Po čistém klonu nebo smazání databáze:
+Po čistém klonu (první nastavení vývojového prostředí):
 ```bash
 npm install
 npx prisma generate
-npx prisma migrate deploy    # nebo migrate dev — aplikuje migrace na MySQL
-npm run prisma:seed          # vývoj; produkce: prisma:bootstrap
+npx prisma migrate deploy
+npm run prisma:bootstrap   # vytvoří číselník + admin účet (jen pokud prázdné)
 ```
 
-**MySQL:** Databáze `IGvyroba`, localhost, uživatel `root`, heslo `mysql`. Nastavení v `.env` (DATABASE_URL).
+`.env` soubor (není v gitu — každý si vytvoří vlastní):
+```env
+DATABASE_URL="mysql://root:mysql@localhost:3306/IGvyroba?charset=utf8mb4"
+JWT_SECRET="integraf-dev-secret-please-change-in-production"
+```
 
 ### Chyba P3005 — databáze není prázdná
 Pokud jste tabulky vytvořili ručně (např. `mysql-schema.sql`) a `prisma migrate deploy` hlásí *"The database schema is not empty"*:
