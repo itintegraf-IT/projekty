@@ -1,43 +1,98 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRef, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
-  const router = useRouter();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError]       = useState<string | null>(null);
-  const [loading, setLoading]   = useState(false);
+function LoginForm() {
   const usernameRef = useRef<HTMLInputElement>(null);
+  const searchParams = useSearchParams();
+  const error = searchParams.get("error");
 
   useEffect(() => {
     usernameRef.current?.focus();
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error ?? "Nesprávné přihlašovací údaje");
-      } else {
-        router.push("/");
-      }
-    } catch (error) {
-      console.error("Login request failed", error);
-      setError("Chyba připojení k serveru");
-    } finally {
-      setLoading(false);
-    }
-  }
+  return (
+    <form action="/api/auth/login" method="POST" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Username */}
+      <div>
+        <label htmlFor="username" style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+          Uživatelské jméno
+        </label>
+        <input
+          ref={usernameRef}
+          id="username"
+          name="username"
+          type="text"
+          autoComplete="username"
+          required
+          style={{
+            width: "100%", boxSizing: "border-box",
+            height: 40, borderRadius: 10,
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            color: "var(--text)", fontSize: 14, padding: "0 12px",
+            outline: "none", transition: "border-color 120ms ease-out",
+          }}
+          onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+          onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+        />
+      </div>
+
+      {/* Password */}
+      <div>
+        <label htmlFor="password" style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
+          Heslo
+        </label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          style={{
+            width: "100%", boxSizing: "border-box",
+            height: 40, borderRadius: 10,
+            background: "var(--surface-2)", border: "1px solid var(--border)",
+            color: "var(--text)", fontSize: 14, padding: "0 12px",
+            outline: "none", transition: "border-color 120ms ease-out",
+          }}
+          onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+          onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+        />
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div style={{
+          fontSize: 11, color: "var(--danger)",
+          background: "color-mix(in oklab, var(--danger) 12%, transparent)",
+          border: "1px solid color-mix(in oklab, var(--danger) 28%, transparent)",
+          borderRadius: 8, padding: "8px 12px",
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Submit */}
+      <button
+        type="submit"
+        style={{
+          marginTop: 8,
+          width: "100%", height: 42, borderRadius: 10,
+          background: "#FFE600",
+          border: "none", cursor: "pointer",
+          color: "var(--bg)", fontSize: 14, fontWeight: 700,
+          transition: "all 120ms ease-out",
+          letterSpacing: "0.01em",
+        }}
+      >
+        Přihlásit se
+      </button>
+    </form>
+  );
+}
+
+export default function LoginPage() {
 
   return (
     <div style={{
@@ -74,81 +129,9 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {/* Username */}
-          <div>
-            <label style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
-              Uživatelské jméno
-            </label>
-            <input
-              ref={usernameRef}
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              style={{
-                width: "100%", boxSizing: "border-box",
-                height: 40, borderRadius: 10,
-                background: "var(--surface-2)", border: "1px solid var(--border)",
-                color: "var(--text)", fontSize: 14, padding: "0 12px",
-                outline: "none", transition: "border-color 120ms ease-out",
-              }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-            />
-          </div>
-
-          {/* Password */}
-          <div>
-            <label style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
-              Heslo
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              style={{
-                width: "100%", boxSizing: "border-box",
-                height: 40, borderRadius: 10,
-                background: "var(--surface-2)", border: "1px solid var(--border)",
-                color: "var(--text)", fontSize: 14, padding: "0 12px",
-                outline: "none", transition: "border-color 120ms ease-out",
-              }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-            />
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div style={{
-              fontSize: 11, color: "var(--danger)",
-              background: "color-mix(in oklab, var(--danger) 12%, transparent)",
-              border: "1px solid color-mix(in oklab, var(--danger) 28%, transparent)",
-              borderRadius: 8, padding: "8px 12px",
-            }}>
-              {error}
-            </div>
-          )}
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading || !username || !password}
-            style={{
-              marginTop: 8,
-              width: "100%", height: 42, borderRadius: 10,
-              background: loading || !username || !password ? "rgba(255,230,0,0.35)" : "#FFE600",
-              border: "none", cursor: loading || !username || !password ? "not-allowed" : "pointer",
-              color: "var(--bg)", fontSize: 14, fontWeight: 700,
-              transition: "all 120ms ease-out",
-              letterSpacing: "0.01em",
-            }}
-          >
-            {loading ? "Přihlašování…" : "Přihlásit se"}
-          </button>
-        </form>
+        <Suspense fallback={<div style={{ height: 200 }} />}>
+          <LoginForm />
+        </Suspense>
       </div>
     </div>
   );

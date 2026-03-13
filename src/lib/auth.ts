@@ -12,16 +12,27 @@ export interface SessionUser {
   role: string;
 }
 
-export async function createSession(user: SessionUser) {
-  const token = await new SignJWT({ ...user })
+/** Vrátí JWT token pro session — pro ruční nastavení cookie v Route Handleru */
+export async function createSessionToken(user: SessionUser): Promise<string> {
+  return new SignJWT({ ...user })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
     .sign(SECRET);
+}
 
+/** Vrátí hodnoty pro Set-Cookie hlavičku (pro HTTP přístup přes IP) */
+export function getCookieOptions(): { secure: boolean } {
+  const secure = process.env.NODE_ENV === "production" && process.env.ALLOW_HTTP_SESSION !== "true";
+  return { secure };
+}
+
+export async function createSession(user: SessionUser) {
+  const token = await createSessionToken(user);
+  const { secure } = getCookieOptions();
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure,
     sameSite: "lax",
     maxAge: 60 * 60 * 24 * 7,
     path: "/",
