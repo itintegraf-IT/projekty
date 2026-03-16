@@ -107,6 +107,8 @@ interface TimelineGridProps {
   onMultiSelect?: (ids: Set<number>) => void;
   onMultiBlockUpdate?: (updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) => void;
   canEdit?: boolean;
+  canEditData?: boolean;
+  canEditMat?: boolean;
   onError?: (msg: string) => void;
   workingTimeLock?: boolean;
 }
@@ -270,11 +272,16 @@ function fmtDateShort(s: string | null | undefined): string {
   return `${d.getDate()}.${d.getMonth() + 1}.`;
 }
 
-function deadlineState(requiredDate: string | null | undefined, ok: boolean, now: Date): "none" | "ok" | "warning" | "danger" {
+function deadlineState(requiredDate: string | null | undefined, ok: boolean, now: Date, blockStartTime?: string | Date): "none" | "ok" | "warning" | "danger" | "earlyStart" {
   if (!requiredDate) return "none";
   if (ok) return "ok";
   const due = new Date(requiredDate);
   if (isNaN(due.getTime())) return "none";
+  // Blok startuje dříve než dorazí materiál/data
+  if (blockStartTime) {
+    const start = new Date(blockStartTime);
+    if (!isNaN(start.getTime()) && startOfDay(start).getTime() < startOfDay(due).getTime()) return "earlyStart";
+  }
   if (isSameDay(due, now)) return "warning";
   if (startOfDay(now).getTime() > startOfDay(due).getTime()) return "danger";
   return "none";
@@ -290,38 +297,152 @@ const FIELD_ACCENT = {
   EXPEDICE: "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",
 };
 
+const MONTH_NAMES_TG = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
+const DAY_NAMES_TG   = ["Po","Út","St","Čt","Pá","So","Ne"];
 
+// ─── InlineDatePicker — floating calendar pro dvojklik na badge ───────────────
+function InlineDatePicker({
+  x, y, currentValue, onPick, onClose,
+}: {
+  x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void;
+}) {
+  const today = new Date();
+  const safeDate = currentValue ? currentValue.slice(0, 10) : "";
+  const initial = safeDate ? new Date(safeDate + "T00:00:00") : today;
+  const [viewYear,  setViewYear]  = useState(initial.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initial.getMonth());
+  const selected = safeDate ? new Date(safeDate + "T00:00:00") : null;
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); } else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); } else setViewMonth(m => m + 1);
+  }
+  function toStr(d: Date) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+
+  const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells: (number | null)[] = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const CELL = 30; const GAP = 2;
+  const popW = 7 * CELL + 6 * GAP + 24;
+
+  // Adjust to stay on screen
+  const left = Math.min(x, window.innerWidth - popW - 8);
+  const top  = y + 4;
+
+  return (
+    <>
+      {/* Transparent overlay to catch outside clicks */}
+      <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onMouseDown={onClose} />
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        style={{
+          position: "fixed", left, top, zIndex: 9999,
+          background: "var(--surface)", border: "1px solid var(--border)",
+          borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+          padding: "12px 12px 10px",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <button onClick={prevMonth} style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{MONTH_NAMES_TG[viewMonth]} {viewYear}</span>
+          <button onClick={nextMonth} style={{ width: 24, height: 24, borderRadius: 6, border: "none", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        {/* Day headers */}
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, marginBottom: 2 }}>
+          {DAY_NAMES_TG.map(d => (
+            <div key={d} style={{ textAlign: "center", fontSize: 9, fontWeight: 600, color: "var(--text-muted)" }}>{d}</div>
+          ))}
+        </div>
+        {/* Day cells */}
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
+          {cells.map((day, i) => {
+            if (!day) return <div key={i} style={{ width: CELL, height: CELL }} />;
+            const isSelected = !!selected && selected.getDate() === day && selected.getMonth() === viewMonth && selected.getFullYear() === viewYear;
+            const isToday    = today.getDate() === day && today.getMonth() === viewMonth && today.getFullYear() === viewYear;
+            return (
+              <button key={i}
+                onClick={() => { onPick(toStr(new Date(viewYear, viewMonth, day))); }}
+                style={{
+                  width: CELL, height: CELL, borderRadius: "50%",
+                  background: isSelected ? "var(--accent)" : "transparent",
+                  color: isSelected ? "var(--background)" : isToday ? "var(--accent)" : "var(--text)",
+                  border: isToday && !isSelected ? "1.5px solid var(--accent)" : "1.5px solid transparent",
+                  fontSize: 11, fontWeight: isSelected || isToday ? 600 : 400,
+                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "background 100ms ease-out",
+                }}
+              >{day}</button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
 
 // ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
 function DateBadge({
-  label, dateStr, ok, warn, danger, accent, onToggle,
+  label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick,
 }: {
-  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; accent?: string; onToggle: () => void;
+  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle: () => void; onDoubleClick?: (rect: DOMRect) => void;
 }) {
   const [loading, setLoading] = useState(false);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const empty = !dateStr;
   const fmt = dateStr ? fmtDate(dateStr) : "—";
 
   const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
   const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
   const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
+  const earlyStartStrong = "color-mix(in oklab, #f97316 85%, var(--text))";
   const neutralAccent = accent ?? "var(--text-muted)";
-  const bg          = empty ? "color-mix(in oklab, var(--surface) 96%, transparent)" : ok ? tint(successStrong, 16) : danger ? tint(dangerStrong, 16) : warn ? tint(warningStrong, 18) : tint(neutralAccent, 14);
-  const borderColor = empty ? "var(--border)" : ok ? tint(successStrong, 45)  : danger ? tint(dangerStrong, 56)  : warn ? tint(warningStrong, 52)  : tint(neutralAccent, 38);
-  const labelColor  = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : neutralAccent;
-  const dateColor   = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : neutralAccent;
+  const bg          = empty ? "color-mix(in oklab, var(--surface) 96%, transparent)" : ok ? tint(successStrong, 16) : danger ? tint(dangerStrong, 16) : warn ? tint(warningStrong, 18) : earlyStart ? tint(earlyStartStrong, 16) : tint(neutralAccent, 14);
+  const borderColor = empty ? "var(--border)" : ok ? tint(successStrong, 45)  : danger ? tint(dangerStrong, 56)  : warn ? tint(warningStrong, 52)  : earlyStart ? tint(earlyStartStrong, 45) : tint(neutralAccent, 38);
+  const labelColor  = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : earlyStart ? earlyStartStrong : neutralAccent;
+  const dateColor   = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : earlyStart ? earlyStartStrong : neutralAccent;
 
-  async function handleClick(e: React.MouseEvent) {
+  function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
     if (empty || loading) return;
-    setLoading(true);
-    onToggle();
-    setLoading(false);
+    if (onDoubleClick) {
+      // Odložit toggle — zruší se pokud přijde dblclick dřív než timeout
+      if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = setTimeout(async () => {
+        clickTimerRef.current = null;
+        setLoading(true);
+        onToggle();
+        setLoading(false);
+      }, 220);
+    } else {
+      setLoading(true);
+      onToggle();
+      setLoading(false);
+    }
+  }
+
+  function handleDoubleClick(e: React.MouseEvent) {
+    e.stopPropagation();
+    // Zruš případný čekající single-click toggle
+    if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
+    if (onDoubleClick) onDoubleClick(e.currentTarget.getBoundingClientRect());
   }
 
   return (
     <div
       onClick={handleClick}
+      onDoubleClick={onDoubleClick ? handleDoubleClick : undefined}
       style={{
         display: "flex", flexDirection: "column", gap: 2,
         padding: "5px 9px", borderRadius: 5,
@@ -336,8 +457,9 @@ function DateBadge({
       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
         {!empty && (
-          <span style={{ fontSize: 10, lineHeight: 1, color: ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : "var(--text-muted)" }}>
-            {ok ? "✓" : danger ? "‼" : warn ? "!" : "·"}
+          <span style={{ fontSize: 10, lineHeight: 1, color: ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : earlyStart ? earlyStartStrong : "var(--text-muted)" }}
+                title={earlyStart ? "Start zakázky před dodáním" : undefined}>
+            {ok ? "✓" : danger ? "‼" : warn ? "!" : earlyStart ? "⚠" : "·"}
           </span>
         )}
       </div>
@@ -364,6 +486,7 @@ function MiniChip({ label, accent }: { label: string; accent: string }) {
 function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu, onBlockUpdate, onError,
+  canEditData, canEditMat, onInlineDatePick,
 }: {
   block: Block;
   top: number;
@@ -381,6 +504,9 @@ function BlockCard({
   onContextMenu?: (e: React.MouseEvent) => void;
   onBlockUpdate: (b: Block) => void;
   onError?: (msg: string) => void;
+  canEditData?: boolean;
+  canEditMat?: boolean;
+  onInlineDatePick?: (blockId: number, field: "data" | "material", currentValue: string, rect: DOMRect) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
@@ -388,8 +514,8 @@ function BlockCard({
   const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now;
   const clampedHeight = Math.max(height, 20);
 
-  const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now);
-  const materialDeadlineState = deadlineState(block.materialRequiredDate, block.materialOk, now);
+  const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
+  const materialDeadlineState = deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
 
   const s = isOverdue ? BLOCK_OVERDUE : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
 
@@ -467,8 +593,9 @@ function BlockCard({
         const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
         const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
         const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
-        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.DATA;
-        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.MATERIAL;
+        const earlyStartStrong = "color-mix(in oklab, #f97316 85%, var(--text))";
+        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : dataDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.DATA;
+        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : materialDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.MATERIAL;
         const eClr = FIELD_ACCENT.EXPEDICE;
         const dateChip = (clr: string): React.CSSProperties => ({
           fontSize: 10, fontWeight: 600, color: clr,
@@ -476,15 +603,17 @@ function BlockCard({
           borderRadius: 4, padding: "2px 6px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1, cursor: "pointer",
         });
+        const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
+        const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
-              <span style={dateChip(dClr)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
-                D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : ""}` : "—"}
+              <span style={dateChip(dClr)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+                D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
               </span>
-              <span style={dateChip(mClr)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
-                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : ""}` : "—"}
+              <span style={dateChip(mClr)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
               </span>
               <span style={{ ...dateChip(eClr), cursor: "default" }}>
                 E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
@@ -529,8 +658,9 @@ function BlockCard({
         const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
         const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
         const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
-        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.DATA;
-        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : FIELD_ACCENT.MATERIAL;
+        const earlyStartStrong = "color-mix(in oklab, #f97316 85%, var(--text))";
+        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : dataDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.DATA;
+        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : materialDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.MATERIAL;
         const eClr = FIELD_ACCENT.EXPEDICE;
         const chipStyle = (clr: string): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600, color: clr,
@@ -538,16 +668,18 @@ function BlockCard({
           borderRadius: 3, padding: "1px 5px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
         });
+        const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
+        const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {block.type !== "UDRZBA" && <>
-                <span style={chipStyle(dClr)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
-                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : ""}` : "—"}
+                <span style={chipStyle(dClr)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
-                <span style={chipStyle(mClr)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
-                  M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : ""}` : "—"}
+                <span style={chipStyle(mClr)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+                  M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                 </span>
                 <span style={{ ...chipStyle(eClr), cursor: "default" }}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
@@ -639,15 +771,17 @@ function BlockCard({
         }}>
           <DateBadge
             label="DATA" dateStr={block.dataRequiredDate}
-            ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"}
+            ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
             onToggle={() => toggleField("dataOk", block.dataOk)}
+            onDoubleClick={canEditData ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
           />
           <DateBadge
             label="MAT." dateStr={block.materialRequiredDate}
-            ok={materialDeadlineState === "ok"} warn={materialDeadlineState === "warning"} danger={materialDeadlineState === "danger"}
+            ok={materialDeadlineState === "ok"} warn={materialDeadlineState === "warning"} danger={materialDeadlineState === "danger"} earlyStart={materialDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.MATERIAL}
             onToggle={() => toggleField("materialOk", block.materialOk)}
+            onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", rect) : undefined}
           />
           <DateBadge
             label="EXP." dateStr={block.deadlineExpedice}
@@ -714,6 +848,8 @@ export default function TimelineGrid({
   onMultiSelect,
   onMultiBlockUpdate,
   canEdit = true,
+  canEditData = false,
+  canEditMat = false,
   onError,
   workingTimeLock = true,
 }: TimelineGridProps) {
@@ -729,6 +865,7 @@ export default function TimelineGrid({
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
   const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material"; currentValue: string; x: number; y: number } | null>(null);
 
   const dragStateRef    = useRef<DragInternalState | null>(null);
   const dragDidMove     = useRef(false);
@@ -1177,12 +1314,20 @@ export default function TimelineGrid({
 
           {/* ── Čas sloupec ───────────────────────────────────────────────── */}
           <div style={{ width: TIME_COL_W, flexShrink: 0, position: "relative", zIndex: 9, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>
-            {/* Firemní den overlay */}
-            {days.map((d) =>
-              d.isCompanyDay ? (
-                <div key={`ct-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
-              ) : null
-            )}
+            {/* Firemní den overlay (hodinová přesnost) */}
+            {companyDays?.map((cd) => {
+              if (!viewStart) return null;
+              const top    = dateToY(new Date(cd.startDate), viewStart, slotHeight);
+              const bottom = dateToY(new Date(cd.endDate),   viewStart, slotHeight);
+              const totalH = totalDays * dayHeight;
+              const clampedTop    = Math.max(0, Math.min(top, totalH));
+              const clampedBottom = Math.max(0, Math.min(bottom, totalH));
+              const height = clampedBottom - clampedTop;
+              if (height <= 0) return null;
+              return (
+                <div key={`ct-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
+              );
+            })}
             {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
               <div
                 key={m.y}
@@ -1288,12 +1433,20 @@ export default function TimelineGrid({
                   ) : null
                 )}
 
-                {/* Firemní den overlay (červená — plánovaná odstávka) */}
-                {days.map((d) =>
-                  d.isCompanyDay ? (
-                    <div key={`c-${d.y}`} style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
-                  ) : null
-                )}
+                {/* Firemní den overlay (hodinová přesnost) */}
+                {companyDays?.map((cd) => {
+                  if (!viewStart) return null;
+                  const top    = dateToY(new Date(cd.startDate), viewStart, slotHeight);
+                  const bottom = dateToY(new Date(cd.endDate),   viewStart, slotHeight);
+                  const totalH = totalDays * dayHeight;
+                  const clampedTop    = Math.max(0, Math.min(top, totalH));
+                  const clampedBottom = Math.max(0, Math.min(bottom, totalH));
+                  const height = clampedBottom - clampedTop;
+                  if (height <= 0) return null;
+                  return (
+                    <div key={`c-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
+                  );
+                })}
 
                 {/* Blokované časy — víkendy + noční XL_105 (červená) */}
                 {blockedOverlays[machine]?.map((n) => (
@@ -1365,6 +1518,11 @@ export default function TimelineGrid({
                       onContextMenu={canEdit ? (e) => handleBlockContextMenu(block, e) : undefined}
                       onBlockUpdate={callbacksRef.current.onBlockUpdate}
                       onError={callbacksRef.current.onError}
+                      canEditData={canEditData}
+                      canEditMat={canEditMat}
+                      onInlineDatePick={(blockId, field, currentValue, rect) => {
+                        setInlinePicker({ blockId, field, currentValue, x: rect.left, y: rect.bottom });
+                      }}
                     />
                   );
                 })}
@@ -1441,6 +1599,35 @@ export default function TimelineGrid({
           pointerEvents: "none",
           zIndex: 9999,
         }} />
+      )}
+
+      {/* Inline datepicker pro double-click na DATA/MAT badge */}
+      {inlinePicker && (
+        <InlineDatePicker
+          x={inlinePicker.x}
+          y={inlinePicker.y}
+          currentValue={inlinePicker.currentValue}
+          onClose={() => setInlinePicker(null)}
+          onPick={async (dateStr) => {
+            setInlinePicker(null);
+            const block = blocks.find((b) => b.id === inlinePicker.blockId);
+            if (!block) return;
+            const field = inlinePicker.field === "data" ? "dataRequiredDate" : "materialRequiredDate";
+            try {
+              const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ [field]: dateStr }),
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const updated = await res.json();
+              callbacksRef.current.onBlockUpdate(updated);
+            } catch (err) {
+              console.error("Inline date pick failed", err);
+              callbacksRef.current.onError?.("Nepodařilo se uložit datum.");
+            }
+          }}
+        />
       )}
 
       {/* Kontextové menu */}

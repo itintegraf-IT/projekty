@@ -152,11 +152,14 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
       }}>
         <a href="/" style={{
           display: "flex", alignItems: "center", gap: 6,
-          color: "var(--accent)", fontSize: 14, textDecoration: "none",
-          fontWeight: 500,
+          color: "var(--accent)", fontSize: 13, textDecoration: "none",
+          fontWeight: 600, padding: "6px 12px", borderRadius: 8,
+          background: "color-mix(in oklab, var(--accent) 12%, var(--surface))",
+          border: "1px solid color-mix(in oklab, var(--accent) 35%, var(--border))",
+          transition: "background 120ms ease-out",
         }}>
           <svg width="8" height="13" viewBox="0 0 8 13" fill="none">
-            <path d="M7 1L1 6.5L7 12" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M7 1L1 6.5L7 12" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Plánování
         </a>

@@ -584,7 +584,7 @@ function BlockEdit({
           </div>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">
-          ← Zpět
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="15 18 9 12 15 6"/></svg> Zpět
         </Button>
       </div>
 
@@ -841,7 +841,7 @@ function BlockEdit({
                 onMouseEnter={(e) => { if (!saving) (e.currentTarget as HTMLButtonElement).style.filter = "brightness(0.96)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "none"; }}
               >
-                {saving ? "Ukládám…" : "Uložit změny →"}
+                {saving ? "Ukládám…" : <><span>Uložit změny</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></>}
               </button>
               <Button type="button" variant="ghost" onClick={onClose} disabled={saving} className="text-slate-400 text-xs">
                 Zrušit
@@ -927,7 +927,7 @@ function BlockDetail({
           </div>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">
-          ← Zpět
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="15 18 9 12 15 6"/></svg> Zpět
         </Button>
       </div>
 
@@ -1114,7 +1114,7 @@ function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; on
           <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Posledních 3 dny</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginTop: 2 }}>DTP + MTZ aktivita</div>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">← Zpět</Button>
+        <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="15 18 9 12 15 6"/></svg> Zpět</Button>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
         {logs.length === 0 ? (
@@ -1169,18 +1169,28 @@ function ShutdownManager({
 }) {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate]     = useState("");
+  const [startHour, setStartHour] = useState(0);
+  const [endHour, setEndHour]     = useState(23);
   const [label, setLabel]         = useState("");
   const [saving, setSaving]       = useState(false);
   const [deleting, setDeleting]   = useState<number | null>(null);
   const [error, setError]         = useState<string | null>(null);
 
+  const hourSelectStyle: React.CSSProperties = {
+    height: 32, borderRadius: 6, border: "1px solid var(--border)",
+    background: "var(--surface-2)", color: "var(--text)", fontSize: 11,
+    padding: "0 6px", cursor: "pointer", width: "100%",
+  };
+
   async function handleAdd() {
     if (!startDate || !endDate || !label.trim()) { setError("Vyplňte všechna pole."); return; }
-    if (endDate < startDate) { setError("Konec musí být po začátku."); return; }
+    const startISO = `${startDate}T${String(startHour).padStart(2, "0")}:00:00`;
+    const endISO   = `${endDate}T${String(endHour).padStart(2, "0")}:59:59`;
+    if (endISO < startISO) { setError("Konec musí být po začátku."); return; }
     setSaving(true); setError(null);
     try {
-      await onAdd(startDate, endDate, label.trim());
-      setStartDate(""); setEndDate(""); setLabel("");
+      await onAdd(startISO, endISO, label.trim());
+      setStartDate(""); setEndDate(""); setLabel(""); setStartHour(0); setEndHour(23);
     } catch (error) {
       console.error("Company day save failed", error);
       setError("Chyba při ukládání.");
@@ -1205,7 +1215,7 @@ function ShutdownManager({
           <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Firemní dny</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginTop: 2 }}>Odstávky a svátky</div>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">← Zpět</Button>
+        <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="15 18 9 12 15 6"/></svg> Zpět</Button>
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px" }}>
@@ -1220,14 +1230,30 @@ function ShutdownManager({
             <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Název</Label>
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Velikonoce, dovolená…" className="h-8 text-xs" />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr auto", gap: 6, alignItems: "end" }}>
             <div>
-              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Od</Label>
+              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Od (datum)</Label>
               <DatePickerField value={startDate} onChange={setStartDate} placeholder="Od…" />
             </div>
             <div>
-              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Do</Label>
+              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Hod.</Label>
+              <select value={startHour} onChange={(e) => setStartHour(Number(e.target.value))} style={hourSelectStyle}>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{String(i).padStart(2, "0")}:00</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Do (datum)</Label>
               <DatePickerField value={endDate} onChange={setEndDate} placeholder="Do…" />
+            </div>
+            <div>
+              <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Hod.</Label>
+              <select value={endHour} onChange={(e) => setEndHour(Number(e.target.value))} style={hourSelectStyle}>
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{String(i).padStart(2, "0")}:59</option>
+                ))}
+              </select>
             </div>
           </div>
           <Button
@@ -1256,10 +1282,18 @@ function ShutdownManager({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#c4b5fd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cd.label}</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-                  {new Date(cd.startDate).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" })}
-                  {cd.startDate.slice(0, 10) !== cd.endDate.slice(0, 10) && (
-                    <> – {new Date(cd.endDate).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" })}</>
-                  )}
+                  {(() => {
+                    const s = new Date(cd.startDate);
+                    const e = new Date(cd.endDate);
+                    const sDate = s.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+                    const eDate = e.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+                    const sHour = s.getHours(); const eHour = e.getHours();
+                    const wholeDay = sHour === 0 && eHour === 23;
+                    const sTime = wholeDay ? "" : ` ${String(sHour).padStart(2, "0")}:00`;
+                    const eTime = wholeDay ? "" : ` ${String(eHour).padStart(2, "0")}:59`;
+                    const sameDateStr = cd.startDate.slice(0, 10) === cd.endDate.slice(0, 10);
+                    return sameDateStr ? `${sDate}${sTime}${eTime && sTime !== eTime ? ` – ${eTime.trim()}` : ""}` : `${sDate}${sTime} – ${eDate}${eTime}`;
+                  })()}
                 </div>
               </div>
               <button
@@ -1406,6 +1440,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const [pushSuggestion, setPushSuggestion] = useState<PushSuggestion | null>(null);
   const blocksRef = useRef<Block[]>([]);
   blocksRef.current = blocks;
+  const selectedBlockIdsRef = useRef<Set<number>>(new Set());
+  selectedBlockIdsRef.current = selectedBlockIds;
   const [isCut, setIsCut] = useState(false);
   const [pasteTarget, setPasteTarget] = useState<{ machine: string; time: Date } | null>(null);
   const copiedBlockRef = useRef<Block | null>(null);
@@ -1414,6 +1450,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   copiedBlockRef.current = copiedBlock;
   isCutRef.current = isCut;
   pasteTargetRef.current = pasteTarget;
+  const clipboardGroupRef = useRef<Block[]>([]);
+  const isGroupCutRef = useRef(false);
   const [filterText, setFilterText] = useState("");
   const [jumpDate, setJumpDate]     = useState("");
   const [reportDate, setReportDate] = useState("");
@@ -2079,6 +2117,86 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
     }
   }
 
+  async function handleGroupPaste() {
+    const group = clipboardGroupRef.current;
+    const target = pasteTargetRef.current;
+    if (!group.length || !target) return;
+    // Anchor = nejstarší startTime ve skupině
+    const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
+    const pasteMs = target.time.getTime();
+
+    // POST všechny bloky sekvenčně — při prvním selhání se zastaví a žádný lokální stav se nezmění
+    const created: Block[] = [];
+    try {
+      for (const src of group) {
+        const offsetMs = new Date(src.startTime).getTime() - anchorMs;
+        const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
+        const newStart = new Date(pasteMs + offsetMs);
+        const newEnd = new Date(newStart.getTime() + durationMs);
+        const res = await fetch("/api/blocks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderNumber: src.orderNumber, machine: target.machine, type: src.type,
+            startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
+            description: src.description, locked: false,
+            deadlineExpedice: src.deadlineExpedice,
+            dataStatusId: src.dataStatusId, dataStatusLabel: src.dataStatusLabel, dataRequiredDate: src.dataRequiredDate, dataOk: src.dataOk,
+            materialStatusId: src.materialStatusId, materialStatusLabel: src.materialStatusLabel, materialRequiredDate: src.materialRequiredDate, materialOk: src.materialOk,
+            barvyStatusId: src.barvyStatusId, barvyStatusLabel: src.barvyStatusLabel,
+            lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
+            specifikace: src.specifikace,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        created.push(await res.json() as Block);
+      }
+    } catch (err) {
+      console.error("Group paste failed", err);
+      // Rollback: smaž bloky, které se stihly vytvořit před selháním
+      if (created.length > 0) {
+        const rollbackResults = await Promise.allSettled(
+          created.map((b) => fetch(`/api/blocks/${b.id}`, { method: "DELETE" }).then((r) => {
+            if (!r.ok) throw new Error(`Rollback DELETE ${b.id} HTTP ${r.status}`);
+          }))
+        );
+        const rollbackFailed = rollbackResults.filter((r) => r.status === "rejected");
+        if (rollbackFailed.length > 0) {
+          console.error("Group paste rollback partial failure", rollbackFailed);
+          // allSettled zachovává pořadí — blok na indexu i odpovídá rollbackResults[i]
+          const survivingBlocks = created.filter((_, i) => rollbackResults[i].status === "rejected");
+          survivingBlocks.forEach((b) => handleBlockCreate(b));
+          showToast(`Chyba vložení — ${survivingBlocks.length} blok(ů) zůstal(y) v DB. Zkontroluj timeline.`, "error");
+          return;
+        }
+      }
+      showToast("Chyba při vložení skupiny — žádné bloky nebyly přidány.", "error");
+      return;
+    }
+
+    // Všechny POST proběhly úspěšně — přidej do lokálního stavu
+    created.forEach((b) => handleBlockCreate(b));
+
+    if (isGroupCutRef.current) {
+      // DELETE originálů — kontroluj .ok, sb er selhání
+      const deleteResults = await Promise.allSettled(
+        group.map((src) => fetch(`/api/blocks/${src.id}`, { method: "DELETE" }).then((r) => {
+          if (!r.ok) throw new Error(`DELETE ${src.id} HTTP ${r.status}`);
+        }))
+      );
+      const failedDeletes = deleteResults.filter((r) => r.status === "rejected");
+      if (failedDeletes.length > 0) {
+        console.error("Group cut: some DELETEs failed", failedDeletes);
+        showToast("Bloky byly zkopírovány, ale původní se nepodařilo smazat.", "error");
+      } else {
+        setBlocks((prev) => prev.filter((b) => !group.some((g) => g.id === b.id)));
+        setSelectedBlockIds(new Set());
+        clipboardGroupRef.current = [];
+        isGroupCutRef.current = false;
+      }
+    }
+  }
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
@@ -2109,6 +2227,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         }
         return;
       }
+      // Priorita: skupinové operace, pokud je vybráno více bloků lasem
+      if (e.key === "c" && selectedBlockIdsRef.current.size > 0) {
+        e.preventDefault();
+        clipboardGroupRef.current = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
+        isGroupCutRef.current = false;
+        return;
+      }
+      if (e.key === "x" && selectedBlockIdsRef.current.size > 0) {
+        e.preventDefault();
+        clipboardGroupRef.current = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
+        isGroupCutRef.current = true;
+        return;
+      }
+      if (e.key === "v" && clipboardGroupRef.current.length > 0 && pasteTargetRef.current) {
+        e.preventDefault();
+        void handleGroupPaste();
+        return;
+      }
+      // Fallback: jednoblokové operace
       if (e.key === "c" && selectedBlock) {
         e.preventDefault();
         setCopiedBlock(selectedBlock);
@@ -2340,6 +2477,38 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               )}
             </div>
           )}
+          {/* Lasso badge — počet vybraných bloků nebo hint pro nové uživatele */}
+          {canEdit && selectedBlockIds.size > 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "4px 10px", borderRadius: 8,
+              background: "color-mix(in oklab, var(--accent) 12%, var(--surface))",
+              border: "1px solid color-mix(in oklab, var(--accent) 35%, var(--border))",
+              color: "var(--accent)", fontSize: 12, whiteSpace: "nowrap",
+            }}>
+              <span style={{ fontWeight: 600 }}>Vybráno {selectedBlockIds.size} {selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}</span>
+              <button
+                onClick={() => setSelectedBlockIds(new Set())}
+                style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: "0 2px", fontSize: 14, lineHeight: 1, opacity: 0.7, display: "flex", alignItems: "center" }}
+              >×</button>
+            </div>
+          )}
+          {canEdit && !lassoHintSeen && selectedBlockIds.size === 0 && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "4px 10px", borderRadius: 8,
+              background: "color-mix(in oklab, var(--surface-2) 80%, transparent)",
+              border: "1px solid var(--border)",
+              color: "var(--text-muted)", fontSize: 11, whiteSpace: "nowrap",
+            }}>
+              <span style={{ fontSize: 10, background: "color-mix(in oklab, var(--accent) 15%, var(--surface))", borderRadius: 4, padding: "1px 5px", fontFamily: "monospace", color: "var(--accent)" }}>⌥ Alt</span>
+              <span>+ tah = výběr více bloků</span>
+              <button
+                onClick={dismissLassoHint}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "0 2px", fontSize: 14, lineHeight: 1, opacity: 0.6, display: "flex", alignItems: "center" }}
+              >×</button>
+            </div>
+          )}
           <button
             onClick={handleLogout}
             style={{
@@ -2379,6 +2548,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             daysAhead={daysAhead}
             daysBack={daysBack}
             canEdit={canEdit}
+            canEditData={canEditData}
+            canEditMat={canEditMat}
             onError={(msg) => showToast(msg, "error")}
             workingTimeLock={workingTimeLock}
           />
@@ -2865,26 +3036,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
       <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
 
-      {/* Lasso hint — floating badge, zmizí při prvním použití nebo kliknutím × */}
-      {canEdit && !lassoHintSeen && (
-        <div style={{
-          position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
-          display: "flex", alignItems: "center", gap: 6,
-          padding: "6px 12px", borderRadius: 20, zIndex: 9000,
-          background: "color-mix(in oklab, var(--surface) 88%, transparent)", backdropFilter: "blur(12px)",
-          border: "1px solid color-mix(in oklab, var(--accent) 30%, transparent)",
-          color: "var(--accent)", fontSize: 12, whiteSpace: "nowrap",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
-          animation: "fadeInUp 300ms ease-out",
-        }}>
-          <span style={{ fontSize: 10, background: "color-mix(in oklab, var(--accent) 20%, transparent)", borderRadius: 5, padding: "1px 5px", fontFamily: "monospace", color: "var(--accent)" }}>⌥ Alt</span>
-          <span style={{ opacity: 0.85 }}>+ tah na timeline = výběr více bloků</span>
-          <button
-            onClick={dismissLassoHint}
-            style={{ marginLeft: 4, background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: "0 2px", fontSize: 15, lineHeight: 1, opacity: 0.6, display: "flex", alignItems: "center" }}
-          >×</button>
-        </div>
-      )}
     </main>
   );
 }
