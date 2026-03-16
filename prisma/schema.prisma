@@ -65,3 +65,19 @@ model User {
   role         String   @default("VIEWER")
   createdAt    DateTime @default(now())
 }
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  blockId     Int
+  orderNumber String?
+  userId      Int
+  username    String
+  action      String
+  field       String?
+  oldValue    String?
+  newValue    String?
+  createdAt   DateTime @default(now())
+
+  @@index([blockId, createdAt])  // GET /api/blocks/[id]/audit: WHERE blockId = ? ORDER BY createdAt DESC
+  @@index([createdAt])           // GET /api/audit: ORDER BY createdAt DESC + GET /api/audit/today: date range filter
+}

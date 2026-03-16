@@ -14,6 +14,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import ThemeToggle from "./ThemeToggle";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
+type AuditLogEntry = {
+  id: number;
+  blockId: number;
+  orderNumber: string | null;
+  userId: number;
+  username: string;
+  action: string;
+  field: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  createdAt: string;
+};
+
 type CodebookOption = {
   id: number;
   category: string;
@@ -437,6 +450,7 @@ function BlockEdit({
       setLakOpts(l);
     });
   }, []);
+
 
   function resolveLabel(opts: CodebookOption[], id: string): string | null {
     return opts.find((o) => o.id.toString() === id)?.label ?? null;
@@ -873,7 +887,15 @@ function BlockDetail({
   onDelete: (id: number) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [blockHistory, setBlockHistory] = useState<AuditLogEntry[]>([]);
   const typeCfg = TYPE_BUILDER_CONFIG[block.type as keyof typeof TYPE_BUILDER_CONFIG];
+
+  useEffect(() => {
+    fetch(`/api/blocks/${block.id}/audit`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: AuditLogEntry[]) => setBlockHistory(data))
+      .catch(() => setBlockHistory([]));
+  }, [block.id]);
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)" }}>
@@ -966,6 +988,32 @@ function BlockDetail({
         )}
       </div>
 
+      {/* Historie změn */}
+      {blockHistory.length > 0 && (
+        <div style={{ margin: "0 16px 12px", borderRadius: 8, border: "1px solid var(--border)", overflow: "hidden" }}>
+          <div style={{ padding: "5px 10px", background: "var(--surface-2)", fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+            Historie změn
+          </div>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {blockHistory.map((log, i) => (
+              <div key={log.id} style={{ padding: "5px 10px", borderTop: i > 0 ? "1px solid var(--border)" : undefined, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                <div style={{ fontSize: 9, color: "var(--text-muted)", whiteSpace: "nowrap", paddingTop: 1, minWidth: 70 }}>
+                  {new Date(log.createdAt).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit" })} {new Date(log.createdAt).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", flex: 1 }}>
+                  <span style={{ color: "var(--text)", fontWeight: 600 }}>{log.username}</span>
+                  {log.action === "UPDATE" && log.field && (
+                    <span> · {FIELD_LABELS[log.field] ?? log.field}: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, log.field)} → {fmtAuditVal(log.newValue, log.field)}</span></span>
+                  )}
+                  {log.action === "CREATE" && <span style={{ color: "#22c55e" }}> · Přidána</span>}
+                  {log.action === "DELETE" && <span style={{ color: "#ef4444" }}> · Smazána</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Smazat */}
       <div className="px-4 py-3 border-t border-slate-800">
         {confirming ? (
@@ -1023,6 +1071,86 @@ function DeadlineRow({ label, value, ok, date }: { label: string; value: string;
         {ok && value !== "—" && <span className="ml-1 text-green-500">✓</span>}
         {date && <span className="ml-1 text-slate-500 text-[9px]">({date})</span>}
       </span>
+    </div>
+  );
+}
+
+// ─── InfoPanel ────────────────────────────────────────────────────────────────
+const FIELD_LABELS: Record<string, string> = {
+  dataStatusLabel: "DATA stav",
+  dataRequiredDate: "DATA datum",
+  dataOk: "DATA OK",
+  materialStatusLabel: "Materiál stav",
+  materialRequiredDate: "Materiál datum",
+  materialOk: "Materiál OK",
+  deadlineExpedice: "Expedice termín",
+};
+
+function fmtAuditVal(val: string | null, field: string | null) {
+  if (!val || val === "null") return "—";
+  if (field === "dataOk" || field === "materialOk") return val === "true" ? "✓ OK" : "✗ Ne";
+  if (val.includes("T") && val.includes("Z")) {
+    try { return new Date(val).toLocaleDateString("cs-CZ"); } catch { return val; }
+  }
+  return val;
+}
+
+function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; onClose: () => void; onJumpToBlock: (orderNumber: string) => void }) {
+  function fmtDatetime(iso: string) {
+    const d = new Date(iso);
+    const today = new Date();
+    const isToday = d.toDateString() === today.toDateString();
+    const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" });
+    return isToday ? time : d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit" }) + " " + time;
+  }
+  function fmtVal(val: string | null, field: string | null) {
+    return fmtAuditVal(val, field);
+  }
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "var(--surface)", borderLeft: "1px solid var(--border)" }}>
+      <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 95%, transparent) 0%, var(--surface) 100%)", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Posledních 3 dny</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginTop: 2 }}>DTP + MTZ aktivita</div>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400">← Zpět</Button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
+        {logs.length === 0 ? (
+          <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", marginTop: 32 }}>
+            Žádné změny od DTP / MTZ za poslední 3 dny.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {logs.map((log) => (
+              <div key={log.id} style={{ padding: "8px 10px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{log.username}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{fmtDatetime(log.createdAt)}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  {log.orderNumber ? (
+                    <button
+                      onClick={() => { onClose(); onJumpToBlock(log.orderNumber!); }}
+                      style={{ background: "none", border: "none", padding: 0, color: "#3b82f6", fontWeight: 600, cursor: "pointer", fontSize: 11, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}
+                    >
+                      {log.orderNumber}
+                    </button>
+                  ) : (
+                    <span>#{log.blockId}</span>
+                  )}
+                  {log.action === "UPDATE" && log.field && (
+                    <span> · {FIELD_LABELS[log.field] ?? log.field}: <span style={{ color: "var(--text)" }}>{fmtVal(log.oldValue, log.field)} → {fmtVal(log.newValue, log.field)}</span></span>
+                  )}
+                  {log.action === "CREATE" && <span style={{ color: "#22c55e" }}> · Přidána</span>}
+                  {log.action === "DELETE" && <span style={{ color: "#ef4444" }}> · Smazána</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1212,6 +1340,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
   const [showShutdowns, setShowShutdowns] = useState(false);
+  const [showInfoPanel, setShowInfoPanel] = useState(false);
+  const [todayAuditLogs, setTodayAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [auditNewCount, setAuditNewCount] = useState(0);
 
   // ── Toast systém ──
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1362,6 +1493,44 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       showToast("Nepodařilo se načíst číselníky.", "error");
     });
   }, []);
+
+  // Načtení dnešních audit logů (jen pro ADMIN + PLANOVAT)
+  const fetchTodayAudit = useCallback(() => {
+    if (!["ADMIN", "PLANOVAT"].includes(currentUser.role)) return;
+    fetch("/api/audit/today")
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((data: AuditLogEntry[]) => {
+        setTodayAuditLogs(data);
+        const lastSeen = localStorage.getItem("auditLastSeen");
+        const lastSeenTime = lastSeen ? new Date(lastSeen).getTime() : 0;
+        const newCount = data.filter((l) => new Date(l.createdAt).getTime() > lastSeenTime).length;
+        setAuditNewCount(newCount);
+      })
+      .catch(() => { /* zachovat poslední validní data a count — neměnit stav */ });
+  }, [currentUser.role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    fetchTodayAudit();
+    const interval = setInterval(fetchTodayAudit, 60_000);
+    return () => clearInterval(interval);
+  }, [fetchTodayAudit]);
+
+  function handleOpenInfoPanel() {
+    setShowInfoPanel(true);
+    fetchTodayAudit();
+    localStorage.setItem("auditLastSeen", new Date().toISOString());
+    setAuditNewCount(0);
+  }
+
+  function handleJumpToBlock(orderNumber: string) {
+    setShowInfoPanel(false);
+    setFilterText(orderNumber);
+    const match = blocks.find((b) => b.orderNumber === orderNumber);
+    if (match) setSelectedBlock(match);
+  }
 
   const viewStart = startOfDay(addDays(new Date(), -daysBack));
 
@@ -1977,14 +2146,26 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         </div>
 
         <div className="flex items-center gap-2 ml-4 flex-1">
-          <Input
-            type="text"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Hledat zakázku…"
-            className="h-8 text-xs w-40 theme-transition-fast"
-            style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)" }}
-          />
+          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+            <Input
+              type="text"
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Escape") { setFilterText(""); setSelectedBlock(null); } }}
+              placeholder="Hledat zakázku…"
+              className="h-8 text-xs w-40 theme-transition-fast"
+              style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)", paddingRight: filterText ? 22 : undefined }}
+            />
+            {filterText && (
+              <button
+                onClick={() => { setFilterText(""); setSelectedBlock(null); }}
+                style={{ position: "absolute", right: 6, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, lineHeight: 1, fontSize: 14, display: "flex", alignItems: "center" }}
+                title="Zrušit filtr (Esc)"
+              >
+                ×
+              </button>
+            )}
+          </div>
           <div style={{ width: 150 }}>
             <DatePickerField
               value={jumpDate}
@@ -2127,6 +2308,38 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             </a>
           )}
           <ThemeToggle />
+          {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={handleOpenInfoPanel}
+                title="Aktivita DTP a MTZ za poslední 3 dny"
+                style={{
+                  width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: showInfoPanel ? "rgba(59,130,246,0.14)" : "transparent",
+                  border: `1px solid ${showInfoPanel ? "rgba(59,130,246,0.35)" : "var(--border)"}`,
+                  color: showInfoPanel ? "#3b82f6" : "var(--text-muted)",
+                  cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+              </button>
+              {auditNewCount > 0 && (
+                <span style={{
+                  position: "absolute", top: -3, right: -3,
+                  width: 14, height: 14, borderRadius: "50%",
+                  background: "#ef4444", color: "#fff",
+                  fontSize: 8, fontWeight: 700,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  pointerEvents: "none",
+                }}>
+                  {auditNewCount > 9 ? "9+" : auditNewCount}
+                </span>
+              )}
+            </div>
+          )}
           <button
             onClick={handleLogout}
             style={{
@@ -2180,7 +2393,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
         {/* PRAVÁ ČÁST – detail nebo builder */}
         {canEdit && <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {showShutdowns ? (
+          {showInfoPanel ? (
+            <InfoPanel
+              logs={todayAuditLogs}
+              onClose={() => setShowInfoPanel(false)}
+              onJumpToBlock={handleJumpToBlock}
+            />
+          ) : showShutdowns ? (
             <ShutdownManager
               companyDays={companyDays}
               onAdd={handleAddCompanyDay}
