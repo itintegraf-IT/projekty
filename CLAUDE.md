@@ -26,7 +26,8 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 7 | Hromadné posuny + zámečky | ✅ Hotovo |
 | 8 | Uživatelé, role a přihlašování | ✅ Hotovo |
 | 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
-| 10 | Audit log (kdo co změnil) | ⬜ Nezačato |
+| 10 | Audit log (kdo co změnil) + tlačítko Info | ✅ Hotovo |
+| 11 | UX vylepšení — odstávky, podmíněné formátování, inline datepicker | ⬜ Nezačato |
 
 ### UI/UX light-dark migrace (11. 3. 2026)
 
@@ -47,22 +48,79 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 
 ---
 
+## Architektura prostředí
+
+### Tři prostředí
+
+| Prostředí | Kde běží | Databáze | Kdo spravuje |
+|-----------|----------|----------|--------------|
+| **Produkce** | Firemní server (vzdálený) | MySQL — ostrá data | Michal |
+| **Vojta local** | MacBook (AMPPS) | MySQL testovací | Vojta |
+| **Michal local** | Michalův počítač | MySQL testovací | Michal |
+
+**Klíčové pravidlo:** Git přenáší **jen kód**, nikdy databázi. Každé prostředí má vlastní `.env` (není v gitu).
+
+---
+
+## Workflow pro úpravy
+
+### A) Změna frontendu (vizuální úpravy, UI, bez změny DB)
+
+1. Uprav soubory lokálně
+2. Otestuj: `npm run dev`
+3. Pushni: `git push origin Vojta`
+4. Řekni Michalovi — on na serveru spustí:
+   ```bash
+   git pull
+   npm run build
+   npm run start
+   ```
+5. ✅ Hotovo — **databáze se nedotýká**
+
+### B) Změna databázového schématu (nový sloupec, nová tabulka)
+
+1. Uprav `prisma/schema.prisma` lokálně
+2. Vytvoř migraci: `npx prisma migrate dev --name popis_zmeny`
+3. Otestuj lokálně
+4. Pushni: `git push origin Vojta`
+5. Řekni Michalovi — on na serveru spustí:
+   ```bash
+   git pull
+   npx prisma generate
+   npx prisma migrate deploy   ← bezpečné, jen přidá sloupce, data nesmaže
+   npm run build
+   npm run start
+   ```
+
+### ⚠️ Co Michal NESMÍ spustit na produkci
+- ❌ `npm run prisma:seed` — **smaže všechna ostrá data**
+- ❌ `npm run prisma:bootstrap` — jen pro první nasazení (prázdná DB)
+- ❌ `npx prisma migrate dev` — jen pro vývoj
+
+---
+
 ## Spuštění projektu
+
+**Předpoklad:** AMPPS spuštěný s MySQL, databáze `IGvyroba` existuje.
 
 ```bash
 npm run dev        # dev server → http://localhost:3000
 npx prisma studio  # prohlížeč databáze → http://localhost:5555
 ```
 
-Po čistém klonu nebo smazání databáze:
+Po čistém klonu (první nastavení vývojového prostředí):
 ```bash
 npm install
 npx prisma generate
-npx prisma migrate deploy    # nebo migrate dev — aplikuje migrace na MySQL
-npm run prisma:seed          # vývoj; produkce: prisma:bootstrap
+npx prisma migrate deploy
+npm run prisma:bootstrap   # vytvoří číselník + admin účet (jen pokud prázdné)
 ```
 
-**MySQL:** Databáze `IGvyroba`, localhost, uživatel `root`, heslo `mysql`. Nastavení v `.env` (DATABASE_URL).
+`.env` soubor (není v gitu — každý si vytvoří vlastní):
+```env
+DATABASE_URL="mysql://root:mysql@localhost:3306/IGvyroba?charset=utf8mb4"
+JWT_SECRET="integraf-dev-secret-please-change-in-production"
+```
 
 ### Chyba P3005 — databáze není prázdná
 Pokud jste tabulky vytvořili ručně (např. `mysql-schema.sql`) a `prisma migrate deploy` hlásí *"The database schema is not empty"*:
@@ -103,9 +161,8 @@ Tím označíte migraci jako již aplikovanou (baseline).
 
 | Soubor | Účel |
 |--------|------|
-| `prisma/schema.prisma` | DB schema — Block + CodebookOption + User modely |
+| `prisma/schema.prisma` | DB schema — Block + CodebookOption + User + AuditLog modely |
 | `prisma/mysql-schema.sql` | Ruční SQL pro vytvoření DB IGvyroba a tabulek (volitelné) |
-| `docs/MYSQL_SCHEMA_NAVRH.md` | Návrh MySQL tabulek včetně AuditLog (Etapa 10) |
 | `src/lib/prisma.ts` | Prisma singleton klient |
 | `src/app/page.tsx` | Server Component — načítá bloky + companyDays z DB |
 | `src/app/api/company-days/route.ts` | GET + POST firemních dnů |
@@ -114,12 +171,15 @@ Tím označíte migraci jako již aplikovanou (baseline).
 | `src/app/api/codebook/[id]/route.ts` | PUT + DELETE položky číselníku (ADMIN only) |
 | `src/app/api/admin/users/route.ts` | GET (seznam) + POST (nový uživatel) — ADMIN only |
 | `src/app/api/admin/users/[id]/route.ts` | PUT (role/heslo) + DELETE — ADMIN only |
+| `src/app/api/audit/route.ts` | GET posledních 50 audit záznamů — ADMIN only |
+| `src/app/api/audit/today/route.ts` | GET audit záznamů posledních 3 dnů od DTP+MTZ — ADMIN+PLANOVAT |
+| `src/app/api/blocks/[id]/audit/route.ts` | GET posledních 10 záznamů pro konkrétní blok — ADMIN+PLANOVAT+DTP+MTZ |
 | `src/app/admin/page.tsx` | Admin dashboard stránka (ADMIN only) |
-| `src/app/admin/_components/AdminDashboard.tsx` | Client component — iOS admin UI |
-| `src/app/_components/PlannerPage.tsx` | Client Component — builder + fronta + detail + ShutdownManager |
+| `src/app/admin/_components/AdminDashboard.tsx` | Client component — iOS admin UI (záložka Audit log) |
+| `src/app/_components/PlannerPage.tsx` | Client Component — builder + fronta + detail + ShutdownManager + InfoPanel |
 | `src/app/_components/TimelineGrid.tsx` | Vizuální timeline grid (datum 44px + čas 72px + 2 strojové sloupce) |
-| `src/app/api/blocks/route.ts` | GET all + POST (POST: ADMIN/PLANOVAT) |
-| `src/app/api/blocks/[id]/route.ts` | GET + PUT (role field filter) + DELETE (ADMIN/PLANOVAT) |
+| `src/app/api/blocks/route.ts` | GET all + POST (POST: ADMIN/PLANOVAT, transakční zápis + audit) |
+| `src/app/api/blocks/[id]/route.ts` | GET + PUT (role field filter, transakční audit createMany) + DELETE (ADMIN/PLANOVAT) |
 | `src/lib/auth.ts` | createSession / getSession / deleteSession (JWT + cookie) |
 | `src/middleware.ts` | Edge middleware — JWT guard pro všechny routes |
 | `src/app/login/page.tsx` | Login stránka (token-based, light/dark) |
@@ -235,66 +295,105 @@ Veškeré nové UI komponenty a úpravy existujících musí dodržovat tyto zá
 
 ---
 
-## Etapa 10 — Audit log (plán, nezačato)
-
-### Cíl
-Sledovat, kdo a co změnil — ale jen smysluplné akce, ne každý drag & drop.
+## Etapa 10 — Audit log ✅ Hotovo (2026-03-16)
 
 ### Co se loguje (selektivní audit)
 | Akce | Trigger |
 |------|---------|
 | Přidání bloku | POST `/api/blocks` |
 | Smazání bloku | DELETE `/api/blocks/[id]` |
-| Změna DATA stavu / data | PUT — pole `dataStatusId`, `dataStatusLabel`, `dataRequiredDate` |
-| Toggle dataOk | PUT — pole `dataOk` |
-| Změna MATERIÁL stavu / data | PUT — pole `materialStatusId`, `materialStatusLabel`, `materialRequiredDate` |
-| Toggle materialOk | PUT — pole `materialOk` |
-| Změna termínu expedice | PUT — pole `deadlineExpedice` |
+| Změna DATA stavu / data / OK | PUT — `dataStatusLabel`, `dataRequiredDate`, `dataOk` |
+| Změna MATERIÁL stavu / data / OK | PUT — `materialStatusLabel`, `materialRequiredDate`, `materialOk` |
+| Změna termínu expedice | PUT — `deadlineExpedice` |
 
 ### Co se NELOGUJE
-- Drag & drop (startTime/endTime) — příliš časté, nezajímavé pro audit
-- Resize bloků
-- Změna popisu, specifikace, barvy, laku
-- Zamčení/odemčení bloku
+- Drag & drop (startTime/endTime), resize, popis, specifikace, barvy, lak, zámek
 
-### DB schema — nový model `AuditLog`
+### DB model `AuditLog`
 ```prisma
 model AuditLog {
-  id        Int      @id @default(autoincrement())
-  blockId   Int
-  userId    Int
-  username  String
-  action    String   // "CREATE" | "DELETE" | "UPDATE"
-  field     String?  // název pole (např. "dataStatusLabel", "dataOk", "deadlineExpedice")
-  oldValue  String?  // předchozí hodnota (serializovaná jako string)
-  newValue  String?  // nová hodnota
-  createdAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  blockId     Int                          // bez FK — log přežije smazání bloku
+  orderNumber String?
+  userId      Int
+  username    String
+  action      String                       // "CREATE" | "DELETE" | "UPDATE"
+  field       String?
+  oldValue    String?
+  newValue    String?
+  createdAt   DateTime @default(now())
+
+  @@index([blockId, createdAt])
+  @@index([createdAt])
 }
 ```
 
-Pozn.: `blockId` bez FK (blok může být smazán, ale log chceme zachovat).
+### Klíčová rozhodnutí implementace
+- **Transakce:** POST (CREATE + audit), PUT (findUnique + update + audit), DELETE (audit + delete) — všechny atomické přes `prisma.$transaction()`
+- **createMany:** PUT používá jedno `auditLog.createMany()` místo cyklu create() — jeden DB round-trip pro všechna změněná pole
+- **Oprávnění `/api/blocks/[id]/audit`:** ADMIN, PLANOVAT, DTP, MTZ — VIEWER nemá přístup (audit je provozní interní info)
+- **Info panel:** bell ikona v headeru (ADMIN+PLANOVAT), záznamy posledních 3 dnů od DTP+MTZ, auto-refresh každých 60s + refresh při otevření, badge count při chybě fetchuje zachovává poslední validní stav
+- **localStorage klíč:** `auditLastSeen` — čas posledního otevření panelu pro výpočet badge count
 
-### Implementace v API routes
-V každé chráněné PUT/POST/DELETE route:
-1. Zjistit `session` (getSession)
-2. Pro PUT: porovnat starý stav (Prisma `findUnique` před update) s novým — logovat jen změněná sledovaná pole
-3. Pro POST: logovat `action: "CREATE"` s `blockId` nového bloku
-4. Pro DELETE: logovat `action: "DELETE"` před smazáním (aby bylo `blockId` ještě platné)
-5. `prisma.auditLog.create({ data: { blockId, userId, username, action, field, oldValue, newValue } })`
+### API routes
+- `GET /api/audit?limit=50` — ADMIN only, posledních 50 záznamů
+- `GET /api/audit/today` — ADMIN+PLANOVAT, záznamy posledních 3 dnů od DTP+MTZ uživatelů
+- `GET /api/blocks/[id]/audit` — ADMIN+PLANOVAT+DTP+MTZ, posledních 10 záznamů pro blok
 
 ### UI
-- **Admin dashboard (etapa 9):** tabulka posledních N záznamů — datum, uživatel, zakázka, akce, stará/nová hodnota
-- **BlockEdit:** mini-sekce "Historie změn" dole — posledních 10 logů pro daný blok (GET `/api/blocks/[id]/audit`)
-- Nová API route: GET `/api/audit?limit=50` (admin) + GET `/api/blocks/[id]/audit`
-
-### Pořadí implementace
-Etapa 10 musí přijít **po Etapě 9** — v admin dashboardu budou reální uživatelé (ne jen seed), takže audit log dává smysl až tehdy.
-
-### Nové soubory pro etapu 10
-- `src/app/api/audit/route.ts` — GET posledních N záznamů (jen ADMIN)
-- `src/app/api/blocks/[id]/audit/route.ts` — GET logu pro konkrétní blok
+- **Info panel** (bell ikona v headeru) — záznamy DTP/MTZ za posl. 3 dny, proklik na zakázku
+- **BlockDetail** — sekce "Historie změn" s posledními 10 záznamy pro daný blok
+- **Admin dashboard** — záložka "Audit log" s tabulkou posledních 50 záznamů
 
 ---
+
+## Etapa 11 — UX vylepšení (plán, nezačato)
+
+### 1. Odstávky plánované hodinově (ne na celé dny)
+- Aktuálně: `ShutdownManager` ukládá `startDate` a `endDate` jako celé dny
+- Cíl: umožnit zadání konkrétního času (např. odstávka 6:00–14:00)
+- Změny:
+  - `CompanyDay` model: přidat `startTime` a `endTime` (čas v rámci dne), nebo přejít na `DateTime` s časem
+  - `ShutdownManager` UI: místo DatePickerField přidat kombinaci datum + výběr hodiny
+  - `TimelineGrid`: tint pásy odstávek zobrazovat jen v daném časovém rozmezí (ne celý den)
+
+### 2. Podmíněné formátování — materiál/data až po startu zakázky
+- Cíl: upozornit plánovače pokud blok začíná dříve, než je očekáván materiál nebo data
+- Logika: `block.startTime > materialRequiredDate && !materialOk` → oranžový/červený rámeček nebo ikona na bloku
+- Příklad: zakázka na dnešek 8:00, materiál očekáván zítra → blok vizuálně označen jako "materiál dorazí až po startu"
+- Implementace v `BlockCard` — nová vrstva varování nad stávající `deadlineState` logikou
+
+### 3. Inline datepicker pro MTZ — změna data materiálu přímo z timeline
+- Cíl: MTZ může změnit `materialRequiredDate` přímo z bloku bez otevření plného BlockEdit
+- Interakce: **dvojklik** na ikonku/badge MATERIÁL v BlockCard
+- Otevře se `DatePickerField` popup přímo u bloku (absolutně pozicovaný)
+- Po výběru data: PUT request na `/api/blocks/[id]` s novým `materialRequiredDate`
+- Role: jen MTZ, DTP (a ADMIN/PLANOVAT) mohou tuto akci provést — stejná pravidla jako existující `canEditMat`
+- Analogicky lze přidat stejnou funkci pro DATA (dvojklik na DATA badge → DTP může změnit `dataRequiredDate`)
+
+### 4. Klávesové zkratky pro multiselekt — Ctrl+C / Ctrl+X / Ctrl+V
+- Aktuálně: lasso select funguje, ale klávesové zkratky nejsou implementovány
+- Cíl: po výběru více bloků lasem umožnit kopírování, vyjmutí a vložení
+- Ctrl+C — uloží vybrané bloky do clipboard state (relativní pozice vůči nejstaršímu bloku)
+- Ctrl+X — totéž + smaže původní bloky (nebo je označí jako "vyjmuté" — ghostuje)
+- Ctrl+V — vloží bloky na aktuální pozici kurzoru na timeline (zachová relativní rozstupy)
+- Implementace: `useEffect` na `keydown` v `PlannerPage`, clipboard uložen do `useRef` (ne localStorage)
+- Role: jen ADMIN a PLANOVAT (canEdit)
+
+### 5. Náhrada emoji za SVG ikony
+- Aktuálně: theme switch používá emoji ☀️/🌙 — na Windows vypadají jinak než na macOS
+- Cíl: nahradit emoji za jednoduché SVG ikony (slunce/měsíc) které vypadají všude stejně
+- Týká se: theme switch v headeru, případně další emoji v UI
+- Styl: tenká linka, monochromatická, velikost 16–18px
+
+### 6. Lasso popup — lepší viditelnost
+- Aktuálně: popup "Aktivní lasso výběr" dole je málo viditelný
+- Cíl: zvýraznit — větší kontrast, výraznější pozice nebo animace při zobrazení
+- Zvážit: přesunout do headeru jako aktivní stav místo spodního floatingu
+
+### 7. Tlačítko "Plánování" v admin dashboardu — lepší viditelnost
+- Aktuálně: tlačítko vlevo nahoře pro návrat z /admin do plánovače není dostatečně výrazné
+- Cíl: zvýraznit — větší, jiná barva nebo přidat šipku zpět ←
 
 ---
 

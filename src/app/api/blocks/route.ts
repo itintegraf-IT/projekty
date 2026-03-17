@@ -31,38 +31,53 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const block = await prisma.block.create({
-      data: {
-        orderNumber: String(body.orderNumber),
-        machine: body.machine,
-        startTime: new Date(body.startTime),
-        endTime: new Date(body.endTime),
-        type: body.type ?? "ZAKAZKA",
-        description: body.description ?? null,
-        locked: body.locked ?? false,
-        deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
-        // DATA
-        dataStatusId: body.dataStatusId ?? null,
-        dataStatusLabel: body.dataStatusLabel ?? null,
-        dataRequiredDate: body.dataRequiredDate ? new Date(body.dataRequiredDate) : null,
-        dataOk: body.dataOk ?? false,
-        // MATERIÁL
-        materialStatusId: body.materialStatusId ?? null,
-        materialStatusLabel: body.materialStatusLabel ?? null,
-        materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
-        materialOk: body.materialOk ?? false,
-        // BARVY
-        barvyStatusId: body.barvyStatusId ?? null,
-        barvyStatusLabel: body.barvyStatusLabel ?? null,
-        // LAK
-        lakStatusId: body.lakStatusId ?? null,
-        lakStatusLabel: body.lakStatusLabel ?? null,
-        // SPECIFIKACE
-        specifikace: body.specifikace ?? null,
-        // OPAKOVÁNÍ
-        recurrenceType: body.recurrenceType ?? "NONE",
-        recurrenceParentId: body.recurrenceParentId ?? null,
-      },
+    // Atomická transakce: block.create + auditLog.create buď oba projdou, nebo oba selžou
+    const block = await prisma.$transaction(async (tx) => {
+      const newBlock = await tx.block.create({
+        data: {
+          orderNumber: String(body.orderNumber),
+          machine: body.machine,
+          startTime: new Date(body.startTime),
+          endTime: new Date(body.endTime),
+          type: body.type ?? "ZAKAZKA",
+          description: body.description ?? null,
+          locked: body.locked ?? false,
+          deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
+          // DATA
+          dataStatusId: body.dataStatusId ?? null,
+          dataStatusLabel: body.dataStatusLabel ?? null,
+          dataRequiredDate: body.dataRequiredDate ? new Date(body.dataRequiredDate) : null,
+          dataOk: body.dataOk ?? false,
+          // MATERIÁL
+          materialStatusId: body.materialStatusId ?? null,
+          materialStatusLabel: body.materialStatusLabel ?? null,
+          materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
+          materialOk: body.materialOk ?? false,
+          // BARVY
+          barvyStatusId: body.barvyStatusId ?? null,
+          barvyStatusLabel: body.barvyStatusLabel ?? null,
+          // LAK
+          lakStatusId: body.lakStatusId ?? null,
+          lakStatusLabel: body.lakStatusLabel ?? null,
+          // SPECIFIKACE
+          specifikace: body.specifikace ?? null,
+          // OPAKOVÁNÍ
+          recurrenceType: body.recurrenceType ?? "NONE",
+          recurrenceParentId: body.recurrenceParentId ?? null,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          blockId: newBlock.id,
+          orderNumber: newBlock.orderNumber,
+          userId: session.id,
+          username: session.username,
+          action: "CREATE",
+        },
+      });
+
+      return newBlock;
     });
 
     return NextResponse.json(block, { status: 201 });

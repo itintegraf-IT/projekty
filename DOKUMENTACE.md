@@ -62,8 +62,9 @@ npm run prisma:seed
 | 7 | Hromadné posuny + zámečky | ✅ Hotovo |
 | 8 | Uživatelé, role a přihlašování | ✅ Hotovo |
 | 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
-| 10 | Light/Dark migrace hlavních ploch | ✅ Hotovo |
-| 11 | Audit log (kdo co změnil) | ⬜ Nezačato |
+| — | Light/Dark migrace hlavních ploch | ✅ Hotovo |
+| 10 | Audit log (kdo co změnil) + Info panel | ✅ Hotovo |
+| 11 | UX vylepšení — odstávky, podmíněné formátování, inline datepicker | ⬜ Nezačato |
 
 > Stav měň na: ⬜ Nezačato / 🔄 Rozpracováno / ✅ Hotovo / 🐛 Chyba
 
@@ -550,4 +551,52 @@ Samostatná stránka nebo sekce přístupná pouze roli Admin.
 
 ---
 
-*Dokument naposledy aktualizován: 2026-03 — verze VIII*
+## Etapa 10 — Audit log ✅
+
+Selektivní sledování akcí uživatelů — jen smysluplné změny, ne každý drag & drop.
+
+### Co se loguje
+
+| Akce | Kdo může spustit |
+|------|-----------------|
+| Přidání bloku (CREATE) | ADMIN, PLANOVAT |
+| Smazání bloku (DELETE) | ADMIN, PLANOVAT |
+| Změna DATA stav / datum / OK | ADMIN, PLANOVAT, DTP |
+| Změna MATERIÁL stav / datum / OK | ADMIN, PLANOVAT, MTZ |
+| Změna termínu expedice | ADMIN, PLANOVAT |
+
+### Co se NELOGUJE
+Drag & drop, resize, popis, specifikace, barvy, lak, zámek — příliš časté nebo provozně nezajímavé.
+
+### DB model AuditLog
+
+Nová tabulka s indexy pro rychlé dotazy. Klíčové vlastnosti:
+- `blockId` bez cizího klíče — záznam přežije smazání bloku
+- `orderNumber` uloženo snapshotem — platné i po smazání bloku
+- Indexy: `(blockId, createdAt)` pro historii bloku, `(createdAt)` pro přehledy
+
+### Implementace
+
+- **Atomické transakce:** CREATE/UPDATE/DELETE a zápis auditu vždy v jedné transakci
+- **`createMany` v PUT:** místo cyklu create() — jedno volání pro všechna změněná pole
+- **Oprávnění `/api/blocks/[id]/audit`:** ADMIN, PLANOVAT, DTP, MTZ (VIEWER nemá přístup)
+
+### UI
+
+- **Bell ikona v headeru** (ADMIN+PLANOVAT) — záznamy DTP/MTZ za poslední 3 dny, červený badge, proklik na zakázku
+- **Sekce Historie změn v BlockDetail** — posledních 10 záznamů pro daný blok
+- **Záložka Audit log v Admin dashboardu** — tabulka posledních 50 záznamů
+
+---
+
+## Matice oprávnění k audit endpointům
+
+| Endpoint | ADMIN | PLANOVAT | DTP | MTZ | VIEWER |
+|----------|-------|----------|-----|-----|--------|
+| `GET /api/audit` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/audit/today` | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `GET /api/blocks/[id]/audit` | ✅ | ✅ | ✅ | ✅ | ❌ |
+
+---
+
+*Dokument naposledy aktualizován: 2026-03-16 — verze IX*

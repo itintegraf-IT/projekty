@@ -8,54 +8,41 @@ datasource db {
 }
 
 model Block {
-  id          Int      @id @default(autoincrement())
-  orderNumber String
-  machine     String   // XL_105 | XL_106
-  startTime   DateTime
-  endTime     DateTime
-  type        String   @default("ZAKAZKA") // ZAKAZKA | REZERVACE | UDRZBA
-  description String?
-  locked      Boolean  @default(false)
-
-  // Termín expedice
-  deadlineExpedice DateTime?
-
-  // Výrobní sloupečky — DATA (Etapa 5)
-  dataStatusId     Int?
-  dataStatusLabel  String?
-  dataRequiredDate DateTime?
-  dataOk           Boolean   @default(false)
-
-  // Výrobní sloupečky — MATERIÁL (Etapa 5)
+  id                   Int       @id @default(autoincrement())
+  orderNumber          String
+  machine              String
+  startTime            DateTime
+  endTime              DateTime
+  type                 String    @default("ZAKAZKA")
+  description          String?
+  locked               Boolean   @default(false)
+  deadlineExpedice     DateTime?
+  dataStatusId         Int?
+  dataStatusLabel      String?
+  dataRequiredDate     DateTime?
+  dataOk               Boolean   @default(false)
   materialStatusId     Int?
   materialStatusLabel  String?
   materialRequiredDate DateTime?
   materialOk           Boolean   @default(false)
+  barvyStatusId        Int?
+  barvyStatusLabel     String?
+  lakStatusId          Int?
+  lakStatusLabel       String?
+  specifikace          String?
+  recurrenceType       String    @default("NONE")
+  recurrenceParentId   Int?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now()) @updatedAt
+  recurrenceParent     Block?    @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
+  recurrenceChildren   Block[]   @relation("RecurrenceChildren")
 
-  // Výrobní sloupečky — BARVY (Etapa 5)
-  barvyStatusId    Int?
-  barvyStatusLabel String?
-
-  // Výrobní sloupečky — LAK (Etapa 5)
-  lakStatusId    Int?
-  lakStatusLabel String?
-
-  // Výrobní sloupečky — SPECIFIKACE (Etapa 5)
-  specifikace String?
-
-  // Opakování (Etapa 6)
-  recurrenceType     String  @default("NONE") // NONE | DAILY | WEEKLY | MONTHLY
-  recurrenceParentId Int?
-  recurrenceParent   Block?  @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
-  recurrenceChildren Block[] @relation("RecurrenceChildren")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  @@index([recurrenceParentId])
 }
 
 model CodebookOption {
   id        Int     @id @default(autoincrement())
-  category  String  // "DATA" | "MATERIAL" | "BARVY" | "LAK"
+  category  String
   label     String
   sortOrder Int     @default(0)
   isActive  Boolean @default(true)
@@ -75,6 +62,22 @@ model User {
   id           Int      @id @default(autoincrement())
   username     String   @unique
   passwordHash String
-  role         String   @default("VIEWER") // ADMIN | PLANOVAT | MTZ | DTP | VIEWER
+  role         String   @default("VIEWER")
   createdAt    DateTime @default(now())
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  blockId     Int
+  orderNumber String?
+  userId      Int
+  username    String
+  action      String
+  field       String?
+  oldValue    String?
+  newValue    String?
+  createdAt   DateTime @default(now())
+
+  @@index([blockId, createdAt])  // GET /api/blocks/[id]/audit: WHERE blockId = ? ORDER BY createdAt DESC
+  @@index([createdAt])           // GET /api/audit: ORDER BY createdAt DESC + GET /api/audit/today: date range filter
 }

@@ -60,44 +60,76 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     // Remove undefined values
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
 
-    const block = await prisma.block.update({
-      where: { id },
-      data: {
-        ...(allowed.orderNumber !== undefined && { orderNumber: String(allowed.orderNumber) }),
-        ...(allowed.machine !== undefined && { machine: allowed.machine as string }),
-        ...(allowed.startTime !== undefined && { startTime: new Date(allowed.startTime as string) }),
-        ...(allowed.endTime !== undefined && { endTime: new Date(allowed.endTime as string) }),
-        ...(allowed.type !== undefined && { type: allowed.type as string }),
-        ...(allowed.description !== undefined && { description: allowed.description as string }),
-        ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
-        ...(allowed.deadlineExpedice !== undefined && {
-          deadlineExpedice: allowed.deadlineExpedice ? new Date(allowed.deadlineExpedice as string) : null,
-        }),
-        // DATA
-        ...(allowed.dataStatusId !== undefined && { dataStatusId: allowed.dataStatusId as number }),
-        ...(allowed.dataStatusLabel !== undefined && { dataStatusLabel: allowed.dataStatusLabel as string }),
-        ...(allowed.dataRequiredDate !== undefined && {
-          dataRequiredDate: allowed.dataRequiredDate ? new Date(allowed.dataRequiredDate as string) : null,
-        }),
-        ...(allowed.dataOk !== undefined && { dataOk: allowed.dataOk as boolean }),
-        // MATERIÁL
-        ...(allowed.materialStatusId !== undefined && { materialStatusId: allowed.materialStatusId as number }),
-        ...(allowed.materialStatusLabel !== undefined && { materialStatusLabel: allowed.materialStatusLabel as string }),
-        ...(allowed.materialRequiredDate !== undefined && {
-          materialRequiredDate: allowed.materialRequiredDate ? new Date(allowed.materialRequiredDate as string) : null,
-        }),
-        ...(allowed.materialOk !== undefined && { materialOk: allowed.materialOk as boolean }),
-        // BARVY
-        ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
-        ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),
-        // LAK
-        ...(allowed.lakStatusId !== undefined && { lakStatusId: allowed.lakStatusId as number }),
-        ...(allowed.lakStatusLabel !== undefined && { lakStatusLabel: allowed.lakStatusLabel as string }),
-        // SPECIFIKACE
-        ...(allowed.specifikace !== undefined && { specifikace: allowed.specifikace as string }),
-        // OPAKOVÁNÍ
-        ...(allowed.recurrenceType !== undefined && { recurrenceType: allowed.recurrenceType as string }),
-      },
+    const AUDITED_FIELDS = [
+      "dataStatusLabel", "dataRequiredDate", "dataOk",
+      "materialStatusLabel", "materialRequiredDate", "materialOk",
+      "deadlineExpedice",
+    ] as const;
+    type AuditedField = typeof AUDITED_FIELDS[number];
+
+    const block = await prisma.$transaction(async (tx) => {
+      const oldBlock = await tx.block.findUnique({ where: { id } });
+
+      const updated = await tx.block.update({
+        where: { id },
+        data: {
+          ...(allowed.orderNumber !== undefined && { orderNumber: String(allowed.orderNumber) }),
+          ...(allowed.machine !== undefined && { machine: allowed.machine as string }),
+          ...(allowed.startTime !== undefined && { startTime: new Date(allowed.startTime as string) }),
+          ...(allowed.endTime !== undefined && { endTime: new Date(allowed.endTime as string) }),
+          ...(allowed.type !== undefined && { type: allowed.type as string }),
+          ...(allowed.description !== undefined && { description: allowed.description as string }),
+          ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
+          ...(allowed.deadlineExpedice !== undefined && {
+            deadlineExpedice: allowed.deadlineExpedice ? new Date(allowed.deadlineExpedice as string) : null,
+          }),
+          // DATA
+          ...(allowed.dataStatusId !== undefined && { dataStatusId: allowed.dataStatusId as number }),
+          ...(allowed.dataStatusLabel !== undefined && { dataStatusLabel: allowed.dataStatusLabel as string }),
+          ...(allowed.dataRequiredDate !== undefined && {
+            dataRequiredDate: allowed.dataRequiredDate ? new Date(allowed.dataRequiredDate as string) : null,
+          }),
+          ...(allowed.dataOk !== undefined && { dataOk: allowed.dataOk as boolean }),
+          // MATERIÁL
+          ...(allowed.materialStatusId !== undefined && { materialStatusId: allowed.materialStatusId as number }),
+          ...(allowed.materialStatusLabel !== undefined && { materialStatusLabel: allowed.materialStatusLabel as string }),
+          ...(allowed.materialRequiredDate !== undefined && {
+            materialRequiredDate: allowed.materialRequiredDate ? new Date(allowed.materialRequiredDate as string) : null,
+          }),
+          ...(allowed.materialOk !== undefined && { materialOk: allowed.materialOk as boolean }),
+          // BARVY
+          ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
+          ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),
+          // LAK
+          ...(allowed.lakStatusId !== undefined && { lakStatusId: allowed.lakStatusId as number }),
+          ...(allowed.lakStatusLabel !== undefined && { lakStatusLabel: allowed.lakStatusLabel as string }),
+          // SPECIFIKACE
+          ...(allowed.specifikace !== undefined && { specifikace: allowed.specifikace as string }),
+          // OPAKOVÁNÍ
+          ...(allowed.recurrenceType !== undefined && { recurrenceType: allowed.recurrenceType as string }),
+        },
+      });
+
+      if (oldBlock) {
+        const changes = AUDITED_FIELDS
+          .filter((field) => String(oldBlock[field as AuditedField] ?? "") !== String(updated[field as AuditedField] ?? ""))
+          .map((field) => ({
+            blockId: id,
+            orderNumber: oldBlock.orderNumber,
+            userId: session.id,
+            username: session.username,
+            action: "UPDATE",
+            field,
+            oldValue: String(oldBlock[field as AuditedField] ?? ""),
+            newValue: String(updated[field as AuditedField] ?? ""),
+          }));
+
+        if (changes.length > 0) {
+          await tx.auditLog.createMany({ data: changes });
+        }
+      }
+
+      return updated;
     });
 
     return NextResponse.json(block);
@@ -124,7 +156,21 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    await prisma.block.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      const blockToDelete = await tx.block.findUnique({ where: { id }, select: { orderNumber: true } });
+
+      await tx.auditLog.create({
+        data: {
+          blockId: id,
+          orderNumber: blockToDelete?.orderNumber ?? null,
+          userId: session.id,
+          username: session.username,
+          action: "DELETE",
+        },
+      });
+
+      await tx.block.delete({ where: { id } });
+    });
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     if (isPrismaNotFound(error)) {

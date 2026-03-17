@@ -39,9 +39,11 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "latest",
     "@types/react": "latest",
     "autoprefixer": "latest",
+    "better-sqlite3": "^12.6.2",
     "eslint": "latest",
     "eslint-config-next": "latest",
     "postcss": "latest",
