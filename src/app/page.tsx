@@ -18,11 +18,16 @@ export default async function HomePage() {
     deadlineExpedice: b.deadlineExpedice?.toISOString() ?? null,
     dataRequiredDate: b.dataRequiredDate?.toISOString() ?? null,
     materialRequiredDate: b.materialRequiredDate?.toISOString() ?? null,
+    printCompletedAt: b.printCompletedAt?.toISOString() ?? null,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   }));
 
-  const companyDays = await prisma.companyDay.findMany({ orderBy: { startDate: "asc" } });
+  const [companyDays, machineWorkHours, machineExceptions] = await Promise.all([
+    prisma.companyDay.findMany({ orderBy: { startDate: "asc" } }),
+    prisma.machineWorkHours.findMany({ orderBy: [{ machine: "asc" }, { dayOfWeek: "asc" }] }),
+    prisma.machineScheduleException.findMany({ orderBy: [{ date: "asc" }, { machine: "asc" }] }),
+  ]);
   const serializedCompanyDays = companyDays.map((d) => ({
     ...d,
     startDate: d.startDate.toISOString(),
@@ -30,5 +35,11 @@ export default async function HomePage() {
     createdAt: d.createdAt.toISOString(),
   }));
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} currentUser={session} />;
+  const serializedMachineExceptions = machineExceptions.map((e) => ({
+    ...e,
+    date: e.date.toISOString(),
+    createdAt: e.createdAt.toISOString(),
+  }));
+
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHours={machineWorkHours} initialMachineExceptions={serializedMachineExceptions} currentUser={session} />;
 }

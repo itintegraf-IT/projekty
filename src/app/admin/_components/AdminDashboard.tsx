@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
+import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
+import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // ─── Typy ────────────────────────────────────────────────────────────────────
 
@@ -9,6 +12,7 @@ interface AdminUser {
   id: number;
   username: string;
   role: string;
+  assignedMachine: string | null;
   createdAt: string;
 }
 
@@ -20,11 +24,12 @@ interface CodebookItem {
   isActive: boolean;
   isWarning: boolean;
   shortCode: string | null;
+  badgeColor: string | null;
 }
 
 // ─── Konstanty ───────────────────────────────────────────────────────────────
 
-const ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "VIEWER"] as const;
+const ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "VIEWER"] as const;
 type Role = typeof ROLES[number];
 
 const ROLE_COLORS: Record<string, string> = {
@@ -32,6 +37,7 @@ const ROLE_COLORS: Record<string, string> = {
   PLANOVAT: "#3b82f6",
   MTZ: "#30d158",
   DTP: "#ff9f0a",
+  TISKAR: "#ac8cff",
   VIEWER: "#636366",
 };
 const ROLE_BG: Record<string, string> = {
@@ -39,6 +45,7 @@ const ROLE_BG: Record<string, string> = {
   PLANOVAT: "rgba(59,130,246,0.15)",
   MTZ: "rgba(48,209,88,0.15)",
   DTP: "rgba(255,159,10,0.15)",
+  TISKAR: "rgba(172,140,255,0.15)",
   VIEWER: "rgba(99,99,102,0.15)",
 };
 const ROLE_LABELS: Record<string, string> = {
@@ -46,7 +53,12 @@ const ROLE_LABELS: Record<string, string> = {
   PLANOVAT: "Plánovač",
   MTZ: "MTZ",
   DTP: "DTP",
+  TISKAR: "Tiskař",
   VIEWER: "Prohlížeč",
+};
+const MACHINE_LABELS: Record<string, string> = {
+  XL_105: "XL 105",
+  XL_106: "XL 106",
 };
 
 const CATEGORIES = ["DATA", "MATERIAL", "BARVY", "LAK"] as const;
@@ -126,7 +138,7 @@ const btnDanger: React.CSSProperties = {
 // ─── Komponenta ──────────────────────────────────────────────────────────────
 
 export default function AdminDashboard({ currentUser }: { currentUser: SessionUser }) {
-  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "audit">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "audit" | "shifts">("users");
 
   return (
     <div style={{
@@ -152,14 +164,14 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
       }}>
         <a href="/" style={{
           display: "flex", alignItems: "center", gap: 6,
-          color: "var(--accent)", fontSize: 13, textDecoration: "none",
+          color: "#3b82f6", fontSize: 13, textDecoration: "none",
           fontWeight: 600, padding: "6px 12px", borderRadius: 8,
-          background: "color-mix(in oklab, var(--accent) 12%, var(--surface))",
-          border: "1px solid color-mix(in oklab, var(--accent) 35%, var(--border))",
+          background: "rgba(59,130,246,0.12)",
+          border: "1px solid rgba(59,130,246,0.35)",
           transition: "background 120ms ease-out",
         }}>
           <svg width="8" height="13" viewBox="0 0 8 13" fill="none">
-            <path d="M7 1L1 6.5L7 12" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M7 1L1 6.5L7 12" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           Plánování
         </a>
@@ -178,7 +190,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           padding: 3,
           gap: 3,
         }}>
-          {(["users", "codebook", "audit"] as const).map((tab) => (
+          {(["users", "codebook", "audit", "shifts"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -195,7 +207,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
                 color: activeTab === tab ? TEXT_PRIMARY : TEXT_SECONDARY,
               }}
             >
-              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : "Audit log"}
+              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "audit" ? "Audit log" : "Pracovní doba"}
             </button>
           ))}
         </div>
@@ -207,8 +219,10 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           <UsersSection currentUserId={currentUser.id} />
         ) : activeTab === "codebook" ? (
           <CodebookSection />
-        ) : (
+        ) : activeTab === "audit" ? (
           <AuditLogSection />
+        ) : (
+          <WorkShiftsSection />
         )}
       </div>
     </div>
@@ -224,6 +238,7 @@ function UsersSection({ currentUserId }: { currentUserId: number }) {
   const [addUsername, setAddUsername] = useState("");
   const [addPassword, setAddPassword] = useState("");
   const [addRole, setAddRole] = useState<Role>("PLANOVAT");
+  const [addMachine, setAddMachine] = useState<"XL_105" | "XL_106">("XL_105");
   const [addError, setAddError] = useState("");
   const [addLoading, setAddLoading] = useState(false);
 
@@ -244,10 +259,15 @@ function UsersSection({ currentUserId }: { currentUserId: number }) {
     const res = await fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: addUsername.trim(), password: addPassword, role: addRole }),
+      body: JSON.stringify({
+        username: addUsername.trim(),
+        password: addPassword,
+        role: addRole,
+        ...(addRole === "TISKAR" ? { assignedMachine: addMachine } : {}),
+      }),
     });
     if (res.ok) {
-      setAddUsername(""); setAddPassword(""); setAddRole("PLANOVAT");
+      setAddUsername(""); setAddPassword(""); setAddRole("PLANOVAT"); setAddMachine("XL_105");
       setShowAddForm(false);
       await loadUsers();
     } else {
@@ -327,6 +347,30 @@ function UsersSection({ currentUserId }: { currentUserId: number }) {
                 </div>
               </div>
               <RoleSelect value={addRole} onChange={(r) => setAddRole(r as Role)} />
+              {addRole === "TISKAR" && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  {(["XL_105", "XL_106"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setAddMachine(m)}
+                      style={{
+                        padding: "5px 14px",
+                        borderRadius: 7,
+                        border: `1px solid ${addMachine === m ? ROLE_COLORS["TISKAR"] : BORDER_SUBTLE}`,
+                        background: addMachine === m ? ROLE_BG["TISKAR"] : "transparent",
+                        color: addMachine === m ? ROLE_COLORS["TISKAR"] : TEXT_SECONDARY,
+                        fontSize: 12, fontWeight: addMachine === m ? 600 : 400,
+                        cursor: "pointer",
+                        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                        transition: "all 0.1s ease-out",
+                      }}
+                    >
+                      {MACHINE_LABELS[m]}
+                    </button>
+                  ))}
+                </div>
+              )}
               {addError && <span style={{ fontSize: 12, color: "var(--danger)" }}>{addError}</span>}
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button type="button" style={btnSecondary} onClick={() => { setShowAddForm(false); setAddError(""); }}>Zrušit</button>
@@ -349,6 +393,7 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
   onUpdate: () => void;
 }) {
   const [showRolePopover, setShowRolePopover] = useState(false);
+  const [tiskarMachineStep, setTiskarMachineStep] = useState(false);
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [newPassword, setNewPassword] = useState("");
@@ -362,20 +407,30 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
     function handler(e: MouseEvent) {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         setShowRolePopover(false);
+        setTiskarMachineStep(false);
       }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showRolePopover]);
 
-  async function handleRoleChange(role: string) {
+  async function handleRoleChange(role: string, assignedMachine?: string) {
     setShowRolePopover(false);
+    setTiskarMachineStep(false);
     await fetch(`/api/admin/users/${user.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ role, ...(assignedMachine ? { assignedMachine } : {}) }),
     });
     onUpdate();
+  }
+
+  function handleRoleClick(role: string) {
+    if (role === "TISKAR") {
+      setTiskarMachineStep(true);
+    } else {
+      handleRoleChange(role);
+    }
   }
 
   async function handlePasswordSave() {
@@ -458,6 +513,11 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
             }}
           >
             {ROLE_LABELS[user.role] ?? user.role}
+            {user.role === "TISKAR" && user.assignedMachine && (
+              <span style={{ marginLeft: 4, opacity: 0.7, fontWeight: 400 }}>
+                · {MACHINE_LABELS[user.assignedMachine] ?? user.assignedMachine}
+              </span>
+            )}
           </button>
 
           {/* Role popover */}
@@ -471,45 +531,77 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
               borderRadius: 10,
               overflow: "hidden",
               zIndex: 100,
-              minWidth: 160,
+              minWidth: 170,
               boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
             }}>
-              {ROLES.map((role) => (
-                <button
-                  key={role}
-                  onClick={() => handleRoleChange(role)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    width: "100%",
-                    padding: "10px 14px",
-                    background: role === user.role ? "var(--surface-2)" : "transparent",
-                    border: "none",
-                    borderBottom: role !== "VIEWER" ? `1px solid ${SEPARATOR}` : "none",
-                    color: TEXT_PRIMARY,
-                    fontSize: 13,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-                    transition: "background 0.1s",
-                  }}
-                  onMouseEnter={(e) => { if (role !== user.role) (e.currentTarget as HTMLElement).style.background = "var(--surface-2)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = role === user.role ? "var(--surface-2)" : "transparent"; }}
-                >
-                  <span style={{
-                    width: 8, height: 8, borderRadius: "50%",
-                    background: ROLE_COLORS[role],
-                    flexShrink: 0,
-                  }} />
-                  <span style={{ flex: 1 }}>{ROLE_LABELS[role]}</span>
-                  {role === user.role && (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 6l3 3 5-5" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                </button>
-              ))}
+              {!tiskarMachineStep ? (
+                ROLES.map((role) => (
+                  <button
+                    key={role}
+                    onClick={() => handleRoleClick(role)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      width: "100%",
+                      padding: "10px 14px",
+                      background: role === user.role ? "var(--surface-2)" : "transparent",
+                      border: "none",
+                      borderBottom: role !== "VIEWER" ? `1px solid ${SEPARATOR}` : "none",
+                      color: TEXT_PRIMARY,
+                      fontSize: 13,
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                      transition: "background 0.1s",
+                    }}
+                    onMouseEnter={(e) => { if (role !== user.role) (e.currentTarget as HTMLElement).style.background = "var(--surface-2)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = role === user.role ? "var(--surface-2)" : "transparent"; }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: ROLE_COLORS[role], flexShrink: 0 }} />
+                    <span style={{ flex: 1 }}>{ROLE_LABELS[role]}</span>
+                    {role === "TISKAR" && <span style={{ fontSize: 10, color: TEXT_SECONDARY }}>→</span>}
+                    {role === user.role && role !== "TISKAR" && (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 6l3 3 5-5" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <div>
+                  <div style={{ padding: "8px 14px 6px", fontSize: 11, color: TEXT_SECONDARY, borderBottom: `1px solid ${SEPARATOR}` }}>
+                    Přiřadit stroj
+                  </div>
+                  {(["XL_105", "XL_106"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => handleRoleChange("TISKAR", m)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        width: "100%", padding: "10px 14px",
+                        background: user.assignedMachine === m ? "var(--surface-2)" : "transparent",
+                        border: "none",
+                        borderBottom: m === "XL_105" ? `1px solid ${SEPARATOR}` : "none",
+                        color: TEXT_PRIMARY, fontSize: 13, cursor: "pointer",
+                        textAlign: "left",
+                        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--surface-2)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = user.assignedMachine === m ? "var(--surface-2)" : "transparent"; }}
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: ROLE_COLORS["TISKAR"], flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>{MACHINE_LABELS[m]}</span>
+                      {user.assignedMachine === m && (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M2 6l3 3 5-5" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -630,6 +722,7 @@ function CodebookSection() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [addLabel, setAddLabel] = useState("");
   const [addIsWarning, setAddIsWarning] = useState(false);
+  const [addBadgeColor, setAddBadgeColor] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
 
   async function loadItems(cat: Category) {
@@ -642,6 +735,7 @@ function CodebookSection() {
   useEffect(() => {
     setShowAddForm(false);
     setAddLabel("");
+    setAddBadgeColor(null);
     loadItems(category);
   }, [category]);
 
@@ -652,10 +746,10 @@ function CodebookSection() {
     const res = await fetch("/api/codebook", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category, label: addLabel.trim(), isWarning: addIsWarning }),
+      body: JSON.stringify({ category, label: addLabel.trim(), isWarning: addIsWarning, badgeColor: addBadgeColor }),
     });
     if (res.ok) {
-      setAddLabel(""); setAddIsWarning(false); setShowAddForm(false);
+      setAddLabel(""); setAddIsWarning(false); setAddBadgeColor(null); setShowAddForm(false);
       await loadItems(category);
     }
     setAddLoading(false);
@@ -727,7 +821,7 @@ function CodebookSection() {
           {CATEGORY_LABELS[category]}
         </span>
         <button
-          onClick={() => { setShowAddForm(!showAddForm); setAddLabel(""); setAddIsWarning(false); }}
+          onClick={() => { setShowAddForm(!showAddForm); setAddLabel(""); setAddIsWarning(false); setAddBadgeColor(null); }}
           style={{
             display: "flex", alignItems: "center", gap: 5,
             background: "transparent", border: "none",
@@ -781,8 +875,9 @@ function CodebookSection() {
                 />
                 <WarningToggle value={addIsWarning} onChange={setAddIsWarning} />
               </div>
+              <ColorPicker value={addBadgeColor} onChange={setAddBadgeColor} />
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                <button type="button" style={btnSecondary} onClick={() => { setShowAddForm(false); }}>Zrušit</button>
+                <button type="button" style={btnSecondary} onClick={() => { setShowAddForm(false); setAddBadgeColor(null); }}>Zrušit</button>
                 <button type="submit" style={btnPrimary} disabled={addLoading || !addLabel.trim()}>
                   {addLoading ? "Přidávám..." : "Přidat"}
                 </button>
@@ -837,6 +932,18 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
 
   async function handleDelete() {
     await fetch(`/api/codebook/${item.id}`, { method: "DELETE" });
+    onUpdate();
+  }
+
+  async function handleColorChange(color: string | null) {
+    const res = await fetch(`/api/codebook/${item.id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ badgeColor: color }),
+    });
+    if (!res.ok) {
+      console.error("Badge color update failed", await res.text());
+      return;
+    }
     onUpdate();
   }
 
@@ -925,6 +1032,9 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
         {/* isWarning toggle */}
         <WarningToggle value={item.isWarning} onChange={() => handleToggle("isWarning")} compact />
 
+        {/* Badge color picker */}
+        <ColorPicker value={item.badgeColor} onChange={handleColorChange} compact />
+
         {/* isActive toggle */}
         <button
           onClick={() => handleToggle("isActive")}
@@ -982,6 +1092,106 @@ function CodebookRow({ item, isFirst, isLast, onMoveUp, onMoveDown, onUpdate }: 
   );
 }
 
+// ─── Color picker ─────────────────────────────────────────────────────────────
+
+function ColorPicker({ value, onChange, compact }: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const dotColor = value ? `var(--badge-${value})` : "var(--text-muted)";
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          title={value ? `Barva: ${BADGE_COLOR_LABELS[value as BadgeColorKey] ?? value}` : "Bez barvy"}
+          style={{
+            display: "flex", alignItems: "center", gap: compact ? 0 : 5,
+            background: "var(--surface-2)",
+            border: `1px solid ${BORDER_SUBTLE}`,
+            borderRadius: 6,
+            padding: compact ? "5px 7px" : "5px 10px",
+            cursor: "pointer",
+            flexShrink: 0,
+            minHeight: 32,
+          }}
+        >
+          <span style={{
+            width: 12, height: 12, borderRadius: "50%",
+            background: dotColor,
+            display: "inline-block",
+            flexShrink: 0,
+            border: value ? "none" : "1px dashed var(--text-muted)",
+          }} />
+          {!compact && (
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              {value ? (BADGE_COLOR_LABELS[value as BadgeColorKey] ?? value) : "Barva"}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-auto p-0 border-0"
+        style={{
+          background: "var(--surface)",
+          border: `1px solid ${BORDER_SUBTLE}`,
+          borderRadius: 10,
+          padding: 12,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
+          width: "max-content",
+          maxWidth: 240,
+        }}
+      >
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 32px)", justifyContent: "center", gap: 8, marginBottom: 10 }}>
+          {BADGE_COLOR_KEYS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              aria-label={BADGE_COLOR_LABELS[key]}
+              aria-pressed={value === key}
+              onClick={() => {
+                onChange(key);
+                setOpen(false);
+              }}
+              style={{
+                width: 32, height: 32, borderRadius: "50%",
+                background: `var(--badge-${key})`,
+                border: "2px solid color-mix(in oklab, var(--surface) 88%, transparent)",
+                boxShadow: value === key
+                  ? "0 0 0 2px var(--surface), 0 0 0 4px var(--accent)"
+                  : "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            onChange(null);
+            setOpen(false);
+          }}
+          style={{
+            width: "100%", padding: "6px 8px", borderRadius: 6,
+            background: value === null ? "color-mix(in oklab, var(--accent) 15%, transparent)" : "transparent",
+            border: `1px solid ${value === null ? "var(--accent)" : BORDER_SUBTLE}`,
+            color: "var(--text-muted)", fontSize: 11,
+            cursor: "pointer", textAlign: "center",
+            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          }}
+        >
+          × Bez barvy (výchozí)
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ─── Warning toggle ───────────────────────────────────────────────────────────
 
 function WarningToggle({ value, onChange, compact }: {
@@ -1036,6 +1246,221 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   materialOk: "Materiál OK",
   deadlineExpedice: "Expedice termín",
 };
+
+// ─── Tab: Pracovní doba ───────────────────────────────────────────────────────
+
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
+const DAY_LABELS_CS = ["Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle"];
+const HOUR_OPTIONS = Array.from({ length: 25 }, (_, i) => i); // 0–24
+
+function fmtHour(h: number) {
+  return `${String(h).padStart(2, "0")}:00`;
+}
+
+function WorkShiftsSection() {
+  const [rows, setRows] = useState<MachineWorkHours[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/machine-shifts")
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => { setRows(data); setLoading(false); })
+      .catch(() => { setRows([]); setLoading(false); });
+  }, []);
+
+  function updateRow(id: number, patch: Partial<MachineWorkHours>) {
+    setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
+    setDirty(true);
+    setError("");
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await fetch("/api/machine-shifts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rows.map((r) => ({ id: r.id, startHour: r.startHour, endHour: r.endHour, isActive: r.isActive }))),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? "Chyba při ukládání.");
+      } else {
+        setDirty(false);
+      }
+    } catch {
+      setError("Síťová chyba.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div style={{ color: TEXT_SECONDARY, fontSize: 13, padding: 20, textAlign: "center" }}>Načítám…</div>;
+
+  const machines = ["XL_105", "XL_106"] as const;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Popis */}
+      <div style={{
+        background: "var(--surface-2)",
+        borderRadius: 12,
+        padding: "12px 16px",
+        fontSize: 12,
+        color: TEXT_SECONDARY,
+        lineHeight: 1.5,
+      }}>
+        Týdenní šablona pracovní doby. Nastavení se opakuje každý týden a ovlivňuje vizualizaci na časové ose i automatické přeskakování bloků mimo provozní dobu.
+      </div>
+
+      {/* Tabulka: den × stroj */}
+      <div style={{
+        background: "var(--surface-2)",
+        borderRadius: 12,
+        overflow: "hidden",
+        border: `1px solid ${BORDER_SUBTLE}`,
+      }}>
+        {/* Hlavička */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "100px 1fr 1fr",
+          gap: 1,
+          background: BORDER_SUBTLE,
+        }}>
+          <div style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.05em" }}>Den</div>
+          {machines.map((m) => (
+            <div key={m} style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{m.replace("_", " ")}</div>
+          ))}
+        </div>
+
+        {/* Řádky */}
+        {DAY_ORDER.map((dow, di) => (
+          <div
+            key={dow}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "100px 1fr 1fr",
+              gap: 1,
+              background: BORDER_SUBTLE,
+            }}
+          >
+            {/* Název dne */}
+            <div style={{
+              background: "var(--surface-2)",
+              padding: "12px 12px",
+              fontSize: 13,
+              fontWeight: 500,
+              color: dow === 0 || dow === 6 ? "var(--danger)" : TEXT_PRIMARY,
+              display: "flex",
+              alignItems: "center",
+            }}>
+              {DAY_LABELS_CS[di]}
+            </div>
+
+            {/* Buňky pro každý stroj */}
+            {machines.map((machine) => {
+              const row = rows.find((r) => r.machine === machine && r.dayOfWeek === dow);
+              if (!row) return <div key={machine} style={{ background: "var(--surface-2)" }} />;
+              return (
+                <div key={machine} style={{
+                  background: "var(--surface-2)",
+                  padding: "10px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}>
+                  {/* Toggle isActive */}
+                  <button
+                    onClick={() => updateRow(row.id, { isActive: !row.isActive })}
+                    title={row.isActive ? "Provoz (kliknutím vypnout)" : "Mimo provoz (kliknutím zapnout)"}
+                    style={{
+                      width: 32, height: 18, borderRadius: 9, flexShrink: 0,
+                      background: row.isActive ? "var(--success)" : "var(--surface-3)",
+                      border: "none", cursor: "pointer", position: "relative",
+                      transition: "background 0.15s ease-out",
+                    }}
+                  >
+                    <span style={{
+                      position: "absolute",
+                      width: 14, height: 14, borderRadius: "50%",
+                      background: "var(--text)",
+                      top: 2,
+                      left: row.isActive ? 16 : 2,
+                      transition: "left 0.15s ease-out",
+                    }} />
+                  </button>
+
+                  {row.isActive ? (
+                    <>
+                      {/* startHour */}
+                      <select
+                        value={row.startHour}
+                        onChange={(e) => updateRow(row.id, { startHour: Number(e.target.value) })}
+                        style={{
+                          ...inputStyle,
+                          width: 74,
+                          padding: "3px 6px",
+                          fontSize: 12,
+                          height: 28,
+                        }}
+                      >
+                        {HOUR_OPTIONS.filter((h) => h < row.endHour).map((h) => (
+                          <option key={h} value={h}>{fmtHour(h)}</option>
+                        ))}
+                      </select>
+                      <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>–</span>
+                      {/* endHour */}
+                      <select
+                        value={row.endHour}
+                        onChange={(e) => updateRow(row.id, { endHour: Number(e.target.value) })}
+                        style={{
+                          ...inputStyle,
+                          width: 74,
+                          padding: "3px 6px",
+                          fontSize: 12,
+                          height: 28,
+                        }}
+                      >
+                        {HOUR_OPTIONS.filter((h) => h > row.startHour && h <= 24).map((h) => (
+                          <option key={h} value={h}>{fmtHour(h)}</option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontStyle: "italic" }}>Celý den mimo provoz</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Chyba */}
+      {error && <span style={{ fontSize: 12, color: "var(--danger)" }}>{error}</span>}
+
+      {/* Uložit tlačítko */}
+      {dirty && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <button
+            style={btnPrimary}
+            disabled={saving}
+            onClick={handleSave}
+          >
+            {saving ? "Ukládám…" : "Uložit změny"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Tab: Audit log ───────────────────────────────────────────────────────────
 
 function AuditLogSection() {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);

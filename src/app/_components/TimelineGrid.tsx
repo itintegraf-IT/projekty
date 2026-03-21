@@ -1,7 +1,10 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { snapGroupDelta } from "@/lib/workingTime";
+import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
+import { badgeColorVar } from "@/lib/badgeColors";
+import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import type { MachineScheduleException } from "@/lib/machineScheduleException";
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
@@ -49,9 +52,32 @@ export type Block = {
   specifikace: string | null;
   recurrenceType: string;
   recurrenceParentId: number | null;
+  printCompletedAt: string | null;
+  printCompletedByUserId: number | null;
+  printCompletedByUsername: string | null;
   createdAt: string;
   updatedAt: string;
 };
+
+type BlockedOverlay = {
+  top: number;
+  height: number;
+  key: string;
+  date: Date;
+  machine: string;
+  overlayType: "start-block" | "end-block" | "full-block";
+  effectiveStartHour: number;
+  effectiveEndHour: number;
+  isException: boolean;
+  exceptionId: number | null;
+};
+
+type OverlayDragPreview = {
+  machine: string;
+  date: Date;
+  edge: "start" | "end";
+  hour: number;
+} | null;
 
 type DragInternalState =
   | {
@@ -69,6 +95,15 @@ type DragInternalState =
       startClientY: number;
       startClientX: number;
       anchorBlockId: number;
+    }
+  | {
+      type: "overlay-resize";
+      machine: string;
+      date: Date;
+      edge: "start" | "end";
+      originalBoundaryHour: number;
+      otherBoundaryHour: number;
+      startClientY: number;
     };
 
 type DragPreview = {
@@ -111,6 +146,11 @@ interface TimelineGridProps {
   canEditMat?: boolean;
   onError?: (msg: string) => void;
   workingTimeLock?: boolean;
+  badgeColorMap?: Record<number, string | null>;
+  machineWorkHours?: MachineWorkHours[];
+  machineExceptions?: MachineScheduleException[];
+  onExceptionUpsert?: (machine: string, date: Date, startHour: number, endHour: number, isActive: boolean) => Promise<void>;
+  onExceptionDelete?: (id: number) => Promise<void>;
 }
 
 type QueueDropPreview = {
@@ -127,6 +167,7 @@ export type CompanyDay = {
   startDate: string;
   endDate: string;
   label: string;
+  machine?: string | null;
   createdAt: string;
 };
 
@@ -212,48 +253,62 @@ const DAY_ABBR   = ["Ne","Po","Út","St","Čt","Pá","So"];
 // ─── Vizuální config bloků ─────────────────────────────────────────────────────
 const BLOCK_STYLES: Record<string, {
   gradient: string; border: string; accentBar: string;
-  leftBg: string; textPrimary: string; textSub: string;
+  leftBg: string; textPrimary: string; textSub: string; glow: string;
 }> = {
   ZAKAZKA: {
-    gradient:    "linear-gradient(150deg, color-mix(in oklab, #3b82f6 18%, var(--surface)) 0%, color-mix(in oklab, #2563eb 12%, var(--surface)) 100%)",
-    border:      "color-mix(in oklab, #3b82f6 45%, var(--border))",
+    gradient:    "linear-gradient(160deg, rgba(59,130,246,0.95) 0%, rgba(37,99,235,0.88) 100%)",
+    border:      "rgba(59,130,246,0.65)",
     accentBar:   "#3b82f6",
-    leftBg:      "color-mix(in oklab, #3b82f6 14%, transparent)",
-    textPrimary: "var(--text)",
-    textSub:     "color-mix(in oklab, var(--text) 68%, #3b82f6)",
+    leftBg:      "rgba(59,130,246,0.14)",
+    textPrimary: "#ffffff",
+    textSub:     "#ffffff",
+    glow:        "rgba(59,130,246,0.35)",
   },
   REZERVACE: {
-    gradient:    "linear-gradient(150deg, color-mix(in oklab, #8b5cf6 18%, var(--surface)) 0%, color-mix(in oklab, #7c3aed 12%, var(--surface)) 100%)",
-    border:      "color-mix(in oklab, #8b5cf6 48%, var(--border))",
-    accentBar:   "#8b5cf6",
-    leftBg:      "color-mix(in oklab, #8b5cf6 14%, transparent)",
-    textPrimary: "var(--text)",
-    textSub:     "color-mix(in oklab, var(--text) 68%, #8b5cf6)",
+    gradient:    "linear-gradient(160deg, rgba(102,0,153,0.95) 0%, rgba(77,0,115,0.88) 100%)",
+    border:      "rgba(102,0,153,0.65)",
+    accentBar:   "#660099",
+    leftBg:      "rgba(102,0,153,0.14)",
+    textPrimary: "#ffffff",
+    textSub:     "#ffffff",
+    glow:        "rgba(102,0,153,0.35)",
   },
   UDRZBA: {
-    gradient:    "linear-gradient(150deg, color-mix(in oklab, #22c55e 18%, var(--surface)) 0%, color-mix(in oklab, #16a34a 12%, var(--surface)) 100%)",
-    border:      "color-mix(in oklab, #22c55e 44%, var(--border))",
+    gradient:    "linear-gradient(160deg, rgba(34,197,94,0.95) 0%, rgba(22,163,74,0.88) 100%)",
+    border:      "rgba(34,197,94,0.65)",
     accentBar:   "#22c55e",
-    leftBg:      "color-mix(in oklab, #22c55e 14%, transparent)",
-    textPrimary: "var(--text)",
-    textSub:     "color-mix(in oklab, var(--text) 68%, #16a34a)",
+    leftBg:      "rgba(34,197,94,0.14)",
+    textPrimary: "#ffffff",
+    textSub:     "#ffffff",
+    glow:        "rgba(34,197,94,0.32)",
   },
 };
 const BLOCK_OVERDUE = {
-  gradient:    "linear-gradient(150deg, color-mix(in oklab, var(--surface-2) 86%, var(--text-muted)) 0%, color-mix(in oklab, var(--surface) 92%, color-mix(in oklab, var(--text-muted) 85%, #334155)) 100%)",
-  border:      "color-mix(in oklab, var(--text-muted) 38%, var(--border))",
-  accentBar:   "var(--text-muted)",
-  leftBg:      "color-mix(in oklab, var(--text-muted) 10%, transparent)",
+  gradient:    "linear-gradient(160deg, rgba(100,116,139,0.16) 0%, rgba(71,85,105,0.10) 100%)",
+  border:      "rgba(100,116,139,0.26)",
+  accentBar:   "rgba(100,116,139,0.60)",
+  leftBg:      "rgba(100,116,139,0.08)",
   textPrimary: "var(--text-muted)",
-  textSub:     "color-mix(in oklab, var(--text-muted) 80%, color-mix(in oklab, var(--text-muted) 85%, #334155))",
+  textSub:     "var(--text-muted)",
+  glow:        "transparent",
 };
-const BLOCK_DEFAULT = {
-  gradient:    "linear-gradient(150deg, var(--surface-2) 0%, var(--surface) 100%)",
-  border:      "var(--border)",
-  accentBar:   "color-mix(in oklab, var(--text-muted) 70%, var(--text-muted))",
-  leftBg:      "color-mix(in oklab, var(--border) 45%, transparent)",
+const BLOCK_PRINT_DONE = {
+  gradient:    "linear-gradient(160deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.08) 100%)",
+  border:      "rgba(34,197,94,0.30)",
+  accentBar:   "rgba(34,197,94,0.70)",
+  leftBg:      "rgba(34,197,94,0.08)",
   textPrimary: "var(--text)",
   textSub:     "var(--text-muted)",
+  glow:        "rgba(34,197,94,0.15)",
+};
+const BLOCK_DEFAULT = {
+  gradient:    "linear-gradient(160deg, rgba(148,163,184,0.12) 0%, rgba(100,116,139,0.08) 100%)",
+  border:      "var(--border)",
+  accentBar:   "color-mix(in oklab, var(--text-muted) 70%, var(--text-muted))",
+  leftBg:      "rgba(148,163,184,0.08)",
+  textPrimary: "var(--text)",
+  textSub:     "var(--text-muted)",
+  glow:        "transparent",
 };
 
 // ─── Pomocná funkce — bezpečný parse data z DB (ISO timestamp i date string) ──
@@ -292,10 +347,50 @@ function tint(color: string, percent: number): string {
 }
 
 const FIELD_ACCENT = {
-  DATA: "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",
-  MATERIAL: "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",
-  EXPEDICE: "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",
+  DATA:     "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",  // tyrkysová — data
+  MATERIAL: "color-mix(in oklab, #22c55e 78%, var(--text) 22%)",  // zelená — materiál
+  EXPEDICE: "color-mix(in oklab, #f97316 78%, var(--text) 22%)",  // oranžová — expedice
 };
+
+// Deadline barvy jako tokeny — použito v DateBadge
+const DEADLINE_BG: Record<string, string> = {
+  ok:         "color-mix(in oklab, var(--success) 85%, black 15%)",
+  danger:     "color-mix(in oklab, var(--danger) 85%, black 15%)",
+  warning:    "color-mix(in oklab, var(--warning) 75%, black 25%)",
+  earlyStart: "color-mix(in oklab, #f97316 85%, black 15%)",
+  empty:      "rgba(255,255,255,0.12)",
+  neutral:    "rgba(255,255,255,0.18)",
+};
+const DEADLINE_BORDER: Record<string, string> = {
+  ok:         "color-mix(in oklab, var(--success) 70%, black 30%)",
+  danger:     "color-mix(in oklab, var(--danger) 70%, black 30%)",
+  warning:    "color-mix(in oklab, var(--warning) 60%, black 40%)",
+  earlyStart: "color-mix(in oklab, #f97316 70%, black 30%)",
+  empty:      "rgba(255,255,255,0.20)",
+  neutral:    "rgba(255,255,255,0.30)",
+};
+
+// Deadline strong barvy pro tečky/ikonky — module level (eliminace duplicity)
+const SUCCESS_STRONG     = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
+const WARNING_STRONG     = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
+const DANGER_STRONG      = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
+const EARLY_START_STRONG = "color-mix(in oklab, #f97316 85%, var(--text))";
+
+// Chip bg/border pro mini D/M/E datum chipy — lehčí verze DEADLINE_BG/BORDER
+function chipStateBg(stateKey: string): string {
+  if (stateKey === "ok")         return "color-mix(in oklab, var(--success) 22%, transparent)";
+  if (stateKey === "danger")     return "color-mix(in oklab, var(--danger) 25%, transparent)";
+  if (stateKey === "warning")    return "color-mix(in oklab, var(--warning) 22%, transparent)";
+  if (stateKey === "earlyStart") return "color-mix(in oklab, #f97316 22%, transparent)";
+  return "rgba(255,255,255,0.08)";
+}
+function chipStateBorder(stateKey: string): string {
+  if (stateKey === "ok")         return "color-mix(in oklab, var(--success) 50%, transparent)";
+  if (stateKey === "danger")     return "color-mix(in oklab, var(--danger) 55%, transparent)";
+  if (stateKey === "warning")    return "color-mix(in oklab, var(--warning) 50%, transparent)";
+  if (stateKey === "earlyStart") return "color-mix(in oklab, #f97316 50%, transparent)";
+  return "rgba(255,255,255,0.20)";
+}
 
 const MONTH_NAMES_TG = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
 const DAY_NAMES_TG   = ["Po","Út","St","Čt","Pá","So","Ne"];
@@ -376,10 +471,10 @@ function InlineDatePicker({
                 onClick={() => { onPick(toStr(new Date(viewYear, viewMonth, day))); }}
                 style={{
                   width: CELL, height: CELL, borderRadius: "50%",
-                  background: isSelected ? "var(--accent)" : "transparent",
-                  color: isSelected ? "var(--background)" : isToday ? "var(--accent)" : "var(--text)",
-                  border: isToday && !isSelected ? "1.5px solid var(--accent)" : "1.5px solid transparent",
-                  fontSize: 11, fontWeight: isSelected || isToday ? 600 : 400,
+                  background: isSelected ? "#3b82f6" : isToday && !isSelected ? "rgba(59,130,246,0.15)" : "transparent",
+                  color: isSelected ? "#fff" : isToday ? "#3b82f6" : "var(--text)",
+                  border: isToday ? "1.5px solid #3b82f6" : "1.5px solid transparent",
+                  fontSize: 11, fontWeight: isSelected || isToday ? 700 : 400,
                   cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                   transition: "background 100ms ease-out",
                 }}
@@ -403,15 +498,12 @@ function DateBadge({
   const empty = !dateStr;
   const fmt = dateStr ? fmtDate(dateStr) : "—";
 
-  const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
-  const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
-  const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
-  const earlyStartStrong = "color-mix(in oklab, #f97316 85%, var(--text))";
   const neutralAccent = accent ?? "var(--text-muted)";
-  const bg          = empty ? "color-mix(in oklab, var(--surface) 96%, transparent)" : ok ? tint(successStrong, 16) : danger ? tint(dangerStrong, 16) : warn ? tint(warningStrong, 18) : earlyStart ? tint(earlyStartStrong, 16) : tint(neutralAccent, 14);
-  const borderColor = empty ? "var(--border)" : ok ? tint(successStrong, 45)  : danger ? tint(dangerStrong, 56)  : warn ? tint(warningStrong, 52)  : earlyStart ? tint(earlyStartStrong, 45) : tint(neutralAccent, 38);
-  const labelColor  = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : earlyStart ? earlyStartStrong : neutralAccent;
-  const dateColor   = empty ? "var(--text-muted)" : ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : earlyStart ? earlyStartStrong : neutralAccent;
+  const stateKey = empty ? "empty" : ok ? "ok" : danger ? "danger" : warn ? "warning" : earlyStart ? "earlyStart" : "neutral";
+  const bg          = DEADLINE_BG[stateKey];
+  const borderColor = DEADLINE_BORDER[stateKey];
+  const labelColor  = empty ? "var(--text-muted)" : "rgba(255,255,255,0.90)";
+  const dateColor   = empty ? "var(--text-muted)" : "#fff";
 
   function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -445,8 +537,9 @@ function DateBadge({
       onDoubleClick={onDoubleClick ? handleDoubleClick : undefined}
       style={{
         display: "flex", flexDirection: "column", gap: 2,
-        padding: "5px 9px", borderRadius: 5,
+        padding: "5px 9px 5px 8px", borderRadius: 5,
         background: bg, border: `1px solid ${borderColor}`,
+        borderLeft: `2px solid ${neutralAccent}`,
         cursor: empty ? "default" : "pointer", flex: "0 0 auto",
         transition: "all 0.12s", opacity: loading ? 0.6 : 1,
       }}
@@ -457,7 +550,7 @@ function DateBadge({
       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
         {!empty && (
-          <span style={{ fontSize: 10, lineHeight: 1, color: ok ? successStrong : danger ? dangerStrong : warn ? warningStrong : earlyStart ? earlyStartStrong : "var(--text-muted)" }}
+          <span style={{ fontSize: 10, lineHeight: 1, color: empty ? "var(--text-muted)" : "rgba(255,255,255,0.80)" }}
                 title={earlyStart ? "Start zakázky před dodáním" : undefined}>
             {ok ? "✓" : danger ? "‼" : warn ? "!" : earlyStart ? "⚠" : "·"}
           </span>
@@ -468,16 +561,35 @@ function DateBadge({
 }
 
 // ─── MiniChip — malý chip vpravo nahoře v bloku ───────────────────────────────
-function MiniChip({ label, accent }: { label: string; accent: string }) {
+// Přepsání barvy textu pro konkrétní klíče (světlé → tmavý text, tmavé → světlý text)
+// Všechny badge barvy mají pevný kontrastní text (bílý nebo černý)
+const BADGE_TEXT_OVERRIDES: Record<string, string> = {
+  blue:   "#111",
+  green:  "#111",
+  orange: "#111",
+  red:    "#111",
+  purple: "#111",
+  cyan:   "#111",
+  lime:   "#111",
+  pink:   "#111",
+  black:  "#fff",
+};
+
+function chipTextColor(colorKey: string | null | undefined): string | null {
+  if (!colorKey) return null;
+  return BADGE_TEXT_OVERRIDES[colorKey] ?? null;
+}
+
+function MiniChip({ label, accent, textColor }: { label: string; accent: string; textColor?: string }) {
+  const tc = textColor ?? accent;
   return (
     <span style={{
-      fontSize: 7, fontWeight: 700, color: accent, lineHeight: 1.5,
-      background: tint(accent, 14), border: `1px solid ${tint(accent, 28)}`,
-      borderRadius: 3, padding: "1px 4px", whiteSpace: "nowrap",
-      overflow: "hidden", textOverflow: "ellipsis", maxWidth: 56,
+      fontSize: 9, fontWeight: 700, color: tc, lineHeight: 1.5,
+      background: tint(accent, 85), border: `1px solid ${tint(accent, 100)}`,
+      borderRadius: 3, padding: "1px 5px", whiteSpace: "nowrap",
       display: "block",
     }}>
-      {label.length > 10 ? label.slice(0, 10) + "…" : label}
+      {label}
     </span>
   );
 }
@@ -486,7 +598,7 @@ function MiniChip({ label, accent }: { label: string; accent: string }) {
 function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu, onBlockUpdate, onError,
-  canEditData, canEditMat, onInlineDatePick,
+  canEditData, canEditMat, onInlineDatePick, badgeColorMap,
 }: {
   block: Block;
   top: number;
@@ -507,17 +619,37 @@ function BlockCard({
   canEditData?: boolean;
   canEditMat?: boolean;
   onInlineDatePick?: (blockId: number, field: "data" | "material", currentValue: string, rect: DOMRect) => void;
+  badgeColorMap?: Record<number, string | null>;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
 
-  const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now;
+  const isPrintDone  = block.printCompletedAt != null;
+  const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone;
   const clampedHeight = Math.max(height, 20);
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
   const materialDeadlineState = deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
 
-  const s = isOverdue ? BLOCK_OVERDUE : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
+  const s = isPrintDone
+    ? BLOCK_PRINT_DONE
+    : isOverdue
+    ? BLOCK_OVERDUE
+    : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
+
+  // Badge accenty — custom barva z číselníku, fallback na dnešní chování per-field
+  const dataKey    = block.dataStatusId     ? (badgeColorMap?.[block.dataStatusId]     ?? null) : null;
+  const matKey     = block.materialStatusId ? (badgeColorMap?.[block.materialStatusId]  ?? null) : null;
+  const barvyKey   = block.barvyStatusId    ? (badgeColorMap?.[block.barvyStatusId]     ?? null) : null;
+  const lakKey     = block.lakStatusId      ? (badgeColorMap?.[block.lakStatusId]       ?? null) : null;
+  const dataAccent    = (dataKey    ? badgeColorVar(dataKey)    : null) ?? s.accentBar;
+  const matAccent     = (matKey     ? badgeColorVar(matKey)     : null) ?? s.textSub;
+  const barvyAccent   = (barvyKey   ? badgeColorVar(barvyKey)   : null) ?? "var(--text-muted)";
+  const lakAccent     = (lakKey     ? badgeColorVar(lakKey)     : null) ?? "var(--text-muted)";
+  const dataText    = chipTextColor(dataKey);
+  const matText     = chipTextColor(matKey);
+  const barvyText   = chipTextColor(barvyKey);
+  const lakText     = chipTextColor(lakKey);
 
   const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
 
@@ -533,13 +665,14 @@ function BlockCard({
   const descLineClamp = Math.max(2, Math.floor((clampedHeight - 55) / 13));
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
+  const glow = s.glow;
   const shadow  = selected
     ? "0 0 0 1.5px #FFE600, 0 4px 16px rgba(0,0,0,0.6)"
     : multiSelected
       ? "0 0 0 2px rgba(59,130,246,0.7), 0 4px 16px rgba(0,0,0,0.5)"
       : hovered && !isDragging
-        ? "0 6px 20px rgba(0,0,0,0.55)"
-        : "0 2px 8px rgba(0,0,0,0.4)";
+        ? `0 6px 24px rgba(0,0,0,0.55), 0 0 16px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
+        : `0 2px 8px rgba(0,0,0,0.35), 0 0 10px ${glow}, inset 0 1px 0 rgba(255,255,255,0.05)`;
 
   async function toggleField(field: "dataOk" | "materialOk", current: boolean) {
     try {
@@ -584,48 +717,50 @@ function BlockCard({
         animationFillMode: "backwards",
       }}
     >
-      {/* Barevný akcent nahoře (2px) */}
-      <div style={{ height: 2, flexShrink: 0, background: s.accentBar, opacity: isOverdue ? 0.35 : 0.8 }} />
+      {/* Levý barevný pruh — iOS Calendar style */}
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
 
 
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
-        const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
-        const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
-        const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
-        const earlyStartStrong = "color-mix(in oklab, #f97316 85%, var(--text))";
-        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : dataDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.DATA;
-        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : materialDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.MATERIAL;
+        const dStateKey = dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const mStateKey = materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const dClr = dataDeadlineState === "ok" ? SUCCESS_STRONG : dataDeadlineState === "danger" ? DANGER_STRONG : dataDeadlineState === "warning" ? WARNING_STRONG : dataDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.DATA;
+        const mClr = materialDeadlineState === "ok" ? SUCCESS_STRONG : materialDeadlineState === "danger" ? DANGER_STRONG : materialDeadlineState === "warning" ? WARNING_STRONG : materialDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.MATERIAL;
         const eClr = FIELD_ACCENT.EXPEDICE;
-        const dateChip = (clr: string): React.CSSProperties => ({
+        const dateChip = (clr: string, stateKey: string, fieldAccent: string): React.CSSProperties => ({
           fontSize: 10, fontWeight: 600, color: clr,
-          background: tint(clr, 14), border: `1px solid ${tint(clr, 36)}`,
-          borderRadius: 4, padding: "2px 6px",
+          background: chipStateBg(stateKey),
+          border: `1px solid ${chipStateBorder(stateKey)}`,
+          borderLeft: `2px solid ${fieldAccent}`,
+          borderRadius: 4, padding: "2px 6px 2px 5px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1, cursor: "pointer",
         });
-        const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
-        const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
+        const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
+        const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
-              <span style={dateChip(dClr)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+              <span style={dateChip(dClr, dStateKey, FIELD_ACCENT.DATA)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
                 D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
               </span>
-              <span style={dateChip(mClr)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+              <span style={dateChip(mClr, mStateKey, FIELD_ACCENT.MATERIAL)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
                 M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
               </span>
-              <span style={{ ...dateChip(eClr), cursor: "default" }}>
+              <span style={{ ...dateChip(eClr, "neutral", FIELD_ACCENT.EXPEDICE), cursor: "default" }}>
                 E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
               </span>
               <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+                {isPrintDone && <span style={{ marginLeft: 4, fontSize: 9, color: "#22c55e", fontWeight: 700 }}>✓</span>}
+                {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ marginLeft: 4, fontSize: 9, color: "#f59e0b" }}>⏳</span>}
               </span>
               {(block.description || block.specifikace) && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
                   {block.description && (
-                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
                       {block.description}
                     </span>
                   )}
@@ -639,11 +774,11 @@ function BlockCard({
             </div>
             {/* Pravá část: status chips + série */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-              <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
-                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
-                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
-                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="var(--text-muted)" />}
-                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="var(--text-muted)" />}
+              <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
+                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
+                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
+                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
                 {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                   <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
                 )}
@@ -655,33 +790,33 @@ function BlockCard({
 
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
-        const successStrong = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
-        const warningStrong = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
-        const dangerStrong = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
-        const earlyStartStrong = "color-mix(in oklab, #f97316 85%, var(--text))";
-        const dClr = dataDeadlineState === "ok" ? successStrong : dataDeadlineState === "danger" ? dangerStrong : dataDeadlineState === "warning" ? warningStrong : dataDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.DATA;
-        const mClr = materialDeadlineState === "ok" ? successStrong : materialDeadlineState === "danger" ? dangerStrong : materialDeadlineState === "warning" ? warningStrong : materialDeadlineState === "earlyStart" ? earlyStartStrong : FIELD_ACCENT.MATERIAL;
+        const dStateKey = dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const mStateKey = materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const dClr = dataDeadlineState === "ok" ? SUCCESS_STRONG : dataDeadlineState === "danger" ? DANGER_STRONG : dataDeadlineState === "warning" ? WARNING_STRONG : dataDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.DATA;
+        const mClr = materialDeadlineState === "ok" ? SUCCESS_STRONG : materialDeadlineState === "danger" ? DANGER_STRONG : materialDeadlineState === "warning" ? WARNING_STRONG : materialDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.MATERIAL;
         const eClr = FIELD_ACCENT.EXPEDICE;
-        const chipStyle = (clr: string): React.CSSProperties => ({
+        const chipStyle = (clr: string, stateKey: string, fieldAccent: string): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600, color: clr,
-          background: tint(clr, 14), border: `1px solid ${tint(clr, 36)}`,
-          borderRadius: 3, padding: "1px 5px",
+          background: chipStateBg(stateKey),
+          border: `1px solid ${chipStateBorder(stateKey)}`,
+          borderLeft: `2px solid ${fieldAccent}`,
+          borderRadius: 3, padding: "1px 5px 1px 4px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
         });
-        const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ‼" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
-        const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ‼" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
+        const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
+        const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {block.type !== "UDRZBA" && <>
-                <span style={chipStyle(dClr)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+                <span style={chipStyle(dClr, dStateKey, FIELD_ACCENT.DATA)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
                   D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
-                <span style={chipStyle(mClr)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+                <span style={chipStyle(mClr, mStateKey, FIELD_ACCENT.MATERIAL)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
                   M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                 </span>
-                <span style={{ ...chipStyle(eClr), cursor: "default" }}>
+                <span style={{ ...chipStyle(eClr, "neutral", FIELD_ACCENT.EXPEDICE), cursor: "default" }}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
@@ -692,7 +827,7 @@ function BlockCard({
               {(block.description || block.specifikace) && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
                   {block.description && (
-                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.58, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
                       {block.description}
                     </span>
                   )}
@@ -706,11 +841,11 @@ function BlockCard({
             </div>
             {/* Pravá část: status chips + série */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-              <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
-                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
-                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
-                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="var(--text-muted)" />}
-                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="var(--text-muted)" />}
+              <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
+                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
+                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
+                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
                 {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                   <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
                 )}
@@ -738,7 +873,7 @@ function BlockCard({
             </span>
             {showDesc && block.description && (
               <span style={{
-                fontSize: 10, fontWeight: 400, color: s.textSub, opacity: 0.62, lineHeight: 1.3,
+                fontSize: 10, fontWeight: 400, color: s.textSub, opacity: 0.75, lineHeight: 1.3,
                 overflow: "hidden", display: "-webkit-box",
                 WebkitLineClamp: descLineClamp, WebkitBoxOrient: "vertical",
                 whiteSpace: "pre-wrap",
@@ -750,11 +885,11 @@ function BlockCard({
           </div>
           {/* Pravá část: status chips + série */}
           {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-            <div style={{ display: "flex", gap: 2, alignItems: "center", flexShrink: 0 }}>
-              {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={s.accentBar} />}
-              {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={s.textSub} />}
-              {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent="var(--text-muted)" />}
-              {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent="var(--text-muted)" />}
+            <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
+              {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+              {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
+              {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
+              {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
               {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                 <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
               )}
@@ -852,6 +987,11 @@ export default function TimelineGrid({
   canEditMat = false,
   onError,
   workingTimeLock = true,
+  badgeColorMap = {},
+  machineWorkHours,
+  machineExceptions,
+  onExceptionUpsert,
+  onExceptionDelete,
 }: TimelineGridProps) {
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
   const effectiveDaysAhead = daysAhead ?? VIEW_DAYS_AHEAD;
@@ -866,6 +1006,8 @@ export default function TimelineGrid({
   const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material"; currentValue: string; x: number; y: number } | null>(null);
+  const [overlayDragPreview, setOverlayDragPreview] = useState<OverlayDragPreview>(null);
+  const [hoveredOverlayKey, setHoveredOverlayKey] = useState<string | null>(null);
 
   const dragStateRef    = useRef<DragInternalState | null>(null);
   const dragDidMove     = useRef(false);
@@ -879,6 +1021,12 @@ export default function TimelineGrid({
   const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
   const workingTimeLockRef  = useRef(workingTimeLock);
   workingTimeLockRef.current = workingTimeLock;
+  const machineWorkHoursRef = useRef(machineWorkHours);
+  machineWorkHoursRef.current = machineWorkHours;
+  const machineExceptionsRef = useRef(machineExceptions);
+  machineExceptionsRef.current = machineExceptions;
+  const exceptionCallbacksRef = useRef({ onExceptionUpsert, onExceptionDelete });
+  exceptionCallbacksRef.current = { onExceptionUpsert, onExceptionDelete };
 
   useEffect(() => { slotHeightRef.current = slotHeight; }, [slotHeight]);
   useEffect(() => { blocksRef.current = blocks; }, [blocks]);
@@ -954,7 +1102,7 @@ export default function TimelineGrid({
       if (!ds || !vs) return;
 
       const deltaY = e.clientY - ds.startClientY;
-      const deltaX = e.clientX - ds.startClientX;
+      const deltaX = "startClientX" in ds ? e.clientX - ds.startClientX : 0;
       if (Math.abs(deltaY) + Math.abs(deltaX) > DRAG_THRESHOLD) dragDidMove.current = true;
 
       const sh = slotHeightRef.current;
@@ -980,6 +1128,13 @@ export default function TimelineGrid({
         const newStart   = new Date(anchor.originalStart.getTime() + deltaMs);
         const newEnd     = new Date(anchor.originalEnd.getTime() + deltaMs);
         setDragPreview({ blockId: ds.anchorBlockId, top: dateToY(newStart, vs, sh), height: dateToY(newEnd, vs, sh) - dateToY(newStart, vs, sh), machine: newMachine });
+      } else if (ds.type === "overlay-resize") {
+        // Jeden slot = sh px = 30 min, takže 1 hodina = 2*sh px
+        const deltaHours = Math.round(deltaY / (sh * 2));
+        let newHour = Math.max(0, Math.min(24, ds.originalBoundaryHour + deltaHours));
+        if (ds.edge === "start") newHour = Math.min(newHour, ds.otherBoundaryHour - 1);
+        if (ds.edge === "end")   newHour = Math.max(newHour, ds.otherBoundaryHour + 1);
+        setOverlayDragPreview({ machine: ds.machine, date: ds.date, edge: ds.edge, hour: newHour });
       }
     }
 
@@ -1032,12 +1187,20 @@ export default function TimelineGrid({
 
       if (ds.type === "move") {
         const originalTop = dateToY(ds.originalStart, vs, sh);
-        const newStart    = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
-        const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
-        const newEnd      = new Date(newStart.getTime() + duration);
         const newMachine  = clientXToMachine(e.clientX);
+        const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
+        let newStart      = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
+        if (workingTimeLockRef.current) {
+          newStart = snapToNextValidStart(newMachine, newStart, duration, machineWorkHoursRef.current, machineExceptionsRef.current);
+        }
+        const newEnd      = new Date(newStart.getTime() + duration);
         try {
           const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine }) });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({})) as { error?: string };
+            callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
+            return;
+          }
           const updated: Block = await res.json();
           callbacksRef.current.onBlockUpdate(updated, true);
         } catch (error) {
@@ -1052,6 +1215,11 @@ export default function TimelineGrid({
         const minEnd         = new Date(ds.originalStart.getTime() + SLOT_MS);
         try {
           const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString() }) });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({})) as { error?: string };
+            callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo změnit.");
+            return;
+          }
           const updated: Block = await res.json();
           callbacksRef.current.onBlockUpdate(updated, true);
         } catch (error) {
@@ -1060,12 +1228,14 @@ export default function TimelineGrid({
         }
       } else if (ds.type === "multi-move") {
         let deltaMs = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        // Určit cílový stroj PŘED snapem — snap musí validovat podle správného stroje
+        const newMachine = clientXToMachine(e.clientX);
         if (workingTimeLockRef.current) {
-          const { deltaMs: snapped, wasSnapped } = snapGroupDelta(ds.blocks, deltaMs);
+          const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
+          const { deltaMs: snapped, wasSnapped } = snapGroupDelta(blocksOnNewMachine, deltaMs, machineWorkHoursRef.current, machineExceptionsRef.current);
           deltaMs = snapped;
           if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
         }
-        const newMachine = clientXToMachine(e.clientX);
         const updates    = ds.blocks.map(b => ({
           id:        b.id,
           machine:   newMachine,
@@ -1073,14 +1243,30 @@ export default function TimelineGrid({
           endTime:   new Date(b.originalEnd.getTime()   + deltaMs),
         }));
         callbacksRef.current.onMultiBlockUpdate?.(updates);
+      } else if (ds.type === "overlay-resize") {
+        const sh2 = slotHeightRef.current;
+        const deltaHours = Math.round((e.clientY - ds.startClientY) / (sh2 * 2));
+        let newHour = Math.max(0, Math.min(24, ds.originalBoundaryHour + deltaHours));
+        if (ds.edge === "start") newHour = Math.min(newHour, ds.otherBoundaryHour - 1);
+        if (ds.edge === "end")   newHour = Math.max(newHour, ds.otherBoundaryHour + 1);
+        const newStartHour = ds.edge === "start" ? newHour : ds.otherBoundaryHour;
+        const newEndHour   = ds.edge === "end"   ? newHour : ds.otherBoundaryHour;
+        setOverlayDragPreview(null);
+        await exceptionCallbacksRef.current.onExceptionUpsert?.(ds.machine, ds.date, newStartHour, newEndHour, true);
       }
+    }
+
+    function onSelectStart(e: Event) {
+      if (lassoRef.current?.active) e.preventDefault();
     }
 
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
+    window.addEventListener("selectstart", onSelectStart);
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("selectstart", onSelectStart);
     };
   }, []); // prázdné deps — čte z refs
 
@@ -1171,7 +1357,9 @@ export default function TimelineGrid({
         <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "var(--text-muted)", textTransform: "uppercase" }}>ČAS</span>
       </div>
       {MACHINES.flatMap((machine, idx) => [
-        idx > 0 ? <div key={`hgap-${idx}`} style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface-2)" }} /> : null,
+        idx > 0 ? <div key={`hgap-${idx}`} style={{ width: TIME_COL_W, flexShrink: 0, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "var(--text-muted)", textTransform: "uppercase" }}>ČAS</span>
+        </div> : null,
         <div key={machine} style={{ flex: 1, padding: "8px 12px", color: "var(--text)" }} className="text-xs font-bold">
           {machine.replace("_", "\u00a0")}
         </div>,
@@ -1208,7 +1396,7 @@ export default function TimelineGrid({
   // Kolik slotů (po 30 min) přeskočit mezi viditelnými štítky
   const labelStep = slotHeight >= 14 ? 1 : slotHeight >= 7 ? 2 : slotHeight >= 4 ? 4 : 8;
 
-  const blockedOverlays: Record<string, { top: number; height: number; key: string }[]> = { XL_105: [], XL_106: [] };
+  const blockedOverlays: Record<string, BlockedOverlay[]> = { XL_105: [], XL_106: [] };
 
   for (let di = 0; di < totalDays; di++) {
     const day      = addDays(viewStart, di);
@@ -1220,20 +1408,43 @@ export default function TimelineGrid({
     const isHoliday = holidays.has(dateStr);
     const companyDayMatch = companyDays?.find((cd) => dateStr >= cd.startDate.slice(0, 10) && dateStr <= cd.endDate.slice(0, 10));
     days.push({ date: day, y: dayY, isWeekend, isToday, isHoliday, isCompanyDay: !!companyDayMatch, companyDayLabel: companyDayMatch?.label });
-    // XL_105: Sat+Sun = full day, all other days = two night strips (00-06, 22-24)
-    if (dow === 6 || dow === 0) {
-      blockedOverlays.XL_105.push({ top: dayY, height: dayHeight, key: `b105-we-${di}` });
-    } else {
-      blockedOverlays.XL_105.push({ top: dayY, height: WORK_START_H * 2 * slotHeight, key: `b105-ns-${di}` });
-      blockedOverlays.XL_105.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b105-ne-${di}` });
-    }
-    // XL_106: Fri night (22-24), Sat = full day, Sun = 00-22:00; Mon-Thu = nothing
-    if (dow === 6) {
-      blockedOverlays.XL_106.push({ top: dayY, height: dayHeight, key: `b106-sat-${di}` });
-    } else if (dow === 0) {
-      blockedOverlays.XL_106.push({ top: dayY, height: WORK_END_H * 2 * slotHeight, key: `b106-sun-${di}` });
-    } else if (dow === 5) {
-      blockedOverlays.XL_106.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b106-fri-${di}` });
+    // Blocked overlays — výjimka přebíjí šablonu, fallback na hardcoded
+    for (const machine of MACHINES) {
+      const exc = machineExceptions?.find(
+        (e) => e.machine === machine && e.date.slice(0, 10) === dateStr
+      );
+      const row = exc ?? machineWorkHours?.find((r) => r.machine === machine && r.dayOfWeek === dow);
+      const isException = !!exc;
+      const excId = exc?.id ?? null;
+
+      if (!row) {
+        // Fallback: původní hardcoded logika (bez interakce)
+        if (machine === "XL_105") {
+          if (dow === 6 || dow === 0) {
+            blockedOverlays.XL_105.push({ top: dayY, height: dayHeight, key: `b105-we-${di}`, date: day, machine, overlayType: "full-block", effectiveStartHour: 0, effectiveEndHour: 24, isException: false, exceptionId: null });
+          } else {
+            blockedOverlays.XL_105.push({ top: dayY, height: WORK_START_H * 2 * slotHeight, key: `b105-ns-${di}`, date: day, machine, overlayType: "start-block", effectiveStartHour: 0, effectiveEndHour: WORK_START_H, isException: false, exceptionId: null });
+            blockedOverlays.XL_105.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b105-ne-${di}`, date: day, machine, overlayType: "end-block", effectiveStartHour: WORK_END_H, effectiveEndHour: 24, isException: false, exceptionId: null });
+          }
+        } else {
+          if (dow === 6) {
+            blockedOverlays.XL_106.push({ top: dayY, height: dayHeight, key: `b106-sat-${di}`, date: day, machine, overlayType: "full-block", effectiveStartHour: 0, effectiveEndHour: 24, isException: false, exceptionId: null });
+          } else if (dow === 0) {
+            blockedOverlays.XL_106.push({ top: dayY, height: WORK_END_H * 2 * slotHeight, key: `b106-sun-${di}`, date: day, machine, overlayType: "start-block", effectiveStartHour: 0, effectiveEndHour: WORK_END_H, isException: false, exceptionId: null });
+          } else if (dow === 5) {
+            blockedOverlays.XL_106.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b106-fri-${di}`, date: day, machine, overlayType: "end-block", effectiveStartHour: WORK_END_H, effectiveEndHour: 24, isException: false, exceptionId: null });
+          }
+        }
+      } else if (!row.isActive) {
+        blockedOverlays[machine].push({ top: dayY, height: dayHeight, key: `b-${machine}-off-${di}`, date: day, machine, overlayType: "full-block", effectiveStartHour: 0, effectiveEndHour: 24, isException, exceptionId: excId });
+      } else {
+        if (row.startHour > 0) {
+          blockedOverlays[machine].push({ top: dayY, height: row.startHour * 2 * slotHeight, key: `b-${machine}-ns-${di}`, date: day, machine, overlayType: "start-block", effectiveStartHour: 0, effectiveEndHour: row.startHour, isException, exceptionId: excId });
+        }
+        if (row.endHour < 24) {
+          blockedOverlays[machine].push({ top: dayY + row.endHour * 2 * slotHeight, height: (24 - row.endHour) * 2 * slotHeight, key: `b-${machine}-ne-${di}`, date: day, machine, overlayType: "end-block", effectiveStartHour: row.endHour, effectiveEndHour: 24, isException, exceptionId: excId });
+        }
+      }
     }
     for (let s = 0; s < 48; s++) {
       const h = Math.floor(s / 2);
@@ -1358,14 +1569,35 @@ export default function TimelineGrid({
               <Fragment key={machine}>
                 {colIdx > 0 && (
                   <div
-                    style={{ width: MACHINE_GAP_W, flexShrink: 0, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface-2)", userSelect: "none", cursor: "crosshair" }}
+                    style={{ width: TIME_COL_W, flexShrink: 0, position: "relative", zIndex: 9, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)", userSelect: "none" }}
                     onMouseDown={canEdit ? (e) => {
                       if (e.button !== 0) return;
                       if (dragStateRef.current) return;
                       lassoRef.current = { startClientX: e.clientX, startClientY: e.clientY, active: false };
                       e.preventDefault();
                     } : undefined}
-                  />
+                  >
+                    {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
+                      <div
+                        key={m.y}
+                        style={{
+                          position: "absolute",
+                          top: m.y,
+                          left: 0,
+                          right: 0,
+                          height: slotHeight,
+                          transform: "translateY(-50%)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <span style={{ fontSize: 9, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
+                          {m.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               <div
                 ref={(el) => { colRefs.current[colIdx] = el; }}
@@ -1419,6 +1651,32 @@ export default function TimelineGrid({
                   onGridClick(machine, snappedTime);
                 }}
               >
+                {/* ── Denní cykly + střídání dnů (základní vrstva) ─────────── */}
+                {days.map((d, di) => {
+                  const isEven = di % 2 === 0;
+                  const hpx = slotHeight * 2; // px na hodinu
+                  const dow = d.date.getDay();
+                  // Dynamické hranice ze schedule (union přes oba stroje)
+                  const activeMachines = machineWorkHours?.filter((r) => r.dayOfWeek === dow && r.isActive) ?? [];
+                  const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => r.startHour)) : WORK_START_H;
+                  const nightStart = activeMachines.length > 0 ? Math.max(...activeMachines.map((r) => r.endHour))   : WORK_END_H;
+                  const midpoint   = Math.round((nightEnd + nightStart) / 2); // střed pracovního okna (pro ranní/odpolední split)
+                  return (
+                    <Fragment key={`dayshade-${d.y}`}>
+                      {/* Základní tón každého druhého dne */}
+                      {!isEven && <div className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />}
+                      {/* Noční — 0:00–nightEnd */}
+                      {nightEnd > 0 && <div className="tl-night" style={{ position: "absolute", top: d.y, height: nightEnd * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
+                      {/* Ranní — nightEnd–midpoint */}
+                      {midpoint > nightEnd && <div className="tl-morning" style={{ position: "absolute", top: d.y + nightEnd * hpx, height: (midpoint - nightEnd) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
+                      {/* Odpolední — midpoint–nightStart */}
+                      {nightStart > midpoint && <div className="tl-afternoon" style={{ position: "absolute", top: d.y + midpoint * hpx, height: (nightStart - midpoint) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
+                      {/* Noční — nightStart–24:00 */}
+                      {nightStart < 24 && <div className="tl-night" style={{ position: "absolute", top: d.y + nightStart * hpx, height: (24 - nightStart) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
+                    </Fragment>
+                  );
+                })}
+
                 {/* Dnešní pozadí */}
                 {days.map((d) =>
                   d.isToday ? (
@@ -1434,7 +1692,7 @@ export default function TimelineGrid({
                 )}
 
                 {/* Firemní den overlay (hodinová přesnost) */}
-                {companyDays?.map((cd) => {
+                {companyDays?.filter((cd) => !cd.machine || cd.machine === machine).map((cd) => {
                   if (!viewStart) return null;
                   const top    = dateToY(new Date(cd.startDate), viewStart, slotHeight);
                   const bottom = dateToY(new Date(cd.endDate),   viewStart, slotHeight);
@@ -1448,10 +1706,117 @@ export default function TimelineGrid({
                   );
                 })}
 
-                {/* Blokované časy — víkendy + noční XL_105 (červená) */}
-                {blockedOverlays[machine]?.map((n) => (
-                  <div key={n.key} style={{ position: "absolute", top: n.top, height: n.height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
-                ))}
+                {/* Blokované časy — víkendy + noční XL_105 (červená, interaktivní) */}
+                {blockedOverlays[machine]?.map((n) => {
+                  const isHovered = hoveredOverlayKey === n.key;
+                  const showUI = canEdit && isHovered;
+                  const borderStyle = n.isException ? "2px dashed rgba(56,189,248,0.7)" : "none";
+                  // Live drag preview — pokud táhneme hranu tohoto overlaye
+                  const isBeingDragged = overlayDragPreview &&
+                    overlayDragPreview.machine === n.machine &&
+                    overlayDragPreview.date.toDateString() === n.date.toDateString() &&
+                    ((overlayDragPreview.edge === "start" && n.overlayType === "start-block") ||
+                     (overlayDragPreview.edge === "end" && n.overlayType === "end-block"));
+                  let renderTop = n.top;
+                  let renderHeight = n.height;
+                  if (isBeingDragged && overlayDragPreview) {
+                    if (n.overlayType === "start-block") {
+                      renderHeight = overlayDragPreview.hour * 2 * slotHeight;
+                    } else if (n.overlayType === "end-block") {
+                      renderTop = n.date ? (blockedOverlays[machine].find(x => x.key !== n.key && x.date.toDateString() === n.date.toDateString() && x.overlayType === "start-block")?.height ?? 0) + (overlayDragPreview.hour * 2 * slotHeight - (overlayDragPreview.hour * 2 * slotHeight)) : n.top;
+                      // Recalculate from day start: dayY + overlayDragPreview.hour * 2 * slotHeight
+                      const dayYforOverlay = n.top - n.effectiveStartHour * 2 * slotHeight;
+                      renderTop = dayYforOverlay + overlayDragPreview.hour * 2 * slotHeight;
+                      renderHeight = (24 - overlayDragPreview.hour) * 2 * slotHeight;
+                    }
+                  }
+                  return (
+                    <div
+                      key={n.key}
+                      style={{ position: "absolute", top: renderTop, height: renderHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: canEdit ? "auto" : "none", border: borderStyle, boxSizing: "border-box", transition: isBeingDragged ? "none" : "opacity 100ms", zIndex: 2 }}
+                      onMouseEnter={() => canEdit && setHoveredOverlayKey(n.key)}
+                      onMouseLeave={() => setHoveredOverlayKey(null)}
+                    >
+                      {/* × tlačítko */}
+                      {showUI && (
+                        <button
+                          style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(239,68,68,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1, zIndex: 10 }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (n.isException && n.exceptionId) {
+                              await exceptionCallbacksRef.current.onExceptionDelete?.(n.exceptionId);
+                            } else {
+                              if (n.overlayType === "full-block") {
+                                // Celý den byl blokovaný — výjimka: celý den provoz
+                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, 24, true);
+                              } else if (n.overlayType === "start-block") {
+                                // Odstraň ranní blokaci: work starts at 0, endHour = z end-block (nebo 24)
+                                const endPartner = blockedOverlays[machine].find(x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString());
+                                const endH = endPartner?.effectiveStartHour ?? 24;
+                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, endH, true);
+                              } else {
+                                // Odstraň noční blokaci: work ends at 24, startHour = ze start-block (nebo 0)
+                                const startPartner = blockedOverlays[machine].find(x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString());
+                                const startH = startPartner?.effectiveEndHour ?? 0;
+                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, startH, 24, true);
+                              }
+                            }
+                          }}
+                        >×</button>
+                      )}
+                      {/* Drag handle — start-block: dole, end-block: nahoře */}
+                      {showUI && n.overlayType === "start-block" && (() => {
+                        // otherBoundaryHour = endHour pracovní doby pro tento den (= effectiveStartHour matching end-block)
+                        const partner = blockedOverlays[machine].find(x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString());
+                        const endHourOfDay = partner?.effectiveStartHour ?? 24;
+                        return (
+                          <div
+                            style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              dragStateRef.current = {
+                                type: "overlay-resize",
+                                machine: n.machine,
+                                date: n.date,
+                                edge: "start",
+                                originalBoundaryHour: n.effectiveEndHour,
+                                otherBoundaryHour: endHourOfDay,
+                                startClientY: e.clientY,
+                              };
+                              dragDidMove.current = false;
+                            }}
+                          />
+                        );
+                      })()}
+                      {showUI && n.overlayType === "end-block" && (() => {
+                        // otherBoundaryHour = startHour pracovní doby pro tento den (= effectiveEndHour matching start-block)
+                        const partner = blockedOverlays[machine].find(x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString());
+                        const startHourOfDay = partner?.effectiveEndHour ?? 0;
+                        return (
+                          <div
+                            style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              dragStateRef.current = {
+                                type: "overlay-resize",
+                                machine: n.machine,
+                                date: n.date,
+                                edge: "end",
+                                originalBoundaryHour: n.effectiveStartHour,
+                                otherBoundaryHour: startHourOfDay,
+                                startClientY: e.clientY,
+                              };
+                              dragDidMove.current = false;
+                            }}
+                          />
+                        );
+                      })()}
+                    </div>
+                  );
+                })}
 
                 {/* Denní oddělovače */}
                 {days.map((d) => (
@@ -1485,7 +1850,8 @@ export default function TimelineGrid({
                   // Vždy renderujeme na původní pozici; při tažení blok zešedne (ghost at origin)
                   const top    = dateToY(new Date(block.startTime), viewStart, slotHeight);
                   const height = dateToY(new Date(block.endTime), viewStart, slotHeight) - top;
-                  const dimmed   = (filter !== "" && !block.orderNumber.toLowerCase().includes(filter)) || !!isThisBlockDragging;
+                  const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace].some(f => f?.toLowerCase().includes(filter));
+                  const dimmed   = (!blockMatchesFilter) || !!isThisBlockDragging;
                   const selected = !isThisBlockDragging && block.id === selectedBlockId;
 
                   return (
@@ -1523,6 +1889,7 @@ export default function TimelineGrid({
                       onInlineDatePick={(blockId, field, currentValue, rect) => {
                         setInlinePicker({ blockId, field, currentValue, x: rect.left, y: rect.bottom });
                       }}
+                      badgeColorMap={badgeColorMap}
                     />
                   );
                 })}
@@ -1531,7 +1898,7 @@ export default function TimelineGrid({
                 {isMultiDrag && dragPreview!.machine === machine && blocks
                   .filter(b => selectedBlockIds!.has(b.id) && b.id !== dragPreview!.blockId)
                   .map(b => {
-                    const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#16a34a" };
+                    const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#22c55e" };
                     const color = colorMap[b.type] ?? "color-mix(in oklab, var(--text-muted) 85%, #334155)";
                     const bTop    = dateToY(new Date(b.startTime), viewStart, slotHeight) + multiDelta;
                     const bHeight = dateToY(new Date(b.endTime), viewStart, slotHeight) - dateToY(new Date(b.startTime), viewStart, slotHeight);
@@ -1549,7 +1916,7 @@ export default function TimelineGrid({
                 {dragPreview && dragPreview.machine === machine && (() => {
                   const draggedBlock = blocks.find((b) => b.id === dragPreview.blockId);
                   if (!draggedBlock) return null;
-                  const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#16a34a" };
+                  const colorMap: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#22c55e" };
                   const color = colorMap[draggedBlock.type] ?? "color-mix(in oklab, var(--text-muted) 85%, #334155)";
                   return (
                     <div style={{
@@ -1584,6 +1951,7 @@ export default function TimelineGrid({
               </Fragment>
             );
           })}
+
         </div>
       </div>
 

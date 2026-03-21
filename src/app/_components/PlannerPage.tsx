@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
-import { snapGroupDelta } from "@/lib/workingTime";
+import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
+import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import type { MachineScheduleException } from "@/lib/machineScheduleException";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
 import { Label }     from "@/components/ui/label";
@@ -35,6 +37,7 @@ type CodebookOption = {
   isActive: boolean;
   shortCode: string | null;
   isWarning: boolean;
+  badgeColor: string | null;
 };
 
 type QueueItem = {
@@ -239,6 +242,8 @@ function DatePickerField({
   asButton?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const today = new Date();
   const selected = value ? new Date(value + "T00:00:00") : undefined;
   const [viewYear,  setViewYear]  = useState(() => selected?.getFullYear()  ?? today.getFullYear());
@@ -272,31 +277,37 @@ function DatePickerField({
   const CELL = 36;
   const GAP  = 3;
 
+  const triggerBtn = (onClick?: () => void) => (
+    <button onClick={onClick} style={asButton ? {
+      height: 32, borderRadius: 6,
+      border: "1px solid var(--border)", background: "transparent",
+      color: "var(--text)", fontSize: 11, padding: "0 10px",
+      display: "flex", alignItems: "center", gap: 5,
+      cursor: "pointer", outline: "none", whiteSpace: "nowrap",
+      transition: "background 120ms ease-out",
+    } as React.CSSProperties : {
+      height: 32, width: "100%", borderRadius: 6,
+      border: "1px solid var(--border)", background: "var(--surface-2)",
+      color: selected ? "var(--text)" : "var(--text-muted)",
+      fontSize: 12, padding: "0 10px",
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      cursor: "pointer", outline: "none", boxSizing: "border-box",
+      transition: "border-color 120ms ease-out",
+    } as React.CSSProperties}>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: asButton ? 0.6 : 0.4, flexShrink: 0 }}>
+        <rect x="3" y="4" width="18" height="18" rx="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <span>{displayLabel}</span>
+    </button>
+  );
+
+  if (!mounted) return triggerBtn();
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button style={asButton ? {
-          height: 32, borderRadius: 6,
-          border: "1px solid var(--border)", background: "transparent",
-          color: "var(--text)", fontSize: 11, padding: "0 10px",
-          display: "flex", alignItems: "center", gap: 5,
-          cursor: "pointer", outline: "none", whiteSpace: "nowrap",
-          transition: "background 120ms ease-out",
-        } as React.CSSProperties : {
-          height: 32, width: "100%", borderRadius: 6,
-          border: "1px solid var(--border)", background: "var(--surface-2)",
-          color: selected ? "var(--text)" : "var(--text-muted)",
-          fontSize: 12, padding: "0 10px",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          cursor: "pointer", outline: "none", boxSizing: "border-box",
-          transition: "border-color 120ms ease-out",
-        } as React.CSSProperties}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: asButton ? 0.6 : 0.4, flexShrink: 0 }}>
-            <rect x="3" y="4" width="18" height="18" rx="2"/>
-            <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-          </svg>
-          <span>{displayLabel}</span>
-        </button>
+        {triggerBtn()}
       </PopoverTrigger>
       <PopoverContent align="start" className="w-auto p-0 border-0" style={{ background: "var(--surface)", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }}>
         <div style={{ width: 7 * CELL + 6 * GAP + 32, padding: "16px 16px 12px", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
@@ -332,10 +343,10 @@ function DatePickerField({
                   onClick={() => { onChange(toStr(new Date(viewYear, viewMonth, day))); setOpen(false); }}
                   style={{
                     width: CELL, height: CELL, borderRadius: "50%",
-                    background: isSelected ? "var(--accent)" : "transparent",
-                    color: isSelected ? "var(--background)" : isToday ? "var(--accent)" : "var(--text)",
-                    border: isToday && !isSelected ? "1.5px solid var(--accent)" : "1.5px solid transparent",
-                    fontSize: 13, fontWeight: isSelected || isToday ? 600 : 400,
+                    background: isSelected ? "#3b82f6" : isToday && !isSelected ? "rgba(59,130,246,0.15)" : "transparent",
+                    color: isSelected ? "#fff" : isToday ? "#3b82f6" : "var(--text)",
+                    border: isToday ? "1.5px solid #3b82f6" : "1.5px solid transparent",
+                    fontSize: 13, fontWeight: isSelected || isToday ? 700 : 400,
                     cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "background 100ms ease-out",
                   }}
@@ -362,6 +373,10 @@ function BlockEdit({
   canEdit = true,
   canEditData = true,
   canEditMat = true,
+  dataOpts: dataOptsProp,
+  materialOpts: materialOptsProp,
+  barvyOpts: barvyOptsProp,
+  lakOpts: lakOptsProp,
 }: {
   block: Block;
   onClose: () => void;
@@ -372,6 +387,10 @@ function BlockEdit({
   canEdit?: boolean;
   canEditData?: boolean;
   canEditMat?: boolean;
+  dataOpts?: CodebookOption[];
+  materialOpts?: CodebookOption[];
+  barvyOpts?: CodebookOption[];
+  lakOpts?: CodebookOption[];
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
   const [type, setType]               = useState(block.type);
@@ -431,25 +450,31 @@ function BlockEdit({
       .map((b) => b.id);
   }
 
-  // Číselníky
-  const [dataOpts, setDataOpts]         = useState<CodebookOption[]>([]);
-  const [materialOpts, setMaterialOpts] = useState<CodebookOption[]>([]);
-  const [barvyOpts, setBarvyOpts]       = useState<CodebookOption[]>([]);
-  const [lakOpts, setLakOpts]           = useState<CodebookOption[]>([]);
+  // Číselníky — preferujeme props z PlannerPage (single source of truth), fallback na vlastní fetch
+  const [dataOptsLocal, setDataOptsLocal]         = useState<CodebookOption[]>([]);
+  const [materialOptsLocal, setMaterialOptsLocal] = useState<CodebookOption[]>([]);
+  const [barvyOptsLocal, setBarvyOptsLocal]       = useState<CodebookOption[]>([]);
+  const [lakOptsLocal, setLakOptsLocal]           = useState<CodebookOption[]>([]);
+
+  const dataOpts     = dataOptsProp     ?? dataOptsLocal;
+  const materialOpts = materialOptsProp ?? materialOptsLocal;
+  const barvyOpts    = barvyOptsProp    ?? barvyOptsLocal;
+  const lakOpts      = lakOptsProp      ?? lakOptsLocal;
 
   useEffect(() => {
+    if (dataOptsProp) return; // props dodány — přeskočíme vlastní fetch
     Promise.all([
       fetch("/api/codebook?category=DATA").then((r) => r.json()),
       fetch("/api/codebook?category=MATERIAL").then((r) => r.json()),
       fetch("/api/codebook?category=BARVY").then((r) => r.json()),
       fetch("/api/codebook?category=LAK").then((r) => r.json()),
     ]).then(([d, m, b, l]) => {
-      setDataOpts(d);
-      setMaterialOpts(m);
-      setBarvyOpts(b);
-      setLakOpts(l);
+      setDataOptsLocal(d);
+      setMaterialOptsLocal(m);
+      setBarvyOptsLocal(b);
+      setLakOptsLocal(l);
     });
-  }, []);
+  }, [dataOptsProp]);
 
 
   function resolveLabel(opts: CodebookOption[], id: string): string | null {
@@ -988,6 +1013,21 @@ function BlockDetail({
         )}
       </div>
 
+      {/* Tisk dokončen */}
+      {block.printCompletedAt && (
+        <div style={{ margin: "0 16px 12px", borderRadius: 8, border: "1px solid rgba(34,197,94,0.3)", overflow: "hidden", background: "rgba(34,197,94,0.06)" }}>
+          <div style={{ padding: "7px 12px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, color: "#22c55e", fontWeight: 700 }}>✓ Tisk dokončen</span>
+            <span style={{ fontSize: 10, color: "var(--text-muted)", flex: 1 }}>
+              {new Date(block.printCompletedAt).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit" })}
+              {" "}
+              {new Date(block.printCompletedAt).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+              {block.printCompletedByUsername && ` — ${block.printCompletedByUsername}`}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Historie změn */}
       {blockHistory.length > 0 && (
         <div style={{ margin: "0 16px 12px", borderRadius: 8, border: "1px solid var(--border)", overflow: "hidden" }}>
@@ -1145,6 +1185,9 @@ function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; on
                   )}
                   {log.action === "CREATE" && <span style={{ color: "#22c55e" }}> · Přidána</span>}
                   {log.action === "DELETE" && <span style={{ color: "#ef4444" }}> · Smazána</span>}
+                  {log.action === "PRINT_COMPLETE" && <span style={{ color: "#22c55e" }}> · ✓ Tisk dokončen</span>}
+                  {log.action === "PRINT_UNDO" && <span style={{ color: "#f59e0b" }}> · Vráceno hotovo</span>}
+                  {log.action === "PRINT_RESET" && <span style={{ color: "#64748b" }}> · Reset potvrzení (přeplánováno)</span>}
                 </div>
               </div>
             ))}
@@ -1156,14 +1199,47 @@ function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; on
 }
 
 // ─── ShutdownManager ──────────────────────────────────────────────────────────
+type EditState = { label: string; startDate: string; endDate: string; startHour: number; endHour: number; machine: "both" | "XL_105" | "XL_106" };
+
+function machineBadgeStyle(m?: string | null): React.CSSProperties {
+  return {
+    flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", borderRadius: 4, padding: "1px 5px",
+    background: !m ? "rgba(139,92,246,0.2)" : m === "XL_105" ? "rgba(59,130,246,0.2)" : "rgba(34,197,94,0.2)",
+    color: !m ? "#c4b5fd" : m === "XL_105" ? "#93c5fd" : "#86efac",
+    border: `1px solid ${!m ? "rgba(139,92,246,0.3)" : m === "XL_105" ? "rgba(59,130,246,0.3)" : "rgba(34,197,94,0.3)"}`,
+  };
+}
+
+function MachinePicker({ value, onChange }: { value: "both" | "XL_105" | "XL_106"; onChange: (v: "both" | "XL_105" | "XL_106") => void }) {
+  return (
+    <div style={{ display: "flex", gap: 4 }}>
+      {(["both", "XL_105", "XL_106"] as const).map((opt) => {
+        const lbl = opt === "both" ? "Oba stroje" : opt === "XL_105" ? "XL 105" : "XL 106";
+        const active = value === opt;
+        return (
+          <button key={opt} type="button" onClick={() => onChange(opt)} style={{
+            flex: 1, height: 28, borderRadius: 6, fontSize: 11, fontWeight: active ? 700 : 500,
+            border: active ? "1px solid rgba(139,92,246,0.5)" : "1px solid var(--border)",
+            background: active ? "rgba(139,92,246,0.15)" : "var(--surface-2)",
+            color: active ? "#c4b5fd" : "var(--text-muted)",
+            cursor: "pointer", transition: "all 0.12s ease-out",
+          }}>{lbl}</button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ShutdownManager({
   companyDays,
   onAdd,
+  onUpdate,
   onDelete,
   onClose,
 }: {
   companyDays: CompanyDay[];
-  onAdd: (startDate: string, endDate: string, label: string) => Promise<void>;
+  onAdd: (startDate: string, endDate: string, label: string, machine: string | null) => Promise<void>;
+  onUpdate: (id: number, startDate: string, endDate: string, label: string, machine: string | null) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
   onClose: () => void;
 }) {
@@ -1172,15 +1248,35 @@ function ShutdownManager({
   const [startHour, setStartHour] = useState(0);
   const [endHour, setEndHour]     = useState(23);
   const [label, setLabel]         = useState("");
+  const [machine, setMachine]     = useState<"both" | "XL_105" | "XL_106">("both");
   const [saving, setSaving]       = useState(false);
   const [deleting, setDeleting]   = useState<number | null>(null);
   const [error, setError]         = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editState, setEditState] = useState<EditState | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   const hourSelectStyle: React.CSSProperties = {
     height: 32, borderRadius: 6, border: "1px solid var(--border)",
     background: "var(--surface-2)", color: "var(--text)", fontSize: 11,
     padding: "0 6px", cursor: "pointer", width: "100%",
   };
+
+  function startEdit(cd: CompanyDay) {
+    const s = new Date(cd.startDate);
+    const e = new Date(cd.endDate);
+    setEditingId(cd.id);
+    setEditState({
+      label: cd.label,
+      startDate: cd.startDate.slice(0, 10),
+      endDate: cd.endDate.slice(0, 10),
+      startHour: s.getHours(),
+      endHour: e.getHours(),
+      machine: !cd.machine ? "both" : cd.machine === "XL_105" ? "XL_105" : "XL_106",
+    });
+  }
+
+  function cancelEdit() { setEditingId(null); setEditState(null); }
 
   async function handleAdd() {
     if (!startDate || !endDate || !label.trim()) { setError("Vyplňte všechna pole."); return; }
@@ -1189,13 +1285,30 @@ function ShutdownManager({
     if (endISO < startISO) { setError("Konec musí být po začátku."); return; }
     setSaving(true); setError(null);
     try {
-      await onAdd(startISO, endISO, label.trim());
-      setStartDate(""); setEndDate(""); setLabel(""); setStartHour(0); setEndHour(23);
+      await onAdd(startISO, endISO, label.trim(), machine === "both" ? null : machine);
+      setStartDate(""); setEndDate(""); setLabel(""); setStartHour(0); setEndHour(23); setMachine("both");
     } catch (error) {
       console.error("Company day save failed", error);
       setError("Chyba při ukládání.");
     }
     finally { setSaving(false); }
+  }
+
+  async function handleSaveEdit(id: number) {
+    if (!editState) return;
+    if (!editState.startDate || !editState.endDate || !editState.label.trim()) { setError("Vyplňte všechna pole."); return; }
+    const startISO = `${editState.startDate}T${String(editState.startHour).padStart(2, "0")}:00:00`;
+    const endISO   = `${editState.endDate}T${String(editState.endHour).padStart(2, "0")}:59:59`;
+    if (endISO < startISO) { setError("Konec musí být po začátku."); return; }
+    setEditSaving(true); setError(null);
+    try {
+      await onUpdate(id, startISO, endISO, editState.label.trim(), editState.machine === "both" ? null : editState.machine);
+      cancelEdit();
+    } catch (err) {
+      console.error("Company day update failed", err);
+      setError("Chyba při ukládání.");
+    }
+    finally { setEditSaving(false); }
   }
 
   async function handleDelete(id: number) {
@@ -1229,6 +1342,10 @@ function ShutdownManager({
           <div>
             <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Název</Label>
             <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Velikonoce, dovolená…" className="h-8 text-xs" />
+          </div>
+          <div>
+            <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Stroj</Label>
+            <MachinePicker value={machine} onChange={setMachine} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr auto", gap: 6, alignItems: "end" }}>
             <div>
@@ -1278,32 +1395,97 @@ function ShutdownManager({
             <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", padding: "12px 0" }}>Žádné záznamy</div>
           )}
           {companyDays.map((cd) => (
-            <div key={cd.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)", borderRadius: 6, padding: "8px 10px" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#c4b5fd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cd.label}</div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-                  {(() => {
-                    const s = new Date(cd.startDate);
-                    const e = new Date(cd.endDate);
-                    const sDate = s.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
-                    const eDate = e.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
-                    const sHour = s.getHours(); const eHour = e.getHours();
-                    const wholeDay = sHour === 0 && eHour === 23;
-                    const sTime = wholeDay ? "" : ` ${String(sHour).padStart(2, "0")}:00`;
-                    const eTime = wholeDay ? "" : ` ${String(eHour).padStart(2, "0")}:59`;
-                    const sameDateStr = cd.startDate.slice(0, 10) === cd.endDate.slice(0, 10);
-                    return sameDateStr ? `${sDate}${sTime}${eTime && sTime !== eTime ? ` – ${eTime.trim()}` : ""}` : `${sDate}${sTime} – ${eDate}${eTime}`;
-                  })()}
+            <div key={cd.id} style={{ background: editingId === cd.id ? "rgba(139,92,246,0.1)" : "rgba(139,92,246,0.06)", border: `1px solid ${editingId === cd.id ? "rgba(139,92,246,0.35)" : "rgba(139,92,246,0.15)"}`, borderRadius: 8, overflow: "hidden" }}>
+              {/* Řádek s názvem */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#c4b5fd", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{cd.label}</div>
+                    <span style={machineBadgeStyle(cd.machine)}>
+                      {!cd.machine ? "OBA" : cd.machine === "XL_105" ? "XL 105" : "XL 106"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                    {(() => {
+                      const s = new Date(cd.startDate);
+                      const e = new Date(cd.endDate);
+                      const sDate = s.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+                      const eDate = e.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
+                      const sHour = s.getHours(); const eHour = e.getHours();
+                      const wholeDay = sHour === 0 && eHour === 23;
+                      const sTime = wholeDay ? "" : ` ${String(sHour).padStart(2, "0")}:00`;
+                      const eTime = wholeDay ? "" : ` ${String(eHour).padStart(2, "0")}:59`;
+                      const sameDateStr = cd.startDate.slice(0, 10) === cd.endDate.slice(0, 10);
+                      return sameDateStr ? `${sDate}${sTime}${eTime && sTime !== eTime ? ` – ${eTime.trim()}` : ""}` : `${sDate}${sTime} – ${eDate}${eTime}`;
+                    })()}
+                  </div>
+                </div>
+                {/* Tlačítka */}
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => editingId === cd.id ? cancelEdit() : startEdit(cd)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: editingId === cd.id ? "#c4b5fd" : "var(--text-muted)", fontSize: 13, padding: "0 4px", lineHeight: 1 }}
+                    title={editingId === cd.id ? "Zrušit editaci" : "Upravit"}
+                  >
+                    {editingId === cd.id ? "✕" : "✎"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(cd.id)}
+                    disabled={deleting === cd.id}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
+                    title="Smazat"
+                  >
+                    {deleting === cd.id ? "…" : "×"}
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => handleDelete(cd.id)}
-                disabled={deleting === cd.id}
-                style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
-              >
-                {deleting === cd.id ? "…" : "×"}
-              </button>
+
+              {/* Inline editační formulář */}
+              {editingId === cd.id && editState && (
+                <div style={{ borderTop: "1px solid rgba(139,92,246,0.2)", padding: "10px 10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div>
+                    <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Název</Label>
+                    <Input value={editState.label} onChange={(e) => setEditState((s) => s && ({ ...s, label: e.target.value }))} className="h-8 text-xs" />
+                  </div>
+                  <div>
+                    <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Stroj</Label>
+                    <MachinePicker value={editState.machine} onChange={(v) => setEditState((s) => s && ({ ...s, machine: v }))} />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr auto", gap: 6, alignItems: "end" }}>
+                    <div>
+                      <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Od</Label>
+                      <DatePickerField value={editState.startDate} onChange={(v) => setEditState((s) => s && ({ ...s, startDate: v }))} placeholder="Od…" />
+                    </div>
+                    <div>
+                      <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Hod.</Label>
+                      <select value={editState.startHour} onChange={(e) => setEditState((s) => s && ({ ...s, startHour: Number(e.target.value) }))} style={hourSelectStyle}>
+                        {Array.from({ length: 24 }, (_, i) => <option key={i} value={i}>{String(i).padStart(2, "0")}:00</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Do</Label>
+                      <DatePickerField value={editState.endDate} onChange={(v) => setEditState((s) => s && ({ ...s, endDate: v }))} placeholder="Do…" />
+                    </div>
+                    <div>
+                      <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, display: "block" }}>Hod.</Label>
+                      <select value={editState.endHour} onChange={(e) => setEditState((s) => s && ({ ...s, endHour: Number(e.target.value) }))} style={hourSelectStyle}>
+                        {Array.from({ length: 24 }, (_, i) => <option key={i} value={i}>{String(i).padStart(2, "0")}:59</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => handleSaveEdit(cd.id)}
+                    disabled={editSaving || !editState.label.trim() || !editState.startDate || !editState.endDate}
+                    className="w-full text-xs font-semibold border border-purple-400/35 bg-purple-400/[0.06] text-purple-400 hover:bg-purple-400/[0.12] hover:text-purple-400 disabled:text-slate-600 disabled:border-slate-700 disabled:bg-transparent"
+                  >
+                    {editSaving ? "Ukládám…" : "Uložit změny"}
+                  </Button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1365,7 +1547,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 }
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks, initialCompanyDays, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; currentUser: { id: number; username: string; role: string } }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHours, initialMachineExceptions, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHours: MachineWorkHours[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string } }) {
   // Role-based permissions
   const canEdit     = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
   const canEditData = canEdit || currentUser.role === "DTP";
@@ -1373,6 +1555,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
 
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
+  const [machineWorkHours, setMachineWorkHours] = useState<MachineWorkHours[]>(initialMachineWorkHours);
+  const [machineExceptions, setMachineExceptions] = useState<MachineScheduleException[]>(initialMachineExceptions);
   const [showShutdowns, setShowShutdowns] = useState(false);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [todayAuditLogs, setTodayAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -1419,6 +1603,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const [bBarvyOpts, setBBarvyOpts]       = useState<CodebookOption[]>([]);
   const [bLakOpts, setBLakOpts]           = useState<CodebookOption[]>([]);
 
+  // Lookup mapa badgeColor pro TimelineGrid — jen id → barva, fallback null = zachovat per-field výchozí
+  const badgeColorMap: Record<number, string | null> = Object.fromEntries(
+    [...bDataOpts, ...bMaterialOpts, ...bBarvyOpts, ...bLakOpts]
+      .map((o) => [o.id, o.badgeColor])
+  );
+
   // Queue
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const queueIdRef = useRef(0);
@@ -1453,6 +1643,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   const clipboardGroupRef = useRef<Block[]>([]);
   const isGroupCutRef = useRef(false);
   const [filterText, setFilterText] = useState("");
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  const [searchNoMore, setSearchNoMore] = useState(false);
   const [jumpDate, setJumpDate]     = useState("");
   const [reportDate, setReportDate] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1556,6 +1748,34 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
     return () => clearInterval(interval);
   }, [fetchTodayAudit]);
 
+  // Polling bloků každých 30 s — merge jen printCompleted* pole
+  useEffect(() => {
+    const pollBlocks = async () => {
+      try {
+        const res = await fetch("/api/blocks");
+        if (!res.ok) return;
+        const fresh: Block[] = await res.json();
+        const mergePrintCompleted = (b: Block): Block => {
+          const f = fresh.find((x) => x.id === b.id);
+          if (!f) return b;
+          return {
+            ...b,
+            printCompletedAt: f.printCompletedAt,
+            printCompletedByUserId: f.printCompletedByUserId,
+            printCompletedByUsername: f.printCompletedByUsername,
+          };
+        };
+        setBlocks((prev) => prev.map(mergePrintCompleted));
+        setSelectedBlock((sel) => sel ? mergePrintCompleted(sel) : null);
+        setEditingBlock((eb) => eb ? mergePrintCompleted(eb) : null);
+      } catch {
+        // tiché selhání — zachovat aktuální stav
+      }
+    };
+    const t = setInterval(pollBlocks, 30_000);
+    return () => clearInterval(t);
+  }, []);
+
   function handleOpenInfoPanel() {
     setShowInfoPanel(true);
     fetchTodayAudit();
@@ -1594,13 +1814,52 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   // Bloky mimo rozsah (v minulosti) odpovídající aktuálnímu hledání
   const outOfRangeBlocks = filterText.trim()
     ? blocks
-        .filter(b =>
-          b.orderNumber.toLowerCase().includes(filterText.trim().toLowerCase()) &&
-          new Date(b.startTime) < viewStart
-        )
+        .filter(b => {
+          const q = filterText.trim().toLowerCase();
+          const matches = [b.orderNumber, b.description, b.specifikace].some(f => f?.toLowerCase().includes(q));
+          return matches && new Date(b.startTime) < viewStart;
+        })
         .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
     : [];
   const nearestOutOfRange = outOfRangeBlocks[0] ?? null;
+
+  // Všechny bloky odpovídající hledání, seřazené podle startTime
+  const searchMatches = filterText.trim()
+    ? blocks
+        .filter(b => {
+          const q = filterText.trim().toLowerCase();
+          return [b.orderNumber, b.description, b.specifikace].some(f => f?.toLowerCase().includes(q));
+        })
+        .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    : [];
+
+  function handleSearchEnter() {
+    if (!filterText.trim()) return;
+    if (searchMatches.length === 0) {
+      setSearchNoMore(true);
+      setTimeout(() => setSearchNoMore(false), 2500);
+      return;
+    }
+    const idx = searchMatchIndex % searchMatches.length;
+    const block = searchMatches[idx];
+    const isOutOfRange = new Date(block.startTime) < viewStart;
+    if (isOutOfRange) {
+      handleJumpToOutOfRange(block);
+    } else {
+      const y = dateToY(new Date(block.startTime), viewStart, slotHeight);
+      scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
+      setSelectedBlock(block);
+    }
+    const nextIdx = searchMatchIndex + 1;
+    if (nextIdx >= searchMatches.length) {
+      setSearchMatchIndex(0);
+      setSearchNoMore(true);
+      setTimeout(() => setSearchNoMore(false), 2500);
+    } else {
+      setSearchMatchIndex(nextIdx);
+      setSearchNoMore(false);
+    }
+  }
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -1756,7 +2015,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
     if (workingTimeLockRef.current) {
       const { deltaMs } = snapGroupDelta(
         chain.map(b => ({ machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
-        shiftMs
+        shiftMs,
+        machineWorkHours,
+        machineExceptions
       );
       effectiveShiftMs = deltaMs;
     }
@@ -1823,16 +2084,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
   async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) {
     const originals = new Map(updates.map(u => [u.id, blocksRef.current.find(b => b.id === u.id)]));
     try {
-      const results = await Promise.all(
+      const responses = await Promise.all(
         updates.map((u) =>
           fetch(`/api/blocks/${u.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }),
-          }).then((r) => r.json() as Promise<Block>)
+          })
         )
       );
-      setBlocks((prev) => prev.map((b) => (results as Block[]).find((r) => r.id === b.id) ?? b));
+      const failed = responses.find((r) => !r.ok);
+      if (failed) {
+        const err = await failed.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Chyba serveru");
+      }
+      const results: Block[] = await Promise.all(responses.map((r) => r.json() as Promise<Block>));
+      setBlocks((prev) => prev.map((b) => results.find((r) => r.id === b.id) ?? b));
 
       const prevSnaps = updates.map(u => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime, endTime: o.endTime, machine: o.machine } : null; }).filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[];
       const nextSnaps = updates.map(u => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }));
@@ -1854,7 +2121,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
       }
 
       const excludeIds = new Set(updates.map(u => u.id));
-      for (const moved of results as Block[]) {
+      for (const moved of results) {
         await autoResolveOverlap(moved, excludeIds, originals.get(moved.id));
       }
     } catch (error) {
@@ -1922,15 +2189,26 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
     }
   }
 
-  async function handleAddCompanyDay(startDate: string, endDate: string, label: string) {
+  async function handleAddCompanyDay(startDate: string, endDate: string, label: string, machine: string | null) {
     const res = await fetch("/api/company-days", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ startDate, endDate, label }),
+      body: JSON.stringify({ startDate, endDate, label, machine }),
     });
     if (!res.ok) throw new Error("Chyba serveru");
     const created: CompanyDay = await res.json();
     setCompanyDays((prev) => [...prev, created].sort((a, b) => a.startDate.localeCompare(b.startDate)));
+  }
+
+  async function handleUpdateCompanyDay(id: number, startDate: string, endDate: string, label: string, machine: string | null) {
+    const res = await fetch(`/api/company-days/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startDate, endDate, label, machine }),
+    });
+    if (!res.ok) throw new Error("Chyba serveru");
+    const updated: CompanyDay = await res.json();
+    setCompanyDays((prev) => prev.map((d) => d.id === id ? updated : d).sort((a, b) => a.startDate.localeCompare(b.startDate)));
   }
 
   async function handleDeleteCompanyDay(id: number) {
@@ -1989,10 +2267,43 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
     return d;
   }
 
-  async function handleQueueDrop(itemId: number, machine: string, startTime: Date) {
+  async function handleExceptionUpsert(machine: string, date: Date, startHour: number, endHour: number, isActive: boolean) {
+    try {
+      const res = await fetch("/api/machine-exceptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Datum posíláme jako YYYY-MM-DD lokálního (CZ) kalendářního dne — bez UTC posunu
+        body: JSON.stringify({ machine, date: `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`, startHour, endHour, isActive }),
+      });
+      if (!res.ok) { showToast("Nepodařilo se uložit výjimku.", "error"); return; }
+      const exc: MachineScheduleException = await res.json();
+      setMachineExceptions((prev) => {
+        const filtered = prev.filter((e) => !(e.machine === exc.machine && e.date.slice(0, 10) === exc.date.slice(0, 10)));
+        return [...filtered, exc];
+      });
+    } catch {
+      showToast("Chyba při ukládání výjimky.", "error");
+    }
+  }
+
+  async function handleExceptionDelete(id: number) {
+    try {
+      const res = await fetch(`/api/machine-exceptions/${id}`, { method: "DELETE" });
+      if (!res.ok) { showToast("Nepodařilo se smazat výjimku.", "error"); return; }
+      setMachineExceptions((prev) => prev.filter((e) => e.id !== id));
+    } catch {
+      showToast("Chyba při mazání výjimky.", "error");
+    }
+  }
+
+  async function handleQueueDrop(itemId: number, machine: string, rawStartTime: Date) {
     const item = queue.find((q) => q.id === itemId);
     if (!item) return;
     const durationMs = item.durationHours * 60 * 60 * 1000;
+    // Snap na pracovní dobu pokud je zamknutý pracovní čas
+    const startTime = workingTimeLockRef.current
+      ? snapToNextValidStart(machine, rawStartTime, durationMs, machineWorkHours, machineExceptions)
+      : rawStartTime;
     const rType = item.recurrenceType ?? "NONE";
     const rCount = rType !== "NONE" ? Math.max(1, item.recurrenceCount ?? 1) : 1;
 
@@ -2024,7 +2335,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString() }),
       });
-      if (!res1.ok) throw new Error("Chyba serveru");
+      if (!res1.ok) {
+        const err = await res1.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Chyba serveru");
+      }
       const parentBlock: Block = await res1.json();
       handleBlockCreate(parentBlock);
 
@@ -2071,7 +2385,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
     const target = pasteTargetRef.current;
     if (!src || !target) return;
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
-    const newStart = target.time;
+    const rawStart = target.time;
+    const newStart = workingTimeLockRef.current
+      ? snapToNextValidStart(target.machine, rawStart, durationMs, machineWorkHours, machineExceptions)
+      : rawStart;
     const newEnd = new Date(newStart.getTime() + durationMs);
     try {
       const res = await fetch("/api/blocks", {
@@ -2287,15 +2604,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             <Input
               type="text"
               value={filterText}
-              onChange={(e) => setFilterText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Escape") { setFilterText(""); setSelectedBlock(null); } }}
+              onChange={(e) => { setFilterText(e.target.value); setSearchMatchIndex(0); setSearchNoMore(false); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleSearchEnter(); }
+                if (e.key === "Escape") { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); setSearchNoMore(false); }
+              }}
               placeholder="Hledat zakázku…"
               className="h-8 text-xs w-40 theme-transition-fast"
               style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)", paddingRight: filterText ? 22 : undefined }}
             />
             {filterText && (
               <button
-                onClick={() => { setFilterText(""); setSelectedBlock(null); }}
+                onClick={() => { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); setSearchNoMore(false); }}
                 style={{ position: "absolute", right: 6, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, lineHeight: 1, fontSize: 14, display: "flex", alignItems: "center" }}
                 title="Zrušit filtr (Esc)"
               >
@@ -2303,6 +2623,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               </button>
             )}
           </div>
+          {filterText && (
+            <span style={{ fontSize: 11, whiteSpace: "nowrap", color: searchNoMore ? "#f59e0b" : "var(--text-muted)" }}>
+              {searchNoMore
+                ? "Žádný další výsledek"
+                : searchMatches.length > 0
+                  ? searchMatchIndex === 0
+                    ? `${searchMatches.length} shod — Enter`
+                    : `${searchMatchIndex} / ${searchMatches.length}`
+                  : "Žádná shoda"}
+            </span>
+          )}
           <div style={{ width: 150 }}>
             <DatePickerField
               value={jumpDate}
@@ -2359,18 +2690,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               </button>
             ))}
           </div>
-          {nearestOutOfRange && (
-            <button onClick={() => handleJumpToOutOfRange(nearestOutOfRange)} style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "2px 8px", fontSize: 11, borderRadius: 5,
-              background: "color-mix(in oklab, var(--brand) 8%, transparent)",
-              border: "1px solid color-mix(in oklab, var(--brand) 25%, transparent)",
-              color: "var(--brand)", cursor: "pointer",
-              transition: "all 120ms ease-out", whiteSpace: "nowrap",
-            }}>
-              ↑ {nearestOutOfRange.orderNumber} v minulosti{outOfRangeBlocks.length > 1 ? ` (+${outOfRangeBlocks.length - 1})` : ""} — přejít
-            </button>
-          )}
         </div>
 
         <div className="ml-auto flex items-center gap-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
@@ -2436,8 +2755,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               href="/admin"
               style={{
                 padding: "3px 10px", fontSize: 11, borderRadius: 6,
-                background: "color-mix(in oklab, var(--brand) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--brand) 20%, transparent)",
-                color: "var(--brand)", cursor: "pointer", textDecoration: "none",
+                background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.35)",
+                color: "#3b82f6", cursor: "pointer", textDecoration: "none",
                 whiteSpace: "nowrap", transition: "all 120ms ease-out",
               }}
             >
@@ -2552,6 +2871,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             canEditMat={canEditMat}
             onError={(msg) => showToast(msg, "error")}
             workingTimeLock={workingTimeLock}
+            badgeColorMap={badgeColorMap}
+            machineWorkHours={machineWorkHours}
+            machineExceptions={machineExceptions}
+            onExceptionUpsert={canEdit ? handleExceptionUpsert : undefined}
+            onExceptionDelete={canEdit ? handleExceptionDelete : undefined}
           />
         </div>
 
@@ -2574,6 +2898,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
             <ShutdownManager
               companyDays={companyDays}
               onAdd={handleAddCompanyDay}
+              onUpdate={handleUpdateCompanyDay}
               onDelete={handleDeleteCompanyDay}
               onClose={() => setShowShutdowns(false)}
             />
@@ -2589,6 +2914,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, current
               canEdit={canEdit}
               canEditData={canEditData}
               canEditMat={canEditMat}
+              dataOpts={bDataOpts}
+              materialOpts={bMaterialOpts}
+              barvyOpts={bBarvyOpts}
+              lakOpts={bLakOpts}
             />
           ) : selectedBlock ? (
             <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />

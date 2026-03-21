@@ -25,11 +25,32 @@ export async function PUT(
     if (session.id === numId) {
       return NextResponse.json({ error: "Nelze změnit vlastní roli" }, { status: 403 });
     }
-    const VALID_ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "VIEWER"];
+    const VALID_ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "VIEWER"];
     if (!VALID_ROLES.includes(body.role)) {
       return NextResponse.json({ error: "Neplatná role" }, { status: 400 });
     }
     data.role = String(body.role);
+
+    // TISKAR: assignedMachine povinný; ostatní role: vždy vyčistit
+    if (body.role === "TISKAR") {
+      if (!body.assignedMachine || !["XL_105", "XL_106"].includes(body.assignedMachine)) {
+        return NextResponse.json({ error: "Tiskař musí mít přiřazený stroj (XL_105 nebo XL_106)" }, { status: 400 });
+      }
+      data.assignedMachine = String(body.assignedMachine);
+    } else {
+      data.assignedMachine = null;
+    }
+  } else if (body.assignedMachine !== undefined) {
+    // Změna stroje bez změny role — ověřit, že uživatel je skutečně TISKAR
+    const targetUser = await prisma.user.findUnique({ where: { id: numId }, select: { role: true } });
+    if (!targetUser) return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
+    if (targetUser.role !== "TISKAR") {
+      return NextResponse.json({ error: "Stroj lze přiřadit jen roli TISKAR" }, { status: 400 });
+    }
+    if (!["XL_105", "XL_106"].includes(body.assignedMachine)) {
+      return NextResponse.json({ error: "Neplatný stroj" }, { status: 400 });
+    }
+    data.assignedMachine = String(body.assignedMachine);
   }
 
   if (body.password !== undefined) {
@@ -47,7 +68,7 @@ export async function PUT(
     const user = await prisma.user.update({
       where: { id: numId },
       data,
-      select: { id: true, username: true, role: true, createdAt: true },
+      select: { id: true, username: true, role: true, assignedMachine: true, createdAt: true },
     });
     return NextResponse.json(user);
   } catch (error) {

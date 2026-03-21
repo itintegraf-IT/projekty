@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { parseBadgeColor } from "@/lib/badgeColors";
 
 // GET /api/codebook?category=DATA&includeInactive=true
 export async function GET(request: NextRequest) {
@@ -36,6 +37,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Chybí category nebo label" }, { status: 400 });
     }
 
+    const badgeColorResult = parseBadgeColor(body.badgeColor);
+    if ("error" in badgeColorResult) {
+      return NextResponse.json({ error: badgeColorResult.error }, { status: 400 });
+    }
+
     // auto sortOrder = max + 1 v dané kategorii
     const maxItem = await prisma.codebookOption.findFirst({
       where: { category: String(body.category) },
@@ -51,6 +57,7 @@ export async function POST(request: NextRequest) {
         isActive: body.isActive ?? true,
         shortCode: body.shortCode ?? null,
         isWarning: body.isWarning ?? false,
+        badgeColor: badgeColorResult.color,
       },
     });
     return NextResponse.json(option, { status: 201 });

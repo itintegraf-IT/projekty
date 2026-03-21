@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { parseBadgeColor } from "@/lib/badgeColors";
 
 // PUT /api/codebook/[id] — edit položky (ADMIN only)
 export async function PUT(
@@ -18,6 +19,12 @@ export async function PUT(
 
   try {
     const body = await request.json();
+
+    const badgeColorResult = body.badgeColor !== undefined ? parseBadgeColor(body.badgeColor) : null;
+    if (badgeColorResult && "error" in badgeColorResult) {
+      return NextResponse.json({ error: badgeColorResult.error }, { status: 400 });
+    }
+
     const updated = await prisma.codebookOption.update({
       where: { id: numId },
       data: {
@@ -26,6 +33,7 @@ export async function PUT(
         ...(body.isActive !== undefined ? { isActive: Boolean(body.isActive) } : {}),
         ...(body.shortCode !== undefined ? { shortCode: body.shortCode } : {}),
         ...(body.sortOrder !== undefined ? { sortOrder: Number(body.sortOrder) } : {}),
+        ...(badgeColorResult ? { badgeColor: badgeColorResult.color } : {}),
       },
     });
     return NextResponse.json(updated);

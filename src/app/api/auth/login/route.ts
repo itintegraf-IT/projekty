@@ -15,8 +15,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nesprávné přihlašovací údaje" }, { status: 401 });
     }
 
-    await createSession({ id: user.id, username: user.username, role: user.role });
-    return NextResponse.json({ ok: true });
+    await createSession({ id: user.id, username: user.username, role: user.role, assignedMachine: user.assignedMachine ?? null });
+    return NextResponse.json({ ok: true, role: user.role });
   } catch (error) {
     console.error("[POST /api/auth/login]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });

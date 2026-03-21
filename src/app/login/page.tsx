@@ -29,7 +29,7 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(data.error ?? "Nesprávné přihlašovací údaje");
       } else {
-        router.push("/");
+        router.push(data.role === "TISKAR" ? "/tiskar" : "/");
       }
     } catch (error) {
       console.error("Login request failed", error);

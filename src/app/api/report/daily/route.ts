@@ -19,10 +19,12 @@ export async function GET(request: NextRequest) {
   const dayEnd   = new Date(year, month - 1, day, 23, 59, 59, 999);
 
   try {
+    const machineFilter = session.role === "TISKAR" ? { machine: session.assignedMachine ?? undefined } : {};
     const blocks = await prisma.block.findMany({
       where: {
         startTime: { lt: dayEnd },
         endTime:   { gt: dayStart },
+        ...machineFilter,
       },
       orderBy: { startTime: "asc" },
     });

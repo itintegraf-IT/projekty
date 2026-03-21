@@ -19,7 +19,21 @@ export async function middleware(req: NextRequest) {
   }
 
   try {
-    await jwtVerify(cookie.value, SECRET);
+    const { payload } = await jwtVerify(cookie.value, SECRET);
+    const role = payload.role as string | undefined;
+
+    // TISKAR smí jen /tiskar a /api/*
+    if (role === "TISKAR") {
+      if (!pathname.startsWith("/tiskar") && !pathname.startsWith("/api/")) {
+        return NextResponse.redirect(new URL("/tiskar", req.url));
+      }
+    }
+
+    // Ostatní role nesmí na /tiskar
+    if (role !== "TISKAR" && pathname.startsWith("/tiskar")) {
+      return NextResponse.redirect(new URL("/", req.url));
+    }
+
     return NextResponse.next();
   } catch {
     return NextResponse.redirect(new URL("/login", req.url));

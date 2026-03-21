@@ -10,6 +10,7 @@ export interface SessionUser {
   id: number;
   username: string;
   role: string;
+  assignedMachine: string | null;
 }
 
 export async function createSession(user: SessionUser) {
