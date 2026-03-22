@@ -235,6 +235,36 @@ Tím označíte migraci jako již aplikovanou (baseline).
 - **„Přejít na" pro historické bloky:** pokud hledaná zakázka (filterText) leží před viewStart, zobrazí se žlutý banner s tlačítkem. Klik rozšíří `daysBack` a scrollne na blok. Logika: `pendingScrollMs` ref + `useLayoutEffect([daysBack])`.
 - **DatePickerField** — viz sekce níže
 
+### autoResolveOverlap (PlannerPage.tsx)
+Automatické řešení překryvů po přesunu, resize nebo dropu bloku z fronty.
+
+```ts
+type OverlapResult = "resolved" | "blocked_by_lock" | "failed";
+async function autoResolveOverlap(
+  movedBlock: Block,
+  excludeIds: Set<number>,
+  prevBlock?: Block,
+  deleteBlockOnConflict = false
+): Promise<OverlapResult>
+```
+
+**Krok 1 — backward snap:** Pokud `movedBlock.startTime` leží uvnitř jiného bloku, nový blok se snapne hned za jeho konec (PUT).
+
+**Krok 2 — forward push chain:** Pokud nový blok přelézá start dalšího bloku, pushne celý navazující chain.
+- Chain kritérium: `blockStart < cursorEnd + shiftMs` — zahrnuje jen bloky, které by po posunu **skutečně překrývaly** posouvaný blok. Starý `CHAIN_GAP_MS = 30 min` odstraněn.
+- Tolerance `cursorEnd - 60_000` (1 min) pro "přesně dotýkající se" bloky.
+- Zamknutý blok v chainu → revert nebo DELETE (viz níže).
+
+**`deleteBlockOnConflict = true` (drop z fronty):**
+- Locked conflict + DELETE OK → blok smazán z DB i UI, toast, return `"blocked_by_lock"` → caller nechá item ve frontě
+- Locked conflict + DELETE selhal → return `"failed"` → caller odstraní item z fronty (prevence duplicit), info toast
+- Síťová chyba kdekoli → return `"failed"`
+
+**`deleteBlockOnConflict = false` (přesun/resize existujícího bloku, výchozí):**
+- Locked conflict → `revertMovedBlock()` vrátí blok na `prevBlock ?? movedBlock`, zobrazí `pushSuggestion` banner
+
+**handleQueueDrop** volá `autoResolveOverlap(parentBlock, ..., true)` po vytvoření bloku. Recurring children overlap resolution není implementována (known limitation).
+
 ### DatePickerField (vlastní komponenta)
 - Plně vlastní custom komponenta v `PlannerPage.tsx` — **bez react-day-picker ani shadcn Calendar**
 - iOS-style popup: tmavé pozadí `#1c1c1e`, kulaté buňky 36×36px, CSS grid s pevnými rozměry

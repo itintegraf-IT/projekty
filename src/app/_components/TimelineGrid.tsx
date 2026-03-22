@@ -144,6 +144,7 @@ interface TimelineGridProps {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   queueDragItem?: { id: number; durationHours: number; type: string } | null;
   onQueueDrop?: (itemId: number, machine: string, startTime: Date) => void;
+  onQueueDragCancel?: () => void;
   onBlockDoubleClick?: (block: Block) => void;
   companyDays?: CompanyDay[];
   slotHeight?: number;
@@ -1334,7 +1335,7 @@ function BlockCard({
 export default function TimelineGrid({
   blocks, filterText, selectedBlockId,
   onBlockClick, onBlockUpdate, onBlockCreate, scrollRef,
-  queueDragItem, onQueueDrop, onBlockDoubleClick,
+  queueDragItem, onQueueDrop, onQueueDragCancel, onBlockDoubleClick,
   companyDays,
   slotHeight = SLOT_HEIGHT,
   daysAhead,
@@ -1365,7 +1366,7 @@ export default function TimelineGrid({
   const [viewStart, setViewStart] = useState<Date | null>(null);
   const [now, setNow]             = useState<Date | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview>(null);
-const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
+  const queuePreviewRefs = useRef<(HTMLDivElement | null)[]>([null, null]);
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material"; currentValue: string; x: number; y: number } | null>(null);
   const [overlayDragPreview, setOverlayDragPreview] = useState<OverlayDragPreview>(null);
@@ -1376,7 +1377,8 @@ const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null)
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel });
+  const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const blocksRef       = useRef(blocks);
@@ -1395,8 +1397,10 @@ const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null)
   useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError };
-  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel]);
+
+  useEffect(() => { queueDragItemRef.current = queueDragItem ?? null; }, [queueDragItem]);
 
   useEffect(() => {
     setNow(new Date());
@@ -1441,6 +1445,36 @@ const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null)
   // ── Globální mouse listenery ───────────────────────────────────────────────
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
+      // ── Queue drag pohyb ──
+      const qdItem = queueDragItemRef.current;
+      if (qdItem) {
+        const el = scrollRef.current;
+        const vs = viewStartRef.current;
+        const sh = slotHeightRef.current;
+        const activeColIdx = MACHINES.findIndex((_, i) => {
+          const col = colRefs.current[i];
+          if (!col) return false;
+          const r = col.getBoundingClientRect();
+          return e.clientX >= r.left && e.clientX <= r.right;
+        });
+        if (activeColIdx >= 0 && el && vs) {
+          const rect = el.getBoundingClientRect();
+          const previewHeight = qdItem.durationHours * 2 * sh;
+          const timelineY = e.clientY - rect.top + el.scrollTop - previewHeight / 2;
+          const snappedY = dateToY(snapToSlot(yToDate(timelineY, vs, sh)), vs, sh);
+          const previewEl = queuePreviewRefs.current[activeColIdx];
+          if (previewEl) {
+            previewEl.style.top = `${snappedY}px`;
+            previewEl.style.height = `${Math.max(previewHeight, sh)}px`;
+            previewEl.style.display = "block";
+          }
+          queuePreviewRefs.current.forEach((r, i) => { if (i !== activeColIdx && r) r.style.display = "none"; });
+        } else {
+          queuePreviewRefs.current.forEach(r => { if (r) r.style.display = "none"; });
+        }
+        return;
+      }
+
       // ── Lasso pohyb ──
       if (lassoRef.current) {
         const dx = e.clientX - lassoRef.current.startClientX;
@@ -1499,6 +1533,33 @@ const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null)
     }
 
     async function onMouseUp(e: MouseEvent) {
+      // ── Queue drag drop ──
+      const qdItem = queueDragItemRef.current;
+      if (qdItem) {
+        queueDragItemRef.current = null; // okamžitě — zabraňuje duplicitnímu dropu při pomalé síti
+        queuePreviewRefs.current.forEach(r => { if (r) r.style.display = "none"; });
+        const el = scrollRef.current;
+        const vs = viewStartRef.current;
+        const sh = slotHeightRef.current;
+        const activeColIdx = MACHINES.findIndex((_, i) => {
+          const col = colRefs.current[i];
+          if (!col) return false;
+          const r = col.getBoundingClientRect();
+          return e.clientX >= r.left && e.clientX <= r.right;
+        });
+        if (activeColIdx >= 0 && el && vs) {
+          const machine = MACHINES[activeColIdx];
+          const rect = el.getBoundingClientRect();
+          const previewHeight = qdItem.durationHours * 2 * sh;
+          const timelineY = e.clientY - rect.top + el.scrollTop - previewHeight / 2;
+          const snappedStart = snapToSlot(yToDate(timelineY, vs, sh));
+          callbacksRef.current.onQueueDrop?.(qdItem.id, machine, snappedStart);
+        } else {
+          callbacksRef.current.onQueueDragCancel?.();
+        }
+        return;
+      }
+
       // ── Lasso puštění + hit testing ──
       if (lassoRef.current) {
         const lr = lassoRectRef.current;
@@ -1954,37 +2015,6 @@ const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null)
               <div
                 ref={(el) => { colRefs.current[colIdx] = el; }}
                 style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0, backgroundColor: "var(--timeline-bg)" }}
-                onDragOver={canEdit ? (e) => {
-                  if (!queueDragItem) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "copy";
-                  const vs = viewStartRef.current;
-                  const el = scrollRef.current;
-                  if (!vs || !el) return;
-                  const rect = el.getBoundingClientRect();
-                  const timelineY = e.clientY - rect.top + el.scrollTop;
-                  const snappedStart = snapToSlot(yToDate(timelineY, vs, slotHeight));
-                  const snappedY = dateToY(snappedStart, vs, slotHeight);
-                  const height = queueDragItem.durationHours * 2 * slotHeight;
-                  setQueueDropPreview({ machine, top: snappedY, height, jobType: queueDragItem.type });
-                } : undefined}
-                onDragLeave={canEdit ? (e) => {
-                  if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-                    setQueueDropPreview(null);
-                  }
-                } : undefined}
-                onDrop={canEdit ? (e) => {
-                  e.preventDefault();
-                  if (!onQueueDrop || !queueDragItem) return;
-                  const vs = viewStartRef.current;
-                  const el = scrollRef.current;
-                  if (!vs || !el) return;
-                  const rect = el.getBoundingClientRect();
-                  const timelineY = e.clientY - rect.top + el.scrollTop;
-                  const snappedStart = snapToSlot(yToDate(timelineY, vs));
-                  setQueueDropPreview(null);
-                  onQueueDrop(queueDragItem.id, machine, snappedStart);
-                } : undefined}
                 onMouseDown={canEdit ? (e) => {
                   if (e.button !== 0) return;
                   if ((e.target as HTMLElement).closest("[data-block]")) return;
@@ -2253,20 +2283,21 @@ const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null)
                   );
                 })()}
 
-                {/* Náhled při přetahování z fronty */}
-                {queueDropPreview && queueDropPreview.machine === machine && (
-                  <div style={{
+                {/* Náhled při přetahování z fronty — DOM ref, žádný re-render */}
+                <div
+                  ref={(el) => { queuePreviewRefs.current[colIdx] = el; }}
+                  style={{
+                    display: "none",
                     position: "absolute",
-                    top: queueDropPreview.top,
-                    height: Math.max(queueDropPreview.height, slotHeight),
+                    top: 0, height: 0,
                     left: 3, width: "calc(100% - 6px)",
                     borderRadius: 4,
                     backgroundColor: "rgba(36,132,245,0.18)",
                     border: "2px dashed rgba(36,132,245,0.6)",
                     pointerEvents: "none",
                     zIndex: 15,
-                  }} />
-                )}
+                  }}
+                />
               </div>
               </Fragment>
             );

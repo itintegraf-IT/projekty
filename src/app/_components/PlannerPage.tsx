@@ -76,8 +76,7 @@ type Toast = { id: number; message: string; type: "success" | "error" | "info" }
 
 type HistoryEntry = { undo: () => Promise<void>; redo: () => Promise<void> };
 
-// ─── Push chain helper ────────────────────────────────────────────────────────
-const CHAIN_GAP_MS = 30 * 60 * 1000; // 30 min = stále "navazující"
+type OverlapResult = "resolved" | "blocked_by_lock" | "failed";
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const TYPE_LABELS: Record<string, string> = {
@@ -1933,7 +1932,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   //  1. Překryv dozadu (přesunutý blok narazí na předchozí) → snap dopředu
   //  2. Překryv dopředu → auto-push navazující bloky
   // excludeIds = bloky které mají být při kontrole přeskočeny (přesouvané bloky ve skupině)
-  async function autoResolveOverlap(movedBlock: Block, excludeIds: Set<number> = new Set([movedBlock.id]), prevBlock?: Block) {
+  async function autoResolveOverlap(movedBlock: Block, excludeIds: Set<number> = new Set([movedBlock.id]), prevBlock?: Block, deleteBlockOnConflict = false): Promise<OverlapResult> {
     const duration = new Date(movedBlock.endTime).getTime() - new Date(movedBlock.startTime).getTime();
     const otherBlocks = blocksRef.current.filter(b => !excludeIds.has(b.id));
     const sameMachine = otherBlocks
@@ -1942,8 +1941,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     let current = movedBlock;
 
-    // Helper: vrátit blok zpět na původní pozici
-    async function revertMovedBlock() {
+    // Helper: vrátit blok zpět na původní pozici (nebo smazat pokud je nový a deleteBlockOnConflict)
+    async function revertMovedBlock(): Promise<OverlapResult> {
+      if (deleteBlockOnConflict && !prevBlock) {
+        // Nový blok — smazat místo revert
+        let deleteOk = false;
+        try {
+          const delRes = await fetch(`/api/blocks/${current.id}`, { method: "DELETE" });
+          deleteOk = delRes.ok;
+        } catch {
+          deleteOk = false;
+        }
+        if (!deleteOk) {
+          // DELETE selhalo — blok zůstává v DB; caller odstraní item z fronty (prevence duplicit)
+          showToast("Blok koliduje se zamknutým blokem a nepodařilo se ho smazat — zkontroluj timeline.", "error");
+          return "failed";
+        }
+        setBlocks(prev => prev.filter(b => b.id !== current.id));
+        setSelectedBlock(sel => sel?.id === current.id ? null : sel);
+        showToast("Blok nelze umístit — koliduje se zamknutým blokem.", "error");
+        return "blocked_by_lock";
+      }
       const orig = prevBlock ?? movedBlock;
       try {
         const res = await fetch(`/api/blocks/${current.id}`, {
@@ -1955,11 +1973,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           const reverted = await res.json() as Block;
           setBlocks(prev => prev.map(b => b.id === reverted.id ? reverted : b));
           setSelectedBlock(sel => sel?.id === reverted.id ? reverted : sel);
+        } else {
+          return "failed";
         }
       } catch (error) {
         console.error("Revert moved block failed", error);
         showToast("Nepodařilo se vrátit blok na původní pozici.", "error");
+        return "failed";
       }
+      return "blocked_by_lock";
     }
 
     // ── Krok 1: Překryv dozadu ────────────────────────────────────────────────
@@ -1978,10 +2000,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         if (res.ok) {
           current = await res.json() as Block;
           setBlocks(prev => prev.map(b => b.id === current.id ? current : b));
+        } else {
+          return "failed";
         }
       } catch (error) {
         console.error("Backward overlap correction failed", error);
         showToast("Nepodařilo se opravit překryv bloku.", "error");
+        return "failed";
       }
     }
 
@@ -1991,15 +2016,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const firstFollowing = sameMachine.find(b =>
       new Date(b.startTime).getTime() >= curStart && new Date(b.startTime).getTime() < curEnd
     );
-    if (!firstFollowing) return;
+    if (!firstFollowing) return "resolved";
 
     const shiftMs = curEnd - new Date(firstFollowing.startTime).getTime();
-    if (shiftMs <= 0) return;
+    if (shiftMs <= 0) return "resolved";
 
     if (firstFollowing.locked) {
-      await revertMovedBlock();
-      setPushSuggestion({ chain: [], shiftMs, blockedByLock: true, lockedBlock: firstFollowing });
-      return;
+      const result = await revertMovedBlock();
+      if (!deleteBlockOnConflict) setPushSuggestion({ chain: [], shiftMs, blockedByLock: true, lockedBlock: firstFollowing });
+      return result;
     }
 
     const chain: Block[] = [firstFollowing];
@@ -2011,7 +2036,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const next = sameMachine.find(b =>
         !chain.find(c => c.id === b.id) &&
         new Date(b.startTime).getTime() >= cursorEnd - 60_000 &&
-        new Date(b.startTime).getTime() <= cursorEnd + CHAIN_GAP_MS
+        new Date(b.startTime).getTime() < cursorEnd + shiftMs
       );
       if (!next) break;
       if (next.locked) {
@@ -2028,7 +2053,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       chain.push(next);
     }
 
-    // Zkontrolovat, zda posunutý chain nepřekryje locked blok mimo chain gap
+    // Zkontrolovat, zda posunutý chain nepřekryje locked blok mimo chain
     if (!blockedByLocked) {
       const lockedOnMachine = sameMachine.filter(b => b.locked && !chain.find(c => c.id === b.id));
       for (const b of chain) {
@@ -2046,12 +2071,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
 
     if (blockedByLocked) {
-      await revertMovedBlock();
-      setPushSuggestion({ chain, shiftMs, blockedByLock: true, lockedBlock: lockedBlockRef });
-      return;
+      const result = await revertMovedBlock();
+      if (!deleteBlockOnConflict) setPushSuggestion({ chain, shiftMs, blockedByLock: true, lockedBlock: lockedBlockRef });
+      return result;
     }
 
-    if (chain.length === 0) return;
+    if (chain.length === 0) return "resolved";
 
     // Pokud je zamknutý pracovní čas, snapneme push chain přes blokované časy
     let effectiveShiftMs = shiftMs;
@@ -2074,7 +2099,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString() }),
-          }).then(r => r.json() as Promise<Block>);
+          }).then(r => {
+            if (!r.ok) throw new Error(`Chain push HTTP ${r.status}`);
+            return r.json() as Promise<Block>;
+          });
         })
       );
       setBlocks(prev => prev.map(b => (results as Block[]).find(r => r.id === b.id) ?? b));
@@ -2088,7 +2116,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     } catch (error) {
       console.error("Auto-push chain update failed", error);
       showToast("Nepodařilo se automaticky posunout navazující bloky.", "error");
+      return "failed";
     }
+
+    return "resolved";
   }
 
   function handleBlockUpdate(updated: Block, addToHistory = false) {
@@ -2475,6 +2506,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const parentBlock: Block = await res1.json();
       handleBlockCreate(parentBlock);
 
+      // Vyřešit případný overlap nového bloku s existujícími
+      const overlapResult = await autoResolveOverlap(parentBlock, new Set([parentBlock.id]), undefined, true);
+      if (overlapResult === "blocked_by_lock") {
+        // Blok byl smazán (kolidoval se zamknutým), item zůstane ve frontě
+        setDraggingQueueItem(null);
+        return;
+      }
+      if (overlapResult === "failed") {
+        // POST proběhl, blok existuje v DB/UI, ale overlap resolution selhala
+        setQueue((prev) => prev.filter((q) => q.id !== itemId));
+        setDraggingQueueItem(null);
+        showToast("Blok byl vytvořen, ale nepodařilo se automaticky vyřešit překryv — zkontroluj pozici na timeline.", "info");
+        return;
+      }
+
       // Vytvořit children bloky (pokud opakování > 1)
       if (rType !== "NONE" && rCount > 1) {
         let curStart = addRecurrenceInterval(startTime, rType);
@@ -2505,6 +2551,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     } catch (error) {
       console.error("Queue drop block creation failed", error);
       showToast("Chyba při vytváření bloku.", "error");
+      setDraggingQueueItem(null);
     }
   }
 
@@ -3000,6 +3047,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             scrollRef={scrollRef}
             queueDragItem={draggingQueueItem}
             onQueueDrop={handleQueueDrop}
+            onQueueDragCancel={() => setDraggingQueueItem(null)}
             onBlockDoubleClick={handleBlockDoubleClick}
             companyDays={companyDays}
             slotHeight={slotHeight}
@@ -3439,15 +3487,31 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
                   {/* ── Přidat do fronty ── */}
                   <div style={{ paddingTop: 14, paddingBottom: 16 }}>
-                    <Button
+                    <button
                       type="button"
-                      variant="ghost"
                       onClick={handleAddToQueue}
                       disabled={!orderNumber.trim()}
-                      className="w-full text-xs font-semibold border border-yellow-400/35 bg-yellow-400/[0.06] text-yellow-400 hover:bg-yellow-400/[0.12] hover:text-yellow-400 disabled:text-slate-600 disabled:border-slate-700 disabled:bg-transparent"
+                      style={{
+                        width: "100%",
+                        paddingTop: 11,
+                        paddingBottom: 11,
+                        borderRadius: 10,
+                        border: "none",
+                        background: orderNumber.trim() ? "#FFE600" : "rgba(255,255,255,0.06)",
+                        color: orderNumber.trim() ? "#111" : "rgba(255,255,255,0.2)",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        letterSpacing: "0.02em",
+                        cursor: orderNumber.trim() ? "pointer" : "default",
+                        transition: "background 120ms ease-out, transform 80ms ease-out",
+                        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+                      }}
+                      onMouseDown={(e) => { if (orderNumber.trim()) (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.97)"; }}
+                      onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
                     >
-                      ＋ Přidat do fronty
-                    </Button>
+                      + Přidat do fronty
+                    </button>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", marginTop: 6 }}>
                       Přetáhni kartu z fronty na timeline → stroj a čas
                     </div>
@@ -3469,21 +3533,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                         return (
                           <div
                             key={item.id}
-                            draggable
                             className="pressable-card"
-                            onDragStart={(e) => {
-                              e.dataTransfer.effectAllowed = "copy";
-                              e.dataTransfer.setData("text/plain", String(item.id));
+                            onMouseDown={(e) => {
+                              if (e.button !== 0) return;
+                              e.preventDefault();
                               setDraggingQueueItem(item);
                             }}
-                            onDragEnd={() => setDraggingQueueItem(null)}
                             style={{
                               display: "flex", alignItems: "stretch",
                               background: "var(--surface)",
                               borderRadius: 6,
                               border: "1px solid var(--border)",
                               overflow: "hidden",
-                              cursor: "grab",
+                              cursor: draggingQueueItem?.id === item.id ? "grabbing" : "grab",
                             }}
                           >
                             {/* Barevný pruh vlevo */}
@@ -3504,6 +3566,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                             <button
                               type="button"
                               onClick={() => setQueue((prev) => prev.filter((q) => q.id !== item.id))}
+                              onMouseDown={(e) => e.stopPropagation()}
                               style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "0 10px", display: "flex", alignItems: "center", lineHeight: 1 }}
                             >
                               ×
