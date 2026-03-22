@@ -15,6 +15,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
@@ -64,6 +65,7 @@ export type Block = {
   specifikace: string | null;
   // Poznámka MTZ k materiálu
   materialNote: string | null;
+  materialNoteByUsername: string | null;
   recurrenceType: string;
   recurrenceParentId: number | null;
   printCompletedAt: string | null;
@@ -129,12 +131,6 @@ type DragPreview = {
   machine: string;
 } | null;
 
-type ContextMenuState = {
-  x: number;
-  y: number;
-  block: Block;
-  splitAt: Date;
-} | null;
 
 interface TimelineGridProps {
   blocks: Block[];
@@ -612,27 +608,23 @@ function MiniChip({ label, accent, textColor }: { label: string; accent: string;
 }
 
 // ─── MaterialNoteAffordance ────────────────────────────────────────────────────
+// Jen HoverCard pro pasivní náhled — ContextMenu je nyní na celém bloku (BlockCard).
 // Musí být MIMO BlockCard — definice uvnitř by způsobila remount při každém renderu.
 function MaterialNoteAffordance({
-  children, block, canEditMat, openNoteEditor, onClearNote,
+  children, block,
   indicatorSize = 5, indicatorTop = 2, indicatorRight = 2,
 }: {
   children: React.ReactElement;
   block: Block;
-  canEditMat?: boolean;
-  openNoteEditor: (rect: DOMRect | null) => void;
-  onClearNote: () => void;
   indicatorSize?: number;
   indicatorTop?: number;
   indicatorRight?: number;
 }) {
-  const triggerRef = useRef<HTMLDivElement>(null);
-  const hasNote    = !!block.materialNote;
-  const hasMenu    = !!(canEditMat || hasNote);
+  const hasNote = !!block.materialNote;
 
   // display:"flex" → children jsou vždy block-level flex items (žádný line-height strut)
   const inner = (
-    <div ref={triggerRef} style={{ position: "relative", display: "flex" }}>
+    <div style={{ position: "relative", display: "flex" }}>
       {children}
       {hasNote && (
         <span style={{ position: "absolute", top: indicatorTop, right: indicatorRight, width: indicatorSize, height: indicatorSize, borderRadius: "50%", background: "rgba(255,255,255,0.75)", pointerEvents: "none" }} />
@@ -640,59 +632,27 @@ function MaterialNoteAffordance({
     </div>
   );
 
-  // HoverCard obalí inner div přímo — bez extra mezivrstvy
-  const withHover = hasNote ? (
+  if (!hasNote) return inner;
+
+  return (
     <HoverCard openDelay={400} closeDelay={100}>
       <HoverCardTrigger asChild>{inner}</HoverCardTrigger>
       <HoverCardContent side="right" align="start" style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 12px", maxWidth: 220, zIndex: 200 }}>
         <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,0.85)", whiteSpace: "pre-wrap" }}>{block.materialNote}</p>
+        {block.materialNoteByUsername && (
+          <p style={{ margin: "6px 0 0", fontSize: 10, color: "rgba(255,255,255,0.38)", letterSpacing: 0.2 }}>— {block.materialNoteByUsername}</p>
+        )}
       </HoverCardContent>
     </HoverCard>
-  ) : inner;
-
-  if (!hasMenu) return withHover;
-
-  // ContextMenuTrigger display:contents = průhledný pro layout, ale zachytí right-click
-  return (
-    <ContextMenu>
-      <ContextMenuTrigger style={{ display: "contents" }}>
-        {withHover}
-      </ContextMenuTrigger>
-      <ContextMenuContent
-        style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "4px", minWidth: 160, zIndex: 300 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {canEditMat && (
-          <ContextMenuItem
-            onClick={(e) => { e.stopPropagation(); openNoteEditor(triggerRef.current?.getBoundingClientRect() ?? null); }}
-            style={{ borderRadius: 7, padding: "6px 10px", fontSize: 13, color: "rgba(255,255,255,0.9)", cursor: "pointer" }}
-          >
-            {hasNote ? "Upravit poznámku" : "Přidat poznámku"}
-          </ContextMenuItem>
-        )}
-        {hasNote && canEditMat && (
-          <ContextMenuItem
-            onClick={(e) => { e.stopPropagation(); onClearNote(); }}
-            style={{ borderRadius: 7, padding: "6px 10px", fontSize: 13, color: "rgba(255,80,80,0.9)", cursor: "pointer" }}
-          >
-            Smazat poznámku
-          </ContextMenuItem>
-        )}
-        {!canEditMat && hasNote && (
-          <ContextMenuItem disabled style={{ borderRadius: 7, padding: "6px 10px", fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-            Poznámka (jen pro čtení)
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
   );
 }
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
-  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onContextMenu, onBlockUpdate, onError,
-  canEditData, canEditMat, onInlineDatePick, badgeColorMap,
+  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
+  canEdit, canEditData, canEditMat, onInlineDatePick, badgeColorMap,
+  onBlockCopy, onBlockSplit, getSplitAt,
 }: {
   block: Block;
   top: number;
@@ -707,13 +667,16 @@ function BlockCard({
   onDoubleClick: () => void;
   onMouseDown?: (e: React.MouseEvent) => void;
   onResizeMouseDown?: (e: React.MouseEvent) => void;
-  onContextMenu?: (e: React.MouseEvent) => void;
   onBlockUpdate: (b: Block) => void;
   onError?: (msg: string) => void;
+  canEdit?: boolean;
   canEditData?: boolean;
   canEditMat?: boolean;
   onInlineDatePick?: (blockId: number, field: "data" | "material", currentValue: string, rect: DOMRect) => void;
   badgeColorMap?: Record<number, string | null>;
+  onBlockCopy?: () => void;
+  onBlockSplit?: (splitAt: Date) => void;
+  getSplitAt?: (clientY: number) => Date;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
@@ -722,8 +685,10 @@ function BlockCard({
   const [noteOpen, setNoteOpen]   = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
-  const [noteRect, setNoteRect]   = useState<DOMRect | null>(null);
+  const [noteRect, setNoteRect]   = useState<{ bottom: number; left: number } | null>(null);
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const splitAtRef      = useRef<Date | null>(null);
+  const ctxMouseRef     = useRef<{ x: number; y: number } | null>(null);
 
   const isPrintDone  = block.printCompletedAt != null;
   const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone;
@@ -791,8 +756,8 @@ function BlockCard({
     }
   }
 
-  function openNoteEditor(rect: DOMRect | null) {
-    setNoteRect(rect);
+  function openNoteEditor(pos: { bottom: number; left: number } | null) {
+    setNoteRect(pos);
     setNoteDraft(block.materialNote ?? "");
     setNoteOpen(true);
     setTimeout(() => noteTextareaRef.current?.focus(), 50);
@@ -834,7 +799,11 @@ function BlockCard({
     }
   }
 
-  return (
+  const menuItemStyle: React.CSSProperties = { borderRadius: 7, padding: "6px 10px", fontSize: 13, color: "rgba(255,255,255,0.9)", cursor: "pointer" };
+  const hasNote = !!block.materialNote;
+  const showMenu = (canEdit && !block.locked) || canEditMat || hasNote;
+
+  const blockDiv = (
     <div
       data-block="true"
       onMouseDown={block.locked ? undefined : onMouseDown}
@@ -842,7 +811,6 @@ function BlockCard({
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
-      onContextMenu={onContextMenu}
       style={{
         position: "absolute", top, height: clampedHeight, left: 3,
         width: "calc(100% - 6px)",
@@ -896,7 +864,7 @@ function BlockCard({
                 onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                 D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
               </span>
-              <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+              <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                 <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
                   onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                   onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
@@ -970,7 +938,7 @@ function BlockCard({
                   onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                   D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
-                <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+                <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
                     onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
@@ -1072,7 +1040,7 @@ function BlockCard({
             onToggle={() => toggleField("dataOk", block.dataOk)}
             onDoubleClick={canEditData ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
           />
-          <MaterialNoteAffordance block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+          <MaterialNoteAffordance block={block}>
             <DateBadge
               label="MAT." dateStr={block.materialRequiredDate}
               ok={materialDeadlineState === "ok"} warn={materialDeadlineState === "warning"} danger={materialDeadlineState === "danger"} earlyStart={materialDeadlineState === "earlyStart"}
@@ -1113,7 +1081,7 @@ function BlockCard({
               onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
               D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
             </span>
-            <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+            <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
               <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)}
                 onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                 onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
@@ -1233,6 +1201,68 @@ function BlockCard({
       )}
     </div>
   );
+
+  if (!showMenu) return blockDiv;
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={(e: React.MouseEvent) => {
+          splitAtRef.current  = getSplitAt?.(e.clientY) ?? null;
+          ctxMouseRef.current = { x: e.clientX, y: e.clientY };
+        }}
+      >
+        {blockDiv}
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "4px", minWidth: 180, zIndex: 500 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {canEdit && !block.locked && (
+          <>
+            <ContextMenuItem
+              onClick={() => onBlockCopy?.()}
+              style={menuItemStyle}
+            >
+              ⎘ Kopírovat
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => { if (splitAtRef.current) onBlockSplit?.(splitAtRef.current); }}
+              style={menuItemStyle}
+            >
+              ✂ Rozdělit blok
+            </ContextMenuItem>
+          </>
+        )}
+        {canEdit && !block.locked && (canEditMat || hasNote) && <ContextMenuSeparator />}
+        {canEditMat && (
+          <ContextMenuItem
+            onClick={() => {
+              const pos = ctxMouseRef.current;
+              openNoteEditor(pos ? { bottom: pos.y + 4, left: pos.x } : null);
+            }}
+            style={menuItemStyle}
+          >
+            {hasNote ? "Upravit poznámku MTZ" : "Přidat poznámku MTZ"}
+          </ContextMenuItem>
+        )}
+        {hasNote && canEditMat && (
+          <ContextMenuItem
+            onClick={clearNote}
+            style={{ ...menuItemStyle, color: "rgba(255,80,80,0.9)" }}
+          >
+            Smazat poznámku MTZ
+          </ContextMenuItem>
+        )}
+        {!canEditMat && hasNote && (
+          <ContextMenuItem disabled style={{ ...menuItemStyle, color: "rgba(255,255,255,0.4)" }}>
+            📌 Poznámka MTZ existuje
+          </ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
 }
 
 // ─── TimelineGrid ──────────────────────────────────────────────────────────────
@@ -1270,8 +1300,7 @@ export default function TimelineGrid({
   const [viewStart, setViewStart] = useState<Date | null>(null);
   const [now, setNow]             = useState<Date | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview>(null);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
-  const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
+const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null);
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material"; currentValue: string; x: number; y: number } | null>(null);
   const [overlayDragPreview, setOverlayDragPreview] = useState<OverlayDragPreview>(null);
@@ -1534,13 +1563,6 @@ export default function TimelineGrid({
     };
   }, []); // prázdné deps — čte z refs
 
-  // ── Zavřít context menu ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!contextMenu) return;
-    function onDown() { setContextMenu(null); }
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [contextMenu]);
 
   // ── Handlery bloků ─────────────────────────────────────────────────────────
   function handleBlockMouseDown(block: Block, e: React.MouseEvent) {
@@ -1581,25 +1603,17 @@ export default function TimelineGrid({
     setDragPreview({ blockId: block.id, top, height, machine: block.machine });
   }
 
-  function handleBlockContextMenu(block: Block, e: React.MouseEvent) {
-    e.preventDefault();
-    if (block.locked) return;
+  function calcSplitAt(clientY: number, block: Block): Date {
     const vs = viewStartRef.current;
-    if (!vs) return;
-    const timelineY = clientYToTimelineY(e.clientY);
-    const rawSplit  = snapToSlot(yToDate(timelineY, vs));
+    const mid = snapToSlot(new Date((new Date(block.startTime).getTime() + new Date(block.endTime).getTime()) / 2));
+    if (!vs) return mid;
+    const rawSplit = snapToSlot(yToDate(clientYToTimelineY(clientY), vs));
     const blockStart = new Date(block.startTime);
     const blockEnd   = new Date(block.endTime);
-    const splitAt = rawSplit > blockStart && rawSplit < blockEnd
-      ? rawSplit
-      : snapToSlot(new Date((blockStart.getTime() + blockEnd.getTime()) / 2));
-    setContextMenu({ x: e.clientX, y: e.clientY, block, splitAt });
+    return rawSplit > blockStart && rawSplit < blockEnd ? rawSplit : mid;
   }
 
-  async function handleSplitBlock() {
-    if (!contextMenu) return;
-    const { block, splitAt } = contextMenu;
-    setContextMenu(null);
+  async function handleSplitBlockAt(block: Block, splitAt: Date) {
     try {
       const res1 = await fetch(`/api/blocks/${block.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: splitAt.toISOString() }) });
       onBlockUpdate(await res1.json());
@@ -2119,11 +2133,14 @@ export default function TimelineGrid({
                       onDoubleClick={() => onBlockDoubleClick?.(block)}
                       onMouseDown={canEdit ? (e) => handleBlockMouseDown(block, e) : undefined}
                       onResizeMouseDown={canEdit ? (e) => handleResizeMouseDown(block, e) : undefined}
-                      onContextMenu={canEdit ? (e) => handleBlockContextMenu(block, e) : undefined}
                       onBlockUpdate={callbacksRef.current.onBlockUpdate}
                       onError={callbacksRef.current.onError}
+                      canEdit={canEdit}
                       canEditData={canEditData}
                       canEditMat={canEditMat}
+                      onBlockCopy={() => onBlockCopy?.(block)}
+                      onBlockSplit={(splitAt) => handleSplitBlockAt(block, splitAt)}
+                      getSplitAt={(clientY) => calcSplitAt(clientY, block)}
                       onInlineDatePick={(blockId, field, currentValue, rect) => {
                         setInlinePicker({ blockId, field, currentValue, x: rect.left, y: rect.bottom });
                       }}
@@ -2236,24 +2253,7 @@ export default function TimelineGrid({
         />
       )}
 
-      {/* Kontextové menu */}
-      {contextMenu && (
-        <div
-          style={{ position: "fixed", top: contextMenu.y, left: contextMenu.x, zIndex: 1000 }}
-          className="bg-slate-800 border border-slate-600 rounded-md shadow-2xl text-[11px] overflow-hidden"
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <button onClick={() => { onBlockCopy?.(contextMenu.block); setContextMenu(null); }} className="block w-full text-left px-4 py-2.5 text-slate-200 hover:bg-slate-700 transition-colors">
-            ⎘ Kopírovat
-          </button>
-          <button onClick={handleSplitBlock} className="block w-full text-left px-4 py-2.5 text-slate-200 hover:bg-slate-700 transition-colors border-t border-slate-700">
-            ✂ Rozdělit blok
-          </button>
-          <button onClick={() => setContextMenu(null)} className="block w-full text-left px-4 py-2.5 text-slate-400 hover:bg-slate-700 transition-colors border-t border-slate-700">
-            Zrušit
-          </button>
-        </div>
-      )}
+
     </div>
   );
 }

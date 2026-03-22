@@ -144,7 +144,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             materialRequiredDate: allowed.materialRequiredDate ? new Date(allowed.materialRequiredDate as string) : null,
           }),
           ...(allowed.materialOk !== undefined && { materialOk: allowed.materialOk as boolean }),
-          ...(allowed.materialNote !== undefined && { materialNote: allowed.materialNote as string | null }),
+          ...(allowed.materialNote !== undefined && {
+            materialNote: allowed.materialNote as string | null,
+            materialNoteByUsername: allowed.materialNote ? session.username : null,
+          }),
           // BARVY
           ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
           ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),
