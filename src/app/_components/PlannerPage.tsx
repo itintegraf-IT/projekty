@@ -13,6 +13,7 @@ import { Switch }    from "@/components/ui/switch";
 import { Badge }     from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Lock, Unlock, ClipboardList, Pin, Wrench, CalendarDays } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
@@ -84,9 +85,9 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 const TYPE_BUILDER_CONFIG = {
-  ZAKAZKA:   { emoji: "📋", label: "Zakázka",        color: "#1a6bcc" },
-  REZERVACE: { emoji: "📌", label: "Rezervace",       color: "#7c3aed" },
-  UDRZBA:    { emoji: "🔧", label: "Údržba / Oprava", color: "#c0392b" },
+  ZAKAZKA:   { icon: ClipboardList, label: "Zakázka",        color: "#1a6bcc" },
+  REZERVACE: { icon: Pin,           label: "Rezervace",       color: "#7c3aed" },
+  UDRZBA:    { icon: Wrench,        label: "Údržba / Oprava", color: "#c0392b" },
 } as const;
 
 // ─── ZoomSlider ───────────────────────────────────────────────────────────────
@@ -631,7 +632,7 @@ function BlockEdit({
           <div style={{ display: "flex", gap: 6 }}>
             {(Object.entries(TYPE_BUILDER_CONFIG) as [string, typeof TYPE_BUILDER_CONFIG[keyof typeof TYPE_BUILDER_CONFIG]][]).map(([key, cfg]) => (
               <button key={key} type="button" onClick={() => setType(key)} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)", background: type === key ? `${cfg.color}22` : "var(--surface-2)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                <span style={{ fontSize: 14 }}>{cfg.emoji}</span>
+                <cfg.icon size={14} strokeWidth={1.5} color={type === key ? cfg.color : "var(--text-muted)"} />
                 <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "var(--text-muted)", textAlign: "center" }}>{cfg.label}</span>
               </button>
             ))}
@@ -783,7 +784,7 @@ function BlockEdit({
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
           <Switch checked={locked} onCheckedChange={setLocked} />
           <Label style={{ fontSize: 11, color: locked ? "var(--brand)" : "var(--text-muted)", cursor: "pointer" }}>
-            🔒 Zamčený blok
+            <Lock size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />Zamčený blok
           </Label>
         </div>
 
@@ -894,7 +895,7 @@ function BlockEdit({
 
         {/* Barva náhledu */}
         <div style={{ marginTop: 12, borderRadius: 6, padding: "8px 10px", background: `${typeCfg?.color ?? "#334155"}14`, borderLeft: `3px solid ${typeCfg?.color ?? "var(--text-muted)"}`, fontSize: 11, color: typeCfg?.color ?? "var(--text-muted)" }}>
-          {typeCfg?.emoji} {typeCfg?.label}
+          {typeCfg && <typeCfg.icon size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />}{typeCfg?.label}
         </div>
       </div>
     </div>
@@ -966,13 +967,13 @@ function BlockDetail({
               variant="secondary"
               style={{ fontSize: 10, background: `${typeCfg?.color ?? "var(--text-muted)"}22`, color: typeCfg?.color ?? "var(--text-muted)", border: `1px solid ${typeCfg?.color ?? "var(--text-muted)"}44` }}
             >
-              {typeCfg?.emoji} {TYPE_LABELS[block.type] ?? block.type}
+              {typeCfg && <typeCfg.icon size={10} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 3 }} />}{TYPE_LABELS[block.type] ?? block.type}
             </Badge>
           </div>
           <Row label="Začátek" value={formatDateTime(block.startTime)} />
           <Row label="Konec"   value={formatDateTime(block.endTime)} />
           <Row label="Délka"   value={durationHuman(block.startTime, block.endTime)} />
-          {block.locked && <Row label="Stav" value="🔒 Zamčeno" />}
+          {block.locked && <Row label="Stav" value="Zamčeno" />}
         </div>
 
         {block.description && (
@@ -1655,7 +1656,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const onScroll = () => setHeaderScrolled(el.scrollTop > 20);
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   const [daysAhead, setDaysAhead] = useState(60);
   const [daysBack, setDaysBack]   = useState(3);
 
@@ -1740,7 +1741,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         setAuditNewCount(newCount);
       })
       .catch(() => { /* zachovat poslední validní data a count — neměnit stav */ });
-  }, [currentUser.role]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentUser.role]);
 
   useEffect(() => {
     fetchTodayAudit();
@@ -2084,21 +2085,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) {
     const originals = new Map(updates.map(u => [u.id, blocksRef.current.find(b => b.id === u.id)]));
     try {
-      const responses = await Promise.all(
-        updates.map((u) =>
-          fetch(`/api/blocks/${u.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }),
-          })
-        )
-      );
-      const failed = responses.find((r) => !r.ok);
-      if (failed) {
-        const err = await failed.json().catch(() => ({})) as { error?: string };
+      const batchRes = await fetch("/api/blocks/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updates: updates.map((u) => ({
+            id: u.id,
+            startTime: u.startTime.toISOString(),
+            endTime: u.endTime.toISOString(),
+            machine: u.machine,
+          })),
+        }),
+      });
+      if (!batchRes.ok) {
+        const err = await batchRes.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? "Chyba serveru");
       }
-      const results: Block[] = await Promise.all(responses.map((r) => r.json() as Promise<Block>));
+      const results: Block[] = await batchRes.json();
       setBlocks((prev) => prev.map((b) => results.find((r) => r.id === b.id) ?? b));
 
       const prevSnaps = updates.map(u => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime, endTime: o.endTime, machine: o.machine } : null; }).filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[];
@@ -2106,12 +2109,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (prevSnaps.length > 0) {
         undoStack.current.push({
           undo: async () => {
-            const res = await Promise.all(prevSnaps.map(p => fetch(`/api/blocks/${p.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: p.startTime, endTime: p.endTime, machine: p.machine }) }).then(r => r.ok ? r.json() as Promise<Block> : null)));
-            setBlocks(prev => prev.map(b => (res as (Block | null)[]).find(r => r?.id === b.id) ?? b));
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps }) });
+            if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
+            const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
           redo: async () => {
-            const res = await Promise.all(nextSnaps.map(n => fetch(`/api/blocks/${n.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: n.startTime, endTime: n.endTime, machine: n.machine }) }).then(r => r.ok ? r.json() as Promise<Block> : null)));
-            setBlocks(prev => prev.map(b => (res as (Block | null)[]).find(r => r?.id === b.id) ?? b));
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps }) });
+            if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
+            const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
         });
         if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
@@ -2522,6 +2527,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         setSelectedBlockIds(new Set());
         return;
       }
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedBlockIdsRef.current.size > 0) {
+        e.preventDefault();
+        const ids = [...selectedBlockIdsRef.current];
+        setSelectedBlockIds(new Set());
+        handleDeleteAll(ids);
+        return;
+      }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedBlock) {
         e.preventDefault();
         handleDeleteBlock(selectedBlock.id);
@@ -2532,7 +2544,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         e.preventDefault();
         const entry = undoStack.current.pop();
         if (entry) {
-          void entry.undo().then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); });
+          entry.undo()
+            .then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); })
+            .catch((err: unknown) => { undoStack.current.push(entry); setCanUndo(true); console.error("Undo failed", err); showToast("Vrácení zpět selhalo.", "error"); });
         }
         return;
       }
@@ -2540,7 +2554,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         e.preventDefault();
         const entry = redoStack.current.pop();
         if (entry) {
-          void entry.redo().then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); });
+          entry.redo()
+            .then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); })
+            .catch((err: unknown) => { redoStack.current.push(entry); setCanRedo(true); console.error("Redo failed", err); showToast("Znovu provedení selhalo.", "error"); });
         }
         return;
       }
@@ -2696,13 +2712,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           {canEdit && (
             <div style={{ display: "flex", gap: 2 }}>
               <button
-                onClick={() => { const entry = undoStack.current.pop(); if (entry) void entry.undo().then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); }); }}
+                onClick={() => { const entry = undoStack.current.pop(); if (entry) entry.undo().then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); }).catch((err: unknown) => { undoStack.current.push(entry); setCanUndo(true); console.error("Undo failed", err); showToast("Vrácení zpět selhalo.", "error"); }); }}
                 disabled={!canUndo}
                 title="Vrátit zpět (Ctrl+Z)"
                 style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canUndo ? "var(--border)" : "color-mix(in oklab, var(--border) 50%, transparent)"}`, color: canUndo ? "var(--text-muted)" : "color-mix(in oklab, var(--text-muted) 45%, transparent)", cursor: canUndo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
               >↩</button>
               <button
-                onClick={() => { const entry = redoStack.current.pop(); if (entry) void entry.redo().then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); }); }}
+                onClick={() => { const entry = redoStack.current.pop(); if (entry) entry.redo().then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); }).catch((err: unknown) => { redoStack.current.push(entry); setCanRedo(true); console.error("Redo failed", err); showToast("Znovu provedení selhalo.", "error"); }); }}
                 disabled={!canRedo}
                 title="Znovu provést (Ctrl+Shift+Z)"
                 style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canRedo ? "var(--border)" : "color-mix(in oklab, var(--border) 50%, transparent)"}`, color: canRedo ? "var(--text-muted)" : "color-mix(in oklab, var(--text-muted) 45%, transparent)", cursor: canRedo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
@@ -2717,7 +2733,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                   color: workingTimeLock ? "#fb923c" : "var(--text-muted)",
                   cursor: "pointer", transition: "all 120ms ease-out",
                 }}
-              >{workingTimeLock ? "🔒" : "🔓"}</button>
+              >{workingTimeLock ? <Lock size={14} strokeWidth={1.5} /> : <Unlock size={14} strokeWidth={1.5} />}</button>
             </div>
           )}
           {canEdit && (
@@ -2727,7 +2743,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               onClick={() => setShowShutdowns((s) => !s)}
               className="h-8 text-xs border-slate-700"
             >
-              📅 Odstávky
+              <CalendarDays size={12} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 5 }} />Odstávky
             </Button>
           )}
           <DatePickerField
@@ -2960,7 +2976,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                             transition: "all 0.15s",
                           }}
                         >
-                          <span style={{ fontSize: 16, lineHeight: 1 }}>{cfg.emoji}</span>
+                          <cfg.icon size={16} strokeWidth={1.5} color={type === key ? cfg.color : "var(--text-muted)"} />
                           <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "var(--text-muted)", letterSpacing: "0.04em", lineHeight: 1.3, textAlign: "center" }}>
                             {cfg.label}
                           </span>
@@ -3251,7 +3267,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                         <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.4 }}>{description}</div>
                       )}
                       <div style={{ fontSize: 10, color: typeConfig?.color ?? "var(--text-muted)", marginTop: 5 }}>
-                        {typeConfig?.emoji} {typeConfig?.label} · {formatDuration(durationHours)}
+                        {typeConfig && <typeConfig.icon size={10} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 3 }} />}{typeConfig?.label} · {formatDuration(durationHours)}
                       </div>
                     </div>
                   </div>
@@ -3311,7 +3327,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                             <div style={{ flex: 1, padding: "7px 9px", minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{item.orderNumber}</div>
                               <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-                                {itemCfg?.emoji} {itemCfg?.label} · {formatDuration(item.durationHours)}
+                                {itemCfg && <itemCfg.icon size={10} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 3 }} />}{itemCfg?.label} · {formatDuration(item.durationHours)}
                               </div>
                               {item.description && (
                                 <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -3351,7 +3367,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           whiteSpace: "nowrap",
         }}>
           <span style={{ fontSize: 11, color: "var(--danger)" }}>
-            🔒 Blok vrácen — v cestě je zamknutý blok
+            <Lock size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />Blok vrácen — v cestě je zamknutý blok
             {pushSuggestion.lockedBlock && <b> {pushSuggestion.lockedBlock.orderNumber}</b>}
           </span>
           <button

@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
 import { badgeColorVar } from "@/lib/badgeColors";
+import { Lock, Clock } from "lucide-react";
 import type { MachineWorkHours } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
 
@@ -77,6 +78,7 @@ type OverlayDragPreview = {
   date: Date;
   edge: "start" | "end";
   hour: number;
+  overlayKey: string;
 } | null;
 
 type DragInternalState =
@@ -104,6 +106,7 @@ type DragInternalState =
       originalBoundaryHour: number;
       otherBoundaryHour: number;
       startClientY: number;
+      overlayKey: string;
     };
 
 type DragPreview = {
@@ -654,13 +657,15 @@ function BlockCard({
   const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
 
   // Výškové mody (vzájemně se vylučují)
-  const MODE_FULL    = clampedHeight >= 70;                              // plný layout
+  const MODE_FULL    = clampedHeight >= 48;                              // plný layout (od ~1h při zoom=26)
   const MODE_COMPACT = !MODE_FULL && clampedHeight >= 44 && block.type !== "UDRZBA";
   const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && clampedHeight >= 24; // micro tečky
   // Výškové prahy pro FULL mode
-  const showDates  = MODE_FULL;           // 2. řádek — date badges
-  const showSpec   = clampedHeight >= 70;  // 3. řádek — specifikace (od FULL modu)
-  const showDesc   = MODE_FULL && clampedHeight >= 44; // popis za číslem zakázky
+  const showDatesFull    = MODE_FULL && clampedHeight >= 60 && block.type !== "UDRZBA"; // plný DateBadge řádek (≥60px)
+  const showDatesCompact = MODE_FULL && clampedHeight < 60  && block.type !== "UDRZBA"; // kompaktní chip řádek (48–59px)
+  const showDates        = showDatesFull;
+  const showSpec   = clampedHeight >= 80;  // 3. řádek — specifikace
+  const showDesc   = MODE_FULL && clampedHeight >= 66; // popis za číslem zakázky (jen u větších bloků)
   // Počet řádků popisu — roste s výškou bloku (13px/řádek, od ~55px výšky)
   const descLineClamp = Math.max(2, Math.floor((clampedHeight - 55) / 13));
 
@@ -669,7 +674,7 @@ function BlockCard({
   const shadow  = selected
     ? "0 0 0 1.5px #FFE600, 0 4px 16px rgba(0,0,0,0.6)"
     : multiSelected
-      ? "0 0 0 2px rgba(59,130,246,0.7), 0 4px 16px rgba(0,0,0,0.5)"
+      ? "0 0 0 3px rgba(255,230,0,0.4), 0 0 12px rgba(255,230,0,0.3), 0 4px 16px rgba(0,0,0,0.5)"
       : hovered && !isDragging
         ? `0 6px 24px rgba(0,0,0,0.55), 0 0 16px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
         : `0 2px 8px rgba(0,0,0,0.35), 0 0 10px ${glow}, inset 0 1px 0 rgba(255,255,255,0.05)`;
@@ -703,7 +708,7 @@ function BlockCard({
         zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
         opacity, borderRadius: 7,
-        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "1.5px solid rgba(59,130,246,0.8)" : `1px solid ${selected ? "#FFE600" : s.border}`,
+        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : `1px solid ${selected ? "#FFE600" : s.border}`,
         outline: isCopied ? "1px solid rgba(59,130,246,0.3)" : undefined,
         outlineOffset: isCopied ? "2px" : undefined,
         boxShadow: shadow,
@@ -720,21 +725,24 @@ function BlockCard({
       {/* Levý barevný pruh — iOS Calendar style */}
       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
 
+      {/* Modrý selection overlay */}
+      {multiSelected && <div style={{ position: "absolute", inset: 0, borderRadius: 6, background: "rgba(255,230,0,0.12)", pointerEvents: "none", zIndex: 1 }} />}
+
 
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
-        const dStateKey = dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
-        const dClr = dataDeadlineState === "ok" ? SUCCESS_STRONG : dataDeadlineState === "danger" ? DANGER_STRONG : dataDeadlineState === "warning" ? WARNING_STRONG : dataDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.DATA;
-        const mClr = materialDeadlineState === "ok" ? SUCCESS_STRONG : materialDeadlineState === "danger" ? DANGER_STRONG : materialDeadlineState === "warning" ? WARNING_STRONG : materialDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.MATERIAL;
-        const eClr = FIELD_ACCENT.EXPEDICE;
-        const dateChip = (clr: string, stateKey: string, fieldAccent: string): React.CSSProperties => ({
-          fontSize: 10, fontWeight: 600, color: clr,
-          background: chipStateBg(stateKey),
-          border: `1px solid ${chipStateBorder(stateKey)}`,
+        const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const mStateKey = !block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
+        const dateChip = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
+          fontSize: 10, fontWeight: 600,
+          color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
+          background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
+          border: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fieldAccent}`,
           borderRadius: 4, padding: "2px 6px 2px 5px",
-          whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1, cursor: "pointer",
+          whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
+          cursor: clickable ? "pointer" : "default",
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
@@ -742,20 +750,20 @@ function BlockCard({
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
-              <span style={dateChip(dClr, dStateKey, FIELD_ACCENT.DATA)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+              <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
                 D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
               </span>
-              <span style={dateChip(mClr, mStateKey, FIELD_ACCENT.MATERIAL)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+              <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
                 M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
               </span>
-              <span style={{ ...dateChip(eClr, "neutral", FIELD_ACCENT.EXPEDICE), cursor: "default" }}>
+              <span style={dateChip(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                 E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
               </span>
               <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.6 }}><Lock size={9} strokeWidth={2} /></span>}
                 {isPrintDone && <span style={{ marginLeft: 4, fontSize: 9, color: "#22c55e", fontWeight: 700 }}>✓</span>}
-                {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ marginLeft: 4, fontSize: 9, color: "#f59e0b" }}>⏳</span>}
+                {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={11} strokeWidth={2.5} color="#f59e0b" /></span>}
               </span>
               {(block.description || block.specifikace) && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -790,18 +798,18 @@ function BlockCard({
 
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
-        const dStateKey = dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
-        const dClr = dataDeadlineState === "ok" ? SUCCESS_STRONG : dataDeadlineState === "danger" ? DANGER_STRONG : dataDeadlineState === "warning" ? WARNING_STRONG : dataDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.DATA;
-        const mClr = materialDeadlineState === "ok" ? SUCCESS_STRONG : materialDeadlineState === "danger" ? DANGER_STRONG : materialDeadlineState === "warning" ? WARNING_STRONG : materialDeadlineState === "earlyStart" ? EARLY_START_STRONG : FIELD_ACCENT.MATERIAL;
-        const eClr = FIELD_ACCENT.EXPEDICE;
-        const chipStyle = (clr: string, stateKey: string, fieldAccent: string): React.CSSProperties => ({
-          fontSize: 9, fontWeight: 600, color: clr,
-          background: chipStateBg(stateKey),
-          border: `1px solid ${chipStateBorder(stateKey)}`,
+        const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const mStateKey = !block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
+        const chipStyle = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
+          fontSize: 9, fontWeight: 600,
+          color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
+          background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
+          border: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fieldAccent}`,
           borderRadius: 3, padding: "1px 5px 1px 4px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
+          cursor: clickable ? "pointer" : "default",
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
@@ -810,19 +818,19 @@ function BlockCard({
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {block.type !== "UDRZBA" && <>
-                <span style={chipStyle(dClr, dStateKey, FIELD_ACCENT.DATA)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
                   D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
-                <span style={chipStyle(mClr, mStateKey, FIELD_ACCENT.MATERIAL)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+                <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
                   M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                 </span>
-                <span style={{ ...chipStyle(eClr, "neutral", FIELD_ACCENT.EXPEDICE), cursor: "default" }}>
+                <span style={chipStyle(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ marginLeft: 2, fontSize: 8, opacity: 0.6 }}>🔒</span>}
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.6 }}><Lock size={8} strokeWidth={2} /></span>}
               </span>
               {(block.description || block.specifikace) && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -869,7 +877,7 @@ function BlockCard({
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
               {block.orderNumber}
-              {block.locked && <span style={{ marginLeft: 3, fontSize: 9, opacity: 0.6 }}>🔒</span>}
+              {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.6 }}><Lock size={9} strokeWidth={2} /></span>}
             </span>
             {showDesc && block.description && (
               <span style={{
@@ -925,6 +933,38 @@ function BlockCard({
           />
         </div>
       )}
+
+      {/* ── Řádek 2b: Kompaktní datum chipy (MODE_FULL, 48–59px — plný DateBadge se nevejde) ── */}
+      {showDatesCompact && (() => {
+        const dSK = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const mSK = !block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const eSK = !block.deadlineExpedice ? "empty" : "neutral";
+        const cs = (sk: string, fa: string, clickable: boolean): React.CSSProperties => ({
+          fontSize: 9, fontWeight: 600,
+          color: sk === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
+          background: DEADLINE_BG[sk] ?? DEADLINE_BG.neutral,
+          border: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`,
+          borderLeft: `2px solid ${fa}`,
+          borderRadius: 3, padding: "1px 5px 1px 4px",
+          whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
+          cursor: clickable ? "pointer" : "default",
+        });
+        const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
+        const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
+        return (
+          <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden" }}>
+            <span style={cs(dSK, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+              D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
+            </span>
+            <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+              M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+            </span>
+            <span style={cs(eSK, FIELD_ACCENT.EXPEDICE, false)}>
+              E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* ── Řádek 3: Specifikace (celý text) ── */}
       {showSpec && block.specifikace && (
@@ -1046,7 +1086,7 @@ export default function TimelineGrid({
     const start = startOfDay(addDays(new Date(), -effectiveDaysBack));
     setViewStart(start);
     viewStartRef.current = start;
-  }, [effectiveDaysBack]); // eslint-disable-line
+  }, [effectiveDaysBack]);
 
   // Scroll na aktuální čas pouze při prvním nastavení viewStart (ne při změně daysBack)
   const hasScrolledToNow = useRef(false);
@@ -1131,10 +1171,8 @@ export default function TimelineGrid({
       } else if (ds.type === "overlay-resize") {
         // Jeden slot = sh px = 30 min, takže 1 hodina = 2*sh px
         const deltaHours = Math.round(deltaY / (sh * 2));
-        let newHour = Math.max(0, Math.min(24, ds.originalBoundaryHour + deltaHours));
-        if (ds.edge === "start") newHour = Math.min(newHour, ds.otherBoundaryHour - 1);
-        if (ds.edge === "end")   newHour = Math.max(newHour, ds.otherBoundaryHour + 1);
-        setOverlayDragPreview({ machine: ds.machine, date: ds.date, edge: ds.edge, hour: newHour });
+        const newHour = Math.max(1, Math.min(23, ds.originalBoundaryHour + deltaHours));
+        setOverlayDragPreview({ machine: ds.machine, date: ds.date, edge: ds.edge, hour: newHour, overlayKey: ds.overlayKey });
       }
     }
 
@@ -1246,11 +1284,9 @@ export default function TimelineGrid({
       } else if (ds.type === "overlay-resize") {
         const sh2 = slotHeightRef.current;
         const deltaHours = Math.round((e.clientY - ds.startClientY) / (sh2 * 2));
-        let newHour = Math.max(0, Math.min(24, ds.originalBoundaryHour + deltaHours));
-        if (ds.edge === "start") newHour = Math.min(newHour, ds.otherBoundaryHour - 1);
-        if (ds.edge === "end")   newHour = Math.max(newHour, ds.otherBoundaryHour + 1);
-        const newStartHour = ds.edge === "start" ? newHour : ds.otherBoundaryHour;
-        const newEndHour   = ds.edge === "end"   ? newHour : ds.otherBoundaryHour;
+        let newHour = Math.max(1, Math.min(23, ds.originalBoundaryHour + deltaHours));
+        const newStartHour = ds.edge === "start" ? newHour : 0;
+        const newEndHour   = ds.edge === "end"   ? newHour : 24;
         setOverlayDragPreview(null);
         await exceptionCallbacksRef.current.onExceptionUpsert?.(ds.machine, ds.date, newStartHour, newEndHour, true);
       }
@@ -1456,6 +1492,7 @@ export default function TimelineGrid({
   const currentTimeY = now ? dateToY(now, viewStart, slotHeight) : null;
   const filter       = filterText.trim().toLowerCase();
 
+
   // Multi-drag: odvozeno z dragPreview + selectedBlockIds (bez extra state)
   const isMultiDrag = !!dragPreview && !!selectedBlockIds && selectedBlockIds.size > 1 && selectedBlockIds.has(dragPreview.blockId);
   const multiAnchor = isMultiDrag ? (blocks.find(b => b.id === dragPreview!.blockId) ?? null) : null;
@@ -1524,7 +1561,15 @@ export default function TimelineGrid({
           </div>
 
           {/* ── Čas sloupec ───────────────────────────────────────────────── */}
-          <div style={{ width: TIME_COL_W, flexShrink: 0, position: "relative", zIndex: 9, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>
+          <div
+            style={{ width: TIME_COL_W, flexShrink: 0, position: "relative", zIndex: 9, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)", userSelect: "none" }}
+            onMouseDown={canEdit ? (e) => {
+              if (e.button !== 0) return;
+              if (dragStateRef.current) return;
+              lassoRef.current = { startClientX: e.clientX, startClientY: e.clientY, active: false };
+              e.preventDefault();
+            } : undefined}
+          >
             {/* Firemní den overlay (hodinová přesnost) */}
             {companyDays?.map((cd) => {
               if (!viewStart) return null;
@@ -1663,16 +1708,9 @@ export default function TimelineGrid({
                   const midpoint   = Math.round((nightEnd + nightStart) / 2); // střed pracovního okna (pro ranní/odpolední split)
                   return (
                     <Fragment key={`dayshade-${d.y}`}>
-                      {/* Základní tón každého druhého dne */}
-                      {!isEven && <div className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />}
-                      {/* Noční — 0:00–nightEnd */}
-                      {nightEnd > 0 && <div className="tl-night" style={{ position: "absolute", top: d.y, height: nightEnd * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
-                      {/* Ranní — nightEnd–midpoint */}
-                      {midpoint > nightEnd && <div className="tl-morning" style={{ position: "absolute", top: d.y + nightEnd * hpx, height: (midpoint - nightEnd) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
-                      {/* Odpolední — midpoint–nightStart */}
-                      {nightStart > midpoint && <div className="tl-afternoon" style={{ position: "absolute", top: d.y + midpoint * hpx, height: (nightStart - midpoint) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
-                      {/* Noční — nightStart–24:00 */}
-                      {nightStart < 24 && <div className="tl-night" style={{ position: "absolute", top: d.y + nightStart * hpx, height: (24 - nightStart) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
+                      {/* Základní tón každého druhého dne + směnové pruhy — skryté na víkendech a odstávkách */}
+                      {/* Základní tón každého druhého dne — jen pro pracovní dny bez červeného šrafování */}
+                      {!isEven && !d.isWeekend && !d.isCompanyDay && <div className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />}
                     </Fragment>
                   );
                 })}
@@ -1712,20 +1750,17 @@ export default function TimelineGrid({
                   const showUI = canEdit && isHovered;
                   const borderStyle = n.isException ? "2px dashed rgba(56,189,248,0.7)" : "none";
                   // Live drag preview — pokud táhneme hranu tohoto overlaye
-                  const isBeingDragged = overlayDragPreview &&
-                    overlayDragPreview.machine === n.machine &&
-                    overlayDragPreview.date.toDateString() === n.date.toDateString() &&
-                    ((overlayDragPreview.edge === "start" && n.overlayType === "start-block") ||
-                     (overlayDragPreview.edge === "end" && n.overlayType === "end-block"));
+                  const isBeingDragged = overlayDragPreview?.overlayKey === n.key;
                   let renderTop = n.top;
                   let renderHeight = n.height;
                   if (isBeingDragged && overlayDragPreview) {
-                    if (n.overlayType === "start-block") {
+                    const dayYforOverlay = n.top - n.effectiveStartHour * 2 * slotHeight;
+                    if (overlayDragPreview.edge === "start") {
+                      // spodní handle: blok 0..dragHour
+                      renderTop = dayYforOverlay;
                       renderHeight = overlayDragPreview.hour * 2 * slotHeight;
-                    } else if (n.overlayType === "end-block") {
-                      renderTop = n.date ? (blockedOverlays[machine].find(x => x.key !== n.key && x.date.toDateString() === n.date.toDateString() && x.overlayType === "start-block")?.height ?? 0) + (overlayDragPreview.hour * 2 * slotHeight - (overlayDragPreview.hour * 2 * slotHeight)) : n.top;
-                      // Recalculate from day start: dayY + overlayDragPreview.hour * 2 * slotHeight
-                      const dayYforOverlay = n.top - n.effectiveStartHour * 2 * slotHeight;
+                    } else {
+                      // horní handle: blok dragHour..24
                       renderTop = dayYforOverlay + overlayDragPreview.hour * 2 * slotHeight;
                       renderHeight = (24 - overlayDragPreview.hour) * 2 * slotHeight;
                     }
@@ -1765,63 +1800,38 @@ export default function TimelineGrid({
                           }}
                         >×</button>
                       )}
-                      {/* Drag handle — start-block: dole, end-block: nahoře */}
-                      {showUI && n.overlayType === "start-block" && (() => {
-                        // otherBoundaryHour = endHour pracovní doby pro tento den (= effectiveStartHour matching end-block)
-                        const partner = blockedOverlays[machine].find(x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString());
-                        const endHourOfDay = partner?.effectiveStartHour ?? 24;
-                        return (
-                          <div
-                            style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              dragStateRef.current = {
-                                type: "overlay-resize",
-                                machine: n.machine,
-                                date: n.date,
-                                edge: "start",
-                                originalBoundaryHour: n.effectiveEndHour,
-                                otherBoundaryHour: endHourOfDay,
-                                startClientY: e.clientY,
-                              };
-                              dragDidMove.current = false;
-                            }}
-                          />
-                        );
-                      })()}
-                      {showUI && n.overlayType === "end-block" && (() => {
-                        // otherBoundaryHour = startHour pracovní doby pro tento den (= effectiveEndHour matching start-block)
-                        const partner = blockedOverlays[machine].find(x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString());
-                        const startHourOfDay = partner?.effectiveEndHour ?? 0;
-                        return (
+                      {/* Drag handles — horní (zkrátit odshora) + spodní (zkrátit odspodu) pro všechny typy */}
+                      {showUI && (
+                        <>
                           <div
                             style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
                             onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              dragStateRef.current = {
-                                type: "overlay-resize",
-                                machine: n.machine,
-                                date: n.date,
-                                edge: "end",
-                                originalBoundaryHour: n.effectiveStartHour,
-                                otherBoundaryHour: startHourOfDay,
-                                startClientY: e.clientY,
-                              };
+                              e.preventDefault(); e.stopPropagation();
+                              dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundaryHour: n.effectiveStartHour, otherBoundaryHour: n.effectiveStartHour, startClientY: e.clientY, overlayKey: n.key };
                               dragDidMove.current = false;
                             }}
                           />
-                        );
-                      })()}
+                          <div
+                            style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
+                            onMouseDown={(e) => {
+                              e.preventDefault(); e.stopPropagation();
+                              dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundaryHour: n.effectiveEndHour, otherBoundaryHour: n.effectiveEndHour, startClientY: e.clientY, overlayKey: n.key };
+                              dragDidMove.current = false;
+                            }}
+                          />
+                        </>
+                      )}
                     </div>
                   );
                 })}
 
-                {/* Denní oddělovače */}
-                {days.map((d) => (
-                  <div key={d.y} style={{ position: "absolute", top: d.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 85%, transparent)" }} />
-                ))}
+                {/* Denní oddělovače — skryté jen když je červené šrafování na OBOU stranách přechodu */}
+                {days.map((d, di) => {
+                  const prevEndsHere  = di > 0 && blockedOverlays[machine]?.some(n => n.top + n.height === d.y);
+                  const thisStartsHere = blockedOverlays[machine]?.some(n => n.top === d.y);
+                  if (prevEndsHere && thisStartsHere) return null;
+                  return <div key={d.y} style={{ position: "absolute", top: d.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 85%, transparent)" }} />;
+                })}
 
                 {/* Hodinové čáry */}
                 {halfHourMarkers.filter((m) => m.isLabel && m.isFullHour).map((m) => (
