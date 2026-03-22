@@ -541,7 +541,8 @@ function DateBadge({
       style={{
         display: "flex", flexDirection: "column", gap: 2,
         padding: "5px 9px 5px 8px", borderRadius: 5,
-        background: bg, border: `1px solid ${borderColor}`,
+        background: bg,
+        borderTop: `1px solid ${borderColor}`, borderRight: `1px solid ${borderColor}`, borderBottom: `1px solid ${borderColor}`,
         borderLeft: `2px solid ${neutralAccent}`,
         cursor: empty ? "default" : "pointer", flex: "0 0 auto",
         transition: "all 0.12s", opacity: loading ? 0.6 : 1,
@@ -626,6 +627,8 @@ function BlockCard({
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
+  const compactDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const compactMatTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isPrintDone  = block.printCompletedAt != null;
   const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone;
@@ -738,7 +741,7 @@ function BlockCard({
           fontSize: 10, fontWeight: 600,
           color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
-          border: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
+          borderTop: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fieldAccent}`,
           borderRadius: 4, padding: "2px 6px 2px 5px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
@@ -750,10 +753,14 @@ function BlockCard({
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
-              <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+              <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                 D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
               </span>
-              <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+              <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                 M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
               </span>
               <span style={dateChip(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
@@ -805,7 +812,7 @@ function BlockCard({
           fontSize: 9, fontWeight: 600,
           color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
-          border: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
+          borderTop: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fieldAccent}`,
           borderRadius: 3, padding: "1px 5px 1px 4px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
@@ -818,10 +825,14 @@ function BlockCard({
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {block.type !== "UDRZBA" && <>
-                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                  onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                   D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
-                <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+                <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                  onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                  onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                   M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                 </span>
                 <span style={chipStyle(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
@@ -943,7 +954,7 @@ function BlockCard({
           fontSize: 9, fontWeight: 600,
           color: sk === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[sk] ?? DEADLINE_BG.neutral,
-          border: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`,
+          borderTop: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fa}`,
           borderRadius: 3, padding: "1px 5px 1px 4px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
@@ -953,10 +964,14 @@ function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden" }}>
-            <span style={cs(dSK, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); toggleField("dataOk", block.dataOk); } : undefined}>
+            <span style={cs(dSK, FIELD_ACCENT.DATA, !!block.dataRequiredDate)}
+              onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+              onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
               D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
             </span>
-            <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); toggleField("materialOk", block.materialOk); } : undefined}>
+            <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)}
+              onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+              onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
               M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
             </span>
             <span style={cs(eSK, FIELD_ACCENT.EXPEDICE, false)}>

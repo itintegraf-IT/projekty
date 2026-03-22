@@ -1529,7 +1529,9 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
         <div key={t.id} style={{
           display: "flex", alignItems: "center", gap: 10,
           background: "color-mix(in oklab, var(--surface) 92%, transparent)", backdropFilter: "blur(12px)",
-          border: "1px solid var(--border)",
+          borderTop: "1px solid var(--border)",
+          borderRight: "1px solid var(--border)",
+          borderBottom: "1px solid var(--border)",
           borderLeft: `3px solid ${borderColor[t.type]}`,
           borderRadius: 10, padding: "10px 14px",
           boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
@@ -3257,8 +3259,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                     <div style={{
                       borderRadius: 6, padding: "9px 11px",
                       background: `${typeConfig?.color ?? "#334155"}18`,
+                      borderTop: `1px solid ${typeConfig?.color ?? "var(--text-muted)"}33`,
+                      borderRight: `1px solid ${typeConfig?.color ?? "var(--text-muted)"}33`,
+                      borderBottom: `1px solid ${typeConfig?.color ?? "var(--text-muted)"}33`,
                       borderLeft: `3px solid ${typeConfig?.color ?? "var(--text-muted)"}`,
-                      border: `1px solid ${typeConfig?.color ?? "var(--text-muted)"}33`,
                     }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text)", lineHeight: 1.2 }}>
                         {orderNumber || <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>—</span>}
