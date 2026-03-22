@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PlannerPage from "./_components/PlannerPage";
+import { normalizeBlockVariant } from "@/lib/blockVariants";
 
 export default async function HomePage() {
   const session = await getSession();
@@ -13,6 +14,7 @@ export default async function HomePage() {
   // Serialize Date objects to ISO strings for client component
   const serialized = blocks.map((b) => ({
     ...b,
+    blockVariant: normalizeBlockVariant(b.blockVariant, b.type),
     startTime: b.startTime.toISOString(),
     endTime: b.endTime.toISOString(),
     deadlineExpedice: b.deadlineExpedice?.toISOString() ?? null,

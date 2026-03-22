@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
+import { BLOCK_VARIANTS, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
 import type { MachineWorkHours } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
@@ -45,6 +46,7 @@ type QueueItem = {
   id: number;
   orderNumber: string;
   type: string;
+  blockVariant: BlockVariant;
   durationHours: number;
   description: string;
   dataStatusId: number | null;
@@ -89,6 +91,13 @@ const TYPE_BUILDER_CONFIG = {
   REZERVACE: { icon: Pin,           label: "Rezervace",       color: "#7c3aed" },
   UDRZBA:    { icon: Wrench,        label: "Údržba / Oprava", color: "#c0392b" },
 } as const;
+
+const VARIANT_CONFIG: Record<BlockVariant, { label: string; color: string }> = {
+  STANDARD:         { label: "Klasická",         color: "#3b82f6" },
+  BEZ_TECHNOLOGIE:  { label: "Bez technologie",  color: "#059669" },
+  BEZ_SACKU:        { label: "Bez sáčku",        color: "#e36414" },
+  POZASTAVENO:      { label: "Pozastaveno",       color: "#d00000" },
+};
 
 // ─── ZoomSlider ───────────────────────────────────────────────────────────────
 function ZoomSlider({ value, onChange, min = 3, max = 26 }: {
@@ -395,6 +404,7 @@ function BlockEdit({
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
   const [type, setType]               = useState(block.type);
+  const [blockVariant, setBlockVariant] = useState<BlockVariant>(normalizeBlockVariant(block.blockVariant, block.type));
   const [description, setDescription] = useState(block.description ?? "");
   const [locked, setLocked]           = useState(block.locked);
   const [saving, setSaving]           = useState(false);
@@ -497,6 +507,7 @@ function BlockEdit({
     return {
       orderNumber: orderNumber.trim(),
       type,
+      blockVariant: type === "ZAKAZKA" ? blockVariant : "STANDARD",
       description: description.trim() || null,
       locked,
       deadlineExpedice: deadlineExpedice || null,
@@ -633,13 +644,32 @@ function BlockEdit({
           <SectionLabel>Typ záznamu</SectionLabel>
           <div style={{ display: "flex", gap: 6 }}>
             {(Object.entries(TYPE_BUILDER_CONFIG) as [string, typeof TYPE_BUILDER_CONFIG[keyof typeof TYPE_BUILDER_CONFIG]][]).map(([key, cfg]) => (
-              <button key={key} type="button" onClick={() => setType(key)} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)", background: type === key ? `${cfg.color}22` : "var(--surface-2)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <button key={key} type="button" onClick={() => { setType(key); if (key !== "ZAKAZKA") setBlockVariant("STANDARD"); }} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)", background: type === key ? `${cfg.color}22` : "var(--surface-2)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                 <cfg.icon size={14} strokeWidth={1.5} color={type === key ? cfg.color : "var(--text-muted)"} />
                 <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "var(--text-muted)", textAlign: "center" }}>{cfg.label}</span>
               </button>
             ))}
           </div>
         </div>
+
+        {/* Varianta zakázky — jen pro ZAKAZKA */}
+        {type === "ZAKAZKA" && (
+          <div style={{ marginTop: 8 }}>
+            <SectionLabel>Stav zakázky</SectionLabel>
+            <div style={{ display: "flex", gap: 5 }}>
+              {(BLOCK_VARIANTS as readonly BlockVariant[]).map((v) => {
+                const cfg = VARIANT_CONFIG[v];
+                const isActive = blockVariant === v;
+                return (
+                  <button key={v} type="button" onClick={() => setBlockVariant(v)} style={{ flex: 1, padding: "6px 4px", borderRadius: 7, border: isActive ? `1px solid ${cfg.color}` : "1px solid var(--border)", background: isActive ? `${cfg.color}22` : "var(--surface-2)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, transition: "all 0.12s" }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? cfg.color : "var(--border)" }} />
+                    <span style={{ fontSize: 8, fontWeight: 600, color: isActive ? cfg.color : "var(--text-muted)", textAlign: "center", lineHeight: 1.2 }}>{cfg.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Číslo zakázky + Popis — side by side */}
         <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -1596,6 +1626,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Builder form fields
   const [orderNumber, setOrderNumber]     = useState("");
   const [type, setType]                   = useState("ZAKAZKA");
+  const [blockVariant, setBlockVariant]   = useState<BlockVariant>("STANDARD");
   const [durationHours, setDurationHours] = useState(1);
   const [description, setDescription]     = useState("");
   const [bDeadlineExpedice, setBDeadlineExpedice] = useState("");
@@ -2173,6 +2204,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       startTime: block.startTime,
       endTime: block.endTime,
       type: block.type,
+      blockVariant: block.blockVariant,
       description: block.description,
       locked: block.locked,
       deadlineExpedice: block.deadlineExpedice,
@@ -2325,6 +2357,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         id: ++queueIdRef.current,
         orderNumber: orderNumber.trim(),
         type,
+        blockVariant: type === "ZAKAZKA" ? blockVariant : "STANDARD",
         durationHours,
         description: description.trim(),
         dataStatusId: bDataStatusId ? Number(bDataStatusId) : null,
@@ -2355,6 +2388,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setBDeadlineExpedice("");
     setBRecurrenceType("NONE");
     setBRecurrenceCount(2);
+    setBlockVariant("STANDARD");
   }
 
   function addRecurrenceInterval(date: Date, type: string): Date {
@@ -2409,6 +2443,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       orderNumber: item.orderNumber,
       machine,
       type: item.type,
+      blockVariant: item.blockVariant,
       description: item.description || null,
       dataStatusId: item.dataStatusId,
       dataStatusLabel: item.dataStatusLabel,
@@ -2496,6 +2531,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           orderNumber: src.orderNumber,
           machine: target.machine,
           type: src.type,
+          blockVariant: src.blockVariant,
           startTime: newStart.toISOString(),
           endTime: newEnd.toISOString(),
           description: src.description,
@@ -2552,7 +2588,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            orderNumber: src.orderNumber, machine: target.machine, type: src.type,
+            orderNumber: src.orderNumber, machine: target.machine, type: src.type, blockVariant: src.blockVariant,
             startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
             description: src.description, locked: false,
             deadlineExpedice: src.deadlineExpedice,
@@ -3051,7 +3087,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 <div style={{ padding: "0 16px", flex: 1 }}>
 
                   {/* ── Typ záznamu ── */}
-                  <div style={{ paddingTop: 16, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                  <div style={{ paddingTop: 16, paddingBottom: 14, borderBottom: type === "ZAKAZKA" ? "none" : "1px solid var(--border)" }}>
                     <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 10 }}>
                       Typ záznamu
                     </div>
@@ -3060,7 +3096,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                         <button
                           key={key}
                           type="button"
-                          onClick={() => setType(key)}
+                          onClick={() => { setType(key); if (key !== "ZAKAZKA") setBlockVariant("STANDARD"); }}
                           style={{
                             flex: 1, padding: "8px 4px", borderRadius: 7,
                             border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)",
@@ -3077,6 +3113,40 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                       ))}
                     </div>
                   </div>
+
+                  {/* ── Stav zakázky — jen pro ZAKAZKA ── */}
+                  {type === "ZAKAZKA" && (
+                    <div style={{ paddingTop: 10, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
+                        Stav zakázky
+                      </div>
+                      <div style={{ display: "flex", gap: 5 }}>
+                        {(BLOCK_VARIANTS as readonly BlockVariant[]).map((v) => {
+                          const cfg = VARIANT_CONFIG[v];
+                          const isActive = blockVariant === v;
+                          return (
+                            <button
+                              key={v}
+                              type="button"
+                              onClick={() => setBlockVariant(v)}
+                              style={{
+                                flex: 1, padding: "7px 4px", borderRadius: 7,
+                                border: isActive ? `1px solid ${cfg.color}` : "1px solid var(--border)",
+                                background: isActive ? `${cfg.color}22` : "var(--surface-2)",
+                                cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
+                                transition: "all 0.12s",
+                              }}
+                            >
+                              <div style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? cfg.color : "var(--border)" }} />
+                              <span style={{ fontSize: 8, fontWeight: 600, color: isActive ? cfg.color : "var(--text-muted)", lineHeight: 1.2, textAlign: "center" }}>
+                                {cfg.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {/* ── Zakázka ── */}
                   <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 10 }}>

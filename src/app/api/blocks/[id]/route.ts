@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { normalizeBlockVariant } from "@/lib/blockVariants";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -94,11 +95,20 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       "dataStatusLabel", "dataRequiredDate", "dataOk",
       "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
       "deadlineExpedice",
+      "blockVariant",
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
 
     const block = await prisma.$transaction(async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });
+
+      // Normalizace blockVariant — platí na výsledný type, ne jen na vstup
+      // Fallback na existující hodnotu z DB pokud blockVariant není v requestu (předchází tiché přepísání na STANDARD)
+      const resultingType = (allowed.type as string | undefined) ?? oldBlock?.type ?? "ZAKAZKA";
+      const blockVariant = normalizeBlockVariant(
+        (allowed.blockVariant as string | undefined) ?? oldBlock?.blockVariant,
+        resultingType
+      );
 
       // PRINT_RESET: pokud ADMIN/PLANOVAT skutečně mění startTime/endTime/machine a blok je potvrzený
       const timingActuallyChanged = oldBlock != null && (
@@ -125,6 +135,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             printCompletedByUsername: null,
           }),
           ...(allowed.type !== undefined && { type: allowed.type as string }),
+          // Aplikovat blockVariant pokud byl explicitně zadán, nebo pokud se mění type (invariant: non-ZAKAZKA → STANDARD)
+          ...((allowed.blockVariant !== undefined || allowed.type !== undefined) && { blockVariant }),
           ...(allowed.description !== undefined && { description: allowed.description as string }),
           ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
           ...(allowed.deadlineExpedice !== undefined && {

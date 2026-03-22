@@ -14,6 +14,7 @@ model Block {
   startTime            DateTime
   endTime              DateTime
   type                 String    @default("ZAKAZKA")
+  blockVariant         String    @default("STANDARD")
   description          String?
   locked               Boolean   @default(false)
   deadlineExpedice     DateTime?

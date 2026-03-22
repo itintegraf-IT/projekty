@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `Block` ADD COLUMN `blockVariant` VARCHAR(191) NOT NULL DEFAULT 'STANDARD';

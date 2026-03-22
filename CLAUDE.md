@@ -28,6 +28,7 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
 | 10 | Audit log (kdo co změnil) + tlačítko Info | ✅ Hotovo |
 | 11 | UX vylepšení — odstávky, podmíněné formátování, inline datepicker | ⬜ Nezačato |
+| — | Varianty zakázky (blockVariant) | ✅ Hotovo (2026-03-22) |
 
 ### UI/UX light-dark migrace (11. 3. 2026)
 
@@ -193,6 +194,7 @@ Tím označíte migraci jako již aplikovanou (baseline).
 | `src/app/tiskar/page.tsx` | Tiskar view — Server Component pro roli TISKAR |
 | `src/app/tiskar/_components/TiskarMonitor.tsx` | Tiskar monitor — schedule stroje 7 dní, polling 30s, potvrzení tisku |
 | `src/lib/badgeColors.ts` | BADGE_COLOR_KEYS, badgeColorVar(), parseBadgeColor() — helper pro `CodebookOption.badgeColor` |
+| `src/lib/blockVariants.ts` | BLOCK_VARIANTS, BlockVariant, normalizeBlockVariant — varianty zakázky |
 | `src/lib/machineScheduleException.ts` | Typy pro MachineScheduleException |
 | `src/lib/machineWorkHours.ts` | Typy pro MachineWorkHours |
 | `DOKUMENTACE.md` | Plná projektová dokumentace (neupravuj ručně) |
@@ -225,7 +227,7 @@ Tím označíte migraci jako již aplikovanou (baseline).
 ### PlannerPage.tsx
 - Builder: typ + číslo zakázky + délka + popis + výrobní sloupečky + termín expedice → "Přidat do fronty"
 - Fronta: kartičky s `draggable`, přetažením na timeline vznikne blok (stroj = cílový sloupec, čas = pozice puštění)
-- `QueueItem` typ: id, orderNumber, type, durationHours, description, dataStatusId, materialStatusId, barvyStatusId, lakStatusId, specifikace, deadlineExpedice
+- `QueueItem` typ: id, orderNumber, type, **blockVariant**, durationHours, description, dataStatusId, materialStatusId, barvyStatusId, lakStatusId, specifikace, deadlineExpedice
 - Aside panel je resizable (8px handle), zIndex: 10; timeline container zIndex: 0; sticky header zIndex: 30
 - **Role-based UI (etapa 8):** `canEdit = ["ADMIN","PLANOVAT"].includes(role)`, `canEditData = canEdit || DTP`, `canEditMat = canEdit || MTZ`. Aside + resize handle skryté pokud `!canEdit`. BlockEdit sekce obaleny `opacity/pointerEvents` wrappery. TimelineGrid dostává `canEdit` prop.
 - Header vpravo: jméno uživatele + role badge + Odhlásit tlačítko
@@ -253,6 +255,7 @@ Tím označíte migraci jako již aplikovanou (baseline).
 ## DB Schema — Block model
 
 Pole: id, orderNumber, machine (XL_105|XL_106), startTime, endTime, type (ZAKAZKA|REZERVACE|UDRZBA),
+**blockVariant (String @default("STANDARD") — STANDARD|BEZ_TECHNOLOGIE|BEZ_SACKU|POZASTAVENO, jen pro ZAKAZKA)**,
 description, locked, deadlineExpedice,
 dataStatusId, dataStatusLabel, dataRequiredDate, dataOk,
 materialStatusId, materialStatusLabel, materialRequiredDate, materialOk,
@@ -433,6 +436,50 @@ model AuditLog {
   - `badgeColorVar(key)` → CSS token `var(--badge-<key>)` nebo null
   - `parseBadgeColor(value)` → validace a normalizace z API payloadu
 - CSS tokeny definovány v `globals.css` jako CSS custom properties
+
+---
+
+## Varianty zakázky (blockVariant) ✅ Hotovo (2026-03-22)
+
+### Přehled variant
+
+| Varianta | Label v UI | Barva bloku |
+|---|---|---|
+| `STANDARD` | Klasická | modrá `#3b82f6` (stávající) |
+| `BEZ_TECHNOLOGIE` | Bez technologie | tmavě smaragdová `#059669` |
+| `BEZ_SACKU` | Bez sáčku | oranžová `#e36414` |
+| `POZASTAVENO` | Pozastaveno | červená `#d00000` |
+
+### Klíčová rozhodnutí
+- **Jen pro ZAKAZKA** — REZERVACE a UDRZBA mají vždy `STANDARD`, UI sekci nezobrazuje
+- **POZASTAVENO = čistě vizuální** — blok je plně funkční (drag, resize, edit), jen barva se mění
+- **Priorita stylů:** `printDone (zelená) > POZASTAVENO (červená) > overdue (šedá) > typ barva`
+  - POZASTAVENO přebíjí šedý overdue stav — plánovač okamžitě vidí pozastavení i u bloků po termínu
+- **Server invariant:** `normalizeBlockVariant()` zajišťuje STANDARD pokud typ není ZAKAZKA — platí na POST i PUT
+- **PUT edge case:** při změně `type` bez `blockVariant` v těle — fallback na `oldBlock.blockVariant` (netiché přepsání na STANDARD)
+
+### Sdílený modul `src/lib/blockVariants.ts`
+```typescript
+export const BLOCK_VARIANTS = ["STANDARD", "BEZ_TECHNOLOGIE", "BEZ_SACKU", "POZASTAVENO"] as const;
+export type BlockVariant = typeof BLOCK_VARIANTS[number];
+export function normalizeBlockVariant(variant, type): BlockVariant { ... }
+```
+Importován z API routes (server) i client komponent — `PlannerPage.tsx` není zdrojem sdílených konstant.
+
+### Propagace varianty
+Všechny create cesty propagují `blockVariant`:
+- Drop z fronty, paste (single i group), undo/restore, split bloku (POST druhé poloviny)
+
+### Audit
+Změna `blockVariant` je logována v `AuditLog` (pole `"blockVariant"`, oldValue/newValue).
+
+### Klíčové soubory
+- `src/lib/blockVariants.ts` — BLOCK_VARIANTS, BlockVariant, normalizeBlockVariant
+- `prisma/migrations/20260322161950_add_block_variant/` — migrace pro nové pole
+- `src/app/_components/TimelineGrid.tsx` — BLOCK_STYLES (3 nové záznamy + helper `getBlockStyleKey`)
+- `src/app/_components/PlannerPage.tsx` — VARIANT_CONFIG, selektor v builderu i BlockEdit
+- `src/app/api/blocks/route.ts` — POST normalizuje variantu
+- `src/app/api/blocks/[id]/route.ts` — PUT normalizuje + audit
 
 ---
 

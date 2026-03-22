@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { normalizeBlockVariant } from "@/lib/blockVariants";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
 
     // Server-side validace pracovní doby (jen pro ZAKAZKA)
     const blockType = body.type ?? "ZAKAZKA";
+    const blockVariant = normalizeBlockVariant(body.blockVariant, blockType);
     if (blockType === "ZAKAZKA") {
       const violation = await checkScheduleViolation(body.machine, new Date(body.startTime), new Date(body.endTime));
       if (violation) return NextResponse.json({ error: violation }, { status: 422 });
@@ -68,7 +70,8 @@ export async function POST(request: NextRequest) {
           machine: body.machine,
           startTime: new Date(body.startTime),
           endTime: new Date(body.endTime),
-          type: body.type ?? "ZAKAZKA",
+          type: blockType,
+          blockVariant,
           description: body.description ?? null,
           locked: body.locked ?? false,
           deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,

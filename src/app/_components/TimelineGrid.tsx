@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
 import { badgeColorVar } from "@/lib/badgeColors";
+import type { BlockVariant } from "@/lib/blockVariants";
 import { Lock, Clock } from "lucide-react";
 import type { MachineWorkHours } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
@@ -42,6 +43,7 @@ export type Block = {
   startTime: string;
   endTime: string;
   type: string;
+  blockVariant?: BlockVariant | null;
   description: string | null;
   locked: boolean;
   deadlineExpedice: string | null;
@@ -294,6 +296,33 @@ const BLOCK_STYLES: Record<string, {
     textSub:     "#ffffff",
     glow:        "rgba(34,197,94,0.32)",
   },
+  ZAKAZKA_BEZ_TECHNOLOGIE: {
+    gradient:    "linear-gradient(160deg, rgba(6,95,70,0.95) 0%, rgba(4,71,54,0.88) 100%)",
+    border:      "rgba(6,95,70,0.65)",
+    accentBar:   "#059669",
+    leftBg:      "rgba(6,95,70,0.14)",
+    textPrimary: "#ffffff",
+    textSub:     "#e5e7eb",
+    glow:        "rgba(6,95,70,0.32)",
+  },
+  ZAKAZKA_BEZ_SACKU: {
+    gradient:    "linear-gradient(160deg, rgba(227,100,20,0.95) 0%, rgba(190,80,10,0.88) 100%)",
+    border:      "rgba(227,100,20,0.65)",
+    accentBar:   "#e36414",
+    leftBg:      "rgba(227,100,20,0.14)",
+    textPrimary: "#ffffff",
+    textSub:     "#e5e7eb",
+    glow:        "rgba(227,100,20,0.32)",
+  },
+  ZAKAZKA_POZASTAVENO: {
+    gradient:    "linear-gradient(160deg, rgba(208,0,0,0.95) 0%, rgba(176,0,0,0.88) 100%)",
+    border:      "rgba(208,0,0,0.65)",
+    accentBar:   "#d00000",
+    leftBg:      "rgba(208,0,0,0.14)",
+    textPrimary: "#ffffff",
+    textSub:     "#e5e7eb",
+    glow:        "rgba(208,0,0,0.32)",
+  },
 };
 const BLOCK_OVERDUE = {
   gradient:    "linear-gradient(160deg, rgba(100,116,139,0.16) 0%, rgba(71,85,105,0.10) 100%)",
@@ -322,6 +351,13 @@ const BLOCK_DEFAULT = {
   textSub:     "var(--text-muted)",
   glow:        "transparent",
 };
+
+function getBlockStyleKey(type: string, variant?: BlockVariant | null): string {
+  if (type === "ZAKAZKA" && variant && variant !== "STANDARD") {
+    return `ZAKAZKA_${variant}`;
+  }
+  return type;
+}
 
 // ─── Pomocná funkce — bezpečný parse data z DB (ISO timestamp i date string) ──
 function fmtDate(s: string | null | undefined): string {
@@ -716,8 +752,9 @@ function BlockCard({
   const splitAtRef      = useRef<Date | null>(null);
   const ctxMouseRef     = useRef<{ x: number; y: number } | null>(null);
 
-  const isPrintDone  = block.printCompletedAt != null;
-  const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone;
+  const isPrintDone   = block.printCompletedAt != null;
+  const isPozastaveno = block.type === "ZAKAZKA" && block.blockVariant === "POZASTAVENO";
+  const isOverdue     = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
   const clampedHeight = Math.max(height, 20);
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
@@ -725,9 +762,11 @@ function BlockCard({
 
   const s = isPrintDone
     ? BLOCK_PRINT_DONE
+    : isPozastaveno
+    ? BLOCK_STYLES["ZAKAZKA_POZASTAVENO"]
     : isOverdue
     ? BLOCK_OVERDUE
-    : (BLOCK_STYLES[block.type] ?? BLOCK_DEFAULT);
+    : (BLOCK_STYLES[getBlockStyleKey(block.type, block.blockVariant)] ?? BLOCK_STYLES["ZAKAZKA"]);
 
   // Badge accenty — custom barva z číselníku, fallback na dnešní chování per-field
   const dataKey    = block.dataStatusId     ? (badgeColorMap?.[block.dataStatusId]     ?? null) : null;
@@ -1643,7 +1682,7 @@ const [queueDropPreview, setQueueDropPreview] = useState<QueueDropPreview>(null)
     try {
       const res1 = await fetch(`/api/blocks/${block.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: splitAt.toISOString() }) });
       onBlockUpdate(await res1.json());
-      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
+      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, blockVariant: block.blockVariant, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
       onBlockCreate(await res2.json());
     } catch (error) {
       console.error("Block split failed", error);
