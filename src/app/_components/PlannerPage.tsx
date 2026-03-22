@@ -291,7 +291,7 @@ function DatePickerField({
       border: "1px solid var(--border)", background: "var(--surface-2)",
       color: selected ? "var(--text)" : "var(--text-muted)",
       fontSize: 12, padding: "0 10px",
-      display: "flex", alignItems: "center", justifyContent: "space-between",
+      display: "flex", alignItems: "center", gap: 6,
       cursor: "pointer", outline: "none", boxSizing: "border-box",
       transition: "border-color 120ms ease-out",
     } as React.CSSProperties}>
@@ -871,6 +871,7 @@ function BlockEdit({
                   opacity: saving ? 0.7 : 1,
                   boxShadow: "0 2px 8px color-mix(in oklab, var(--brand) 28%, transparent)",
                   transition: "filter 120ms ease-out, transform 120ms ease-out, box-shadow 120ms ease-out",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 }}
                 onMouseEnter={(e) => { if (!saving) (e.currentTarget as HTMLButtonElement).style.filter = "brightness(0.96)"; }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.filter = "none"; }}
@@ -2153,12 +2154,79 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     );
   }
 
+  async function deleteSingleBlockWithUndo(block: Block) {
+    const res = await fetch(`/api/blocks/${block.id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Chyba serveru");
+
+    setBlocks((prev) => prev.filter((b) => b.id !== block.id));
+    setSelectedBlock(null);
+    setEditingBlock(null);
+
+    // Undo jen pro standalone bloky — série mají komplexní parent/child vztahy
+    if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
+
+    let restoredId: number | null = null;
+
+    const payload = {
+      orderNumber: block.orderNumber,
+      machine: block.machine,
+      startTime: block.startTime,
+      endTime: block.endTime,
+      type: block.type,
+      description: block.description,
+      locked: block.locked,
+      deadlineExpedice: block.deadlineExpedice,
+      dataStatusId: block.dataStatusId,
+      dataStatusLabel: block.dataStatusLabel,
+      dataRequiredDate: block.dataRequiredDate,
+      dataOk: block.dataOk,
+      materialStatusId: block.materialStatusId,
+      materialStatusLabel: block.materialStatusLabel,
+      materialRequiredDate: block.materialRequiredDate,
+      materialOk: block.materialOk,
+      barvyStatusId: block.barvyStatusId,
+      barvyStatusLabel: block.barvyStatusLabel,
+      lakStatusId: block.lakStatusId,
+      lakStatusLabel: block.lakStatusLabel,
+      specifikace: block.specifikace,
+      materialNote: block.materialNote,
+      recurrenceType: "NONE",
+    };
+
+    undoStack.current = undoStack.current.slice(-MAX_HISTORY + 1);
+    undoStack.current.push({
+      undo: async () => {
+        const r = await fetch("/api/blocks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error("Chyba serveru");
+        const newBlock: Block = await r.json();
+        restoredId = newBlock.id;
+        handleBlockCreate(newBlock);
+        setSelectedBlock(newBlock);
+      },
+      redo: async () => {
+        if (restoredId === null) throw new Error("Žádný obnovený blok");
+        const r = await fetch(`/api/blocks/${restoredId}`, { method: "DELETE" });
+        if (!r.ok) throw new Error("Chyba serveru");
+        const rid = restoredId;
+        restoredId = null;
+        setBlocks((prev) => prev.filter((b) => b.id !== rid));
+        setSelectedBlock(null);
+      },
+    });
+    redoStack.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }
+
   async function handleDeleteBlock(id: number) {
+    const block = blocks.find((b) => b.id === id);
+    if (!block) return;
     try {
-      const res = await fetch(`/api/blocks/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Chyba serveru");
-      setBlocks((prev) => prev.filter((b) => b.id !== id));
-      setSelectedBlock(null);
+      await deleteSingleBlockWithUndo(block);
     } catch (error) {
       console.error("Block delete failed", error);
       showToast("Chyba při mazání bloku.", "error");
@@ -2166,6 +2234,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   async function handleDeleteAll(ids: number[]) {
+    // Single delete — s undo podporou
+    if (ids.length === 1) {
+      const block = blocks.find((b) => b.id === ids[0]);
+      if (block) {
+        try {
+          await deleteSingleBlockWithUndo(block);
+        } catch (error) {
+          console.error("Block delete failed", error);
+          showToast("Chyba při mazání bloku.", "error");
+        }
+        return;
+      }
+    }
+
+    // Multi delete (série) — bez undo
     try {
       await Promise.all(ids.map((id) => fetch(`/api/blocks/${id}`, { method: "DELETE" })));
       setBlocks((prev) => prev.filter((b) => !ids.includes(b.id)));
@@ -3218,7 +3301,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                             style={{
                               appearance: "none", width: "100%", height: 32,
                               background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
-                              color: bRecurrenceType !== "NONE" ? "var(--accent)" : "var(--text)", fontSize: 12, fontWeight: 600,
+                              color: "var(--text)", fontSize: 12, fontWeight: 600,
                               padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
                             }}
                             onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
@@ -3246,8 +3329,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                             onChange={(e) => setBRecurrenceCount(Math.max(2, Math.min(52, parseInt(e.target.value) || 2)))}
                             style={{
                               width: "100%", height: 32, background: "var(--surface-2)",
-                              border: "1px solid var(--accent)", borderRadius: 10,
-                              color: "var(--accent)", fontSize: 13, fontWeight: 700,
+                              border: "1px solid var(--border)", borderRadius: 10,
+                              color: "var(--text)", fontSize: 13, fontWeight: 700,
                               padding: "0 10px", outline: "none", textAlign: "center",
                             }}
                           />
@@ -3255,7 +3338,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                       )}
                     </div>
                     {bRecurrenceType !== "NONE" && (
-                      <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 6, opacity: 0.8 }}>
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
                         Vytvoří se {bRecurrenceCount} bloků · interval: {bRecurrenceType === "DAILY" ? "1 den" : bRecurrenceType === "WEEKLY" ? "7 dní" : "1 měsíc"}
                       </div>
                     )}

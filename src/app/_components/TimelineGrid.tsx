@@ -637,10 +637,36 @@ function MaterialNoteAffordance({
   return (
     <HoverCard openDelay={400} closeDelay={100}>
       <HoverCardTrigger asChild>{inner}</HoverCardTrigger>
-      <HoverCardContent side="right" align="start" style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 12px", maxWidth: 220, zIndex: 200 }}>
-        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,0.85)", whiteSpace: "pre-wrap" }}>{block.materialNote}</p>
+      <HoverCardContent
+        side="right" align="start"
+        style={{
+          background: "rgba(28, 28, 30, 0.96)",
+          backdropFilter: "blur(24px) saturate(180%)",
+          WebkitBackdropFilter: "blur(24px) saturate(180%)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 14,
+          padding: "12px 14px",
+          maxWidth: 240,
+          zIndex: 200,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.52), 0 2px 8px rgba(0,0,0,0.28)",
+          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+        }}
+      >
+        <p style={{ margin: "0 0 7px", fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.32)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          Poznámka MTZ
+        </p>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.55, color: "rgba(255,255,255,0.88)", whiteSpace: "pre-wrap" }}>
+          {block.materialNote}
+        </p>
         {block.materialNoteByUsername && (
-          <p style={{ margin: "6px 0 0", fontSize: 10, color: "rgba(255,255,255,0.38)", letterSpacing: 0.2 }}>— {block.materialNoteByUsername}</p>
+          <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", gap: 7 }}>
+            <div style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.12)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.55)", flexShrink: 0 }}>
+              {block.materialNoteByUsername[0]?.toUpperCase()}
+            </div>
+            <span style={{ fontSize: 11, color: "rgba(255,255,255,0.42)" }}>
+              {block.materialNoteByUsername}
+            </span>
+          </div>
         )}
       </HoverCardContent>
     </HoverCard>

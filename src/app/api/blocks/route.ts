@@ -90,6 +90,8 @@ export async function POST(request: NextRequest) {
           lakStatusLabel: body.lakStatusLabel ?? null,
           // SPECIFIKACE
           specifikace: body.specifikace ?? null,
+          // MATERIÁL POZNÁMKA (jen obsah — autor se nepřenáší, je server-owned)
+          materialNote: body.materialNote ?? null,
           // OPAKOVÁNÍ
           recurrenceType: body.recurrenceType ?? "NONE",
           recurrenceParentId: body.recurrenceParentId ?? null,
