@@ -60,6 +60,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         materialStatusLabel: body.materialStatusLabel,
         materialRequiredDate: body.materialRequiredDate,
         materialOk: body.materialOk,
+        materialNote: body.materialNote,
       };
     } else {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -91,7 +92,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
     const AUDITED_FIELDS = [
       "dataStatusLabel", "dataRequiredDate", "dataOk",
-      "materialStatusLabel", "materialRequiredDate", "materialOk",
+      "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
       "deadlineExpedice",
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
@@ -143,6 +144,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             materialRequiredDate: allowed.materialRequiredDate ? new Date(allowed.materialRequiredDate as string) : null,
           }),
           ...(allowed.materialOk !== undefined && { materialOk: allowed.materialOk as boolean }),
+          ...(allowed.materialNote !== undefined && { materialNote: allowed.materialNote as string | null }),
           // BARVY
           ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
           ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),

@@ -422,6 +422,7 @@ function BlockEdit({
     block.materialRequiredDate ? new Date(block.materialRequiredDate).toISOString().slice(0, 10) : ""
   );
   const [materialOk, setMaterialOk]             = useState(block.materialOk);
+  const [materialNote, setMaterialNote]         = useState(block.materialNote ?? "");
   // BARVY
   const [barvyStatusId, setBarvyStatusId] = useState<string>(block.barvyStatusId?.toString() ?? "");
 
@@ -507,6 +508,7 @@ function BlockEdit({
       materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
       materialRequiredDate: materialRequiredDate || null,
       materialOk,
+      materialNote: materialNote.trim() || null,
       barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
       barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
       lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
@@ -776,6 +778,12 @@ function BlockEdit({
             <div style={{ marginTop: 8, opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
               <SectionLabel>Specifikace</SectionLabel>
               <Textarea value={specifikace} onChange={(e) => setSpecifikace(e.target.value)} rows={2} placeholder="Speciální požadavky…" className="text-xs resize-none" />
+            </div>
+
+            {/* POZNÁMKA MTZ */}
+            <div style={{ marginTop: 8, opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
+              <SectionLabel>Poznámka materiál (MTZ)</SectionLabel>
+              <Textarea value={materialNote} onChange={(e) => setMaterialNote(e.target.value)} rows={2} placeholder="Materiál skladem od…" className="text-xs resize-none" />
             </div>
           </div>
         )}

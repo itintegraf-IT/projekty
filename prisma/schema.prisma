@@ -30,6 +30,7 @@ model Block {
   lakStatusId          Int?
   lakStatusLabel       String?
   specifikace          String?
+  materialNote         String?   @db.Text
   recurrenceType           String    @default("NONE")
   recurrenceParentId       Int?
   printCompletedAt         DateTime?

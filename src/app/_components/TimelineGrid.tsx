@@ -6,6 +6,17 @@ import { badgeColorVar } from "@/lib/badgeColors";
 import { Lock, Clock } from "lucide-react";
 import type { MachineWorkHours } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
@@ -51,6 +62,8 @@ export type Block = {
   lakStatusLabel: string | null;
   // Výrobní sloupečky — SPECIFIKACE
   specifikace: string | null;
+  // Poznámka MTZ k materiálu
+  materialNote: string | null;
   recurrenceType: string;
   recurrenceParentId: number | null;
   printCompletedAt: string | null;
@@ -598,6 +611,83 @@ function MiniChip({ label, accent, textColor }: { label: string; accent: string;
   );
 }
 
+// ─── MaterialNoteAffordance ────────────────────────────────────────────────────
+// Musí být MIMO BlockCard — definice uvnitř by způsobila remount při každém renderu.
+function MaterialNoteAffordance({
+  children, block, canEditMat, openNoteEditor, onClearNote,
+  indicatorSize = 5, indicatorTop = 2, indicatorRight = 2,
+}: {
+  children: React.ReactElement;
+  block: Block;
+  canEditMat?: boolean;
+  openNoteEditor: (rect: DOMRect | null) => void;
+  onClearNote: () => void;
+  indicatorSize?: number;
+  indicatorTop?: number;
+  indicatorRight?: number;
+}) {
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const hasNote    = !!block.materialNote;
+  const hasMenu    = !!(canEditMat || hasNote);
+
+  // display:"flex" → children jsou vždy block-level flex items (žádný line-height strut)
+  const inner = (
+    <div ref={triggerRef} style={{ position: "relative", display: "flex" }}>
+      {children}
+      {hasNote && (
+        <span style={{ position: "absolute", top: indicatorTop, right: indicatorRight, width: indicatorSize, height: indicatorSize, borderRadius: "50%", background: "rgba(255,255,255,0.75)", pointerEvents: "none" }} />
+      )}
+    </div>
+  );
+
+  // HoverCard obalí inner div přímo — bez extra mezivrstvy
+  const withHover = hasNote ? (
+    <HoverCard openDelay={400} closeDelay={100}>
+      <HoverCardTrigger asChild>{inner}</HoverCardTrigger>
+      <HoverCardContent side="right" align="start" style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "10px 12px", maxWidth: 220, zIndex: 200 }}>
+        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,0.85)", whiteSpace: "pre-wrap" }}>{block.materialNote}</p>
+      </HoverCardContent>
+    </HoverCard>
+  ) : inner;
+
+  if (!hasMenu) return withHover;
+
+  // ContextMenuTrigger display:contents = průhledný pro layout, ale zachytí right-click
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger style={{ display: "contents" }}>
+        {withHover}
+      </ContextMenuTrigger>
+      <ContextMenuContent
+        style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "4px", minWidth: 160, zIndex: 300 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {canEditMat && (
+          <ContextMenuItem
+            onClick={(e) => { e.stopPropagation(); openNoteEditor(triggerRef.current?.getBoundingClientRect() ?? null); }}
+            style={{ borderRadius: 7, padding: "6px 10px", fontSize: 13, color: "rgba(255,255,255,0.9)", cursor: "pointer" }}
+          >
+            {hasNote ? "Upravit poznámku" : "Přidat poznámku"}
+          </ContextMenuItem>
+        )}
+        {hasNote && canEditMat && (
+          <ContextMenuItem
+            onClick={(e) => { e.stopPropagation(); onClearNote(); }}
+            style={{ borderRadius: 7, padding: "6px 10px", fontSize: 13, color: "rgba(255,80,80,0.9)", cursor: "pointer" }}
+          >
+            Smazat poznámku
+          </ContextMenuItem>
+        )}
+        {!canEditMat && hasNote && (
+          <ContextMenuItem disabled style={{ borderRadius: 7, padding: "6px 10px", fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
+            Poznámka (jen pro čtení)
+          </ContextMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
@@ -629,6 +719,11 @@ function BlockCard({
   const [hovered, setHovered]             = useState(false);
   const compactDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compactMatTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [noteOpen, setNoteOpen]   = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteRect, setNoteRect]   = useState<DOMRect | null>(null);
+  const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isPrintDone  = block.printCompletedAt != null;
   const isOverdue    = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone;
@@ -696,6 +791,49 @@ function BlockCard({
     }
   }
 
+  function openNoteEditor(rect: DOMRect | null) {
+    setNoteRect(rect);
+    setNoteDraft(block.materialNote ?? "");
+    setNoteOpen(true);
+    setTimeout(() => noteTextareaRef.current?.focus(), 50);
+  }
+
+  async function saveNote() {
+    setNoteSaving(true);
+    try {
+      const res = await fetch(`/api/blocks/${block.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ materialNote: noteDraft.trim() || null }),
+      });
+      if (res.ok) {
+        onBlockUpdate(await res.json());
+        setNoteOpen(false);
+      } else {
+        onError?.("Poznámku se nepodařilo uložit.");
+      }
+    } catch (error) {
+      console.error("Save note failed", error);
+      onError?.("Poznámku se nepodařilo uložit.");
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
+  async function clearNote() {
+    try {
+      const res = await fetch(`/api/blocks/${block.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ materialNote: null }),
+      });
+      if (res.ok) onBlockUpdate(await res.json());
+    } catch (error) {
+      console.error("Clear note failed", error);
+      onError?.("Poznámku se nepodařilo smazat.");
+    }
+  }
+
   return (
     <div
       data-block="true"
@@ -758,11 +896,13 @@ function BlockCard({
                 onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                 D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
               </span>
-              <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
-              </span>
+              <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+                <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                  onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                  onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                  M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+                </span>
+              </MaterialNoteAffordance>
               <span style={dateChip(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                 E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
               </span>
@@ -830,11 +970,13 @@ function BlockCard({
                   onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                   D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
-                <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                  onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                  onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                  M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
-                </span>
+                <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+                  <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                    onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                    M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+                  </span>
+                </MaterialNoteAffordance>
                 <span style={chipStyle(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
@@ -921,7 +1063,7 @@ function BlockCard({
       {showDates && block.type !== "UDRZBA" && (
         <div style={{
           padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap",
-          flexShrink: 0,
+          flexShrink: 0, alignItems: "center",
         }}>
           <DateBadge
             label="DATA" dateStr={block.dataRequiredDate}
@@ -930,13 +1072,15 @@ function BlockCard({
             onToggle={() => toggleField("dataOk", block.dataOk)}
             onDoubleClick={canEditData ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
           />
-          <DateBadge
-            label="MAT." dateStr={block.materialRequiredDate}
-            ok={materialDeadlineState === "ok"} warn={materialDeadlineState === "warning"} danger={materialDeadlineState === "danger"} earlyStart={materialDeadlineState === "earlyStart"}
-            accent={FIELD_ACCENT.MATERIAL}
-            onToggle={() => toggleField("materialOk", block.materialOk)}
-            onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", rect) : undefined}
-          />
+          <MaterialNoteAffordance block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+            <DateBadge
+              label="MAT." dateStr={block.materialRequiredDate}
+              ok={materialDeadlineState === "ok"} warn={materialDeadlineState === "warning"} danger={materialDeadlineState === "danger"} earlyStart={materialDeadlineState === "earlyStart"}
+              accent={FIELD_ACCENT.MATERIAL}
+              onToggle={() => toggleField("materialOk", block.materialOk)}
+              onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", rect) : undefined}
+            />
+          </MaterialNoteAffordance>
           <DateBadge
             label="EXP." dateStr={block.deadlineExpedice}
             ok={false} warn={false} danger={false} accent={FIELD_ACCENT.EXPEDICE}
@@ -963,17 +1107,19 @@ function BlockCard({
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
-          <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden" }}>
+          <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden", alignItems: "center" }}>
             <span style={cs(dSK, FIELD_ACCENT.DATA, !!block.dataRequiredDate)}
               onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
               onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
               D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
             </span>
-            <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)}
-              onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-              onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-              M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
-            </span>
+            <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block} canEditMat={canEditMat} openNoteEditor={openNoteEditor} onClearNote={clearNote}>
+              <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)}
+                onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+              </span>
+            </MaterialNoteAffordance>
             <span style={cs(eSK, FIELD_ACCENT.EXPEDICE, false)}>
               E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
             </span>
@@ -1016,6 +1162,73 @@ function BlockCard({
             <line x1="6" y1="11" x2="11" y2="6" stroke={s.textPrimary} strokeWidth="1.5" strokeLinecap="round" />
             <line x1="10" y1="11" x2="11" y2="10" stroke={s.textPrimary} strokeWidth="1.5" strokeLinecap="round" />
           </svg>
+        </div>
+      )}
+
+      {/* ── Poznámka MTZ — inline editační popover (fixed = unikne overflow:hidden) ── */}
+      {noteOpen && noteRect && (
+        <div
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            position: "fixed",
+            top: noteRect.bottom + 6,
+            left: Math.min(noteRect.left, window.innerWidth - 236),
+            background: "#1c1c1e",
+            border: "1px solid rgba(255,255,255,0.14)",
+            borderRadius: 12,
+            padding: 12,
+            width: 220,
+            zIndex: 400,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          }}
+        >
+          <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.45)", letterSpacing: 0.3 }}>
+            POZNÁMKA MATERIÁL
+          </p>
+          <textarea
+            ref={noteTextareaRef}
+            value={noteDraft}
+            onChange={(e) => setNoteDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) saveNote(); if (e.key === "Escape") setNoteOpen(false); }}
+            rows={3}
+            placeholder="Materiál skladem od…"
+            style={{
+              width: "100%", boxSizing: "border-box",
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 8, padding: "7px 9px",
+              fontSize: 13, lineHeight: 1.5,
+              color: "rgba(255,255,255,0.9)",
+              resize: "vertical",
+              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+              outline: "none",
+            }}
+          />
+          <div style={{ display: "flex", gap: 6, marginTop: 8, justifyContent: "flex-end" }}>
+            <button
+              onClick={() => setNoteOpen(false)}
+              style={{
+                padding: "5px 12px", borderRadius: 7, border: "1px solid rgba(255,255,255,0.14)",
+                background: "transparent", color: "rgba(255,255,255,0.6)",
+                fontSize: 12, fontWeight: 500, cursor: "pointer",
+              }}
+            >
+              Zrušit
+            </button>
+            <button
+              onClick={saveNote}
+              disabled={noteSaving}
+              style={{
+                padding: "5px 12px", borderRadius: 7, border: "none",
+                background: "#3b82f6", color: "#fff",
+                fontSize: 12, fontWeight: 600, cursor: noteSaving ? "wait" : "pointer",
+                opacity: noteSaving ? 0.7 : 1,
+              }}
+            >
+              {noteSaving ? "Ukládám…" : "Uložit"}
+            </button>
+          </div>
         </div>
       )}
     </div>
