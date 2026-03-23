@@ -7,7 +7,9 @@ import { normalizeBlockVariant } from "@/lib/blockVariants";
 export default async function HomePage() {
   const session = await getSession();
   if (!session) redirect("/login");
+  const isTiskar = session.role === "TISKAR";
   const blocks = await prisma.block.findMany({
+    where: isTiskar && session.assignedMachine ? { machine: session.assignedMachine } : undefined,
     orderBy: { startTime: "asc" },
   });
 
@@ -43,5 +45,5 @@ export default async function HomePage() {
     createdAt: e.createdAt.toISOString(),
   }));
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHours={machineWorkHours} initialMachineExceptions={serializedMachineExceptions} currentUser={session} />;
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHours={machineWorkHours} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} />;
 }

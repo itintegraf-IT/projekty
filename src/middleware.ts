@@ -22,14 +22,14 @@ export async function middleware(req: NextRequest) {
     const { payload } = await jwtVerify(cookie.value, SECRET);
     const role = payload.role as string | undefined;
 
-    // TISKAR smí jen /tiskar a /api/*
+    // TISKAR smí jen / a /api/* (ne /admin)
     if (role === "TISKAR") {
-      if (!pathname.startsWith("/tiskar") && !pathname.startsWith("/api/")) {
-        return NextResponse.redirect(new URL("/tiskar", req.url));
+      if (pathname.startsWith("/admin") || pathname.startsWith("/tiskar")) {
+        return NextResponse.redirect(new URL("/", req.url));
       }
     }
 
-    // Ostatní role nesmí na /tiskar
+    // Ostatní role nesmí na /tiskar (fallback redirect)
     if (role !== "TISKAR" && pathname.startsWith("/tiskar")) {
       return NextResponse.redirect(new URL("/", req.url));
     }

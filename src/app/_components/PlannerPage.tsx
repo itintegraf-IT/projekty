@@ -1588,11 +1588,12 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 }
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHours, initialMachineExceptions, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHours: MachineWorkHours[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string } }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHours, initialMachineExceptions, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHours: MachineWorkHours[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null } }) {
   // Role-based permissions
   const canEdit     = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
   const canEditData = canEdit || currentUser.role === "DTP";
   const canEditMat  = canEdit || currentUser.role === "MTZ";
+  const isTiskar    = currentUser.role === "TISKAR";
 
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
@@ -1661,14 +1662,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
-  const [lassoHintSeen, setLassoHintSeen] = useState(false);
-  useEffect(() => {
-    if (localStorage.getItem("integraf-lasso-hint-seen") === "true") setLassoHintSeen(true);
-  }, []);
-  const dismissLassoHint = useCallback(() => {
-    setLassoHintSeen(true);
-    localStorage.setItem("integraf-lasso-hint-seen", "true");
-  }, []);
   const [pushSuggestion, setPushSuggestion] = useState<PushSuggestion | null>(null);
   const blocksRef = useRef<Block[]>([]);
   blocksRef.current = blocks;
@@ -1818,6 +1811,34 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     return () => clearInterval(t);
   }, []);
 
+  // Potvrzení / vrácení tisku (pro roli TISKAR z BlockCard)
+  async function handlePrintComplete(blockId: number, completed: boolean) {
+    const optimistic = (b: Block): Block =>
+      b.id === blockId
+        ? { ...b, printCompletedAt: completed ? new Date().toISOString() : null, printCompletedByUserId: completed ? currentUser.id : null, printCompletedByUsername: completed ? currentUser.username : null }
+        : b;
+    setBlocks((prev) => prev.map(optimistic));
+    setSelectedBlock((sel) => sel ? optimistic(sel) : null);
+    try {
+      const res = await fetch(`/api/blocks/${blockId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed }),
+      });
+      if (!res.ok) {
+        // revert — znovu načíst
+        const r = await fetch("/api/blocks");
+        if (r.ok) { const fresh: Block[] = await r.json(); setBlocks(fresh); }
+      } else {
+        const updated: Block = await res.json();
+        setBlocks((prev) => prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)));
+      }
+    } catch (e) {
+      console.error("Print complete failed", e);
+      showToast("Potvrzení tisku se nepodařilo uložit.", "error");
+    }
+  }
+
   function handleOpenInfoPanel() {
     setShowInfoPanel(true);
     fetchTodayAudit();
@@ -1832,7 +1853,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (match) setSelectedBlock(match);
   }
 
-  const viewStart = startOfDay(addDays(new Date(), -daysBack));
+  const effectiveDaysBack = isTiskar ? 1 : daysBack;
+  const viewStart = startOfDay(addDays(new Date(), -effectiveDaysBack));
 
   // "Přejít na" blok mimo rozsah — ref pro čekající scroll po změně daysBack
   const pendingScrollMs = useRef<number | null>(null);
@@ -2778,8 +2800,33 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   return (
     <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-background text-foreground">
-      {/* ── Header ── */}
-      <header className="flex-shrink-0 px-4 py-2 flex items-center gap-4" style={{
+      {/* ── Header (TISKAR — minimální pruh) ── */}
+      {isTiskar && (
+        <header className="flex-shrink-0 px-4 py-2 flex items-center gap-3" style={{
+          borderBottom: "1px solid var(--border)",
+          background: "var(--surface)",
+        }}>
+          <img src="/logo.png" alt="Integraf" style={{ height: 24, width: "auto", objectFit: "contain", flexShrink: 0 }} />
+          <div style={{ width: 1, height: 16, background: "var(--border)", flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            {currentUser.username}
+            <span style={{ marginLeft: 5, fontSize: 10, background: "var(--surface-2)", borderRadius: 4, padding: "1px 5px", color: "var(--text-muted)" }}>
+              TISKAŘ
+            </span>
+          </span>
+          <div style={{ flex: 1 }} />
+          <Button variant="outline" size="sm" onClick={handleScrollToNow} className="h-8 text-xs theme-transition-fast" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-muted)" }}>
+            Dnes
+          </Button>
+          <ThemeToggle />
+          <button onClick={handleLogout} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer" }}>
+            Odhlásit
+          </button>
+        </header>
+      )}
+
+      {/* ── Header (ostatní role — plný) ── */}
+      {!isTiskar && <header className="flex-shrink-0 px-4 py-2 flex items-center gap-4" style={{
           borderBottom: `1px solid ${headerScrolled ? "color-mix(in oklab, var(--border) 100%, transparent)" : "color-mix(in oklab, var(--border) 70%, transparent)"}`,
           background: headerScrolled ? "color-mix(in oklab, var(--surface) 95%, transparent)" : "color-mix(in oklab, var(--surface) 72%, transparent)",
           backdropFilter: headerScrolled ? "blur(24px) saturate(180%)" : "blur(8px)",
@@ -3004,22 +3051,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               >×</button>
             </div>
           )}
-          {canEdit && !lassoHintSeen && selectedBlockIds.size === 0 && (
-            <div style={{
-              display: "flex", alignItems: "center", gap: 5,
-              padding: "4px 10px", borderRadius: 8,
-              background: "color-mix(in oklab, var(--surface-2) 80%, transparent)",
-              border: "1px solid var(--border)",
-              color: "var(--text-muted)", fontSize: 11, whiteSpace: "nowrap",
-            }}>
-              <span style={{ fontSize: 10, background: "color-mix(in oklab, var(--accent) 15%, var(--surface))", borderRadius: 4, padding: "1px 5px", fontFamily: "monospace", color: "var(--accent)" }}>⌥ Alt</span>
-              <span>+ tah = výběr více bloků</span>
-              <button
-                onClick={dismissLassoHint}
-                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "0 2px", fontSize: 14, lineHeight: 1, opacity: 0.6, display: "flex", alignItems: "center" }}
-              >×</button>
-            </div>
-          )}
           <button
             onClick={handleLogout}
             style={{
@@ -3031,7 +3062,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             Odhlásit
           </button>
         </div>
-      </header>
+      </header>}
 
       {/* ── Tělo ── */}
       <section style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
@@ -3055,10 +3086,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
             onBlockCopy={(block) => { setCopiedBlock(block); setIsCut(false); }}
             selectedBlockIds={selectedBlockIds}
-            onMultiSelect={(ids) => { setSelectedBlockIds(ids); if (ids.size > 0) dismissLassoHint(); }}
+            onMultiSelect={(ids) => { setSelectedBlockIds(ids); }}
             onMultiBlockUpdate={handleMultiBlockUpdate}
-            daysAhead={daysAhead}
-            daysBack={daysBack}
+            daysAhead={isTiskar ? 2 : daysAhead}
+            daysBack={effectiveDaysBack}
             canEdit={canEdit}
             canEditData={canEditData}
             canEditMat={canEditMat}
@@ -3069,6 +3100,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             machineExceptions={machineExceptions}
             onExceptionUpsert={canEdit ? handleExceptionUpsert : undefined}
             onExceptionDelete={canEdit ? handleExceptionDelete : undefined}
+            isTiskar={isTiskar}
+            onPrintComplete={isTiskar ? handlePrintComplete : undefined}
+            assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}
           />
         </div>
 
