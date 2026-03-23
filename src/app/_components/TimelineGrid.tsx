@@ -329,22 +329,22 @@ const BLOCK_STYLES: Record<string, {
   },
 };
 const BLOCK_OVERDUE = {
-  gradient:    "linear-gradient(160deg, rgba(100,116,139,0.16) 0%, rgba(71,85,105,0.10) 100%)",
-  border:      "rgba(100,116,139,0.26)",
-  accentBar:   "rgba(100,116,139,0.60)",
-  leftBg:      "rgba(100,116,139,0.08)",
-  textPrimary: "var(--text-muted)",
-  textSub:     "var(--text-muted)",
-  glow:        "transparent",
-};
-const BLOCK_PRINT_DONE = {
-  gradient:    "linear-gradient(160deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.08) 100%)",
-  border:      "rgba(34,197,94,0.30)",
-  accentBar:   "rgba(34,197,94,0.70)",
-  leftBg:      "rgba(34,197,94,0.08)",
+  gradient:    "linear-gradient(160deg, rgba(251,146,60,0.22) 0%, rgba(234,88,12,0.14) 100%)",
+  border:      "rgba(251,146,60,0.55)",
+  accentBar:   "#f97316",
+  leftBg:      "rgba(251,146,60,0.10)",
   textPrimary: "var(--text)",
   textSub:     "var(--text-muted)",
-  glow:        "rgba(34,197,94,0.15)",
+  glow:        "rgba(251,146,60,0.25)",
+};
+const BLOCK_PRINT_DONE = {
+  gradient:    "linear-gradient(160deg, rgba(59,130,246,0.13) 0%, rgba(59,130,246,0.07) 100%)",
+  border:      "rgba(59,130,246,0.28)",
+  accentBar:   "rgba(59,130,246,0.55)",
+  leftBg:      "rgba(59,130,246,0.07)",
+  textPrimary: "var(--text)",
+  textSub:     "var(--text-muted)",
+  glow:        "rgba(59,130,246,0.10)",
 };
 const BLOCK_DEFAULT = {
   gradient:    "linear-gradient(160deg, rgba(148,163,184,0.12) 0%, rgba(100,116,139,0.08) 100%)",
@@ -897,9 +897,10 @@ function BlockCard({
         display: "flex", flexDirection: "column",
         overflow: "hidden", userSelect: "none",
         transition: isDragging ? "none" : "box-shadow 0.15s",
-        animationName: "blockEnter",
-        animationDuration: "220ms",
-        animationTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        animationName: isOverdue ? "tiskarOverduePulse" : "blockEnter",
+        animationDuration: isOverdue ? "1.8s" : "220ms",
+        animationTimingFunction: isOverdue ? "ease-in-out" : "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        animationIterationCount: isOverdue ? "infinite" : undefined,
         animationFillMode: "backwards",
       }}
     >
@@ -1370,6 +1371,17 @@ function BlockCard({
           <ContextMenuItem disabled style={{ ...menuItemStyle, color: "rgba(255,255,255,0.4)" }}>
             📌 Poznámka MTZ existuje
           </ContextMenuItem>
+        )}
+        {onPrintComplete && block.type === "ZAKAZKA" && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => onPrintComplete(block.id, !isPrintDone)}
+              style={isPrintDone ? { ...menuItemStyle, color: "rgba(255,120,80,0.9)" } : menuItemStyle}
+            >
+              {isPrintDone ? "↩ Vrátit hotovo" : "✓ Označit jako hotovo"}
+            </ContextMenuItem>
+          </>
         )}
       </ContextMenuContent>
     </ContextMenu>

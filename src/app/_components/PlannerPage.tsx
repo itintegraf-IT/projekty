@@ -3101,7 +3101,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onExceptionUpsert={canEdit ? handleExceptionUpsert : undefined}
             onExceptionDelete={canEdit ? handleExceptionDelete : undefined}
             isTiskar={isTiskar}
-            onPrintComplete={isTiskar ? handlePrintComplete : undefined}
+            onPrintComplete={isTiskar || canEdit ? handlePrintComplete : undefined}
             assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}
           />
         </div>

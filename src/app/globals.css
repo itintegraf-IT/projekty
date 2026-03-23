@@ -18,6 +18,12 @@
   to   { transform: scale(1)    translateY(0);    opacity: 1; }
 }
 
+/* Pulzující oranžový border pro TISKAR — neodkliknutá zakázka po termínu */
+@keyframes tiskarOverduePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251,146,60,0), 0 2px 8px rgba(0,0,0,0.35); }
+  50%       { box-shadow: 0 0 0 3px rgba(251,146,60,0.50), 0 2px 8px rgba(0,0,0,0.35); }
+}
+
 /* Active/pressed stav pro tlačítka (iOS standard) */
 button:not(:disabled) {
   transition: transform 120ms ease-out, filter 100ms ease-out;
