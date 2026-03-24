@@ -64,6 +64,10 @@ npm run prisma:seed
 | 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
 | — | Light/Dark migrace hlavních ploch | ✅ Hotovo |
 | 10 | Audit log (kdo co změnil) + Info panel | ✅ Hotovo |
+| — | TISKAR role + potvrzení tisku + TiskarMonitor | ✅ Hotovo (2026-03-21) |
+| — | Provozní hodiny strojů + výjimky (MachineWorkHours) | ✅ Hotovo (2026-03-21) |
+| — | Batch update bloků (hromadný posun lasem) | ✅ Hotovo (2026-03-22) |
+| — | Barva badge na položkách číselníku (badgeColor) | ✅ Hotovo (2026-03-21) |
 | 11 | UX vylepšení — odstávky, podmíněné formátování, inline datepicker | ⬜ Nezačato |
 
 > Stav měň na: ⬜ Nezačato / 🔄 Rozpracováno / ✅ Hotovo / 🐛 Chyba
@@ -198,15 +202,18 @@ specifikace          String?    volný text
 
 ```prisma
 model CodebookOption {
-  id        Int     @id @default(autoincrement())
-  category  String  // "DATA" | "MATERIAL" | "BARVY" | "LAK"
-  label     String
-  sortOrder Int     @default(0)
-  isActive  Boolean @default(true)
-  shortCode String? // volitelná zkratka pro zobrazení v badge
-  isWarning Boolean @default(false) // pokud true, badge se zobrazí oranžově
+  id         Int     @id @default(autoincrement())
+  category   String  // "DATA" | "MATERIAL" | "BARVY" | "LAK"
+  label      String
+  sortOrder  Int     @default(0)
+  isActive   Boolean @default(true)
+  shortCode  String? // volitelná zkratka pro zobrazení v badge
+  isWarning  Boolean @default(false) // pokud true, badge se zobrazí oranžově
+  badgeColor String? // klíč barvy: "blue"|"green"|"orange"|"red"|"purple"|"cyan"|"lime"|"pink"|"black"
 }
 ```
+
+**Pole `badgeColor`:** Dovoluje adminu přiřadit konkrétní barvu každé položce číselníku. Hodnota je klíč z předdefiniované sady (`BADGE_COLOR_KEYS` v `src/lib/badgeColors.ts`). CSS tokeny jsou definovány v `globals.css` jako `var(--badge-<key>)`. Validace přes `parseBadgeColor()` při každém zápisu do API.
 
 Blok nikdy neukládá přímo label — ukládá `optionId` + `snapshotLabel`. Snapshot chrání historii.
 
@@ -315,7 +322,7 @@ V projektu je aktivní shadcn/ui (New York styl). Aktuálně nainstalované: But
 | Admin tabulky (uživatelé, číselníky) | Data Table pattern (`Table` + `ColumnDef` s TanStack Table) |
 | Edit dialogy (uživatel, položka číselníku) | shadcn `Dialog` |
 
-Pro etapu 9 bude třeba doinstalovat: Tooltip, Dialog, AlertDialog, Table, Tabs.
+Nainstalované (etapa 9): Tooltip, Dialog, AlertDialog, Table, Tabs.
 
 ---
 
@@ -489,28 +496,34 @@ Pokud datum existuje a není OK a blok ještě nezačal → červené zvýrazně
 |------|-------|---------------|
 | **Admin** | Správce systému | Vše — včetně správy uživatelů, číselníků, jejich zakládání, editace a mazání; má přístup ke všem funkcím aplikace |
 | **Plánovač** | Plánování výroby | Vytváření, editace, mazání bloků, správa výrobních sloupečků, drag & drop, split, zámečky, hromadné posuny |
-| **MTZ** | Oddělení materiálu | Vidí celou timeline, edituje pouze sloupec **MATERIÁL** (status + datum + OK + pantone datum) |
+| **MTZ** | Oddělení materiálu | Vidí celou timeline, edituje pouze sloupec **MATERIÁL** (status + datum + OK) |
 | **DTP** | Oddělení dat | Vidí celou timeline, edituje pouze sloupec **DATA** (status + datum + OK) |
+| **Tiskař (TISKAR)** | Obsluha tiskárny | Přístup pouze na `/tiskar` view (svůj stroj), může potvrdit/zrušit potvrzení tisku zakázky |
 | **Viewer** | Jen čtení | Vidí celou timeline, nemůže nic editovat |
+
+**Pole `assignedMachine` na User:** Role TISKAR musí mít přiřazený konkrétní stroj (`XL_105` nebo `XL_106`). Toto pole je součástí JWT session tokenu — TISKAR nemůže potvrdit tisk na cizím stroji.
 
 ### Detailní matice práv
 
-| Akce | Admin | Plánovač | MTZ | DTP | Viewer |
-|------|-------|----------|-----|-----|--------|
-| Vidět timeline | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Vytvořit / smazat blok | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Přesunout / resize blok | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Rozdělit blok (split) | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Editovat sloupec DATA | ✅ | ✅ | ❌ | ✅ | ❌ |
-| Editovat sloupec MATERIÁL | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Editovat sloupec BARVY | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Editovat sloupec LAK | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Editovat SPECIFIKACE | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Editovat termín Expedice | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Zamknout / odemknout blok | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Hromadné posuny | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Správa uživatelů | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Správa číselníků | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Akce | Admin | Plánovač | MTZ | DTP | Tiskař | Viewer |
+|------|-------|----------|-----|-----|--------|--------|
+| Vidět timeline (plánovač) | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Vidět TiskarMonitor (`/tiskar`) | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Vytvořit / smazat blok | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Přesunout / resize blok | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Rozdělit blok (split) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Hromadné posuny (batch) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Editovat sloupec DATA | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Editovat sloupec MATERIÁL | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Editovat sloupec BARVY | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Editovat sloupec LAK | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Editovat SPECIFIKACE | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Editovat termín Expedice | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Zamknout / odemknout blok | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Potvrdit tisk zakázky | ✅ | ✅ | ❌ | ❌ | ✅ (jen svůj stroj) | ❌ |
+| Správa uživatelů | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Správa číselníků | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Správa provozních hodin strojů | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 ### UX přihlašování
 - Vpravo nahoře zobrazeno jméno přihlášeného uživatele a jeho role
@@ -566,7 +579,7 @@ Selektivní sledování akcí uživatelů — jen smysluplné změny, ne každý
 | Změna termínu expedice | ADMIN, PLANOVAT |
 
 ### Co se NELOGUJE
-Drag & drop, resize, popis, specifikace, barvy, lak, zámek — příliš časté nebo provozně nezajímavé.
+Drag & drop (single), resize, popis, specifikace, barvy, lak, zámek — příliš časté nebo provozně nezajímavé.
 
 ### DB model AuditLog
 
@@ -581,6 +594,17 @@ Nová tabulka s indexy pro rychlé dotazy. Klíčové vlastnosti:
 - **`createMany` v PUT:** místo cyklu create() — jedno volání pro všechna změněná pole
 - **Oprávnění `/api/blocks/[id]/audit`:** ADMIN, PLANOVAT, DTP, MTZ (VIEWER nemá přístup)
 
+### Audit akce — kompletní seznam
+
+| Akce (action) | Popis |
+|---------------|-------|
+| `CREATE` | Nový blok vytvořen |
+| `DELETE` | Blok smazán |
+| `UPDATE` | Změna pole (field říká které) |
+| `PRINT_COMPLETE` | Tiskař potvrdil tisk zakázky |
+| `PRINT_UNDO` | Potvrzení tisku bylo zrušeno |
+| `PRINT_RESET` | Tisk automaticky zrušen při přesunu bloku (batch nebo single drag) |
+
 ### UI
 
 - **Bell ikona v headeru** (ADMIN+PLANOVAT) — záznamy DTP/MTZ za poslední 3 dny, červený badge, proklik na zakázku
@@ -591,12 +615,233 @@ Nová tabulka s indexy pro rychlé dotazy. Klíčové vlastnosti:
 
 ## Matice oprávnění k audit endpointům
 
-| Endpoint | ADMIN | PLANOVAT | DTP | MTZ | VIEWER |
-|----------|-------|----------|-----|-----|--------|
-| `GET /api/audit` | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `GET /api/audit/today` | ✅ | ✅ | ❌ | ❌ | ❌ |
-| `GET /api/blocks/[id]/audit` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Endpoint | ADMIN | PLANOVAT | DTP | MTZ | TISKAR | VIEWER |
+|----------|-------|----------|-----|-----|--------|--------|
+| `GET /api/audit` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/audit/today` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/blocks/[id]/audit` | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 
 ---
 
-*Dokument naposledy aktualizován: 2026-03-16 — verze IX*
+## TISKAR role — Potvrzení tisku ✅ (2026-03-21)
+
+### Účel
+Tiskař (obsluha stroje XL 105 nebo XL 106) může přímo z `/tiskar` view potvrdit, že zakázka byla vytisknuta. Toto potvrzení je viditelné v plánovači i v auditu.
+
+### DB změny — Block model
+
+```
+printCompletedAt         DateTime?   // kdy bylo potvrzeno
+printCompletedByUserId   Int?        // kdo potvrdil (ID)
+printCompletedByUsername String?     // kdo potvrdil (jméno — snapshot)
+```
+
+### DB změny — User model
+
+```
+assignedMachine String?  // "XL_105" nebo "XL_106" — povinné pro roli TISKAR
+```
+
+### API
+
+**`POST /api/blocks/[id]/complete`**
+- Body: `{ completed: boolean }`
+- `completed: true` → nastaví `printCompletedAt`, `printCompletedByUserId`, `printCompletedByUsername`
+- `completed: false` → vymaže všechna tři pole (undo)
+- Jen pro typ bloku `ZAKAZKA` (REZERVACE/UDRZBA nelze potvrdit)
+- Role TISKAR: může jen na svém `assignedMachine`
+- Role ADMIN, PLANOVAT: bez omezení stroje
+
+### PRINT_RESET — automatický reset
+Pokud se blok, který byl označen jako vytisknut, přesune (single PUT nebo batch):
+1. `printCompletedAt` se automaticky vymaže
+2. Do auditu se zapíše akce `PRINT_RESET` s `oldValue = printCompletedByUsername`
+
+**Důvod:** přesunutý blok fyzicky nestartuje ve stejný čas → potvrzení tisku přestalo platit.
+
+---
+
+## TiskarMonitor — view pro tiskaře ✅ (2026-03-21)
+
+### Stránka `/tiskar`
+
+Server Component (`src/app/tiskar/page.tsx`) — načítá bloky stroje tiskaře ze session (`assignedMachine`) a předává je do `TiskarMonitor`.
+
+### Komponenta `TiskarMonitor.tsx`
+
+Mini timeline zobrazující pouze stroj přihlášeného tiskaře:
+
+- **Rozsah:** 7 dní dopředu od dnes
+- **Grid:** stejný slot height 26px jako hlavní plánovač
+- **Polling:** automatické obnovení dat každých 30 sekund
+- **Vizuál bloků:**
+  - Modrý gradient = zakázka nezahájena / vytisknutí nepotvrzeno
+  - Zelený gradient = tisk potvrzen (`printCompletedAt != null`)
+- **Potvrzení tisku:** kliknutím na blok se otevře detail s tlačítkem „Potvrdit tisk" / „Zrušit potvrzení"
+- Rezervace a údržba se zobrazují, ale tlačítko potvrzení nemají
+
+### Technické poznámky
+- `SLOT_HEIGHT = 26`, `TIME_COL_W = 72`, `HEADER_H = 52`, `DAYS_AHEAD = 7`
+- `POLL_INTERVAL = 30_000` ms (30s)
+- Přístup: role TISKAR (a ADMIN/PLANOVAT pro kontrolu)
+
+---
+
+## Provozní hodiny strojů (MachineWorkHours) ✅ (2026-03-21)
+
+### Účel
+Definuje, kdy každý stroj smí pracovat (per den týdne). Blok typ ZAKAZKA nesmí být naplánován mimo tyto hodiny — validace probíhá při každém drag&drop i batch update.
+
+### DB model
+
+```prisma
+model MachineWorkHours {
+  id         Int     @id @default(autoincrement())
+  machine    String  // "XL_105" | "XL_106"
+  dayOfWeek  Int     // 0=neděle, 1=pondělí, ..., 6=sobota
+  startHour  Int     // 0–23
+  endHour    Int     // 1–24 (24 = konec dne = půlnoc)
+  isActive   Boolean @default(true)
+
+  @@unique([machine, dayOfWeek])
+  @@index([machine])
+}
+```
+
+### API
+
+| Metoda | Endpoint | Role | Popis |
+|--------|----------|------|-------|
+| GET | `/api/machine-shifts` | všichni přihlášení | Načtení všech řádků |
+| PUT | `/api/machine-shifts` | ADMIN, PLANOVAT | Hromadná editace (pole `rows`) |
+
+### Validace `checkScheduleViolation()`
+
+Funkce v `src/app/api/blocks/batch/route.ts` (a analogicky v `/api/blocks/[id]/route.ts`):
+- Iteruje po 30minutových slotech přes celý rozsah bloku
+- Pro každý slot zjistí hodinu a den týdne v timezone `Europe/Prague` (přes `Intl.DateTimeFormat`)
+- Výjimky (`MachineScheduleException`) přebíjí základní MachineWorkHours pro daný den
+- Pokud slot padá mimo provoz → vrátí chybovou zprávu `"Blok zasahuje do doby mimo provoz stroje."`
+- Validuje se jen pro bloky typu `ZAKAZKA` (REZERVACE/UDRZBA může být kdekoliv)
+
+---
+
+## Výjimky provozních hodin (MachineScheduleException) ✅ (2026-03-21)
+
+### Účel
+Umožňuje přepsat provozní hodiny pro konkrétní datum (např. přesčas, výpadek, sváteční provoz). Výjimka přebíjí `MachineWorkHours` pro daný den.
+
+### DB model
+
+```prisma
+model MachineScheduleException {
+  id        Int      @id @default(autoincrement())
+  machine   String   // "XL_105" | "XL_106"
+  date      DateTime // uloženo jako UTC midnight: new Date("YYYY-MM-DD" + "T00:00:00.000Z")
+  startHour Int      // 0–23
+  endHour   Int      // 1–24
+  isActive  Boolean  @default(true)
+  label     String?  // nepovinný popis (např. "Výpadek elektřiny")
+  createdAt DateTime @default(now())
+
+  @@unique([machine, date])
+  @@index([date])
+}
+```
+
+### API
+
+| Metoda | Endpoint | Role | Popis |
+|--------|----------|------|-------|
+| GET | `/api/machine-exceptions` | všichni přihlášení | Načtení všech výjimek |
+| POST | `/api/machine-exceptions` | ADMIN, PLANOVAT | Vytvoření / přepsání výjimky (upsert) |
+| DELETE | `/api/machine-exceptions/[id]` | ADMIN, PLANOVAT | Smazání výjimky |
+
+### Kritické pravidlo — ukládání datumu
+
+Klient posílá datum jako `YYYY-MM-DD` string (lokální datum tiskaře/plánovače).
+Server MUSÍ uložit jako UTC midnight takto:
+
+```typescript
+const datePart = String(date).slice(0, 10); // "YYYY-MM-DD"
+const utcMidnight = new Date(datePart + "T00:00:00.000Z");
+```
+
+**NIKDY nepoužívat** `getFullYear()`, `getMonth()`, `getDate()` na serveru pro tuto konverzi — na UTC serveru se česká půlnoc rovná předchozímu UTC dni, čímž by se datum posunulo o jeden den zpět.
+
+---
+
+## Batch update bloků ✅ (2026-03-22)
+
+### Účel
+Hromadný přesun více bloků najednou (používá se pro lasso výběr v TimelineGrid). Jedna transakce pro N bloků.
+
+### API
+
+**`POST /api/blocks/batch`**
+- Pouze role ADMIN, PLANOVAT
+- Body: `{ updates: [{ id: number, startTime: string, endTime: string, machine: string }] }`
+
+### Průběh zpracování
+
+1. **Sanity check** — `start < end` pro každý blok před hitem DB (fast-fail)
+2. **Fetch existujících bloků** — typ, starý čas, printCompleted stav, orderNumber pro audit
+3. **Schedule validace** — jen pro ZAKAZKA bloky:
+   - Paralelní `Promise.all([schedule, exceptions])` fetch
+   - `checkScheduleViolation()` pro každý ZAKAZKA blok
+4. **Transakce** — `prisma.$transaction`:
+   - `Promise.all` updatů (startTime, endTime, machine + PRINT_RESET pokud potřeba)
+   - `auditLog.createMany()` pro všechny záznamy najednou
+
+### HTTP status kódy
+
+| Kód | Situace |
+|-----|---------|
+| 200 | OK, všechny bloky aktualizovány |
+| 400 | Neplatný JSON nebo prázdné `updates` |
+| 400 | Neplatné časy (start ≥ end) |
+| 401 | Nepřihlášen |
+| 403 | Nedostatečná role |
+| 404 | Jeden nebo více bloků nenalezeno (Prisma P2025) |
+| 422 | Blok zasahuje mimo provoz stroje |
+| 500 | Chyba serveru |
+
+---
+
+## CompanyDay — machine pole ✅ (2026-03-21)
+
+Firemní odstávky lze nyní přiřadit ke konkrétnímu stroji:
+
+```prisma
+model CompanyDay {
+  id        Int      @id @default(autoincrement())
+  startDate DateTime
+  endDate   DateTime
+  label     String
+  machine   String?  // null = obě stroje; "XL_105" nebo "XL_106" = jen daný stroj
+  createdAt DateTime @default(now())
+}
+```
+
+---
+
+## Matice oprávnění k block endpointům
+
+| Endpoint | ADMIN | PLANOVAT | DTP | MTZ | TISKAR | VIEWER |
+|----------|-------|----------|-----|-----|--------|--------|
+| `GET /api/blocks` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/blocks` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/blocks/[id]` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `PUT /api/blocks/[id]` | ✅ (vše) | ✅ (vše) | ✅ (DATA) | ✅ (MAT) | ❌ | ❌ |
+| `DELETE /api/blocks/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `POST /api/blocks/[id]/complete` | ✅ | ✅ | ❌ | ❌ | ✅ (svůj stroj) | ❌ |
+| `POST /api/blocks/batch` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/machine-shifts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `PUT /api/machine-shifts` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/machine-exceptions` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/machine-exceptions` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `DELETE /api/machine-exceptions/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+---
+
+*Dokument naposledy aktualizován: 2026-03-22 — verze X*

@@ -14,9 +14,9 @@ export async function GET() {
   threeDaysAgo.setHours(0, 0, 0, 0);
 
   try {
-    // Načíst dnešní logy od uživatelů s rolí DTP nebo MTZ
+    // Načíst dnešní logy od uživatelů s rolí DTP, MTZ nebo TISKAR
     const dtpMtzUsernames = await prisma.user.findMany({
-      where: { role: { in: ["DTP", "MTZ"] } },
+      where: { role: { in: ["DTP", "MTZ", "TISKAR"] } },
       select: { username: true },
     });
     const usernames = dtpMtzUsernames.map((u) => u.username);

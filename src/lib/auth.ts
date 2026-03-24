@@ -10,6 +10,7 @@ export interface SessionUser {
   id: number;
   username: string;
   role: string;
+  assignedMachine: string | null;
 }
 
 /** Vrátí JWT token pro session — pro ruční nastavení cookie v Route Handleru */

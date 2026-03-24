@@ -18,6 +18,12 @@
   to   { transform: scale(1)    translateY(0);    opacity: 1; }
 }
 
+/* Pulzující oranžový border pro TISKAR — neodkliknutá zakázka po termínu */
+@keyframes tiskarOverduePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(251,146,60,0), 0 2px 8px rgba(0,0,0,0.35); }
+  50%       { box-shadow: 0 0 0 3px rgba(251,146,60,0.50), 0 2px 8px rgba(0,0,0,0.35); }
+}
+
 /* Active/pressed stav pro tlačítka (iOS standard) */
 button:not(:disabled) {
   transition: transform 120ms ease-out, filter 100ms ease-out;
@@ -151,6 +157,16 @@ body {
   --brand: oklch(0.9 0.19 102);
   --brand-contrast: oklch(0.2 0.015 248.39);
   --timeline-bg: oklch(0.94 0.01 250);
+  /* Badge barvy pro položky číselníku — light mode (pastelová 300-úroveň) */
+  --badge-blue:   #93c5fd;
+  --badge-green:  #86efac;
+  --badge-orange: #fdba74;
+  --badge-red:    #fca5a5;
+  --badge-purple: #c4b5fd;
+  --badge-cyan:   #67e8f9;
+  --badge-lime:   #bef264;
+  --badge-pink:   #f9a8d4;
+  --badge-black:  #475569;
 }
 
 .dark {
@@ -198,6 +214,16 @@ body {
   --brand: oklch(0.9 0.19 102);
   --brand-contrast: oklch(0.2 0.015 248.39);
   --timeline-bg: oklch(0.2 0.01 250);
+  /* Badge barvy pro položky číselníku — dark mode (sytá 400-úroveň) */
+  --badge-blue:   #60a5fa;
+  --badge-green:  #4ade80;
+  --badge-orange: #fb923c;
+  --badge-red:    #f87171;
+  --badge-purple: #a78bfa;
+  --badge-cyan:   #22d3ee;
+  --badge-lime:   #a3e635;
+  --badge-pink:   #f472b6;
+  --badge-black:  #64748b;
 }
 
 /* Bridge vrstva pro rychlou čitelnost v light mode:
@@ -230,3 +256,14 @@ body {
 :root:not(.dark) [class*="text-slate-6"] { color: color-mix(in oklab, var(--text-muted) 80%, #334155) !important; }
 :root:not(.dark) [class*="border-slate-8"] { border-color: var(--border) !important; }
 :root:not(.dark) [class*="border-slate-7"] { border-color: var(--border) !important; }
+
+/* ── Timeline denní cykly ──────────────────────────────────────────────────── */
+.tl-night      { background-color: rgba(0,0,0,0.10); }
+.tl-morning    { background-color: transparent; }
+.tl-afternoon  { background-color: rgba(0,0,0,0.05); }
+.tl-day-alt    { background-color: rgba(0,0,0,0.05); }
+
+.dark .tl-night     { background-color: rgba(0,0,0,0.65) !important; }
+.dark .tl-morning   { background-color: rgba(255,255,255,0.07) !important; }
+.dark .tl-afternoon { background-color: rgba(255,255,255,0.03) !important; }
+.dark .tl-day-alt   { background-color: rgba(255,255,255,0.05) !important; }

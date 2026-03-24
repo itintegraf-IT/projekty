@@ -10,8 +10,7 @@ export default function Providers({ children }: { children: ReactNode }) {
       defaultTheme="system"
       enableSystem
       storageKey="integraf-theme"
-      disableTransitionOnChange
-    >
+>
       {children}
     </ThemeProvider>
   );

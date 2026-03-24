@@ -73,7 +73,34 @@ async function main() {
     console.log(`ℹ️  Číselníky: ${existingCount} položek již existuje — přeskočeno.`);
   }
 
-  // 2. Admin účet — vytvořit pouze pokud žádný admin neexistuje
+  // 2. Pracovní doba strojů — vytvořit pouze pokud tabulka prázdná
+  const machineWorkHoursCount = await prisma.machineWorkHours.count();
+  if (machineWorkHoursCount === 0) {
+    const defaults = [
+      // XL_105: Po–Pá = 6:00–22:00, So/Ne = celý den mimo provoz
+      { machine: "XL_105", dayOfWeek: 0, startHour: 0, endHour: 24, isActive: false },
+      { machine: "XL_105", dayOfWeek: 1, startHour: 6, endHour: 22, isActive: true  },
+      { machine: "XL_105", dayOfWeek: 2, startHour: 6, endHour: 22, isActive: true  },
+      { machine: "XL_105", dayOfWeek: 3, startHour: 6, endHour: 22, isActive: true  },
+      { machine: "XL_105", dayOfWeek: 4, startHour: 6, endHour: 22, isActive: true  },
+      { machine: "XL_105", dayOfWeek: 5, startHour: 6, endHour: 22, isActive: true  },
+      { machine: "XL_105", dayOfWeek: 6, startHour: 0, endHour: 24, isActive: false },
+      // XL_106: Po–Čt = 0:00–24:00, Pá = 0:00–22:00, So = off, Ne = 22:00–24:00
+      { machine: "XL_106", dayOfWeek: 0, startHour: 22, endHour: 24, isActive: true  },
+      { machine: "XL_106", dayOfWeek: 1, startHour: 0,  endHour: 24, isActive: true  },
+      { machine: "XL_106", dayOfWeek: 2, startHour: 0,  endHour: 24, isActive: true  },
+      { machine: "XL_106", dayOfWeek: 3, startHour: 0,  endHour: 24, isActive: true  },
+      { machine: "XL_106", dayOfWeek: 4, startHour: 0,  endHour: 24, isActive: true  },
+      { machine: "XL_106", dayOfWeek: 5, startHour: 0,  endHour: 22, isActive: true  },
+      { machine: "XL_106", dayOfWeek: 6, startHour: 0,  endHour: 24, isActive: false },
+    ];
+    await prisma.machineWorkHours.createMany({ data: defaults });
+    console.log(`✅ Pracovní doba: ${defaults.length} výchozích záznamů vytvořeno.`);
+  } else {
+    console.log(`ℹ️  Pracovní doba: ${machineWorkHoursCount} záznamů již existuje — přeskočeno.`);
+  }
+
+  // 3. Admin účet — vytvořit pouze pokud žádný admin neexistuje
   //    POZOR: změň heslo ihned po prvním přihlášení!
   const adminExists = await prisma.user.findFirst({ where: { role: "ADMIN" } });
   if (!adminExists) {
@@ -90,6 +117,9 @@ async function main() {
   } else {
     console.log(`ℹ️  Admin: účet '${adminExists.username}' již existuje — přeskočeno.`);
   }
+
+  // Poznámka: účty tiskařů (role TISKAR) zakládej ručně přes Admin dashboard.
+  // Bootstrap záměrně nevytváří žádné testovací účty.
 
   console.log("✅ Bootstrap dokončen.");
 }

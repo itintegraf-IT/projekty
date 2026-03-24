@@ -28,6 +28,7 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 9 | Admin dashboard (uživatelé + číselníky) | ✅ Hotovo |
 | 10 | Audit log (kdo co změnil) + tlačítko Info | ✅ Hotovo |
 | 11 | UX vylepšení — odstávky, podmíněné formátování, inline datepicker | ⬜ Nezačato |
+| — | Varianty zakázky (blockVariant) | ✅ Hotovo (2026-03-22) |
 
 ### UI/UX light-dark migrace (11. 3. 2026)
 
@@ -151,7 +152,7 @@ Tím označíte migraci jako již aplikovanou (baseline).
 - **Číselníky:** hodnoty pro DATA, MATERIÁL, BARVY, LAK jsou uloženy v DB (model `CodebookOption`), ne hardcoded. Spravuje je Admin přes dashboard.
 - **Snapshot labelu:** blok ukládá `optionId` + `snapshotLabel` — při přejmenování položky číselníku historická data zůstanou konzistentní.
 - **Auth:** bcryptjs (hesla), jose (JWT), HTTP-only cookie `integraf-session` (7 dní). Middleware v `src/middleware.ts` chrání všechny routes kromě `/login` a `/api/auth`. Import jose přes subpath (`jose/jwt/verify`, `jose/jwt/sign`) — nutné pro Turbopack Edge runtime.
-- **Roles:** ADMIN a PLANOVAT — plný přístup. DTP — edituje jen DATA sloupec. MTZ — edituje jen MATERIÁL sloupec. VIEWER — read-only (aside skrytý, timeline bez drag/resize).
+- **Roles:** ADMIN a PLANOVAT — plný přístup. DTP — edituje jen DATA sloupec. MTZ — edituje jen MATERIÁL sloupec. VIEWER — read-only (aside skrytý, timeline bez drag/resize). **TISKAR** — read-only plánovač, přístup do `/tiskar`, může potvrdit tisk jen na svém `assignedMachine`.
 - **tsconfig moduleResolution:** `"bundler"` (ne `"Node"`) — nutné pro subpath exports (jose).
 - **next.config.mjs:** bez `experimental.appDir` (odstraněno jako obsoletní v Next.js 14+).
 
@@ -180,11 +181,22 @@ Tím označíte migraci jako již aplikovanou (baseline).
 | `src/app/_components/TimelineGrid.tsx` | Vizuální timeline grid (datum 44px + čas 72px + 2 strojové sloupce) |
 | `src/app/api/blocks/route.ts` | GET all + POST (POST: ADMIN/PLANOVAT, transakční zápis + audit) |
 | `src/app/api/blocks/[id]/route.ts` | GET + PUT (role field filter, transakční audit createMany) + DELETE (ADMIN/PLANOVAT) |
-| `src/lib/auth.ts` | createSession / getSession / deleteSession (JWT + cookie) |
+| `src/lib/auth.ts` | createSession / getSession / deleteSession (JWT + cookie) — SessionUser obsahuje `assignedMachine` |
 | `src/middleware.ts` | Edge middleware — JWT guard pro všechny routes |
 | `src/app/login/page.tsx` | Login stránka (token-based, light/dark) |
 | `src/app/api/auth/login/route.ts` | POST — přihlášení, vytvoření session |
 | `src/app/api/auth/logout/route.ts` | POST — odhlášení, smazání cookie |
+| `src/app/api/blocks/[id]/complete/route.ts` | POST — potvrzení/vrácení tisku (TISKAR jen na svém stroji, ADMIN/PLANOVAT kdekoliv) |
+| `src/app/api/blocks/batch/route.ts` | POST — dávkový update startTime/endTime/machine (lasso přesuny), validace schedule, PRINT_RESET, audit |
+| `src/app/api/machine-shifts/route.ts` | GET + PUT provozních hodin strojů per-den (MachineWorkHours) |
+| `src/app/api/machine-exceptions/route.ts` | GET + POST výjimek pro konkrétní datum+stroj (upsert) |
+| `src/app/api/machine-exceptions/[id]/route.ts` | DELETE výjimky |
+| `src/app/tiskar/page.tsx` | Tiskar view — Server Component pro roli TISKAR |
+| `src/app/tiskar/_components/TiskarMonitor.tsx` | Tiskar monitor — schedule stroje 7 dní, polling 30s, potvrzení tisku |
+| `src/lib/badgeColors.ts` | BADGE_COLOR_KEYS, badgeColorVar(), parseBadgeColor() — helper pro `CodebookOption.badgeColor` |
+| `src/lib/blockVariants.ts` | BLOCK_VARIANTS, BlockVariant, normalizeBlockVariant — varianty zakázky |
+| `src/lib/machineScheduleException.ts` | Typy pro MachineScheduleException |
+| `src/lib/machineWorkHours.ts` | Typy pro MachineWorkHours |
 | `DOKUMENTACE.md` | Plná projektová dokumentace (neupravuj ručně) |
 
 ---
@@ -215,13 +227,43 @@ Tím označíte migraci jako již aplikovanou (baseline).
 ### PlannerPage.tsx
 - Builder: typ + číslo zakázky + délka + popis + výrobní sloupečky + termín expedice → "Přidat do fronty"
 - Fronta: kartičky s `draggable`, přetažením na timeline vznikne blok (stroj = cílový sloupec, čas = pozice puštění)
-- `QueueItem` typ: id, orderNumber, type, durationHours, description, dataStatusId, materialStatusId, barvyStatusId, lakStatusId, specifikace, deadlineExpedice
+- `QueueItem` typ: id, orderNumber, type, **blockVariant**, durationHours, description, dataStatusId, materialStatusId, barvyStatusId, lakStatusId, specifikace, deadlineExpedice
 - Aside panel je resizable (8px handle), zIndex: 10; timeline container zIndex: 0; sticky header zIndex: 30
 - **Role-based UI (etapa 8):** `canEdit = ["ADMIN","PLANOVAT"].includes(role)`, `canEditData = canEdit || DTP`, `canEditMat = canEdit || MTZ`. Aside + resize handle skryté pokud `!canEdit`. BlockEdit sekce obaleny `opacity/pointerEvents` wrappery. TimelineGrid dostává `canEdit` prop.
 - Header vpravo: jméno uživatele + role badge + Odhlásit tlačítko
 - **Konfigurovatelný rozsah:** state `daysAhead` (default 60) a `daysBack` (default 3). V headeru segmented buttons [30d|60d|90d] pro přepínání dopředu.
 - **„Přejít na" pro historické bloky:** pokud hledaná zakázka (filterText) leží před viewStart, zobrazí se žlutý banner s tlačítkem. Klik rozšíří `daysBack` a scrollne na blok. Logika: `pendingScrollMs` ref + `useLayoutEffect([daysBack])`.
 - **DatePickerField** — viz sekce níže
+
+### autoResolveOverlap (PlannerPage.tsx)
+Automatické řešení překryvů po přesunu, resize nebo dropu bloku z fronty.
+
+```ts
+type OverlapResult = "resolved" | "blocked_by_lock" | "failed";
+async function autoResolveOverlap(
+  movedBlock: Block,
+  excludeIds: Set<number>,
+  prevBlock?: Block,
+  deleteBlockOnConflict = false
+): Promise<OverlapResult>
+```
+
+**Krok 1 — backward snap:** Pokud `movedBlock.startTime` leží uvnitř jiného bloku, nový blok se snapne hned za jeho konec (PUT).
+
+**Krok 2 — forward push chain:** Pokud nový blok přelézá start dalšího bloku, pushne celý navazující chain.
+- Chain kritérium: `blockStart < cursorEnd + shiftMs` — zahrnuje jen bloky, které by po posunu **skutečně překrývaly** posouvaný blok. Starý `CHAIN_GAP_MS = 30 min` odstraněn.
+- Tolerance `cursorEnd - 60_000` (1 min) pro "přesně dotýkající se" bloky.
+- Zamknutý blok v chainu → revert nebo DELETE (viz níže).
+
+**`deleteBlockOnConflict = true` (drop z fronty):**
+- Locked conflict + DELETE OK → blok smazán z DB i UI, toast, return `"blocked_by_lock"` → caller nechá item ve frontě
+- Locked conflict + DELETE selhal → return `"failed"` → caller odstraní item z fronty (prevence duplicit), info toast
+- Síťová chyba kdekoli → return `"failed"`
+
+**`deleteBlockOnConflict = false` (přesun/resize existujícího bloku, výchozí):**
+- Locked conflict → `revertMovedBlock()` vrátí blok na `prevBlock ?? movedBlock`, zobrazí `pushSuggestion` banner
+
+**handleQueueDrop** volá `autoResolveOverlap(parentBlock, ..., true)` po vytvoření bloku. Recurring children overlap resolution není implementována (known limitation).
 
 ### DatePickerField (vlastní komponenta)
 - Plně vlastní custom komponenta v `PlannerPage.tsx` — **bez react-day-picker ani shadcn Calendar**
@@ -243,6 +285,7 @@ Tím označíte migraci jako již aplikovanou (baseline).
 ## DB Schema — Block model
 
 Pole: id, orderNumber, machine (XL_105|XL_106), startTime, endTime, type (ZAKAZKA|REZERVACE|UDRZBA),
+**blockVariant (String @default("STANDARD") — STANDARD|BEZ_TECHNOLOGIE|BEZ_SACKU|POZASTAVENO, jen pro ZAKAZKA)**,
 description, locked, deadlineExpedice,
 dataStatusId, dataStatusLabel, dataRequiredDate, dataOk,
 materialStatusId, materialStatusLabel, materialRequiredDate, materialOk,
@@ -250,18 +293,35 @@ barvyStatusId, barvyStatusLabel,
 lakStatusId, lakStatusLabel,
 specifikace,
 recurrenceType (NONE|DAILY|WEEKLY|MONTHLY), recurrenceParentId (self-relace),
+**printCompletedAt (DateTime?), printCompletedByUserId (Int?), printCompletedByUsername (String?)** — potvrzení tisku tiskaři,
 createdAt, updatedAt.
 
 Poznámka: Stará pole `deadlineData`, `deadlineMaterial`, `deadlineDataOk`, `deadlineMaterialOk` a `pantoneExpectedDate` jsou odstraněna a nahrazena novým schématem výrobních sloupečků (migrace provedena).
 
 ## DB Schema — CodebookOption model
 
-Pole: id, category (DATA|MATERIAL|BARVY|LAK), label, sortOrder, isActive, shortCode (nullable), isWarning.
-Seed default hodnot je součástí etapy 5.
+Pole: id, category (DATA|MATERIAL|BARVY|LAK), label, sortOrder, isActive, shortCode (nullable), isWarning, **badgeColor (String? — klíč z BADGE_COLOR_KEYS)**.
+
+## DB Schema — CompanyDay model
+
+Pole: id, startDate, endDate, label, **machine (String? — null = obě stroje, „XL_105"/„XL_106" = jen daný stroj)**, createdAt.
 
 ## DB Schema — User model
 
-Pole: id, username (unique), passwordHash, role (ADMIN|PLANOVAT|MTZ|DTP|VIEWER), createdAt
+Pole: id, username (unique), passwordHash, role (ADMIN|PLANOVAT|MTZ|DTP|VIEWER|**TISKAR**), **assignedMachine (String? — pro TISKAR: „XL_105" nebo „XL_106")**, createdAt.
+
+## DB Schema — MachineWorkHours model
+
+Pole: id, machine (XL_105|XL_106), dayOfWeek (0=neděle…6=sobota), startHour (0–23), endHour (1–24), isActive.
+Unique constraint: `(machine, dayOfWeek)`. Index: `machine`.
+Slouží pro validaci při drag&drop i batch update — blok ZAKAZKA nesmí zasahovat mimo provozní hodiny.
+
+## DB Schema — MachineScheduleException model
+
+Pole: id, machine, date (DateTime — uloženo jako UTC midnight), startHour, endHour, isActive, label (String?), createdAt.
+Unique constraint: `(machine, date)`. Index: `date`.
+Výjimka přebíjí MachineWorkHours pro daný den. Upsert pattern — jeden záznam per stroj+datum.
+Seed default hodnot je součástí etapy 5.
 
 ---
 
@@ -306,8 +366,16 @@ Veškeré nové UI komponenty a úpravy existujících musí dodržovat tyto zá
 | Změna MATERIÁL stavu / data / OK | PUT — `materialStatusLabel`, `materialRequiredDate`, `materialOk` |
 | Změna termínu expedice | PUT — `deadlineExpedice` |
 
+### Co se loguje — rozšíření (2026-03-21)
+| Akce | Trigger |
+|------|---------|
+| Hromadný posun bloků | POST `/api/blocks/batch` — pole `startTime/endTime/machine` |
+| Reset potvrzení tisku při přesunu | POST `/api/blocks/batch` — akce `PRINT_RESET` |
+| Potvrzení tisku | POST `/api/blocks/[id]/complete` — akce `PRINT_COMPLETE` |
+| Vrácení potvrzení tisku | POST `/api/blocks/[id]/complete` — akce `PRINT_UNDO` |
+
 ### Co se NELOGUJE
-- Drag & drop (startTime/endTime), resize, popis, specifikace, barvy, lak, zámek
+- Drag & drop jednotlivých bloků (startTime/endTime), resize, popis, specifikace, barvy, lak, zámek
 
 ### DB model `AuditLog`
 ```prisma
@@ -344,6 +412,104 @@ model AuditLog {
 - **Info panel** (bell ikona v headeru) — záznamy DTP/MTZ za posl. 3 dny, proklik na zakázku
 - **BlockDetail** — sekce "Historie změn" s posledními 10 záznamy pro daný blok
 - **Admin dashboard** — záložka "Audit log" s tabulkou posledních 50 záznamů
+
+---
+
+## Etapa TISKAR + Batch API ✅ Hotovo (2026-03-21)
+
+### Role TISKAR
+- Nová role `TISKAR` — read-only na plánovači, přístup jen na `/tiskar`
+- User má `assignedMachine: String?` — přiřazený stroj (`XL_105` nebo `XL_106`)
+- `SessionUser` interface obsahuje `assignedMachine` — je součástí JWT tokenu
+- Middleware pustí TISKAR na `/tiskar` i `/api/blocks/[id]/complete`
+
+### Potvrzení tisku (printCompleted)
+- Block má 3 nová pole: `printCompletedAt`, `printCompletedByUserId`, `printCompletedByUsername`
+- API: `POST /api/blocks/[id]/complete` s body `{ completed: boolean }`
+  - `completed: true` → nastaví printCompleted* pole
+  - `completed: false` → vymaže (undo)
+- Role: TISKAR (jen svůj stroj), ADMIN, PLANOVAT
+- Jen ZAKAZKA bloky (ne REZERVACE/UDRZBA)
+- **PRINT_RESET**: pokud se blok přesune (batch nebo single drag) a byl označen jako vytisknut → automaticky se reset a loguje akce `PRINT_RESET`
+
+### TiskarMonitor
+- Stránka `/tiskar` — Server Component načítá bloky daného stroje (7 dní dopředu)
+- Komponenta `TiskarMonitor.tsx` — mini timeline (jen jeden stroj, SLOT_HEIGHT=26, HEADER_H=52)
+- Polling každých 30s (`setInterval`) — auto-refresh bez F5
+- Vizuál: modrý blok = nezahájen, zelený blok = vytisknut (printCompletedAt != null)
+
+### MachineWorkHours — provozní hodiny strojů
+- Tabulka per stroj + den týdne (unique constraint)
+- API: `GET /api/machine-shifts` (všichni přihlášení), `PUT /api/machine-shifts` (ADMIN/PLANOVAT)
+- Validace při drag&drop i batch update — blok ZAKAZKA nesmí zasahovat mimo provozní hodiny
+- `checkScheduleViolation()` funkce — slot-by-slot kontrola po 30 min (Europe/Prague timezone přes Intl.DateTimeFormat)
+
+### MachineScheduleException — výjimky hodin
+- Výjimka pro konkrétní datum+stroj přebíjí MachineWorkHours
+- API: `GET /api/machine-exceptions`, `POST /api/machine-exceptions` (upsert), `DELETE /api/machine-exceptions/[id]`
+- Date storage: klient posílá YYYY-MM-DD string → server uloží jako UTC midnight (`new Date(datePart + "T00:00:00.000Z")`)
+- **POZOR:** nikdy nepoužívat `getFullYear()/getMonth()/getDate()` na serveru pro datumovou konverzi — na UTC serveru se CZ půlnoc = předchozí UTC den. Vždy slice první 10 znaků ISO stringu.
+
+### Batch update bloků
+- API: `POST /api/blocks/batch` s body `{ updates: [{ id, startTime, endTime, machine }] }`
+- Role: ADMIN, PLANOVAT only
+- Validace: 1) sanity check časů (start < end) před DB, 2) schedule validace jen ZAKAZKA bloků (paralelní fetch schedule+exceptions)
+- Transakce: `prisma.$transaction` — `Promise.all` updatů + `auditLog.createMany` v jednom round-tripu
+- Používá se pro lasso hromadné přesuny v TimelineGrid
+
+### CompanyDay.machine
+- Pole `machine: String?` — `null` = odstávka pro oba stroje, `"XL_105"`/`"XL_106"` = jen pro jeden
+
+### badgeColor na CodebookOption
+- Pole `badgeColor: String?` — klíč z `BADGE_COLOR_KEYS` (`blue`, `green`, `orange`, `red`, `purple`, `cyan`, `lime`, `pink`, `black`)
+- Helper funkce v `src/lib/badgeColors.ts`:
+  - `badgeColorVar(key)` → CSS token `var(--badge-<key>)` nebo null
+  - `parseBadgeColor(value)` → validace a normalizace z API payloadu
+- CSS tokeny definovány v `globals.css` jako CSS custom properties
+
+---
+
+## Varianty zakázky (blockVariant) ✅ Hotovo (2026-03-22)
+
+### Přehled variant
+
+| Varianta | Label v UI | Barva bloku |
+|---|---|---|
+| `STANDARD` | Klasická | modrá `#3b82f6` (stávající) |
+| `BEZ_TECHNOLOGIE` | Bez technologie | tmavě smaragdová `#059669` |
+| `BEZ_SACKU` | Bez sáčku | oranžová `#e36414` |
+| `POZASTAVENO` | Pozastaveno | červená `#d00000` |
+
+### Klíčová rozhodnutí
+- **Jen pro ZAKAZKA** — REZERVACE a UDRZBA mají vždy `STANDARD`, UI sekci nezobrazuje
+- **POZASTAVENO = čistě vizuální** — blok je plně funkční (drag, resize, edit), jen barva se mění
+- **Priorita stylů:** `printDone (zelená) > POZASTAVENO (červená) > overdue (šedá) > typ barva`
+  - POZASTAVENO přebíjí šedý overdue stav — plánovač okamžitě vidí pozastavení i u bloků po termínu
+- **Server invariant:** `normalizeBlockVariant()` zajišťuje STANDARD pokud typ není ZAKAZKA — platí na POST i PUT
+- **PUT edge case:** při změně `type` bez `blockVariant` v těle — fallback na `oldBlock.blockVariant` (netiché přepsání na STANDARD)
+
+### Sdílený modul `src/lib/blockVariants.ts`
+```typescript
+export const BLOCK_VARIANTS = ["STANDARD", "BEZ_TECHNOLOGIE", "BEZ_SACKU", "POZASTAVENO"] as const;
+export type BlockVariant = typeof BLOCK_VARIANTS[number];
+export function normalizeBlockVariant(variant, type): BlockVariant { ... }
+```
+Importován z API routes (server) i client komponent — `PlannerPage.tsx` není zdrojem sdílených konstant.
+
+### Propagace varianty
+Všechny create cesty propagují `blockVariant`:
+- Drop z fronty, paste (single i group), undo/restore, split bloku (POST druhé poloviny)
+
+### Audit
+Změna `blockVariant` je logována v `AuditLog` (pole `"blockVariant"`, oldValue/newValue).
+
+### Klíčové soubory
+- `src/lib/blockVariants.ts` — BLOCK_VARIANTS, BlockVariant, normalizeBlockVariant
+- `prisma/migrations/20260322161950_add_block_variant/` — migrace pro nové pole
+- `src/app/_components/TimelineGrid.tsx` — BLOCK_STYLES (3 nové záznamy + helper `getBlockStyleKey`)
+- `src/app/_components/PlannerPage.tsx` — VARIANT_CONFIG, selektor v builderu i BlockEdit
+- `src/app/api/blocks/route.ts` — POST normalizuje variantu
+- `src/app/api/blocks/[id]/route.ts` — PUT normalizuje + audit
 
 ---
 

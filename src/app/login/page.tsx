@@ -1,19 +1,46 @@
 "use client";
 
-import { useRef, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRef, useEffect, useState, Suspense } from "react";
+import { useRouter } from "next/navigation";
 
 function LoginForm() {
   const usernameRef = useRef<HTMLInputElement>(null);
-  const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const router = useRouter();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     usernameRef.current?.focus();
   }, []);
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Nesprávné přihlašovací údaje");
+      } else {
+        router.push(data.role === "TISKAR" ? "/tiskar" : "/");
+      }
+    } catch (err) {
+      console.error("Login request failed", err);
+      setError("Chyba připojení k serveru");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <form action="/api/auth/login" method="POST" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Username */}
       <div>
         <label htmlFor="username" style={{ fontSize: 10, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>
@@ -26,6 +53,9 @@ function LoginForm() {
           type="text"
           autoComplete="username"
           required
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          disabled={loading}
           style={{
             width: "100%", boxSizing: "border-box",
             height: 40, borderRadius: 10,
@@ -49,6 +79,9 @@ function LoginForm() {
           type="password"
           autoComplete="current-password"
           required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          disabled={loading}
           style={{
             width: "100%", boxSizing: "border-box",
             height: 40, borderRadius: 10,
@@ -76,24 +109,25 @@ function LoginForm() {
       {/* Submit */}
       <button
         type="submit"
+        disabled={loading}
         style={{
           marginTop: 8,
           width: "100%", height: 42, borderRadius: 10,
           background: "#FFE600",
-          border: "none", cursor: "pointer",
+          border: "none", cursor: loading ? "wait" : "pointer",
           color: "var(--bg)", fontSize: 14, fontWeight: 700,
           transition: "all 120ms ease-out",
           letterSpacing: "0.01em",
+          opacity: loading ? 0.7 : 1,
         }}
       >
-        Přihlásit se
+        {loading ? "Přihlašuji…" : "Přihlásit se"}
       </button>
     </form>
   );
 }
 
 export default function LoginPage() {
-
   return (
     <div style={{
       minHeight: "100vh",
