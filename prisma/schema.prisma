@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Block {
+  id                   Int       @id @default(autoincrement())
+  orderNumber          String
+  machine              String
+  startTime            DateTime
+  endTime              DateTime
+  type                 String    @default("ZAKAZKA")
+  blockVariant         String    @default("STANDARD")
+  description          String?
+  locked               Boolean   @default(false)
+  deadlineExpedice     DateTime?
+  dataStatusId         Int?
+  dataStatusLabel      String?
+  dataRequiredDate     DateTime?
+  dataOk               Boolean   @default(false)
+  materialStatusId     Int?
+  materialStatusLabel  String?
+  materialRequiredDate DateTime?
+  materialOk           Boolean   @default(false)
+  barvyStatusId        Int?
+  barvyStatusLabel     String?
+  lakStatusId          Int?
+  lakStatusLabel       String?
+  specifikace          String?
+  materialNote           String?   @db.Text
+  materialNoteByUsername String?
+  recurrenceType           String    @default("NONE")
+  recurrenceParentId       Int?
+  printCompletedAt         DateTime?
+  printCompletedByUserId   Int?
+  printCompletedByUsername String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @default(now()) @updatedAt
+  recurrenceParent     Block?    @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
+  recurrenceChildren   Block[]   @relation("RecurrenceChildren")
+
+  @@index([recurrenceParentId])
+}
+
+model CodebookOption {
+  id         Int     @id @default(autoincrement())
+  category   String
+  label      String
+  sortOrder  Int     @default(0)
+  isActive   Boolean @default(true)
+  shortCode  String?
+  isWarning  Boolean @default(false)
+  badgeColor String?
+}
+
+model CompanyDay {
+  id        Int      @id @default(autoincrement())
+  startDate DateTime
+  endDate   DateTime
+  label     String
+  machine   String?
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  username        String   @unique
+  passwordHash    String
+  role            String   @default("VIEWER")
+  assignedMachine String?
+  createdAt       DateTime @default(now())
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  blockId     Int
+  orderNumber String?
+  userId      Int
+  username    String
+  action      String
+  field       String?
+  oldValue    String?
+  newValue    String?
+  createdAt   DateTime @default(now())
+
+  @@index([blockId, createdAt])  // GET /api/blocks/[id]/audit: WHERE blockId = ? ORDER BY createdAt DESC
+  @@index([createdAt])           // GET /api/audit: ORDER BY createdAt DESC + GET /api/audit/today: date range filter
+}
+
+model MachineWorkHours {
+  id         Int     @id @default(autoincrement())
+  machine    String  // "XL_105" | "XL_106"
+  dayOfWeek  Int     // 0=neděle, 1=pondělí, ..., 6=sobota
+  startHour  Int     // 0–23
+  endHour    Int     // 1–24 (24 = konec dne)
+  isActive   Boolean @default(true)
+
+  @@unique([machine, dayOfWeek])
+  @@index([machine])
+}
+
+model MachineScheduleException {
+  id        Int      @id @default(autoincrement())
+  machine   String   // "XL_105" | "XL_106"
+  date      DateTime // konkrétní datum (uloženo jako 00:00:00 UTC)
+  startHour Int      // 0–23
+  endHour   Int      // 1–24
+  isActive  Boolean  @default(true)
+  label     String?  // nepovinný popis
+  createdAt DateTime @default(now())
+
+  @@unique([machine, date])
+  @@index([date])
+}

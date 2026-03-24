@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { ReactNode } from "react";
+import Providers from "./providers";
 
 export const metadata = {
   title: "Plánování výroby",
@@ -8,11 +9,10 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="cs">
-      <body className="min-h-screen bg-slate-950 text-slate-100">
-        {children}
+    <html lang="cs" suppressHydrationWarning>
+      <body className="min-h-screen bg-background text-foreground transition-colors duration-200">
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
 }
-
