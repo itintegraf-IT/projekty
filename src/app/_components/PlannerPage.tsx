@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
 import { BLOCK_VARIANTS, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
+import { pragueToUTC, utcToPragueHour, utcToPragueDateStr } from "@/lib/dateUtils";
 import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
 import type { MachineWorkHours } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
@@ -415,20 +416,20 @@ function BlockEdit({
 
   // Termín expedice
   const [deadlineExpedice, setDeadlineExpedice] = useState(
-    block.deadlineExpedice ? new Date(block.deadlineExpedice).toISOString().slice(0, 10) : ""
+    block.deadlineExpedice ? utcToPragueDateStr(new Date(block.deadlineExpedice)) : ""
   );
 
   // DATA
   const [dataStatusId, setDataStatusId]         = useState<string>(block.dataStatusId?.toString() ?? "");
   const [dataRequiredDate, setDataRequiredDate] = useState(
-    block.dataRequiredDate ? new Date(block.dataRequiredDate).toISOString().slice(0, 10) : ""
+    block.dataRequiredDate ? utcToPragueDateStr(new Date(block.dataRequiredDate)) : ""
   );
   const [dataOk, setDataOk] = useState(block.dataOk);
 
   // MATERIÁL
   const [materialStatusId, setMaterialStatusId]         = useState<string>(block.materialStatusId?.toString() ?? "");
   const [materialRequiredDate, setMaterialRequiredDate] = useState(
-    block.materialRequiredDate ? new Date(block.materialRequiredDate).toISOString().slice(0, 10) : ""
+    block.materialRequiredDate ? utcToPragueDateStr(new Date(block.materialRequiredDate)) : ""
   );
   const [materialOk, setMaterialOk]             = useState(block.materialOk);
   const [materialNote, setMaterialNote]         = useState(block.materialNote ?? "");
@@ -1177,10 +1178,10 @@ function fmtAuditVal(val: string | null, field: string | null) {
 function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; onClose: () => void; onJumpToBlock: (orderNumber: string) => void }) {
   function fmtDatetime(iso: string) {
     const d = new Date(iso);
-    const today = new Date();
-    const isToday = d.toDateString() === today.toDateString();
-    const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" });
-    return isToday ? time : d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit" }) + " " + time;
+    const tz = "Europe/Prague";
+    const isToday = d.toLocaleDateString("en-CA", { timeZone: tz }) === new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+    return isToday ? time : d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", timeZone: tz }) + " " + time;
   }
   function fmtVal(val: string | null, field: string | null) {
     return fmtAuditVal(val, field);
@@ -1307,10 +1308,10 @@ function ShutdownManager({
     setEditingId(cd.id);
     setEditState({
       label: cd.label,
-      startDate: cd.startDate.slice(0, 10),
-      endDate: cd.endDate.slice(0, 10),
-      startHour: s.getHours(),
-      endHour: e.getHours(),
+      startDate: utcToPragueDateStr(s),
+      endDate: utcToPragueDateStr(e),
+      startHour: utcToPragueHour(s),
+      endHour: utcToPragueHour(e),
       machine: !cd.machine ? "both" : cd.machine === "XL_105" ? "XL_105" : "XL_106",
     });
   }
@@ -1319,12 +1320,12 @@ function ShutdownManager({
 
   async function handleAdd() {
     if (!startDate || !endDate || !label.trim()) { setError("Vyplňte všechna pole."); return; }
-    const startISO = `${startDate}T${String(startHour).padStart(2, "0")}:00:00`;
-    const endISO   = `${endDate}T${String(endHour).padStart(2, "0")}:59:59`;
-    if (endISO < startISO) { setError("Konec musí být po začátku."); return; }
+    const startUTC = pragueToUTC(startDate, startHour, 0);
+    const endUTC   = pragueToUTC(endDate, endHour, 59);
+    if (endUTC <= startUTC) { setError("Konec musí být po začátku."); return; }
     setSaving(true); setError(null);
     try {
-      await onAdd(startISO, endISO, label.trim(), machine === "both" ? null : machine);
+      await onAdd(startUTC.toISOString(), endUTC.toISOString(), label.trim(), machine === "both" ? null : machine);
       setStartDate(""); setEndDate(""); setLabel(""); setStartHour(0); setEndHour(23); setMachine("both");
     } catch (error) {
       console.error("Company day save failed", error);
@@ -1336,12 +1337,12 @@ function ShutdownManager({
   async function handleSaveEdit(id: number) {
     if (!editState) return;
     if (!editState.startDate || !editState.endDate || !editState.label.trim()) { setError("Vyplňte všechna pole."); return; }
-    const startISO = `${editState.startDate}T${String(editState.startHour).padStart(2, "0")}:00:00`;
-    const endISO   = `${editState.endDate}T${String(editState.endHour).padStart(2, "0")}:59:59`;
-    if (endISO < startISO) { setError("Konec musí být po začátku."); return; }
+    const startUTC = pragueToUTC(editState.startDate, editState.startHour, 0);
+    const endUTC   = pragueToUTC(editState.endDate, editState.endHour, 59);
+    if (endUTC <= startUTC) { setError("Konec musí být po začátku."); return; }
     setEditSaving(true); setError(null);
     try {
-      await onUpdate(id, startISO, endISO, editState.label.trim(), editState.machine === "both" ? null : editState.machine);
+      await onUpdate(id, startUTC.toISOString(), endUTC.toISOString(), editState.label.trim(), editState.machine === "both" ? null : editState.machine);
       cancelEdit();
     } catch (err) {
       console.error("Company day update failed", err);
@@ -1446,15 +1447,18 @@ function ShutdownManager({
                   </div>
                   <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
                     {(() => {
+                      const tz = "Europe/Prague";
                       const s = new Date(cd.startDate);
                       const e = new Date(cd.endDate);
-                      const sDate = s.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
-                      const eDate = e.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric" });
-                      const sHour = s.getHours(); const eHour = e.getHours();
+                      const sDate = s.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: tz });
+                      const eDate = e.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: tz });
+                      const sHour = utcToPragueHour(s); const eHour = utcToPragueHour(e);
                       const wholeDay = sHour === 0 && eHour === 23;
                       const sTime = wholeDay ? "" : ` ${String(sHour).padStart(2, "0")}:00`;
                       const eTime = wholeDay ? "" : ` ${String(eHour).padStart(2, "0")}:59`;
-                      const sameDateStr = cd.startDate.slice(0, 10) === cd.endDate.slice(0, 10);
+                      const sDateStr = utcToPragueDateStr(s);
+                      const eDateStr = utcToPragueDateStr(e);
+                      const sameDateStr = sDateStr === eDateStr;
                       return sameDateStr ? `${sDate}${sTime}${eTime && sTime !== eTime ? ` – ${eTime.trim()}` : ""}` : `${sDate}${sTime} – ${eDate}${eTime}`;
                     })()}
                   </div>
@@ -1679,7 +1683,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const isGroupCutRef = useRef(false);
   const [filterText, setFilterText] = useState("");
   const [searchMatchIndex, setSearchMatchIndex] = useState(0);
-  const [searchNoMore, setSearchNoMore] = useState(false);
   const [jumpDate, setJumpDate]     = useState("");
   const [reportDate, setReportDate] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1718,6 +1721,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     zoomAnchorMs.current = null;
   }, [slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Načtení preferencí z localStorage po mount (SSR-safe — default se renderuje server i client stejně)
+  useEffect(() => {
+    const z = localStorage.getItem("ig-planner-zoom");
+    if (z) setSlotHeight(Math.max(3, Math.min(26, Number(z))));
+    const w = localStorage.getItem("ig-planner-aside-width");
+    if (w) setAsideWidth(Math.max(200, Math.min(600, Number(w))));
+  }, []);
+
+  useEffect(() => { localStorage.setItem("ig-planner-zoom", String(slotHeight)); }, [slotHeight]);
+
   // Resizable aside
   const [asideWidth, setAsideWidth] = useState(320);
   const isResizing = useRef(false);
@@ -1740,6 +1753,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
+
+  useEffect(() => { localStorage.setItem("ig-planner-aside-width", String(asideWidth)); }, [asideWidth]);
 
   // Načtení číselníků pro builder
   useEffect(() => {
@@ -1865,7 +1880,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const newViewStart = startOfDay(addDays(new Date(), -daysBack));
     const y = dateToY(new Date(target), newViewStart, slotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
-  }, [daysBack]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [daysBack, daysAhead]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleJumpToOutOfRange(block: Block) {
     const blockDate = startOfDay(new Date(block.startTime));
@@ -1897,32 +1912,41 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     : [];
 
-  function handleSearchEnter() {
-    if (!filterText.trim()) return;
-    if (searchMatches.length === 0) {
-      setSearchNoMore(true);
-      setTimeout(() => setSearchNoMore(false), 2500);
-      return;
-    }
-    const idx = searchMatchIndex % searchMatches.length;
+  function goToMatch(idx: number) {
     const block = searchMatches[idx];
-    const isOutOfRange = new Date(block.startTime) < viewStart;
-    if (isOutOfRange) {
+    const blockTime = new Date(block.startTime);
+    if (blockTime < viewStart) {
+      // Blok je v historii za viewStart — rozšíř daysBack
       handleJumpToOutOfRange(block);
     } else {
-      const y = dateToY(new Date(block.startTime), viewStart, slotHeight);
-      scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
-      setSelectedBlock(block);
+      const today = startOfDay(new Date());
+      const diffDays = Math.round((today.getTime() - blockTime.getTime()) / (24 * 60 * 60 * 1000));
+      if (diffDays < -daysAhead) {
+        // Blok je v budoucnosti za viewEnd — rozšíř daysAhead
+        pendingScrollMs.current = blockTime.getTime();
+        setDaysAhead(-diffDays + 5);
+      } else {
+        const y = dateToY(blockTime, viewStart, slotHeight);
+        scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
+        setSelectedBlock(block);
+      }
     }
-    const nextIdx = searchMatchIndex + 1;
-    if (nextIdx >= searchMatches.length) {
-      setSearchMatchIndex(0);
-      setSearchNoMore(true);
-      setTimeout(() => setSearchNoMore(false), 2500);
-    } else {
-      setSearchMatchIndex(nextIdx);
-      setSearchNoMore(false);
-    }
+  }
+
+  function goToNextMatch() {
+    if (!filterText.trim() || searchMatches.length === 0) return;
+    const N = searchMatches.length;
+    const idx = searchMatchIndex % N;
+    goToMatch(idx);
+    setSearchMatchIndex(idx + 1);
+  }
+
+  function goToPrevMatch() {
+    if (!filterText.trim() || searchMatches.length === 0) return;
+    const N = searchMatches.length;
+    const idx = searchMatchIndex === 0 ? N - 1 : (searchMatchIndex - 2 + N) % N;
+    goToMatch(idx);
+    setSearchMatchIndex(idx + 1);
   }
 
   async function handleLogout() {
@@ -1941,9 +1965,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const today = startOfDay(new Date());
     const diffDays = Math.round((today.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
     if (diffDays > daysBack) {
-      // Datum je před aktuálním viewStart — nejdřív rozšíř rozsah, pak scrollni
+      // Datum je před aktuálním viewStart — rozšíř historii, pak scrollni
       pendingScrollMs.current = d.getTime();
       setDaysBack(diffDays + 3);
+    } else if (diffDays < -daysAhead) {
+      // Datum je za aktuálním viewEnd — rozšíř budoucnost, pak scrollni
+      pendingScrollMs.current = d.getTime();
+      setDaysAhead(-diffDays + 3);
     } else {
       const y = dateToY(d, viewStart, slotHeight);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 100), behavior: "smooth" });
@@ -2843,10 +2871,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             <Input
               type="text"
               value={filterText}
-              onChange={(e) => { setFilterText(e.target.value); setSearchMatchIndex(0); setSearchNoMore(false); }}
+              onChange={(e) => { setFilterText(e.target.value); setSearchMatchIndex(0); }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); handleSearchEnter(); }
-                if (e.key === "Escape") { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); setSearchNoMore(false); }
+                if (e.key === "Enter") { e.preventDefault(); goToNextMatch(); }
+                if (e.key === "Escape") { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); }
               }}
               placeholder="Hledat zakázku…"
               className="h-8 text-xs w-40 theme-transition-fast"
@@ -2854,7 +2882,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             />
             {filterText && (
               <button
-                onClick={() => { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); setSearchNoMore(false); }}
+                onClick={() => { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); }}
                 style={{ position: "absolute", right: 6, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, lineHeight: 1, fontSize: 14, display: "flex", alignItems: "center" }}
                 title="Zrušit filtr (Esc)"
               >
@@ -2863,15 +2891,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             )}
           </div>
           {filterText && (
-            <span style={{ fontSize: 11, whiteSpace: "nowrap", color: searchNoMore ? "#f59e0b" : "var(--text-muted)" }}>
-              {searchNoMore
-                ? "Žádný další výsledek"
-                : searchMatches.length > 0
-                  ? searchMatchIndex === 0
-                    ? `${searchMatches.length} shod — Enter`
-                    : `${searchMatchIndex} / ${searchMatches.length}`
-                  : "Žádná shoda"}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              {searchMatches.length > 0 ? (
+                <>
+                  <button
+                    onClick={goToPrevMatch}
+                    title="Předchozí výsledek"
+                    style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 5, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 11, lineHeight: 1, transition: "all 120ms ease-out", flexShrink: 0 }}
+                  >↑</button>
+                  <span style={{ fontSize: 11, whiteSpace: "nowrap", color: "var(--text-muted)", minWidth: 38, textAlign: "center" }}>
+                    {searchMatchIndex === 0 ? `${searchMatches.length}` : `${searchMatchIndex}/${searchMatches.length}`}
+                  </span>
+                  <button
+                    onClick={goToNextMatch}
+                    title="Další výsledek (Enter)"
+                    style={{ width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 5, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 11, lineHeight: 1, transition: "all 120ms ease-out", flexShrink: 0 }}
+                  >↓</button>
+                </>
+              ) : (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Žádná shoda</span>
+              )}
+            </div>
           )}
           <div style={{ width: 150 }}>
             <DatePickerField
@@ -2928,6 +2968,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 {d}d
               </button>
             ))}
+          </div>
+          <div style={{ display: "flex", gap: 3 }}>
+            <button
+              type="button"
+              onClick={() => setDaysBack(b => b + 30)}
+              title="Rozšířit historii o 30 dní"
+              style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, lineHeight: 1, transition: "all 120ms ease-out" }}
+            >←</button>
+            <button
+              type="button"
+              onClick={() => { pendingScrollMs.current = Date.now() + daysAhead * 24 * 60 * 60 * 1000; setDaysAhead(a => a + 30); }}
+              title="Rozšířit budoucnost o 30 dní"
+              style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, lineHeight: 1, transition: "all 120ms ease-out" }}
+            >→</button>
           </div>
         </div>
 

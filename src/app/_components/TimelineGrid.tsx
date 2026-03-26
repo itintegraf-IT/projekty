@@ -1,7 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
 import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
+import { utcToPragueDateStr } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
 import type { BlockVariant } from "@/lib/blockVariants";
 import { Lock, Clock } from "lucide-react";
@@ -22,6 +23,15 @@ import {
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
+
+// Sdílený styl pro label chip uvnitř company day overlaye (Z10)
+const COMPANY_DAY_CHIP_STYLE: CSSProperties = {
+  position: "absolute", top: 4, left: 8, height: 14, padding: "0 5px",
+  borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca",
+  fontSize: 9, fontWeight: 700, letterSpacing: "0.04em",
+  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+  maxWidth: "calc(100% - 16px)", display: "flex", alignItems: "center", lineHeight: 1,
+};
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
 const HEADER_HEIGHT = 33;       // výška sticky headeru (px) — pro sticky label uvnitř dne
 const TIME_COL_W = 72;          // šířka sloupce s časy (px)
@@ -368,7 +378,7 @@ function fmtDate(s: string | null | undefined): string {
   if (!s) return "–";
   const d = new Date(s);
   if (isNaN(d.getTime())) return "–";
-  return d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Prague" });
 }
 
 // Zkrácený formát bez roku: "5.1."
@@ -376,7 +386,7 @@ function fmtDateShort(s: string | null | undefined): string {
   if (!s) return "–";
   const d = new Date(s);
   if (isNaN(d.getTime())) return "–";
-  return `${d.getDate()}.${d.getMonth() + 1}.`;
+  return d.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric", timeZone: "Europe/Prague" });
 }
 
 function deadlineState(requiredDate: string | null | undefined, ok: boolean, now: Date, blockStartTime?: string | Date): "none" | "ok" | "warning" | "danger" | "earlyStart" {
@@ -1728,9 +1738,12 @@ export default function TimelineGrid({
       } else if (ds.type === "overlay-resize") {
         const sh2 = slotHeightRef.current;
         const deltaHours = Math.round((e.clientY - ds.startClientY) / (sh2 * 2));
-        let newHour = Math.max(1, Math.min(23, ds.originalBoundaryHour + deltaHours));
-        const newStartHour = ds.edge === "start" ? newHour : 0;
-        const newEndHour   = ds.edge === "end"   ? newHour : 24;
+        // Clamp: start musí být < end (otherBoundaryHour je opačná hranice)
+        const newHour = ds.edge === "start"
+          ? Math.max(1, Math.min(ds.otherBoundaryHour - 1, ds.originalBoundaryHour + deltaHours))
+          : Math.max(ds.otherBoundaryHour + 1, Math.min(23, ds.originalBoundaryHour + deltaHours));
+        const newStartHour = ds.edge === "start" ? newHour : ds.otherBoundaryHour;
+        const newEndHour   = ds.edge === "end"   ? newHour : ds.otherBoundaryHour;
         setOverlayDragPreview(null);
         await exceptionCallbacksRef.current.onExceptionUpsert?.(ds.machine, ds.date, newStartHour, newEndHour, true);
       }
@@ -1863,6 +1876,13 @@ export default function TimelineGrid({
 
   const blockedOverlays: Record<string, BlockedOverlay[]> = { XL_105: [], XL_106: [] };
 
+  // Předpočítané Prague date rozsahy pro company days — Prague midnight ≠ UTC midnight
+  const companyDayPragueRanges = companyDays?.map((cd) => ({
+    cd,
+    startPrague: utcToPragueDateStr(new Date(cd.startDate)),
+    endPrague:   utcToPragueDateStr(new Date(cd.endDate)),
+  })) ?? [];
+
   for (let di = 0; di < totalDays; di++) {
     const day      = addDays(viewStart, di);
     const dayY     = di * dayHeight;
@@ -1871,7 +1891,7 @@ export default function TimelineGrid({
     const isToday  = isSameDay(day, todayDate);
     const dateStr  = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const isHoliday = holidays.has(dateStr);
-    const companyDayMatch = companyDays?.find((cd) => dateStr >= cd.startDate.slice(0, 10) && dateStr <= cd.endDate.slice(0, 10));
+    const companyDayMatch = companyDayPragueRanges.find(({ startPrague, endPrague }) => dateStr >= startPrague && dateStr <= endPrague)?.cd;
     days.push({ date: day, y: dayY, isWeekend, isToday, isHoliday, isCompanyDay: !!companyDayMatch, companyDayLabel: companyDayMatch?.label });
     // Blocked overlays — výjimka přebíjí šablonu, fallback na hardcoded
     for (const machine of visibleMachines) {
@@ -2010,7 +2030,11 @@ export default function TimelineGrid({
               const height = clampedBottom - clampedTop;
               if (height <= 0) return null;
               return (
-                <div key={`ct-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
+                <div key={`ct-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", overflow: "hidden" }}>
+                  {cd.label && height >= 18 && (
+                    <div title={cd.label} style={COMPANY_DAY_CHIP_STYLE}>{cd.label}</div>
+                  )}
+                </div>
               );
             })}
             {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
@@ -2138,7 +2162,13 @@ export default function TimelineGrid({
                   const height = clampedBottom - clampedTop;
                   if (height <= 0) return null;
                   return (
-                    <div key={`c-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
+                    <div key={`c-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", overflow: "hidden" }}>
+                      {cd.label && height >= 18 && (
+                        <div title={cd.label} style={{ position: "absolute", top: 4, left: 8, height: 14, padding: "0 5px", borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "calc(100% - 16px)", display: "flex", alignItems: "center", lineHeight: 1 }}>
+                          {cd.label}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
 
@@ -2198,26 +2228,33 @@ export default function TimelineGrid({
                           }}
                         >×</button>
                       )}
-                      {/* Drag handles — horní (zkrátit odshora) + spodní (zkrátit odspodu) pro všechny typy */}
-                      {showUI && (
-                        <>
-                          <div
-                            style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
-                            onMouseDown={(e) => {
-                              e.preventDefault(); e.stopPropagation();
-                              dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundaryHour: n.effectiveStartHour, otherBoundaryHour: n.effectiveStartHour, startClientY: e.clientY, overlayKey: n.key };
-                              dragDidMove.current = false;
-                            }}
-                          />
-                          <div
-                            style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
-                            onMouseDown={(e) => {
-                              e.preventDefault(); e.stopPropagation();
-                              dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundaryHour: n.effectiveEndHour, otherBoundaryHour: n.effectiveEndHour, startClientY: e.clientY, overlayKey: n.key };
-                              dragDidMove.current = false;
-                            }}
-                          />
-                        </>
+                      {/* Horní handle — jen pro end-block (táhne workEnd nahoru/dolů) */}
+                      {showUI && n.overlayType === "end-block" && (
+                        <div
+                          style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); e.stopPropagation();
+                            const workStart = blockedOverlays[machine].find(
+                              x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString()
+                            )?.effectiveEndHour ?? 0;
+                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundaryHour: n.effectiveStartHour, otherBoundaryHour: workStart, startClientY: e.clientY, overlayKey: n.key };
+                            dragDidMove.current = false;
+                          }}
+                        />
+                      )}
+                      {/* Spodní handle — jen pro start-block (táhne workStart nahoru/dolů) */}
+                      {showUI && n.overlayType === "start-block" && (
+                        <div
+                          style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); e.stopPropagation();
+                            const workEnd = blockedOverlays[machine].find(
+                              x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString()
+                            )?.effectiveStartHour ?? 24;
+                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundaryHour: n.effectiveEndHour, otherBoundaryHour: workEnd, startClientY: e.clientY, overlayKey: n.key };
+                            dragDidMove.current = false;
+                          }}
+                        />
                       )}
                     </div>
                   );
