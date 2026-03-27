@@ -319,7 +319,7 @@ function DatePickerField({
       <PopoverTrigger asChild>
         {triggerBtn()}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0 border-0" style={{ background: "var(--surface)", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }}>
+      <PopoverContent align="start" side="top" className="w-auto p-0 border-0" style={{ background: "var(--surface)", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }}>
         <div style={{ width: 7 * CELL + 6 * GAP + 32, padding: "16px 16px 12px", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
 
           {/* Hlavička */}
@@ -444,8 +444,18 @@ function BlockEdit({
 
   // SÉRIE — potvrzovací dialog
   const [seriesConfirm, setSeriesConfirm] = useState<"save" | "delete" | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isInSeries = block.recurrenceType !== "NONE" || block.recurrenceParentId !== null;
+
+  // SPLIT SKUPINA
+  const splitGroup = block.splitGroupId != null
+    ? allBlocks
+        .filter((b) => b.splitGroupId === block.splitGroupId || b.id === block.splitGroupId)
+        .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    : null;
+  const splitIndex = splitGroup?.findIndex((b) => b.id === block.id) ?? -1;
+  const isInSplit = splitGroup !== null && splitIndex !== -1;
 
   function getSeriesIds(): number[] {
     const rootId = block.recurrenceParentId ?? block.id;
@@ -610,7 +620,21 @@ function BlockEdit({
   }
 
   return (
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)" }}>
+    <div
+      tabIndex={-1}
+      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)", outline: "none" }}
+      onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (
+          e.key === "Enter" && !e.shiftKey &&
+          (e.target as HTMLElement).tagName !== "TEXTAREA" &&
+          (e.target as HTMLElement).tagName !== "SELECT" &&
+          !seriesConfirm
+        ) {
+          e.preventDefault();
+          handleSave();
+        }
+      }}
+    >
       {/* Hlavička */}
       <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 95%, transparent) 0%, var(--surface) 100%)", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
@@ -619,6 +643,11 @@ function BlockEdit({
             {block.orderNumber}
             {isInSeries && (
               <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--accent)", background: "color-mix(in oklab, var(--accent) 14%, transparent)", borderRadius: 4, padding: "1px 5px" }}>↻ Série</span>
+            )}
+            {isInSplit && (
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", background: "color-mix(in oklab, var(--text-muted) 12%, transparent)", borderRadius: 4, padding: "1px 5px" }}>
+                ✂ Část {splitIndex + 1} / {splitGroup!.length}
+              </span>
             )}
           </div>
         </div>
@@ -677,7 +706,7 @@ function BlockEdit({
             <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>
               {type === "UDRZBA" ? "Název / označení" : "Číslo zakázky"} *
             </Label>
-            <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="h-8 text-xs" />
+            <Input value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} className="h-8 text-xs" autoFocus />
           </div>
           <div>
             <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>Popis</Label>
@@ -914,21 +943,45 @@ function BlockEdit({
             </div>
 
             {/* Smazat */}
-            <button
-              type="button"
-              onClick={() => {
-                if (isInSeries) {
-                  setSeriesConfirm("delete");
-                } else {
-                  onDeleteAll([block.id]).then(onClose);
-                }
-              }}
-              style={{ marginTop: 8, width: "100%", background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, padding: "6px 0", cursor: "pointer", textAlign: "center", transition: "color 0.1s" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
-            >
-              Smazat blok
-            </button>
+            {confirmDelete ? (
+              <div style={{ marginTop: 8 }}>
+                <p style={{ fontSize: 10, color: "var(--text-muted)", textAlign: "center", marginBottom: 6, margin: "0 0 6px" }}>
+                  Opravdu smazat blok?
+                </p>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <Button
+                    variant="destructive" size="sm"
+                    onClick={() => onDeleteAll([block.id]).then(onClose)}
+                    className="flex-1 text-xs"
+                  >
+                    Smazat
+                  </Button>
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => setConfirmDelete(false)}
+                    className="flex-1 text-xs border-slate-700 text-slate-300"
+                  >
+                    Zrušit
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isInSeries) {
+                    setSeriesConfirm("delete");
+                  } else {
+                    setConfirmDelete(true);
+                  }
+                }}
+                style={{ marginTop: 8, width: "100%", background: "none", border: "none", color: "var(--text-muted)", fontSize: 11, padding: "6px 0", cursor: "pointer", textAlign: "center", transition: "color 0.1s" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+              >
+                Smazat blok
+              </button>
+            )}
           </>
         )}
 
@@ -1663,6 +1716,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   // Timeline state
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
+  const [keyDeletePending, setKeyDeletePending] = useState(false);
+  const [multiDeletePending, setMultiDeletePending] = useState(false);
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
@@ -2172,10 +2227,31 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     return "resolved";
   }
 
+  const SPLIT_SHARED_FIELDS = [
+    "orderNumber", "description", "specifikace", "deadlineExpedice",
+    "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
+    "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk",
+    "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
+  ] as const;
+
   function handleBlockUpdate(updated: Block, addToHistory = false) {
+    if (typeof updated.id !== "number") return; // Guard against API error responses
     const prev = blocksRef.current.find(b => b.id === updated.id);
     setBlocks((arr) => arr.map((b) => (b.id === updated.id ? updated : b)));
     setSelectedBlock((sel) => (sel?.id === updated.id ? updated : sel));
+    // Lokální propagace sdílených polí do split sourozenců
+    if (updated.splitGroupId != null) {
+      const patch: Partial<Block> = {};
+      for (const f of SPLIT_SHARED_FIELDS) {
+        (patch as Record<string, unknown>)[f] = (updated as Record<string, unknown>)[f];
+      }
+      setBlocks(prev => prev.map(b =>
+        b.id !== updated.id &&
+        (b.splitGroupId === updated.splitGroupId || b.id === updated.splitGroupId)
+          ? { ...b, ...patch }
+          : b
+      ));
+    }
     if (prev) {
       const timeOrMachineChanged =
         new Date(prev.startTime).getTime() !== new Date(updated.startTime).getTime() ||
@@ -2361,16 +2437,78 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
     }
 
-    // Multi delete (série) — bez undo
+    // Multi delete — standalone bloky dostanou undo, série a split bez undo
+    const toDelete = blocksRef.current.filter((b) => ids.includes(b.id));
+    const standalone = toDelete.filter(
+      (b) => b.recurrenceType === "NONE" && b.recurrenceParentId === null && b.splitGroupId === null
+    );
+    const complex = toDelete.filter((b) => !standalone.some((s) => s.id === b.id));
+    // Smazat vše — zachytit které DELETE uspěly (na serveru ne jen síťově)
+    let deletedIds: number[];
     try {
-      await Promise.all(ids.map((id) => fetch(`/api/blocks/${id}`, { method: "DELETE" })));
-      setBlocks((prev) => prev.filter((b) => !ids.includes(b.id)));
-      if (ids.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
-      if (ids.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
+      const responses = await Promise.all(
+        ids.map((id) => fetch(`/api/blocks/${id}`, { method: "DELETE" }).then((r) => ({ id, ok: r.ok })))
+      );
+      deletedIds = responses.filter((r) => r.ok).map((r) => r.id);
+      if (deletedIds.length < ids.length) {
+        const failCount = ids.length - deletedIds.length;
+        showToast(`${failCount} blok${failCount > 1 ? "y" : ""} se nepodařilo smazat.`, "error");
+      }
     } catch (error) {
-      console.error("Series delete failed", error);
-      showToast("Chyba při mazání série.", "error");
+      console.error("Multi delete failed", error);
+      showToast("Chyba při mazání bloků.", "error");
+      return;
     }
+    if (deletedIds.length === 0) return;
+    setBlocks((prev) => prev.filter((b) => !deletedIds.includes(b.id)));
+    if (deletedIds.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
+    if (deletedIds.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
+    const deletedComplex = complex.filter((b) => deletedIds.includes(b.id));
+    if (deletedComplex.length > 0) showToast("Série/split bloky smazány bez možnosti vrátit.", "info");
+
+    // Undo jen pro standalone bloky, které byly skutečně smazány
+    const deletedStandalone = standalone.filter((b) => deletedIds.includes(b.id));
+    if (deletedStandalone.length === 0) return;
+
+    const payloads = deletedStandalone.map((b) => ({
+      orderNumber: b.orderNumber, machine: b.machine, startTime: b.startTime,
+      endTime: b.endTime, type: b.type, blockVariant: b.blockVariant,
+      description: b.description, locked: b.locked, deadlineExpedice: b.deadlineExpedice,
+      dataStatusId: b.dataStatusId, dataStatusLabel: b.dataStatusLabel,
+      dataRequiredDate: b.dataRequiredDate, dataOk: b.dataOk,
+      materialStatusId: b.materialStatusId, materialStatusLabel: b.materialStatusLabel,
+      materialRequiredDate: b.materialRequiredDate, materialOk: b.materialOk,
+      barvyStatusId: b.barvyStatusId, barvyStatusLabel: b.barvyStatusLabel,
+      lakStatusId: b.lakStatusId, lakStatusLabel: b.lakStatusLabel,
+      specifikace: b.specifikace, materialNote: b.materialNote, recurrenceType: "NONE",
+    }));
+    let restoredIds: number[] = [];
+    undoStack.current = undoStack.current.slice(-MAX_HISTORY + 1);
+    undoStack.current.push({
+      undo: async () => {
+        const results = await Promise.all(
+          payloads.map(async (p) => {
+            const r = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+            if (!r.ok) throw new Error(`POST /api/blocks selhalo: ${r.status}`);
+            return r.json() as Promise<Block>;
+          })
+        );
+        restoredIds = results.map((b) => b.id);
+        setBlocks((prev) => [...prev, ...results].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()));
+      },
+      redo: async () => {
+        const responses = await Promise.all(
+          restoredIds.map((id) => fetch(`/api/blocks/${id}`, { method: "DELETE" }).then((r) => ({ id, ok: r.ok })))
+        );
+        const gone = responses.filter((r) => r.ok).map((r) => r.id);
+        if (gone.length < restoredIds.length) throw new Error("Některé bloky se nepodařilo znovu smazat.");
+        restoredIds = [];
+        setBlocks((prev) => prev.filter((b) => !gone.includes(b.id)));
+      },
+    });
+    redoStack.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
   }
 
   async function handleSaveAll(ids: number[], payload: Record<string, unknown>) {
@@ -2755,14 +2893,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedBlockIdsRef.current.size > 0) {
         e.preventDefault();
-        const ids = [...selectedBlockIdsRef.current];
-        setSelectedBlockIds(new Set());
-        handleDeleteAll(ids);
+        setMultiDeletePending(true);
         return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedBlock) {
         e.preventDefault();
-        handleDeleteBlock(selectedBlock.id);
+        setKeyDeletePending(true);
         return;
       }
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -2828,6 +2964,56 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   return (
     <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-background text-foreground">
+      {/* ── Confirm smazání přes klávesnici ── */}
+      {keyDeletePending && selectedBlock && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setKeyDeletePending(false)}
+        >
+          <div
+            style={{ background: "#1c1c1e", borderRadius: 14, padding: "20px 24px", width: 280, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 16px 48px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", textAlign: "center", marginBottom: 4 }}>Smazat blok?</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginBottom: 16 }}>{selectedBlock.orderNumber}{selectedBlock.description ? ` — ${selectedBlock.description}` : ""}</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button variant="destructive" size="sm" className="flex-1 text-xs" autoFocus
+                onClick={() => { setKeyDeletePending(false); handleDeleteBlock(selectedBlock.id); }}>
+                Smazat
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1 text-xs border-slate-700 text-slate-300"
+                onClick={() => setKeyDeletePending(false)}>
+                Zrušit
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Confirm hromadného smazání přes klávesnici ── */}
+      {multiDeletePending && selectedBlockIds.size > 0 && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setMultiDeletePending(false)}
+        >
+          <div
+            style={{ background: "#1c1c1e", borderRadius: 14, padding: "20px 24px", width: 280, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 16px 48px rgba(0,0,0,0.7)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", textAlign: "center", marginBottom: 4 }}>Smazat {selectedBlockIds.size} {selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}?</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginBottom: 16 }}>Tato akce je nevratná.</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button variant="destructive" size="sm" className="flex-1 text-xs" autoFocus
+                onClick={() => { const ids = [...selectedBlockIds]; setMultiDeletePending(false); setSelectedBlockIds(new Set()); handleDeleteAll(ids); }}>
+                Smazat
+              </Button>
+              <Button variant="outline" size="sm" className="flex-1 text-xs border-slate-700 text-slate-300"
+                onClick={() => setMultiDeletePending(false)}>
+                Zrušit
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ── Header (TISKAR — minimální pruh) ── */}
       {isTiskar && (
         <header className="flex-shrink-0 px-4 py-2 flex items-center gap-3" style={{
@@ -3121,7 +3307,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       {/* ── Tělo ── */}
       <section style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         {/* LEVÁ ČÁST – timeline grid */}
-        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative", zIndex: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
           <TimelineGrid
             blocks={blocks}
             filterText={filterText}
@@ -3138,6 +3324,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             slotHeight={slotHeight}
             copiedBlockId={copiedBlock?.id ?? null}
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
+            onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); }}
             onBlockCopy={(block) => { setCopiedBlock(block); setIsCut(false); }}
             selectedBlockIds={selectedBlockIds}
             onMultiSelect={(ids) => { setSelectedBlockIds(ids); }}

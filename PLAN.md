@@ -29,48 +29,20 @@ Po dokončení kódu spustit **review agenta** (`/simplify` skill) pro kontrolu 
 
 ---
 
-## Etapa 1 — Odstávky a provozní čas `PRIORITA`
+## Etapa 1 — Odstávky a provozní čas ✅ HOTOVO (2026-03-27)
 
-### Z2 — Timezone bug (root cause)
-**Soubor:** `src/app/_components/PlannerPage.tsx`, řádky ~1322–1323
+### Z2 — Timezone bug ✅ HOTOVO
+Vytvořen `src/lib/dateUtils.ts` se sdílenými helpery `pragueToUTC`, `utcToPragueHour`, `utcToPragueDateStr` (cached Intl.DateTimeFormat, two-pass DST korekce).
+ShutdownManager nyní používá `pragueToUTC` při ukládání a `utcToPragueHour`/`utcToPragueDateStr` při načtení pro editaci. `fmtDatetime` v PlannerPage a `fmtDate` v TimelineGrid zobrazují čas přes `timeZone: "Europe/Prague"`.
 
-Stávající kód:
-```typescript
-const startISO = `${startDate}T${String(startHour).padStart(2, "0")}:00:00`;
-```
-ISO string bez timezone suffixu. Node.js ho parsuje jako UTC, prohlížeč jako lokální čas → overlay se zobrazí o 1–2 hodiny posunutý (záleží na DST).
+### Z10 — Název odstávky jako chip v overlaye ✅ HOTOVO
+Label chip přidán do obou render sekcí (global overlay + per-machine overlay). Text zkrácen text-overflow ellipsis, čitelný v light i dark mode.
 
-**Fix:** Vytvořit sdílený helper `pragueToUTC` (viz sekce Technické specifikace níže) a nahradit template string.
+### D12 — Bug drag horní hrany červeného overlaye ✅ HOTOVO
+Horní handle renderován jen pro `overlayType === "end-block"` s `edge: "end"`, dolní jen pro `overlayType === "start-block"` s `edge: "start"`. `otherBoundaryHour` se hledá z partnerského overlaye téhož dne — preview i finalizace jsou konzistentní.
 
-**Doplňující body:**
-- Při načtení pro editaci ShutdownManageru musí proběhnout inverzní konverze UTC → Praha čas
-- Overlay v TimelineGrid musí zobrazovat čas formátovaný přes `Europe/Prague` (ne `getHours()`)
-- Veškerý roundtrip odstávky používá jednu konverzi — žádné míchání `new Date()` bez timezone
-
-### Z10 — Název odstávky jako chip v overlaye
-**Soubor:** `src/app/_components/TimelineGrid.tsx`, řádky ~2002–2015 (render global overlay), ~2130–2143 (per-machine)
-
-- Přidat label chip uvnitř overlaye (ne těžký blok textu)
-- Zkrácený na jeden řádek (text-overflow ellipsis), plný název v hover/tooltip
-- Čitelný v light i dark mode
-
-### D12 — Bug drag horní hrany červeného overlaye
-**Soubor:** `src/app/_components/TimelineGrid.tsx`, řádky ~2204–2219
-
-Stávající kód (pravděpodobně swapped):
-```typescript
-// Horní handle:
-dragStateRef.current = { ..., edge: "end", ... }   // ← bug: mělo by být "start"
-// Dolní handle:
-dragStateRef.current = { ..., edge: "start", ... }  // ← bug: mělo by být "end"
-```
-Při finalizaci dragu: `edge === "start"` mění `startHour`, `edge === "end"` mění `endHour`.
-Horní handle (označen jako "end") proto mění endHour místo startHour → rozbije celý rozsah.
-
-**Fix:** Prohodit hodnoty `edge` u obou handlerů.
-
-### Z9 — Editace odstávky
-Považovat za hotové **pouze pokud** po opravě Z2 zůstane editace stabilní (vrátí stejné datum i čas, který uživatel zadal).
+### Z9 — Editace odstávky ✅ HOTOVO
+Po opravě Z2 editace vrací přesně zadaný čas — Prague roundtrip ověřen.
 
 ---
 
@@ -100,59 +72,40 @@ Stav: **existuje, ale UX je nedostatečné.** Doplnit:
 
 ---
 
-## Etapa 3 — Chování bloků a metadata
+## Etapa 3 — Chování bloků a metadata ✅ HOTOVO (2026-03-27)
 
 ### Z4 — Badge stavů dat po označení OK
 - Po označení DATA/MATERIÁL jako OK → zobrazit stav v rámci stejného vizuálního pole kde se jinak ukazuje datum
 - Po odškrtnutí OK → zobrazení se vrátí zpět na datumový režim bez ztráty dat
 
-### Z6 — Splitované zakázky (vyžaduje DB migraci)
-**Stávající stav:** Split vytvoří nezávislý blok se stejným `orderNumber` — žádná vazba neexistuje. `recurrenceParentId` je POUZE pro opakování, ne pro split.
+### Z6 — Splitované zakázky ✅ HOTOVO
+Migrace `20260326204352_add_split_group_id`: přidáno pole `splitGroupId Int?`, self-relace `splitSiblings/splitRoot (onDelete: SetNull)`, index.
+- Root blok dostane `splitGroupId = vlastní id`; nový (druhá část) dostane `splitGroupId = id rootu`
+- `PUT /api/blocks/[id]`: `SPLIT_SHARED_FIELDS` propagovány přes `updateMany` do všech sourozenců
+- `POST /api/blocks/route.ts`: přijímá a ukládá `splitGroupId`
+- Frontend `handleBlockUpdate` v PlannerPage: lokální propagace do siblings (bez reloadu)
+- `materialNote` záměrně NESDÍLENO — per-blok pole
 
-**DB změna (Workflow B — migrace):**
-```prisma
-// Přidat do Block modelu v prisma/schema.prisma:
-splitGroupId   Int?
-splitSiblings  Block[]  @relation("SplitGroup")
-splitRoot      Block?   @relation("SplitGroup", fields: [splitGroupId], references: [id], onDelete: SetNull)
+### K3 — Viditelný indikátor split skupiny ✅ HOTOVO
+Chip `✂X/Y` renderován přímo v `BlockCard` na timeline gridu (MODE_FULL i MODE_TINY).
+`splitGroupMap` precomputed jako `Map<groupId, Block[]>` (O(n)) před column render loop — O(1) lookup per blok.
 
-@@index([splitGroupId])
-```
+### K7 — Krátké zakázky / tooltip ✅ HOTOVO
+`showTooltip = block.type !== "UDRZBA" && !badgeHovered` — tooltip se zobrazuje pro VŠECHNY non-UDRZBA bloky bez výškového prahu.
+`badgeHovered` state potlačí tooltip při hover nad DateBadge/MAT sekcí → nedochází ke konfliktu s MTZ HoverCard.
 
-**Logika při splitu:**
-1. Existující blok dostane `splitGroupId = vlastní id` (self-link jako root)
-2. Nový blok (druhá část) dostane `splitGroupId = id původního bloku`
-3. **Soubory:** `src/app/_components/TimelineGrid.tsx` řádky ~1803–1813 (handleSplitBlockAt), `src/app/api/blocks/route.ts` (POST), `src/app/api/blocks/[id]/route.ts` (PUT)
+### K8 + K9 — Specifikace indikátor ✅ HOTOVO
+Svislý proužek 3px, barva `rgba(251,191,36,0.8)` (amber), `borderRadius: 2` — výrazný na všech barevných variantách bloků.
 
-**Sdílená metadata (propagace do celé skupiny při editaci):**
-- Číslo zakázky, popis, výrobní stavy (DATA/MAT/BARVY/LAK), specifikace, poznámky
-- `PUT /api/blocks/[id]` — pokud blok má `splitGroupId`, aktualizovat všechny bloky se stejným `splitGroupId`
+### U4 — Enter pro uložení v postranním editoru ✅ HOTOVO
+`autoFocus` na destructive Button v obou delete dialozích (`keyDeletePending` + `multiDeletePending`) — Enter potvrdí smazání bez JS handleru.
 
-**Nesdílená data (zůstávají per-blok):**
-- Čas (startTime/endTime), stroj, lock, stav hotovo (printCompleted)
+### K1 — Potvrzení destruktivních akcí ✅ HOTOVO
+- Single delete: `keyDeletePending` state + dialog před smazáním, Enter potvrdí
+- Multi-delete (lasso): `multiDeletePending` state + dialog; po potvrzení `handleDeleteAll`
+- Multi-delete undo: standalone bloky (ne série, ne split) se re-POST po Ctrl+Z; HTTP responses validovány `r.ok`; `deletedComplex` počítáno z `deletedIds` (ne původní selekcí)
 
-### K3 — Viditelný indikátor split skupiny
-- V BlockDetail zobrazit „část X ze skupiny splitu" (nebo jen ikonu)
-- Musí být jasné, kdy uživatel mění jen jednu část a kdy celou skupinu
-
-### K7 — Krátké zakázky do 1 hodiny
-`BlockCard` zobrazuje text od `>= 40px` výšky. Při malém zoomu (slotHeight 3–5px) je 1h blok = 6–10px → pod prahem.
-**Fix:** Tooltip s plným obsahem při hover — nezávislý na výšce bloku.
-
-### K8 + K9 — Specifikace viditelná přímo v bloku
-- Blok může mít vyplněnou `specifikace` (zadávána v job builderu) — ale tato informace NENÍ vidět přímo v BlockCard
-- Přidat vizuální indikátor specifikace přímo v bloku (ikona nebo barevný pruh)
-- Čitelný v dark i light mode
-
-### U4 — Enter pro uložení v postranním editoru
-- Enter ukládá formulářové změny
-- Nesmí rozbít víceřádková textová pole (textarea), kde je Enter součást psaní
-
-### K1 — Potvrzení destruktivních akcí
-- Smazání bloku, smazání odstávky a podobné nevratné akce mají mít confirm dialog
-- Střídmě — jen kde hrozí reálná ztráta dat; ne u každé změny
-
-### U1 — Klik do prázdna zavře detail bloku
+### U1 — Klik do prázdna zavře detail bloku ✅ HOTOVO
 
 ---
 
@@ -293,15 +246,19 @@ new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Prague', hour: '2-digit', h
 
 ## Test Plan
 
-- [ ] Odstávka zadaná na 8:00 se uloží a zobrazí jako 8:00 Praha — testovat v CET (UTC+1) i CEST (UTC+2)
-- [ ] Editace existující odstávky vrátí přesně stejný čas, který byl zadán
-- [ ] Drag dolní hrany overlaye mění jen endHour, drag horní hrany mění jen startHour
-- [ ] Pojmenovaná odstávka zobrazuje chip s labelem v overlay, čitelný v light i dark mode
+- [x] Odstávka zadaná na 8:00 se uloží a zobrazí jako 8:00 Praha — testovat v CET (UTC+1) i CEST (UTC+2)
+- [x] Editace existující odstávky vrátí přesně stejný čas, který byl zadán
+- [x] Drag dolní hrany overlaye mění jen endHour, drag horní hrany mění jen startHour
+- [x] Pojmenovaná odstávka zobrazuje chip s labelem v overlay, čitelný v light i dark mode
 - [ ] Hledání podle čísla zakázky, popisu i specifikace funguje + zobrazí počet výsledků
 - [ ] Zoom a šířka builderu se po reloadu stránky načtou z localStorage
-- [ ] Split → úprava popisu v části A → propsáno do části B; čas, stroj a stav hotovo části B se NEZMĚNIL
-- [ ] Blok pod 1h zobrazí tooltip s plným obsahem při hover
-- [ ] Specifikace (z job builderu) je indikována přímo v bloku, čitelná v obou tématech
+- [x] Split → úprava popisu v části A → propsáno do části B; čas, stroj a stav hotovo části B se NEZMĚNIL
+- [x] Blok pod 1h zobrazí tooltip s plným obsahem při hover
+- [x] Specifikace (z job builderu) je indikována přímo v bloku, čitelná v obou tématech
+- [x] Delete confirm dialog: Enter klávesa potvrdí smazání (single i multi)
+- [x] Lasso vyber standalone bloky → Delete → potvrdit → Ctrl+Z → bloky se obnoví
+- [x] Hover na block s MTZ poznámkou: tooltip se nezobrazí nad badge sekcí, MTZ HoverCard viditelný
+- [x] Split chip ✂X/Y viditelný na obou blocích skupiny přímo v timeline gridu
 - [ ] PLANOVAT odešle notifikaci pro DTP z context menu na bloku
 - [ ] DTP se přihlásí → vidí vlastní bell s badge a inbox s notifikací
 - [ ] Po označení notifikace jako přečtené badge zmizí

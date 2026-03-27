@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
 import { utcToPragueDateStr } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
@@ -80,6 +81,7 @@ export type Block = {
   materialNoteByUsername: string | null;
   recurrenceType: string;
   recurrenceParentId: number | null;
+  splitGroupId: number | null;
   printCompletedAt: string | null;
   printCompletedByUserId: number | null;
   printCompletedByUsername: string | null;
@@ -162,6 +164,7 @@ interface TimelineGridProps {
   daysBack?: number;
   copiedBlockId?: number | null;
   onGridClick?: (machine: string, time: Date) => void;
+  onGridClickEmpty?: () => void;
   onBlockCopy?: (block: Block) => void;
   selectedBlockIds?: Set<number>;
   onMultiSelect?: (ids: Set<number>) => void;
@@ -551,9 +554,9 @@ function InlineDatePicker({
 
 // ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
 function DateBadge({
-  label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick,
+  label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick, statusLabel,
 }: {
-  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle: () => void; onDoubleClick?: (rect: DOMRect) => void;
+  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle: () => void; onDoubleClick?: (rect: DOMRect) => void; statusLabel?: string | null;
 }) {
   const [loading, setLoading] = useState(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -611,7 +614,7 @@ function DateBadge({
         {label}
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{ok && statusLabel ? statusLabel : fmt}</span>
         {!empty && (
           <span style={{ fontSize: 10, lineHeight: 1, color: empty ? "var(--text-muted)" : "rgba(255,255,255,0.80)" }}
                 title={earlyStart ? "Start zakázky před dodáním" : undefined}>
@@ -729,6 +732,7 @@ function BlockCard({
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
   canEdit, canEditData, canEditMat, onInlineDatePick, badgeColorMap,
   onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete,
+  splitPart, splitTotal,
 }: {
   block: Block;
   top: number;
@@ -739,6 +743,8 @@ function BlockCard({
   isCopied: boolean;
   multiSelected: boolean;
   now: Date;
+  splitPart?: number;
+  splitTotal?: number;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onMouseDown?: (e: React.MouseEvent) => void;
@@ -758,7 +764,9 @@ function BlockCard({
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
+  const [badgeHovered, setBadgeHovered]   = useState(false);
   const [printPending, setPrintPending]   = useState(false);
+  const blockCardRef = useRef<HTMLDivElement>(null);
   const compactDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compactMatTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [noteOpen, setNoteOpen]   = useState(false);
@@ -885,8 +893,11 @@ function BlockCard({
   const hasNote = !!block.materialNote;
   const showMenu = (canEdit && !block.locked) || canEditMat || hasNote;
 
+  const showTooltip = block.type !== "UDRZBA" && !badgeHovered;
+
   const blockDiv = (
     <div
+      ref={blockCardRef}
       data-block="true"
       onMouseDown={block.locked ? undefined : onMouseDown}
       onMouseEnter={() => setHovered(true)}
@@ -1061,8 +1072,8 @@ function BlockCard({
                 </span>
               )}
             </div>
-            {/* Pravá část: status chips + série */}
-            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+            {/* Pravá část: status chips + série + split */}
+            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
                 {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
@@ -1070,6 +1081,9 @@ function BlockCard({
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
                 {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                   <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
+                )}
+                {(splitTotal ?? 0) > 1 && (
+                  <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
                 )}
               </div>
             )}
@@ -1113,8 +1127,8 @@ function BlockCard({
               </span>
             )}
           </div>
-          {/* Pravá část: status chips + série */}
-          {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+          {/* Pravá část: status chips + série + split */}
+          {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
               {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
@@ -1123,6 +1137,9 @@ function BlockCard({
               {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                 <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
               )}
+              {(splitTotal ?? 0) > 1 && (
+                <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
+              )}
             </div>
           )}
         </div>
@@ -1130,16 +1147,18 @@ function BlockCard({
 
       {/* ── Řádek 2: Klikatelné date badges (FULL mode) — vždy všechny 3 ── */}
       {showDates && block.type !== "UDRZBA" && (
-        <div style={{
-          padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap",
-          flexShrink: 0, alignItems: "center",
-        }}>
+        <div
+          style={{ padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap", flexShrink: 0, alignItems: "center" }}
+          onMouseEnter={() => setBadgeHovered(true)}
+          onMouseLeave={() => setBadgeHovered(false)}
+        >
           <DateBadge
             label="DATA" dateStr={block.dataRequiredDate}
             ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
             onToggle={() => toggleField("dataOk", block.dataOk)}
             onDoubleClick={canEditData ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
+            statusLabel={block.dataStatusLabel}
           />
           <MaterialNoteAffordance block={block}>
             <DateBadge
@@ -1148,6 +1167,7 @@ function BlockCard({
               accent={FIELD_ACCENT.MATERIAL}
               onToggle={() => toggleField("materialOk", block.materialOk)}
               onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", rect) : undefined}
+              statusLabel={block.materialStatusLabel}
             />
           </MaterialNoteAffordance>
           <DateBadge
@@ -1198,9 +1218,9 @@ function BlockCard({
 
       {/* ── Řádek 3: Specifikace (celý text) ── */}
       {showSpec && block.specifikace && (
-        <div style={{ padding: "0 9px 3px", flexShrink: 0 }}>
+        <div style={{ padding: "0 9px 3px", flexShrink: 0, position: "relative", zIndex: 2 }}>
           <span style={{
-            fontSize: 9, color: "var(--text-muted)", lineHeight: 1.3,
+            fontSize: 10, color: s.textSub, opacity: 0.82, lineHeight: 1.3,
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
             overflow: "hidden",
           }}>
@@ -1321,6 +1341,121 @@ function BlockCard({
           </div>
         </div>
       )}
+
+      {/* ── Indikátor specifikace — svislý proužek vpravo ── */}
+      {block.specifikace && block.specifikace.length > 0 && !showSpec && (
+        <div
+          title="Obsahuje specifikaci"
+          style={{
+            position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)",
+            width: 3, height: "55%", minHeight: 8, maxHeight: 22,
+            borderRadius: 2, background: "rgba(251,191,36,0.8)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
+      {/* ── Hover tooltip iOS-style pro malé bloky (< 60px) — portálovaný mimo stacking context ── */}
+      {showTooltip && hovered && (() => {
+        const rect = blockCardRef.current?.getBoundingClientRect();
+        if (!rect || typeof document === "undefined") return null;
+        const tooltipW = 240;
+        const margin = 10;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        // Prefer right of block, fall back to left if not enough space
+        const spaceRight = vw - rect.right - margin;
+        const showRight = spaceRight >= tooltipW;
+        const rawLeft = showRight ? rect.right + margin : rect.left - margin - tooltipW;
+        // Clamp to viewport so tooltip never goes off-screen
+        const left = Math.max(margin, Math.min(rawLeft, vw - tooltipW - margin));
+        const top = Math.max(8, Math.min(rect.top, vh - 220));
+        // Format time
+        const startD = new Date(block.startTime);
+        const endD   = new Date(block.endTime);
+        const fmtTime = (d: Date) => d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
+        const fmtDay  = (d: Date) => d.toLocaleDateString("cs-CZ", { day: "numeric", month: "short", timeZone: "Europe/Prague" });
+        const sameDay = fmtDay(startD) === fmtDay(endD);
+        const timeLabel = sameDay
+          ? `${fmtDay(startD)}, ${fmtTime(startD)}–${fmtTime(endD)}`
+          : `${fmtDay(startD)} ${fmtTime(startD)} – ${fmtDay(endD)} ${fmtTime(endD)}`;
+        const machineLabel = block.machine === "XL_105" ? "XL 105" : "XL 106";
+        const hasDateInfo = block.dataRequiredDate || block.materialRequiredDate || block.deadlineExpedice;
+        return createPortal(
+          <div style={{
+            position: "fixed",
+            left,
+            top,
+            width: tooltipW,
+            zIndex: 9999,
+            background: "rgba(28,28,30,0.88)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 14,
+            padding: "12px 14px",
+            pointerEvents: "none",
+            boxShadow: "0 16px 48px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.25)",
+            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          }}>
+            {/* Číslo zakázky + stroj */}
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: block.description || block.specifikace ? 3 : 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: "rgba(255,255,255,0.95)", letterSpacing: "-0.01em" }}>
+                {block.orderNumber}
+              </span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0, marginLeft: 8 }}>
+                {machineLabel}
+              </span>
+            </div>
+            {/* Popis */}
+            {block.description && (
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", lineHeight: 1.4, marginBottom: block.specifikace ? 3 : 6 }}>
+                {block.description}
+              </div>
+            )}
+            {/* Specifikace */}
+            {block.specifikace && (
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.42)", fontStyle: "italic", lineHeight: 1.35, marginBottom: 6 }}>
+                {block.specifikace}
+              </div>
+            )}
+            {/* Čas */}
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", lineHeight: 1.4 }}>
+              {timeLabel}
+            </div>
+            {/* Termíny */}
+            {hasDateInfo && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 4 }}>
+                {block.dataRequiredDate && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.03em" }}>DATA</span>
+                    <span style={{ color: block.dataOk ? "#30d158" : "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>
+                      {fmtDate(block.dataRequiredDate)}{block.dataOk ? " ✓" : ""}
+                    </span>
+                  </div>
+                )}
+                {block.materialRequiredDate && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.03em" }}>MATERIÁL</span>
+                    <span style={{ color: block.materialOk ? "#30d158" : "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>
+                      {fmtDate(block.materialRequiredDate)}{block.materialOk ? " ✓" : ""}
+                    </span>
+                  </div>
+                )}
+                {block.deadlineExpedice && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.03em" }}>EXPEDICE</span>
+                    <span style={{ color: "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>
+                      {fmtDate(block.deadlineExpedice)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 
@@ -1409,6 +1544,7 @@ export default function TimelineGrid({
   daysBack,
   copiedBlockId,
   onGridClick,
+  onGridClickEmpty,
   onBlockCopy,
   selectedBlockIds,
   onMultiSelect,
@@ -1815,13 +1951,75 @@ export default function TimelineGrid({
 
   async function handleSplitBlockAt(block: Block, splitAt: Date) {
     try {
-      const res1 = await fetch(`/api/blocks/${block.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: splitAt.toISOString() }) });
-      onBlockUpdate(await res1.json());
-      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, blockVariant: block.blockVariant, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
+      // Krok 1: zkrátit původní blok
+      const res1 = await fetch(`/api/blocks/${block.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endTime: splitAt.toISOString() }),
+      });
+      if (!res1.ok) {
+        const err = await res1.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Nepodařilo se zkrátit blok.");
+      }
+      const updatedBlock: Block = await res1.json();
+
+      // Krok 2: zajistit splitGroupId pro root blok (self-link pokud první split)
+      let rootSplitGroupId: number;
+      if (updatedBlock.splitGroupId != null) {
+        rootSplitGroupId = updatedBlock.splitGroupId;
+        onBlockUpdate(updatedBlock);
+      } else {
+        const res1b = await fetch(`/api/blocks/${block.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ splitGroupId: block.id }),
+        });
+        if (!res1b.ok) {
+          const err = await res1b.json().catch(() => ({})) as { error?: string };
+          throw new Error(err.error ?? "Nepodařilo se nastavit skupinu bloku.");
+        }
+        const rootBlock: Block = await res1b.json();
+        onBlockUpdate(rootBlock);
+        rootSplitGroupId = block.id;
+      }
+
+      // Krok 3: vytvořit nový blok jako sourozence
+      const res2 = await fetch("/api/blocks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderNumber: block.orderNumber,
+          machine: block.machine,
+          type: block.type,
+          blockVariant: block.blockVariant,
+          startTime: splitAt.toISOString(),
+          endTime: block.endTime,
+          description: block.description,
+          deadlineExpedice: block.deadlineExpedice,
+          dataStatusId: block.dataStatusId,
+          dataStatusLabel: block.dataStatusLabel,
+          dataRequiredDate: block.dataRequiredDate,
+          dataOk: block.dataOk,
+          materialStatusId: block.materialStatusId,
+          materialStatusLabel: block.materialStatusLabel,
+          materialRequiredDate: block.materialRequiredDate,
+          materialOk: block.materialOk,
+          barvyStatusId: block.barvyStatusId,
+          barvyStatusLabel: block.barvyStatusLabel,
+          lakStatusId: block.lakStatusId,
+          lakStatusLabel: block.lakStatusLabel,
+          specifikace: block.specifikace,
+          splitGroupId: rootSplitGroupId,
+        }),
+      });
+      if (!res2.ok) {
+        const err = await res2.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Nepodařilo se vytvořit druhý blok.");
+      }
       onBlockCreate(await res2.json());
     } catch (error) {
       console.error("Block split failed", error);
-      callbacksRef.current.onError?.("Blok se nepodařilo rozdělit.");
+      callbacksRef.current.onError?.((error instanceof Error ? error.message : null) ?? "Blok se nepodařilo rozdělit.");
     }
   }
 
@@ -1853,6 +2051,21 @@ export default function TimelineGrid({
       </div>
     );
   }
+
+  // ── Precompute split group map — O(n) místo O(n²) v machineBlocks.map() ───
+  const splitGroupMap = (() => {
+    const map = new Map<number, Block[]>();
+    for (const b of blocks) {
+      if (b.splitGroupId == null) continue;
+      const gid = b.splitGroupId;
+      if (!map.has(gid)) map.set(gid, []);
+      map.get(gid)!.push(b);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    }
+    return map;
+  })();
 
   // ── Precompute markers ─────────────────────────────────────────────────────
   const todayDate = new Date();
@@ -2109,6 +2322,7 @@ export default function TimelineGrid({
                 } : undefined}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("[data-block]")) return;
+                  onGridClickEmpty?.();
                   const el = scrollRef.current;
                   const vs = viewStartRef.current;
                   if (!el || !vs || !onGridClick) return;
@@ -2298,11 +2512,17 @@ export default function TimelineGrid({
                   const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace].some(f => f?.toLowerCase().includes(filter));
                   const dimmed   = (!blockMatchesFilter) || !!isThisBlockDragging;
                   const selected = !isThisBlockDragging && block.id === selectedBlockId;
+                  // Split skupina — O(1) lookup z předpočítané mapy
+                  const splitSiblings = block.splitGroupId != null ? (splitGroupMap.get(block.splitGroupId) ?? []) : [];
+                  const splitTotal = splitSiblings.length > 1 ? splitSiblings.length : 0;
+                  const splitPart  = splitTotal > 0 ? splitSiblings.findIndex(b => b.id === block.id) + 1 : 0;
 
                   return (
                     <BlockCard
                       key={block.id}
                       block={block}
+                      splitPart={splitPart}
+                      splitTotal={splitTotal}
                       top={top}
                       height={height}
                       dimmed={dimmed}

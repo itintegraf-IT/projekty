@@ -29,6 +29,7 @@ Umožňuje plánovat zakázky, rezervace a údržbu na časové ose.
 | 10 | Audit log (kdo co změnil) + tlačítko Info | ✅ Hotovo |
 | 11 | UX vylepšení — odstávky, podmíněné formátování, inline datepicker | ⬜ Nezačato |
 | — | Varianty zakázky (blockVariant) | ✅ Hotovo (2026-03-22) |
+| — | Bugfix vlna: timezone, split skupiny, delete UX, tooltip | ✅ Hotovo (2026-03-27) |
 
 ### UI/UX light-dark migrace (11. 3. 2026)
 
@@ -193,6 +194,7 @@ Tím označíte migraci jako již aplikovanou (baseline).
 | `src/app/api/machine-exceptions/[id]/route.ts` | DELETE výjimky |
 | `src/app/tiskar/page.tsx` | Tiskar view — Server Component pro roli TISKAR |
 | `src/app/tiskar/_components/TiskarMonitor.tsx` | Tiskar monitor — schedule stroje 7 dní, polling 30s, potvrzení tisku |
+| `src/lib/dateUtils.ts` | Prague timezone helpers — `pragueToUTC`, `utcToPragueHour`, `utcToPragueDateStr` (cached Intl.DateTimeFormat, two-pass DST) |
 | `src/lib/badgeColors.ts` | BADGE_COLOR_KEYS, badgeColorVar(), parseBadgeColor() — helper pro `CodebookOption.badgeColor` |
 | `src/lib/blockVariants.ts` | BLOCK_VARIANTS, BlockVariant, normalizeBlockVariant — varianty zakázky |
 | `src/lib/machineScheduleException.ts` | Typy pro MachineScheduleException |
@@ -292,6 +294,7 @@ materialStatusId, materialStatusLabel, materialRequiredDate, materialOk,
 barvyStatusId, barvyStatusLabel,
 lakStatusId, lakStatusLabel,
 specifikace,
+**splitGroupId (Int? — self-relace SplitGroup, onDelete: SetNull)** — id rootu skupiny (root má `splitGroupId = vlastní id`),
 recurrenceType (NONE|DAILY|WEEKLY|MONTHLY), recurrenceParentId (self-relace),
 **printCompletedAt (DateTime?), printCompletedByUserId (Int?), printCompletedByUsername (String?)** — potvrzení tisku tiskaři,
 createdAt, updatedAt.
@@ -510,6 +513,34 @@ Změna `blockVariant` je logována v `AuditLog` (pole `"blockVariant"`, oldValue
 - `src/app/_components/PlannerPage.tsx` — VARIANT_CONFIG, selektor v builderu i BlockEdit
 - `src/app/api/blocks/route.ts` — POST normalizuje variantu
 - `src/app/api/blocks/[id]/route.ts` — PUT normalizuje + audit
+
+---
+
+## Bugfix vlna — Timezone, Split skupiny, Delete UX, Tooltip ✅ Hotovo (2026-03-27)
+
+### Timezone — Europe/Prague everywhere
+- **Nový soubor `src/lib/dateUtils.ts`:** `pragueToUTC(dateStr, hour, minute?)`, `utcToPragueHour(date)`, `utcToPragueDateStr(date)` — cached module-level `Intl.DateTimeFormat` (výkon), two-pass DST korekce (korektnost)
+- `ShutdownManager` v PlannerPage: `pragueToUTC` při uložení, `utcToPragueHour`/`utcToPragueDateStr` při načtení pro edit
+- `fmtDatetime` v PlannerPage + `fmtDate` v TimelineGrid: `timeZone: "Europe/Prague"` — žádný `getHours()`
+- Overlay resize `D12`: horní handle jen na `end-block`, dolní jen na `start-block`; `otherBoundaryHour` z partnerského overlaye téhož dne
+
+### Split skupiny (DB migrace 20260326204352_add_split_group_id)
+- `splitGroupId Int?` + self-relace `SplitGroup (onDelete: SetNull)` + `@@index([splitGroupId])`
+- Root blok: `splitGroupId = vlastní id`; děti: `splitGroupId = id rootu`
+- `SPLIT_SHARED_FIELDS`: orderNumber, description, specifikace, deadlineExpedice, DATA/MAT/BARVY/LAK stavy — propagovány přes API `updateMany` i frontend `handleBlockUpdate`
+- `materialNote` záměrně NESDÍLENO (per-blok pole)
+- `splitGroupMap: Map<groupId, Block[]>` precomputed O(n) před column loop → O(1) lookup per blok (ne O(n²))
+- Chip `✂X/Y` v BlockCard (MODE_FULL i MODE_TINY) — viditelný přímo na bloku v timeline
+
+### Delete UX + Undo
+- Single delete: `keyDeletePending` state → confirm dialog s `autoFocus` na Smazat → Enter potvrdí
+- Multi-delete (lasso): `multiDeletePending` state → confirm dialog s `autoFocus` → `handleDeleteAll`
+- Multi-delete undo: standalone bloky (bez série a split) se re-POST přes Ctrl+Z; HTTP `r.ok` validace; `deletedComplex` filtrovaný přes `deletedIds` (ne přes původní selekcí)
+
+### Tooltip a specifikace
+- `showTooltip = block.type !== "UDRZBA" && !badgeHovered` — tooltip pro VŠECHNY non-UDRZBA bloky
+- `badgeHovered` state v BlockCard: nastavuje se při hover přes dates/badge row → potlačí tooltip, nevruší MTZ HoverCard (z:200)
+- Specifikace proužek: šířka 3px (z 2px), barva `rgba(251,191,36,0.8)` amber, `borderRadius: 2`
 
 ---
 

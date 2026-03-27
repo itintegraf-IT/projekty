@@ -35,6 +35,7 @@ model Block {
   materialNoteByUsername String?
   recurrenceType           String    @default("NONE")
   recurrenceParentId       Int?
+  splitGroupId             Int?
   printCompletedAt         DateTime?
   printCompletedByUserId   Int?
   printCompletedByUsername String?
@@ -42,8 +43,11 @@ model Block {
   updatedAt                DateTime  @default(now()) @updatedAt
   recurrenceParent     Block?    @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
   recurrenceChildren   Block[]   @relation("RecurrenceChildren")
+  splitSiblings        Block[]   @relation("SplitGroup")
+  splitRoot            Block?    @relation("SplitGroup", fields: [splitGroupId], references: [id], onDelete: SetNull)
 
   @@index([recurrenceParentId])
+  @@index([splitGroupId])
 }
 
 model CodebookOption {

@@ -31,6 +31,14 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
   }
 }
 
+const SPLIT_SHARED_FIELDS = [
+  "orderNumber", "description", "specifikace", "deadlineExpedice",
+  "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
+  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk",
+  "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
+] as const;
+type SplitSharedField = typeof SPLIT_SHARED_FIELDS[number];
+
 export async function PUT(request: NextRequest, { params }: RouteContext) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -170,6 +178,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.specifikace !== undefined && { specifikace: allowed.specifikace as string }),
           // OPAKOVÁNÍ
           ...(allowed.recurrenceType !== undefined && { recurrenceType: allowed.recurrenceType as string }),
+          // SPLIT SKUPINA
+          ...(allowed.splitGroupId !== undefined && { splitGroupId: allowed.splitGroupId as number | null }),
         },
       });
 
@@ -211,6 +221,23 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
         if (changes.length > 0) {
           await tx.auditLog.createMany({ data: changes });
+        }
+      }
+
+      // Propagace shared fields do split skupiny
+      const groupId = updated.splitGroupId;
+      if (groupId != null) {
+        const sharedUpdate: Record<string, unknown> = {};
+        for (const field of SPLIT_SHARED_FIELDS) {
+          if ((allowed as Record<string, unknown>)[field] !== undefined) {
+            sharedUpdate[field] = (updated as Record<string, unknown>)[field];
+          }
+        }
+        if (Object.keys(sharedUpdate).length > 0) {
+          await tx.block.updateMany({
+            where: { splitGroupId: groupId, id: { not: id } },
+            data: sharedUpdate,
+          });
         }
       }
 

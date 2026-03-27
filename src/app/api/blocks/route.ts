@@ -98,6 +98,8 @@ export async function POST(request: NextRequest) {
           // OPAKOVÁNÍ
           recurrenceType: body.recurrenceType ?? "NONE",
           recurrenceParentId: body.recurrenceParentId ?? null,
+          // SPLIT SKUPINA
+          splitGroupId: body.splitGroupId ?? null,
         },
       });
 
