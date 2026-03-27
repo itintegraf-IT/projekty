@@ -19,6 +19,18 @@ import { Lock, Unlock, ClipboardList, Pin, Wrench, CalendarDays } from "lucide-r
 import ThemeToggle from "./ThemeToggle";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
+type NotificationItem = {
+  id: number;
+  blockId: number;
+  blockOrderNumber: string | null;
+  targetRole: string;
+  createdByUserId: number;
+  createdByUsername: string;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+};
+
 type AuditLogEntry = {
   id: number;
   blockId: number;
@@ -1291,6 +1303,72 @@ function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; on
   );
 }
 
+// ─── InboxPanel ───────────────────────────────────────────────────────────────
+function InboxPanel({ notifications, onClose, onMarkRead, onJumpToBlock }: {
+  notifications: NotificationItem[];
+  onClose: () => void;
+  onMarkRead: (id: number) => void;
+  onJumpToBlock: (orderNumber: string) => void;
+}) {
+  function fmtDatetime(iso: string) {
+    const d = new Date(iso);
+    const tz = "Europe/Prague";
+    const isToday = d.toLocaleDateString("en-CA", { timeZone: tz }) === new Date().toLocaleDateString("en-CA", { timeZone: tz });
+    const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: tz });
+    return isToday ? time : d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", timeZone: tz }) + " " + time;
+  }
+
+  return (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "var(--surface)", borderLeft: "1px solid var(--border)" }}>
+      <div style={{ padding: "10px 16px", background: "linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 95%, transparent) 0%, var(--surface) 100%)", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Inbox</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginTop: 2 }}>Upozornění</div>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClose} className="h-7 px-3 text-xs text-slate-400"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="15 18 9 12 15 6"/></svg> Zpět</Button>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 16px" }}>
+        {notifications.length === 0 ? (
+          <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", marginTop: 32 }}>
+            Žádná upozornění.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {notifications.map((n) => (
+              <div key={n.id} style={{ padding: "8px 10px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)", opacity: n.isRead ? 0.5 : 1 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>od {n.createdByUsername}</span>
+                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{fmtDatetime(n.createdAt)}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                  {n.blockOrderNumber ? (
+                    <button
+                      onClick={() => onJumpToBlock(n.blockOrderNumber!)}
+                      style={{ background: "none", border: "none", padding: 0, color: "#3b82f6", fontWeight: 600, cursor: "pointer", fontSize: 11, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}
+                    >
+                      {n.blockOrderNumber}
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>#{n.blockId}</span>
+                  )}
+                  {!n.isRead && (
+                    <button
+                      onClick={() => onMarkRead(n.id)}
+                      style={{ fontSize: 10, fontWeight: 600, color: "#22c55e", background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}
+                    >
+                      ✓ Přečteno
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── ShutdownManager ──────────────────────────────────────────────────────────
 type EditState = { label: string; startDate: string; endDate: string; startHour: number; endHour: number; machine: "both" | "XL_105" | "XL_106" };
 
@@ -1660,6 +1738,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [todayAuditLogs, setTodayAuditLogs] = useState<AuditLogEntry[]>([]);
   const [auditNewCount, setAuditNewCount] = useState(0);
+  const [showInboxPanel, setShowInboxPanel] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notifNewCount, setNotifNewCount] = useState(0);
 
   // ── Toast systém ──
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -1847,11 +1928,24 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       .catch(() => { /* zachovat poslední validní data a count — neměnit stav */ });
   }, [currentUser.role]);
 
+  // Načtení notifikací (jen pro DTP + MTZ)
+  const fetchNotifications = useCallback(() => {
+    if (!["DTP", "MTZ"].includes(currentUser.role)) return;
+    fetch("/api/notifications")
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data: NotificationItem[]) => {
+        setNotifications(data);
+        setNotifNewCount(data.filter((n) => !n.isRead).length);
+      })
+      .catch(() => { /* zachovat poslední validní stav */ });
+  }, [currentUser.role]);
+
   useEffect(() => {
     fetchTodayAudit();
-    const interval = setInterval(fetchTodayAudit, 60_000);
+    fetchNotifications();
+    const interval = setInterval(() => { fetchTodayAudit(); fetchNotifications(); }, 60_000);
     return () => clearInterval(interval);
-  }, [fetchTodayAudit]);
+  }, [fetchTodayAudit, fetchNotifications]);
 
   // Polling bloků každých 30 s — merge jen printCompleted* pole
   useEffect(() => {
@@ -1921,6 +2015,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setFilterText(orderNumber);
     const match = blocks.find((b) => b.orderNumber === orderNumber);
     if (match) setSelectedBlock(match);
+  }
+
+  async function handleNotify(blockId: number, orderNumber: string) {
+    const r = await fetch("/api/notifications", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ blockId, blockOrderNumber: orderNumber }),
+    });
+    if (r.ok) showToast("Upozornění odesláno pro MTZ + DTP", "success");
+    else showToast("Chyba při odesílání upozornění", "error");
+  }
+
+  async function handleMarkRead(notifId: number) {
+    const r = await fetch(`/api/notifications/${notifId}/read`, { method: "PATCH" });
+    if (!r.ok) { showToast("Nepodařilo se označit jako přečtené", "error"); return; }
+    setNotifications((prev) => prev.map((n) => n.id === notifId ? { ...n, isRead: true } : n));
+    setNotifNewCount((prev) => Math.max(0, prev - 1));
   }
 
   const effectiveDaysBack = isTiskar ? 1 : daysBack;
@@ -3275,6 +3386,38 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               )}
             </div>
           )}
+          {["DTP", "MTZ"].includes(currentUser.role) && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => { setShowInboxPanel(true); fetchNotifications(); }}
+                title="Upozornění"
+                style={{
+                  width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
+                  background: showInboxPanel ? "rgba(59,130,246,0.14)" : "transparent",
+                  border: `1px solid ${showInboxPanel ? "rgba(59,130,246,0.35)" : "var(--border)"}`,
+                  color: showInboxPanel ? "#3b82f6" : "var(--text-muted)",
+                  cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+              </button>
+              {notifNewCount > 0 && (
+                <span style={{
+                  position: "absolute", top: -3, right: -3,
+                  width: 14, height: 14, borderRadius: "50%",
+                  background: "#ef4444", color: "#fff",
+                  fontSize: 8, fontWeight: 700,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  pointerEvents: "none",
+                }}>
+                  {notifNewCount > 9 ? "9+" : notifNewCount}
+                </span>
+              )}
+            </div>
+          )}
           {/* Lasso badge — počet vybraných bloků nebo hint pro nové uživatele */}
           {canEdit && selectedBlockIds.size > 0 && (
             <div style={{
@@ -3344,6 +3487,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             isTiskar={isTiskar}
             onPrintComplete={isTiskar || canEdit ? handlePrintComplete : undefined}
             assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}
+            onNotify={canEdit ? handleNotify : undefined}
           />
         </div>
 
@@ -3353,6 +3497,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           document.body.style.cursor = "col-resize";
           document.body.style.userSelect = "none";
         }} />}
+
+        {/* InboxPanel pro DTP/MTZ — mimo canEdit aside */}
+        {["DTP", "MTZ"].includes(currentUser.role) && showInboxPanel && (
+          <aside style={{ width: 320, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <InboxPanel
+              notifications={notifications}
+              onClose={() => setShowInboxPanel(false)}
+              onMarkRead={handleMarkRead}
+              onJumpToBlock={(orderNumber) => { setShowInboxPanel(false); setFilterText(orderNumber); }}
+            />
+          </aside>
+        )}
 
         {/* PRAVÁ ČÁST – detail nebo builder */}
         {canEdit && <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>

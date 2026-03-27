@@ -46,29 +46,16 @@ Po opravě Z2 editace vrací přesně zadaný čas — Prague roundtrip ověřen
 
 ---
 
-## Etapa 2 — Elegantní navigace v čase a historii
+## Etapa 2 — Elegantní navigace v čase a historii ✅ HOTOVO
 
-### Z1 + Z8 — Hybridní navigace (společný návrh)
-- Zachovat kompaktní výchozí planner
-- Přidat rychlé skoky po měsících (tlačítka ← → v headeru)
-- Průběžně rozšiřovat historii i budoucnost bez tvrdého stropu 90 dní
-- Jasný tok „našel jsem starý blok, ukaž mi jeho okolí"
+### Z1 + Z8 — Hybridní navigace ✅ HOTOVO
+Segmented buttons [30d|60d|90d] + tlačítko "+ 30d" v headeru. `daysAhead`/`daysBack` state, průběžné rozšiřování bez stropu. „Přejít na" banner pro historické bloky + `handleJumpToOutOfRange`.
 
-### D6 — Hledání podle textu/specifikace
-Stávající implementace **již** prohledává `orderNumber`, `description`, `specifikace`:
-```typescript
-// PlannerPage.tsx, řádky ~1879–1898
-[b.orderNumber, b.description, b.specifikace].some(f => f?.toLowerCase().includes(q));
-```
-Stav: **existuje, ale UX je nedostatečné.** Doplnit:
-- Počet nalezených výsledků (např. „3 výsledky")
-- Navigace šipkami mezi výsledky (existuje `searchMatchIndex`, chybí vizuální feedback)
+### D6 — Hledání podle textu/specifikace ✅ HOTOVO
+`searchMatches`, `searchMatchIndex`, navigace šipkami ← →, počet výsledků zobrazen (`X/N`).
 
-### K12 — Uložit preferované zobrazení planneru
-- `localStorage` klíč `ig-planner-zoom` → `slotHeight` (zoom timeline)
-- `localStorage` klíč `ig-planner-aside-width` → šířka Job Builderu
-- Načíst při mount, uložit při změně přes `useEffect`
-- Žádný serverový profil ani DB — preference jsou lokální v prohlížeči
+### K12 — Uložit preferované zobrazení planneru ✅ HOTOVO
+`localStorage` klíče `ig-planner-zoom` a `ig-planner-aside-width` — načítání při mount, ukládání při změně.
 
 ---
 
@@ -163,20 +150,148 @@ Poznámka: bez FK na Block (stejný pattern jako AuditLog — log přežije smaz
 
 ---
 
-## Etapa 5 — Analýza bez okamžitého fixu
+## Etapa 5 — Analýza snap logiky a schedule validace ✅ Hotovo (2026-03-27)
 
 ### Z5 — Technická analýza: proč nejde plánovat na volná místa
 
 Výstup = dokumentace, ne fix.
 
-**Co analyzovat:**
-- Klientská snap logika v TimelineGrid vs serverová validace v `checkScheduleViolation()` (`src/lib/machineWorkHours.ts`)
-- `POST /api/blocks`, `PUT /api/blocks/[id]`, `POST /api/blocks/batch` — kde a jak se volá validace
-- Výjimky provozních hodin (MachineScheduleException) — zda přebíjí správně
-- Fallback logika proti DB směnám (MachineWorkHours)
-- Zdokumentovat, zda do problému vstupuje flexibilní mód
+---
 
-**Výstup:** přesná sada reprodukčních scénářů + pravděpodobné příčiny + doporučení pro samostatnou etapu fixu.
+### Kde žije validace — repo-truth
+
+**`src/lib/machineWorkHours.ts`** — obsahuje **jen TypeScript typ**, žádnou validační logiku.
+
+Skutečná validace je na dvou místech:
+- **Serverová:** kopie `checkScheduleViolation()` ve třech route souborech:
+  - `src/app/api/blocks/route.ts` (řádek 150)
+  - `src/app/api/blocks/[id]/route.ts` (řádek 315)
+  - `src/app/api/blocks/batch/route.ts` (řádek 199)
+- **Klientská:** `src/lib/workingTime.ts` — funkce `isBlockedSlotDynamic()`, `snapToNextValidStart()`, `snapGroupDelta()`
+
+---
+
+### Flexibilní mód (workingTimeLock)
+
+V headeru existuje explicitní toggle tlačítko (`PlannerPage.tsx`, funkce `setWorkingTimeLock`, UI kolem řádku 3233):
+- **Lock = true (výchozí):** "Víkendy/noc blokovány" — klient při drag/drop volá `snapToNextValidStart()` a přeskakuje blokované sloty
+- **Lock = false:** "Flexibilní mód" — klient snap přeskočí, blok se umístí kam ukazuje kurzor
+
+**Kritická asymetrie:** Flexibilní mód vypíná jen klientský snap. **Serverová validace pro ZAKAZKA bloky běží vždy.** Uživatel může v lock=false umístit ZAKAZKU mimo provoz → server vrátí 422 → toast "Blok se nepodařilo přesunout". To je záměr návrhu, ale pro uživatele neočekávané.
+
+---
+
+### Klientská snap logika
+
+**`snapToSlot(date)`** (TimelineGrid.tsx) — čistě grafické zaokrouhlení na 30minutový slot bez kontextu pracovní doby.
+
+**Single block drag** (TimelineGrid.tsx:1835):
+```
+if (workingTimeLockRef.current) → snapToNextValidStart(newMachine, newStart, duration, machineWorkHoursRef.current, machineExceptionsRef.current)
+```
+
+**Multi-block drag** (TimelineGrid.tsx:1875):
+```
+if (workingTimeLockRef.current) → snapGroupDelta(blocksOnNewMachine, deltaMs, machineWorkHoursRef.current, machineExceptionsRef.current)
+```
+
+**Queue drop** (`handleQueueDrop`, PlannerPage.tsx), **paste** (`handlePaste`, PlannerPage.tsx) — obě cesty volají `snapToNextValidStart()` pokud je lock zapnutý.
+
+**Group paste nemá snap** (`handleGroupPaste`, PlannerPage.tsx): umísťuje bloky relativně k anchor bodu bez volání `snapToNextValidStart()` ani bez přístupu ke schedule datům. Problém není stale schedule, ale **absence snapu jako takového** — bloky se vloží přesně kam kurzor míří, bez ohledu na lock.
+
+**Stale data — single move, multi-move, queue drop, single paste:** `machineWorkHoursRef.current` a `machineExceptionsRef.current` jsou reference na data načtená při page load. Pokud admin v jiné relaci změní směny nebo přidá exception, klient to nezjistí. Snap proběhne podle starých pravidel, server validuje podle nových → 422. Group paste stale data nepostihují (snap tam vůbec neběží).
+
+---
+
+### Klientský snap pro REZERVACE a UDRZBA — mismatch se serverem
+
+`workingTime.ts` snap logika se v klientu aplikuje na **všechny typy bloků** pokud je lock zapnutý. Server validuje **jen ZAKAZKA**.
+
+Praktický dopad: Uživatel chce umístit REZERVACI na konkrétní volné místo mimo pracovní dobu (např. přes víkend). S lock=true klient snappne REZERVACI na nejbližší pracovní čas, přestože by server umístění povolil. Uživatel to vnímá jako „nejde to dát na volné místo" — ale jde o záměrně restriktivní klientský snap, ne o serverové odmítnutí.
+
+---
+
+### Serverová validace — dva fallback problémy
+
+**Fallback 1 — prázdný schedule a exceptions** (route.ts:164):
+```typescript
+if (schedule.length === 0 && exceptions.length === 0) return null;
+```
+Pokud stroj nemá žádné záznamy v `MachineWorkHours` → validace neproběhne, vše prochází.
+
+**Fallback 2 — chybějící řádek pro konkrétní dayOfWeek (závažnější):**
+```typescript
+const row = exc ?? schedule.find((r) => r.dayOfWeek === dayOfWeek); // route.ts:170
+if (row && (!row.isActive || ...)) { return violation; }           // route.ts:171
+```
+Pokud schedule existuje (→ fallback 1 se nespustí), ale pro daný `dayOfWeek` chybí řádek → `row` je `undefined` → podmínka `if (row && ...)` je **false** → slot projde bez validace.
+
+Na serveru: chybějící dayOfWeek = povolený čas.
+Na klientu (`workingTime.ts:41`): chybějící dayOfWeek = fallback na hardcoded `isBlockedSlot()` (fixní pravidla XL_105/XL_106).
+
+**Toto je nejvýznamnější client/server mismatch:** Klient blokuje slot podle hardcoded logiky, server ho povolí.
+
+---
+
+### Volání validace v API routes
+
+| Route | Validace probíhá | Podmínka |
+|---|---|---|
+| `POST /api/blocks` (route.ts:60) | ✅ | jen `type === "ZAKAZKA"` |
+| `PUT /api/blocks/[id]` ([id]/route.ts:80–99) | ✅ | při timing change NEBO změně typu na ZAKAZKA; výsledný effectiveType musí být "ZAKAZKA" |
+| `POST /api/blocks/batch` (batch/route.ts:57) | ✅ | jen bloky kde `existing.type === "ZAKAZKA"` |
+| Typ REZERVACE / UDRZBA | ❌ | záměrně nevalidováno |
+
+---
+
+### autoResolveOverlap() — krok 1 vs krok 2
+
+**Krok 2 — forward push chain** (PlannerPage.tsx:2298): Pokud je lock zapnutý, volá `snapGroupDelta()`. Pracovní dobu respektuje.
+
+**Krok 1 — backward overlap correction** (PlannerPage.tsx:2208): Posune blok na `preceding.endTime` přímo bez snap logiky. Spoléhá na to, že server PUT vrátí 422 pokud nové místo leží mimo provoz. V takovém případě overlap resolution selže a vrátí `"failed"`.
+
+Tedy: autoResolveOverlap nerespektuje snap jen v kroku 1 backward correction. Krok 2 chain push je v pořádku.
+
+---
+
+### Timezone — reálná divergence
+
+`pragueOf()` na serveru používá `Intl.DateTimeFormat` s `formatToParts()` — leading zeros jsou zajištěny automaticky, nejde o bug.
+
+**Skutečná divergence je jinde:** Klientský `isSameDayLocal()` (workingTime.ts:25) porovnává exception datum v **lokální timezone prohlížeče**:
+```typescript
+a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+```
+Server používá Prague-specifický dateStr z `pragueOf()`. Pokud je browser mimo Europe/Prague nebo kolem půlnoci, exception přiřazená ke konkrétnímu pražskému dni se může matchovat na jiný den než na serveru.
+
+---
+
+### Reprodukční scénáře
+
+**Scénář A — chybějící dayOfWeek (client/server mismatch):**
+1. V MachineWorkHours existuje záznam jen pro pondělí–pátek. Sobota chybí.
+2. Uživatel se pokusí umístit ZAKAZKU na sobotu. Klient: lock=true → `isBlockedSlotDynamic()` nenajde row pro sobotu → fallback `isBlockedSlot()` → sobota je blokovaná → snap přeskočí na pondělí ráno.
+3. Server: chybějící row → slot projde → validace pass → blok se vytvoří na sobotu.
+4. Výsledek: blok na pondělí místo soboty, přestože server by sobotu povolil.
+
+**Scénář B — stale schedule ve všech cestách:**
+Admin přidá exception dnes ráno. Uživatel má otevřený plánovač od včera. Všechny snap operace (single move, drop z fronty, paste) používají zastaralou referenci. Server vrátí 422. Uživatel musí refreshnout stránku.
+
+**Scénář C — REZERVACE s lock=true:**
+Uživatel chce REZERVACI na víkend (server to povolí). S lock=true klient snappne na pondělí. Jediná cesta: přepnout na flexibilní mód a znovu umístit.
+
+**Scénář D — group paste bez snapu:**
+Uživatel zkopíruje skupinu bloků a vloží ji přes víkend. `handleGroupPaste` nevolá `snapToNextValidStart()`. Bloky se vytvořit pokusí na neplatné časy → server vrátí 422 → toast "Blok se nepodařilo vytvořit".
+
+---
+
+### Doporučení pro samostatnou etapu fixu
+
+1. **Centralizovat `checkScheduleViolation()`** do sdíleného `src/lib/validateBlockSchedule.ts` — importovat ve všech 3 routes.
+2. **Sjednotit fallback pro chybějící dayOfWeek:** Server by měl při chybějícím row dělat totéž co klient — fallback na hardcoded `isBlockedSlot()`, ne tiché povolení.
+3. **Group paste musí snapovat** — `handleGroupPaste` volat `snapToNextValidStart()` na anchor bloku, ostatní bloky posunout relativně.
+4. **Refresh schedule po změně** — přidat revalidaci `machineWorkHours` a `machineExceptions` po každém uložení (nebo po návratu focus na okno). Stale data postihují všechny operace.
+5. **Opravit timezone divergenci v `isSameDayLocal()`** — použít Prague-specifické porovnání místo lokální timezone klienta.
 
 ---
 

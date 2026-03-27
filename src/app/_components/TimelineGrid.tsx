@@ -182,6 +182,7 @@ interface TimelineGridProps {
   isTiskar?: boolean;
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
   assignedMachine?: string | null;
+  onNotify?: (blockId: number, orderNumber: string) => void;
 }
 
 type QueueDropPreview = {
@@ -731,7 +732,7 @@ function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
   canEdit, canEditData, canEditMat, onInlineDatePick, badgeColorMap,
-  onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete,
+  onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify,
   splitPart, splitTotal,
 }: {
   block: Block;
@@ -761,6 +762,7 @@ function BlockCard({
   getSplitAt?: (clientY: number) => Date;
   isTiskar?: boolean;
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
+  onNotify?: (blockId: number, orderNumber: string) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
@@ -1528,6 +1530,17 @@ function BlockCard({
             </ContextMenuItem>
           </>
         )}
+        {canEdit && block.type === "ZAKAZKA" && onNotify && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => onNotify(block.id, block.orderNumber)}
+              style={menuItemStyle}
+            >
+              📣 Upozornit MTZ + DTP
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -1562,6 +1575,7 @@ export default function TimelineGrid({
   isTiskar,
   onPrintComplete,
   assignedMachine,
+  onNotify,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -2560,6 +2574,7 @@ export default function TimelineGrid({
                       badgeColorMap={badgeColorMap}
                       isTiskar={isTiskar}
                       onPrintComplete={onPrintComplete}
+                      onNotify={onNotify}
                     />
                   );
                 })}
