@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
-import { checkScheduleViolationSync } from "@/lib/scheduleValidation";
+import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -99,8 +99,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           const checkMachine = (allowed.machine as string | undefined) ?? existing.machine;
           const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : existing.startTime;
           const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : existing.endTime;
-          const [schedule, exceptions] = await Promise.all([
-            prisma.machineWorkHours.findMany({ where: { machine: checkMachine } }),
+          const [rawTemplates, exceptions] = await Promise.all([
+            prisma.machineWorkHoursTemplate.findMany({
+              where: { machine: checkMachine },
+              include: { days: true },
+            }),
             prisma.machineScheduleException.findMany({
               where: {
                 machine: checkMachine,
@@ -111,7 +114,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
               },
             }),
           ]);
-          const violation = checkScheduleViolationSync(checkMachine, checkStart, checkEnd, schedule, exceptions);
+          const templates = serializeTemplates(rawTemplates);
+          const violation = checkScheduleViolationWithTemplates(checkMachine, checkStart, checkEnd, templates, exceptions);
           if (violation) return NextResponse.json({ error: violation }, { status: 422 });
         }
       }

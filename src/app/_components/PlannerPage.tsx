@@ -4,8 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { pragueToUTC, utcToPragueHour, utcToPragueDateStr } from "@/lib/dateUtils";
-import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
-import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
+import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
@@ -1909,7 +1909,7 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
 }
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHours, initialMachineExceptions, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHours: MachineWorkHours[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null } }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHoursTemplates, initialMachineExceptions, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHoursTemplates: MachineWorkHoursTemplate[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null } }) {
   // Role-based permissions
   const canEdit     = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
   const canEditData = canEdit || currentUser.role === "DTP";
@@ -1918,7 +1918,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
-  const [machineWorkHours, setMachineWorkHours] = useState<MachineWorkHours[]>(initialMachineWorkHours);
+  const [machineWorkHoursTemplates, setMachineWorkHoursTemplates] = useState<MachineWorkHoursTemplate[]>(initialMachineWorkHoursTemplates);
   const [machineExceptions, setMachineExceptions] = useState<MachineScheduleException[]>(initialMachineExceptions);
   const [showShutdowns, setShowShutdowns] = useState(false);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
@@ -2151,12 +2151,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           fetch("/api/machine-shifts"),
           fetch("/api/machine-exceptions"),
         ]);
-        if (shiftsRes.ok) setMachineWorkHours(await shiftsRes.json());
+        if (shiftsRes.ok) setMachineWorkHoursTemplates(await shiftsRes.json());
         if (exceptionsRes.ok) setMachineExceptions(await exceptionsRes.json());
       } catch (e) { console.debug("[schedule refresh]", e); /* tiché — stale data jsou lepší než error toast */ }
     }
     window.addEventListener("focus", refreshSchedule);
-    return () => window.removeEventListener("focus", refreshSchedule);
+    window.addEventListener("machineScheduleUpdated", refreshSchedule);
+    return () => {
+      window.removeEventListener("focus", refreshSchedule);
+      window.removeEventListener("machineScheduleUpdated", refreshSchedule);
+    };
   }, []);
 
   // Polling bloků každých 30 s — merge jen printCompleted* pole
@@ -2509,10 +2513,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // Pokud je zamknutý pracovní čas, snapneme push chain přes blokované časy
     let effectiveShiftMs = shiftMs;
     if (workingTimeLockRef.current) {
-      const { deltaMs } = snapGroupDelta(
+      const { deltaMs } = snapGroupDeltaWithTemplates(
         chain.map(b => ({ machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
         shiftMs,
-        machineWorkHours,
+        machineWorkHoursTemplates,
         machineExceptions
       );
       effectiveShiftMs = deltaMs;
@@ -3103,7 +3107,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const durationMs = item.durationHours * 60 * 60 * 1000;
     // Snap na pracovní dobu pokud je zamknutý pracovní čas
     const startTime = workingTimeLockRef.current
-      ? snapToNextValidStart(machine, rawStartTime, durationMs, machineWorkHours, machineExceptions)
+      ? snapToNextValidStartWithTemplates(machine, rawStartTime, durationMs, machineWorkHoursTemplates, machineExceptions)
       : rawStartTime;
     const rType = item.recurrenceType ?? "NONE";
     const rCount = rType !== "NONE" ? Math.max(1, item.recurrenceCount ?? 1) : 1;
@@ -3208,7 +3212,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
     const newStart = workingTimeLockRef.current
-      ? snapToNextValidStart(target.machine, rawStart, durationMs, machineWorkHours, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, rawStart, durationMs, machineWorkHoursTemplates, machineExceptions)
       : rawStart;
     const newEnd = new Date(newStart.getTime() + durationMs);
     try {
@@ -3266,7 +3270,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const anchorDuration = new Date(anchorBlock.endTime).getTime() - anchorMs;
     // Snap anchor pokud je lock zapnutý — zachová relativní rozstupy skupiny
     const snappedTarget = workingTimeLockRef.current
-      ? snapToNextValidStart(target.machine, target.time, anchorDuration, machineWorkHours, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, target.time, anchorDuration, machineWorkHoursTemplates, machineExceptions)
       : target.time;
     const pasteMs = snappedTarget.getTime();
 
@@ -3828,7 +3832,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onError={(msg) => showToast(msg, "error")}
             workingTimeLock={workingTimeLock}
             badgeColorMap={badgeColorMap}
-            machineWorkHours={machineWorkHours}
+            machineWorkHours={machineWorkHoursTemplates}
             machineExceptions={machineExceptions}
             onExceptionUpsert={canEdit ? handleExceptionUpsert : undefined}
             onExceptionDelete={canEdit ? handleExceptionDelete : undefined}

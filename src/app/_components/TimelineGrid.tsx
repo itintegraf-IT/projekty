@@ -2,12 +2,13 @@
 
 import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
+import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { utcToPragueDateStr } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { Lock, Clock } from "lucide-react";
-import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
+import { resolveScheduleRows } from "@/lib/scheduleValidation";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
 import {
   HoverCard,
@@ -182,7 +183,7 @@ interface TimelineGridProps {
   onError?: (msg: string) => void;
   workingTimeLock?: boolean;
   badgeColorMap?: Record<number, string | null>;
-  machineWorkHours?: MachineWorkHours[];
+  machineWorkHours?: MachineWorkHoursTemplate[];
   machineExceptions?: MachineScheduleException[];
   onExceptionUpsert?: (machine: string, date: Date, startHour: number, endHour: number, isActive: boolean) => Promise<void>;
   onExceptionDelete?: (id: number) => Promise<void>;
@@ -1918,7 +1919,7 @@ export default function TimelineGrid({
         const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
         let newStart      = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         if (workingTimeLockRef.current) {
-          newStart = snapToNextValidStart(newMachine, newStart, duration, machineWorkHoursRef.current, machineExceptionsRef.current);
+          newStart = snapToNextValidStartWithTemplates(newMachine, newStart, duration, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
         }
         const newEnd      = new Date(newStart.getTime() + duration);
         try {
@@ -1959,7 +1960,7 @@ export default function TimelineGrid({
         const newMachine = clientXToMachine(e.clientX);
         if (workingTimeLockRef.current) {
           const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
-          const { deltaMs: snapped, wasSnapped } = snapGroupDelta(blocksOnNewMachine, deltaMs, machineWorkHoursRef.current, machineExceptionsRef.current);
+          const { deltaMs: snapped, wasSnapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
           deltaMs = snapped;
           if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
         }
@@ -2210,7 +2211,8 @@ export default function TimelineGrid({
       const exc = machineExceptions?.find(
         (e) => e.machine === machine && e.date.slice(0, 10) === dateStr
       );
-      const row = exc ?? machineWorkHours?.find((r) => r.machine === machine && r.dayOfWeek === dow);
+      const resolvedRows = machineWorkHours ? resolveScheduleRows(machine, day, machineWorkHours) : [];
+      const row = exc ?? resolvedRows.find((r) => r.dayOfWeek === dow);
       const isException = !!exc;
       const excId = exc?.id ?? null;
 
@@ -2436,8 +2438,11 @@ export default function TimelineGrid({
                   const isEven = di % 2 === 0;
                   const hpx = slotHeight * 2; // px na hodinu
                   const dow = d.date.getDay();
-                  // Dynamické hranice ze schedule (union přes oba stroje)
-                  const activeMachines = machineWorkHours?.filter((r) => r.dayOfWeek === dow && r.isActive) ?? [];
+                  // Dynamické hranice ze schedule (union přes oba stroje) — per-datum resolve
+                  const allResolvedRows = machineWorkHours
+                    ? visibleMachines.flatMap((m) => resolveScheduleRows(m, d.date, machineWorkHours))
+                    : [];
+                  const activeMachines = allResolvedRows.filter((r) => r.dayOfWeek === dow && r.isActive);
                   const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => r.startHour)) : WORK_START_H;
                   const nightStart = activeMachines.length > 0 ? Math.max(...activeMachines.map((r) => r.endHour))   : WORK_END_H;
                   const midpoint   = Math.round((nightEnd + nightStart) / 2); // střed pracovního okna (pro ranní/odpolední split)

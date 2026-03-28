@@ -1,5 +1,53 @@
 import { pragueOf } from "./dateUtils";
-import type { MachineWorkHours } from "./machineWorkHours";
+import type { MachineWorkHours, MachineWorkHoursTemplate } from "./machineWorkHours";
+
+/**
+ * Vrátí MachineWorkHours-kompatibilní řádky pro konkrétní datum z pole šablon.
+ * Precedence: dočasná šablona (validFrom ≤ datum ≤ validTo) → výchozí šablona.
+ *
+ * validFrom/validTo jsou YYYY-MM-DD stringy (nebo ISO s časem — vždy slicujeme na 10 znaků).
+ * Vrácené objekty mají pole `machine` přidané, i když MachineWorkHoursTemplateDay ho nemá.
+ */
+export function resolveScheduleRows(
+  machine: string,
+  date: Date,
+  templates: MachineWorkHoursTemplate[]
+): Array<{ machine: string; dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }> {
+  const dateStr = pragueOf(date).dateStr; // Europe/Prague datum — nikdy UTC slice (off-by-one v noci)
+  const machineTemplates = templates.filter((t) => t.machine === machine);
+
+  const active =
+    machineTemplates.find(
+      (t) =>
+        !t.isDefault &&
+        t.validFrom.slice(0, 10) <= dateStr &&
+        (t.validTo === null || t.validTo.slice(0, 10) >= dateStr)
+    ) ?? machineTemplates.find((t) => t.isDefault);
+
+  if (!active) return [];
+
+  return active.days.map((d) => ({
+    machine,
+    dayOfWeek: d.dayOfWeek,
+    startHour: d.startHour,
+    endHour: d.endHour,
+    isActive: d.isActive,
+  }));
+}
+
+/**
+ * Serializuje Prisma DateTime validFrom/validTo pole na YYYY-MM-DD stringy.
+ * Použít v route souborech místo inline `.map(t => ({ ...t, validFrom: t.validFrom.toISOString()... }))`.
+ */
+export function serializeTemplates(
+  raw: { validFrom: Date; validTo: Date | null; [key: string]: unknown }[]
+): MachineWorkHoursTemplate[] {
+  return raw.map((t) => ({
+    ...t,
+    validFrom: (t.validFrom as Date).toISOString().slice(0, 10),
+    validTo: t.validTo ? (t.validTo as Date).toISOString().slice(0, 10) : null,
+  })) as MachineWorkHoursTemplate[];
+}
 
 /**
  * Hardcoded pravidla pro bloky mimo provoz — fallback když schedule neobsahuje
@@ -13,39 +61,46 @@ export function isHardcodedBlocked(machine: string, dayOfWeek: number, hour: num
   return false;
 }
 
-/**
- * Synchronní validace bloku vůči provozním hodinám.
- * Route soubory si dělají vlastní async DB fetch, pak volají tuto funkci.
- *
- * Fallback logika pro chybějící dayOfWeek:
- *   - schedule.length === 0 && exceptions.length === 0 → null (žádná pravidla, vše povoleno)
- *   - schedule existuje, ale pro daný dayOfWeek chybí řádek → isHardcodedBlocked (stejné jako klient)
- */
 // `date` je string na klientu (serialized JSON), ale Date z Prisma na serveru — oba fungují s new Date()
-// `machine` je optional pro zpětnou kompatibilitu — pokud chybí, filtr se přeskočí (funguje jen pokud
-//  volající předal pole předfiltrované na správný stroj)
+// `machine` je optional pro zpětnou kompatibilitu — pokud chybí, filtr se přeskočí
 type ExceptionSlim = { machine?: string; date: Date | string; startHour: number; endHour: number; isActive: boolean };
 
-export function checkScheduleViolationSync(
+/**
+ * Validace bloku vůči provozním hodinám s per-slot template resolve.
+ * Správně zpracovává bloky překračující hranice platnosti šablon (multi-day bloky).
+ * Cache per-den eliminuje opakované resolveScheduleRows pro každý 30min slot.
+ */
+export function checkScheduleViolationWithTemplates(
   machine: string,
   startTime: Date,
   endTime: Date,
-  schedule: MachineWorkHours[],
+  templates: MachineWorkHoursTemplate[],
   exceptions: ExceptionSlim[]
 ): string | null {
-  if (schedule.length === 0 && exceptions.length === 0) return null;
   const SLOT_MS = 30 * 60 * 1000;
+  const scheduleCache = new Map<string, ReturnType<typeof resolveScheduleRows>>();
   let cur = new Date(startTime);
   while (cur < endTime) {
     const { hour, dayOfWeek, dateStr } = pragueOf(cur);
+    if (!scheduleCache.has(dateStr)) {
+      scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, templates));
+    }
+    const schedule = scheduleCache.get(dateStr)!;
     const exc = exceptions.find(
       (e) => (!e.machine || e.machine === machine) && new Date(e.date).toISOString().slice(0, 10) === dateStr
     );
-    const row = exc ?? schedule.find((r) => r.machine === machine && r.dayOfWeek === dayOfWeek);
-    if (!row) {
-      if (isHardcodedBlocked(machine, dayOfWeek, hour)) return "Blok zasahuje do doby mimo provoz stroje.";
-    } else if (!row.isActive || hour < row.startHour || hour >= row.endHour) {
-      return "Blok zasahuje do doby mimo provoz stroje.";
+    // Exception přebíjí template
+    if (exc) {
+      if (!exc.isActive || hour < exc.startHour || hour >= exc.endHour) {
+        return "Blok zasahuje do doby mimo provoz stroje.";
+      }
+    } else {
+      const row = schedule.find((r) => r.dayOfWeek === dayOfWeek);
+      if (!row) {
+        if (isHardcodedBlocked(machine, dayOfWeek, hour)) return "Blok zasahuje do doby mimo provoz stroje.";
+      } else if (!row.isActive || hour < row.startHour || hour >= row.endHour) {
+        return "Blok zasahuje do doby mimo provoz stroje.";
+      }
     }
     cur = new Date(cur.getTime() + SLOT_MS);
   }

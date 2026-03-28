@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
-import { checkScheduleViolationSync } from "@/lib/scheduleValidation";
+import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -62,8 +62,11 @@ export async function POST(request: NextRequest) {
       const machine = body.machine as string;
       const startTime = new Date(body.startTime);
       const endTime = new Date(body.endTime);
-      const [schedule, exceptions] = await Promise.all([
-        prisma.machineWorkHours.findMany({ where: { machine } }),
+      const [rawTemplates, exceptions] = await Promise.all([
+        prisma.machineWorkHoursTemplate.findMany({
+          where: { machine },
+          include: { days: true },
+        }),
         prisma.machineScheduleException.findMany({
           where: {
             machine,
@@ -74,7 +77,8 @@ export async function POST(request: NextRequest) {
           },
         }),
       ]);
-      const violation = checkScheduleViolationSync(machine, startTime, endTime, schedule, exceptions);
+      const templates = serializeTemplates(rawTemplates);
+      const violation = checkScheduleViolationWithTemplates(machine, startTime, endTime, templates, exceptions);
       if (violation) return NextResponse.json({ error: violation }, { status: 422 });
     }
 

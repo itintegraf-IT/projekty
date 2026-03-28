@@ -19,10 +19,10 @@ Tato vlna navazuje na současnou planner aplikaci postavenou nad Next.js, React,
 | 1 | Opakování a série | Preview všech výskytů + ruční editace termínů jednotlivých opakování | ⬜ Nezačato |
 | 2 | Splitované zakázky | Propagace `type` a `blockVariant` mezi všemi částmi splitu | ⬜ Nezačato |
 | 3 | Role a oprávnění | `PLANOVAT` dostane omezený přístup do `/admin` | ⬜ Nezačato |
-| 4 | Pracovní doba strojů | Periodické šablony s platností `od-do` | ⬜ Nezačato |
-| 5 | Výrobní sloupečky | Nový sloupec `Pantone` s datem a `OK` | ⬜ Nezačato |
-| 6 | Výrobní sloupečky | `Materiál = SKLADEM` jako dedikovaný režim místo data | ⬜ Nezačato |
-| 7 | Potvrzení tisku | Zrušení automatického `PRINT_RESET` při přesunu bloku | ⬜ Nezačato |
+| 4 | Pracovní doba strojů | Periodické šablony s platností `od-do` | ✅ Hotovo |
+| 5 | Výrobní sloupečky | Nový sloupec `Pantone` s datem a `OK` | 🔄 Rozpracováno (DB hotovo, UI chybí) |
+| 6 | Výrobní sloupečky | `Materiál = SKLADEM` jako dedikovaný režim místo data | 🔄 Rozpracováno (DB hotovo, UI chybí) |
+| 7 | Potvrzení tisku | Zrušení automatického `PRINT_RESET` při přesunu bloku | ✅ Hotovo |
 | 8 | Context menu zakázky | Submenu `Stav zakázky` v pravém kliknutí na blok | ⬜ Nezačato |
 
 > Stav měň na: ⬜ Nezačato / 🔄 Rozpracováno / ✅ Hotovo / 🐛 Chyba

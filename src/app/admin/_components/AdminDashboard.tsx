@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
 import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
-import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import type { MachineWorkHoursTemplate, MachineWorkHoursTemplateDay } from "@/lib/machineWorkHours";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 // ─── Typy ────────────────────────────────────────────────────────────────────
@@ -1264,205 +1264,423 @@ function fmtHour(h: number) {
   return `${String(h).padStart(2, "0")}:00`;
 }
 
+function fmtDateRange(validFrom: string, validTo: string | null): string {
+  const fmt = (s: string) => {
+    const [y, m, d] = s.slice(0, 10).split("-");
+    return `${Number(d)}.\u00a0${Number(m)}.`;
+  };
+  return validTo ? `${fmt(validFrom)}\u00a0–\u00a0${fmt(validTo)}` : `${fmt(validFrom)}\u00a0→`;
+}
+
+// Sdílená mřížka hodin — použita jak pro default šablonu, tak pro formulář dočasné šablony
+function WorkHoursGrid({
+  days,
+  machines,
+  onUpdate,
+}: {
+  days: MachineWorkHoursTemplateDay[];
+  machines: string[];
+  onUpdate: (dayOfWeek: number, machine: string, patch: Partial<MachineWorkHoursTemplateDay>) => void;
+}) {
+  return (
+    <div style={{
+      background: "var(--surface-2)",
+      borderRadius: 12,
+      overflow: "hidden",
+      border: `1px solid ${BORDER_SUBTLE}`,
+    }}>
+      {/* Hlavička */}
+      <div style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr", gap: 1, background: BORDER_SUBTLE }}>
+        <div style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>Den</div>
+        {machines.map((m) => (
+          <div key={m} style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase" as const, letterSpacing: "0.05em", textAlign: "center" as const }}>{m.replace("_", " ")}</div>
+        ))}
+      </div>
+      {DAY_ORDER.map((dow, di) => (
+        <div key={dow} style={{ display: "grid", gridTemplateColumns: "100px 1fr 1fr", gap: 1, background: BORDER_SUBTLE }}>
+          <div style={{ background: "var(--surface-2)", padding: "12px 12px", fontSize: 13, fontWeight: 500, color: dow === 0 || dow === 6 ? "var(--danger)" : TEXT_PRIMARY, display: "flex", alignItems: "center" }}>
+            {DAY_LABELS_CS[di]}
+          </div>
+          {machines.map((machine) => {
+            const row = days.find((d) => d.dayOfWeek === dow);
+            if (!row) return <div key={machine} style={{ background: "var(--surface-2)" }} />;
+            return (
+              <div key={machine} style={{ background: "var(--surface-2)", padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const }}>
+                <button
+                  onClick={() => onUpdate(dow, machine, { isActive: !row.isActive })}
+                  title={row.isActive ? "Provoz" : "Mimo provoz"}
+                  style={{ width: 32, height: 18, borderRadius: 9, flexShrink: 0, background: row.isActive ? "var(--success)" : "var(--surface-3)", border: "none", cursor: "pointer", position: "relative" as const, transition: "background 0.15s ease-out" }}
+                >
+                  <span style={{ position: "absolute" as const, width: 14, height: 14, borderRadius: "50%", background: "var(--text)", top: 2, left: row.isActive ? 16 : 2, transition: "left 0.15s ease-out" }} />
+                </button>
+                {row.isActive ? (
+                  <>
+                    <select value={row.startHour} onChange={(e) => onUpdate(dow, machine, { startHour: Number(e.target.value) })} style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}>
+                      {HOUR_OPTIONS.filter((h) => h < row.endHour).map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                    <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>–</span>
+                    <select value={row.endHour} onChange={(e) => onUpdate(dow, machine, { endHour: Number(e.target.value) })} style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}>
+                      {HOUR_OPTIONS.filter((h) => h > row.startHour && h <= 24).map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontStyle: "italic" }}>Celý den mimo provoz</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Jednoduchý inline date input (Apple-style dark) — jen YYYY-MM-DD string
+function DateInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <input
+      type="date"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        ...inputStyle,
+        width: 130,
+        padding: "4px 8px",
+        fontSize: 12,
+        height: 28,
+        colorScheme: "dark",
+      }}
+    />
+  );
+}
+
+type DayDraft = { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean };
+
+function defaultDays(): DayDraft[] {
+  return [
+    { dayOfWeek: 1, startHour: 6, endHour: 22, isActive: true },
+    { dayOfWeek: 2, startHour: 6, endHour: 22, isActive: true },
+    { dayOfWeek: 3, startHour: 6, endHour: 22, isActive: true },
+    { dayOfWeek: 4, startHour: 6, endHour: 22, isActive: true },
+    { dayOfWeek: 5, startHour: 6, endHour: 22, isActive: true },
+    { dayOfWeek: 6, startHour: 6, endHour: 22, isActive: false },
+    { dayOfWeek: 0, startHour: 6, endHour: 22, isActive: false },
+  ];
+}
+
 function WorkShiftsSection() {
-  const [rows, setRows] = useState<MachineWorkHours[]>([]);
+  const [templates, setTemplates] = useState<MachineWorkHoursTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+
+  // Default template edit state
+  const [defaultDirty, setDefaultDirty] = useState(false);
+  const [defaultSaving, setDefaultSaving] = useState(false);
+  const [defaultError, setDefaultError] = useState("");
+
+  // Add form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addMachine, setAddMachine] = useState<"XL_105" | "XL_106" | "OBA">("OBA");
+  const [addValidFrom, setAddValidFrom] = useState("");
+  const [addValidTo, setAddValidTo] = useState("");
+  const [addLabel, setAddLabel] = useState("");
+  const [addDays, setAddDays] = useState<DayDraft[]>(defaultDays());
+  const [addError, setAddError] = useState("");
+  const [addSaving, setAddSaving] = useState(false);
+  const [expandedTemplateId, setExpandedTemplateId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   useEffect(() => {
     fetch("/api/machine-shifts")
       .then((r) => r.ok ? r.json() : [])
-      .then((data) => { setRows(data); setLoading(false); })
-      .catch(() => { setRows([]); setLoading(false); });
+      .then((data: MachineWorkHoursTemplate[]) => { setTemplates(data); setLoading(false); })
+      .catch(() => { setTemplates([]); setLoading(false); });
   }, []);
 
-  function updateRow(id: number, patch: Partial<MachineWorkHours>) {
-    setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
-    setDirty(true);
-    setError("");
+  function updateDefaultDay(machine: string, dayOfWeek: number, patch: Partial<MachineWorkHoursTemplateDay>) {
+    setTemplates((prev) => prev.map((t) => {
+      if (t.machine !== machine || !t.isDefault) return t;
+      return { ...t, days: t.days.map((d) => d.dayOfWeek === dayOfWeek ? { ...d, ...patch } : d) };
+    }));
+    setDefaultDirty(true);
+    setDefaultError("");
   }
 
-  async function handleSave() {
-    setSaving(true);
-    setError("");
+  async function handleSaveDefault(machine: string) {
+    const tmpl = templates.find((t) => t.machine === machine && t.isDefault);
+    if (!tmpl) return;
+    setDefaultSaving(true);
+    setDefaultError("");
     try {
       const res = await fetch("/api/machine-shifts", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rows.map((r) => ({ id: r.id, startHour: r.startHour, endHour: r.endHour, isActive: r.isActive }))),
+        body: JSON.stringify({ machine, days: tmpl.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })) }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "Chyba při ukládání.");
+        setDefaultError(body.error ?? "Chyba při ukládání.");
       } else {
-        setDirty(false);
+        setDefaultDirty(false);
+        window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
       }
     } catch {
-      setError("Síťová chyba.");
+      setDefaultError("Síťová chyba.");
     } finally {
-      setSaving(false);
+      setDefaultSaving(false);
+    }
+  }
+
+  async function handleAddTemplate() {
+    setAddError("");
+    if (!addValidFrom) { setAddError("Zadej datum platnosti Od."); return; }
+    if (addValidTo && addValidTo <= addValidFrom) { setAddError("Datum Do musí být po datu Od."); return; }
+
+    const machines: string[] = addMachine === "OBA" ? ["XL_105", "XL_106"] : [addMachine];
+    setAddSaving(true);
+    try {
+      for (const machine of machines) {
+        const res = await fetch("/api/machine-shifts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            machine,
+            label: addLabel || null,
+            validFrom: addValidFrom,
+            validTo: addValidTo || null,
+            days: addDays,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setAddError(body.error ?? `Chyba při ukládání (${machine}).`);
+          setAddSaving(false);
+          return;
+        }
+        const created: MachineWorkHoursTemplate = await res.json();
+        setTemplates((prev) => [...prev, created]);
+        window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
+      }
+      // Reset form
+      setShowAddForm(false);
+      setAddValidFrom("");
+      setAddValidTo("");
+      setAddLabel("");
+      setAddDays(defaultDays());
+    } catch {
+      setAddError("Síťová chyba.");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
+  async function handleDeleteTemplate(id: number) {
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/machine-shifts/${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setTemplates((prev) => prev.filter((t) => t.id !== id));
+        window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
+      }
+    } catch {
+      // tiché selhání
+    } finally {
+      setDeletingId(null);
     }
   }
 
   if (loading) return <div style={{ color: TEXT_SECONDARY, fontSize: 13, padding: 20, textAlign: "center" }}>Načítám…</div>;
 
   const machines = ["XL_105", "XL_106"] as const;
+  const temporaryTemplates = templates.filter((t) => !t.isDefault);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Popis */}
-      <div style={{
-        background: "var(--surface-2)",
-        borderRadius: 12,
-        padding: "12px 16px",
-        fontSize: 12,
-        color: TEXT_SECONDARY,
-        lineHeight: 1.5,
-      }}>
-        Týdenní šablona pracovní doby. Nastavení se opakuje každý týden a ovlivňuje vizualizaci na časové ose i automatické přeskakování bloků mimo provozní dobu.
+      <div style={{ background: "var(--surface-2)", borderRadius: 12, padding: "12px 16px", fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+        Výchozí týdenní šablona pracovní doby. Dočasné šablony přebíjí výchozí v daném časovém období.
       </div>
 
-      {/* Tabulka: den × stroj */}
-      <div style={{
-        background: "var(--surface-2)",
-        borderRadius: 12,
-        overflow: "hidden",
-        border: `1px solid ${BORDER_SUBTLE}`,
-      }}>
-        {/* Hlavička */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "100px 1fr 1fr",
-          gap: 1,
-          background: BORDER_SUBTLE,
-        }}>
-          <div style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.05em" }}>Den</div>
-          {machines.map((m) => (
-            <div key={m} style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{m.replace("_", " ")}</div>
-          ))}
-        </div>
+      {/* ── A) Default šablony ──────────────────────────────────────── */}
+      {machines.map((machine) => {
+        const tmpl = templates.find((t) => t.machine === machine && t.isDefault);
+        if (!tmpl) return (
+          <div key={machine} style={{ color: TEXT_SECONDARY, fontSize: 13, padding: 12 }}>
+            ⚠ Výchozí šablona pro {machine} nenalezena. Spusťte <code>npm run prisma:bootstrap</code>.
+          </div>
+        );
+        return (
+          <div key={machine} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, paddingLeft: 2 }}>{machine.replace("_", " ")} — výchozí šablona</div>
+            <WorkHoursGrid
+              days={tmpl.days}
+              machines={[machine]}
+              onUpdate={(dow, _m, patch) => updateDefaultDay(machine, dow, patch)}
+            />
+            {defaultError && <span style={{ fontSize: 12, color: "var(--danger)" }}>{defaultError}</span>}
+            {defaultDirty && (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button style={btnPrimary} disabled={defaultSaving} onClick={() => handleSaveDefault(machine)}>
+                  {defaultSaving ? "Ukládám…" : "Uložit změny"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
 
-        {/* Řádky */}
-        {DAY_ORDER.map((dow, di) => (
-          <div
-            key={dow}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "100px 1fr 1fr",
-              gap: 1,
-              background: BORDER_SUBTLE,
-            }}
-          >
-            {/* Název dne */}
-            <div style={{
-              background: "var(--surface-2)",
-              padding: "12px 12px",
-              fontSize: 13,
-              fontWeight: 500,
-              color: dow === 0 || dow === 6 ? "var(--danger)" : TEXT_PRIMARY,
-              display: "flex",
-              alignItems: "center",
-            }}>
-              {DAY_LABELS_CS[di]}
+      {/* ── B) Dočasné šablony ──────────────────────────────────────── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, paddingLeft: 2 }}>Dočasné šablony</div>
+
+        {temporaryTemplates.length === 0 && !showAddForm && (
+          <div style={{ color: TEXT_SECONDARY, fontSize: 13, padding: "12px 0", fontStyle: "italic" }}>Žádné dočasné šablony</div>
+        )}
+
+        {temporaryTemplates.map((tmpl) => {
+          const isExpanded = expandedTemplateId === tmpl.id;
+          const isDeleting = deletingId === tmpl.id;
+          return (
+            <div key={tmpl.id} style={{ background: "var(--surface-2)", borderRadius: 12, border: `1px solid ${BORDER_SUBTLE}`, overflow: "hidden" }}>
+              {/* Karta hlavička */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px" }}>
+                <button
+                  onClick={() => setExpandedTemplateId(isExpanded ? null : tmpl.id)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: TEXT_SECONDARY, fontSize: 12, padding: 0, transition: "transform 0.15s ease-out", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+                >
+                  ▶
+                </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: TEXT_PRIMARY }}>{tmpl.label || "—"}</div>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginTop: 2 }}>
+                    {tmpl.machine.replace("_", " ")} · {fmtDateRange(tmpl.validFrom, tmpl.validTo)}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDeleteTemplate(tmpl.id)}
+                  disabled={isDeleting}
+                  title="Smazat šablonu"
+                  style={{
+                    background: "none", border: "none", cursor: isDeleting ? "not-allowed" : "pointer",
+                    color: TEXT_SECONDARY, fontSize: 18, padding: "4px 8px", borderRadius: 6,
+                    opacity: isDeleting ? 0.5 : 1,
+                    transition: "color 0.15s ease-out",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = TEXT_SECONDARY)}
+                >
+                  {isDeleting ? "…" : "×"}
+                </button>
+              </div>
+              {/* Rozbalitelná mřížka */}
+              {isExpanded && (
+                <div style={{ borderTop: `1px solid ${BORDER_SUBTLE}`, padding: "12px 16px 16px" }}>
+                  <WorkHoursGrid
+                    days={tmpl.days}
+                    machines={[tmpl.machine]}
+                    onUpdate={() => {/* read-only v expand view */}}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Formulář pro přidání nové šablony */}
+        {showAddForm && (
+          <div style={{ background: "var(--surface-2)", borderRadius: 12, border: `1px solid ${BORDER_SUBTLE}`, padding: "16px" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 12 }}>Nová dočasná šablona</div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+              {/* Stroj */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Stroj</label>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {(["OBA", "XL_105", "XL_106"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setAddMachine(m)}
+                      style={{
+                        padding: "4px 10px", borderRadius: 6, fontSize: 12, border: "none", cursor: "pointer",
+                        background: addMachine === m ? "var(--accent)" : "var(--surface-3)",
+                        color: addMachine === m ? "#fff" : TEXT_PRIMARY,
+                        transition: "all 0.15s ease-out",
+                      }}
+                    >
+                      {m === "OBA" ? "Oba" : m.replace("_", " ")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Label */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Název (nepovinný)</label>
+                <input
+                  type="text"
+                  value={addLabel}
+                  onChange={(e) => setAddLabel(e.target.value)}
+                  placeholder="např. Letní provoz"
+                  style={{ ...inputStyle, width: 180, padding: "4px 8px", fontSize: 12, height: 28 }}
+                />
+              </div>
+
+              {/* Platí od */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Platí od</label>
+                <DateInput value={addValidFrom} onChange={setAddValidFrom} placeholder="od" />
+              </div>
+
+              {/* Platí do */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Platí do</label>
+                <DateInput value={addValidTo} onChange={setAddValidTo} placeholder="do" />
+                {addValidTo && addValidFrom && addValidTo <= addValidFrom && (
+                  <span style={{ fontSize: 11, color: "var(--danger)" }}>Do musí být po Od</span>
+                )}
+              </div>
             </div>
 
-            {/* Buňky pro každý stroj */}
-            {machines.map((machine) => {
-              const row = rows.find((r) => r.machine === machine && r.dayOfWeek === dow);
-              if (!row) return <div key={machine} style={{ background: "var(--surface-2)" }} />;
-              return (
-                <div key={machine} style={{
-                  background: "var(--surface-2)",
-                  padding: "10px 12px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}>
-                  {/* Toggle isActive */}
-                  <button
-                    onClick={() => updateRow(row.id, { isActive: !row.isActive })}
-                    title={row.isActive ? "Provoz (kliknutím vypnout)" : "Mimo provoz (kliknutím zapnout)"}
-                    style={{
-                      width: 32, height: 18, borderRadius: 9, flexShrink: 0,
-                      background: row.isActive ? "var(--success)" : "var(--surface-3)",
-                      border: "none", cursor: "pointer", position: "relative",
-                      transition: "background 0.15s ease-out",
-                    }}
-                  >
-                    <span style={{
-                      position: "absolute",
-                      width: 14, height: 14, borderRadius: "50%",
-                      background: "var(--text)",
-                      top: 2,
-                      left: row.isActive ? 16 : 2,
-                      transition: "left 0.15s ease-out",
-                    }} />
-                  </button>
+            <WorkHoursGrid
+              days={addDays.map((d, i) => ({ ...d, id: i }))}
+              machines={addMachine === "OBA" ? ["XL_105", "XL_106"] : [addMachine]}
+              onUpdate={(dow, _m, patch) => setAddDays((prev) => prev.map((d) => d.dayOfWeek === dow ? { ...d, ...patch } : d))}
+            />
 
-                  {row.isActive ? (
-                    <>
-                      {/* startHour */}
-                      <select
-                        value={row.startHour}
-                        onChange={(e) => updateRow(row.id, { startHour: Number(e.target.value) })}
-                        style={{
-                          ...inputStyle,
-                          width: 74,
-                          padding: "3px 6px",
-                          fontSize: 12,
-                          height: 28,
-                        }}
-                      >
-                        {HOUR_OPTIONS.filter((h) => h < row.endHour).map((h) => (
-                          <option key={h} value={h}>{fmtHour(h)}</option>
-                        ))}
-                      </select>
-                      <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>–</span>
-                      {/* endHour */}
-                      <select
-                        value={row.endHour}
-                        onChange={(e) => updateRow(row.id, { endHour: Number(e.target.value) })}
-                        style={{
-                          ...inputStyle,
-                          width: 74,
-                          padding: "3px 6px",
-                          fontSize: 12,
-                          height: 28,
-                        }}
-                      >
-                        {HOUR_OPTIONS.filter((h) => h > row.startHour && h <= 24).map((h) => (
-                          <option key={h} value={h}>{fmtHour(h)}</option>
-                        ))}
-                      </select>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontStyle: "italic" }}>Celý den mimo provoz</span>
-                  )}
-                </div>
-              );
-            })}
+            {addError && <div style={{ fontSize: 12, color: "var(--danger)", marginTop: 8 }}>{addError}</div>}
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+              <button
+                style={{ ...btnPrimary, background: "var(--surface-3)", color: TEXT_PRIMARY }}
+                onClick={() => { setShowAddForm(false); setAddError(""); }}
+              >
+                Zrušit
+              </button>
+              <button style={btnPrimary} disabled={addSaving} onClick={handleAddTemplate}>
+                {addSaving ? "Ukládám…" : "Uložit šablonu"}
+              </button>
+            </div>
           </div>
-        ))}
-      </div>
+        )}
 
-      {/* Chyba */}
-      {error && <span style={{ fontSize: 12, color: "var(--danger)" }}>{error}</span>}
-
-      {/* Uložit tlačítko */}
-      {dirty && (
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        {!showAddForm && (
           <button
-            style={btnPrimary}
-            disabled={saving}
-            onClick={handleSave}
+            onClick={() => {
+              // Předvyplnit addDays z aktuální default šablony (první nalezená)
+              const defTmpl = templates.find((t) => t.isDefault);
+              if (defTmpl) setAddDays(defTmpl.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })));
+              setShowAddForm(true);
+            }}
+            style={{
+              alignSelf: "flex-start", background: "none", border: `1px dashed ${BORDER_SUBTLE}`,
+              borderRadius: 8, color: "var(--accent)", cursor: "pointer", fontSize: 13,
+              padding: "8px 14px", transition: "all 0.15s ease-out",
+            }}
           >
-            {saving ? "Ukládám…" : "Uložit změny"}
+            + Přidat šablonu
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

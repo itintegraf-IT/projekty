@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PlannerPage from "./_components/PlannerPage";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { serializeTemplates } from "@/lib/scheduleValidation";
 
 export default async function HomePage() {
   const session = await getSession();
@@ -28,9 +29,12 @@ export default async function HomePage() {
     updatedAt: b.updatedAt.toISOString(),
   }));
 
-  const [companyDays, machineWorkHours, machineExceptions] = await Promise.all([
+  const [companyDays, rawMachineWorkHoursTemplates, machineExceptions] = await Promise.all([
     prisma.companyDay.findMany({ orderBy: { startDate: "asc" } }),
-    prisma.machineWorkHours.findMany({ orderBy: [{ machine: "asc" }, { dayOfWeek: "asc" }] }),
+    prisma.machineWorkHoursTemplate.findMany({
+      include: { days: { orderBy: { dayOfWeek: "asc" } } },
+      orderBy: [{ machine: "asc" }, { isDefault: "desc" }, { validFrom: "asc" }],
+    }),
     prisma.machineScheduleException.findMany({ orderBy: [{ date: "asc" }, { machine: "asc" }] }),
   ]);
   const serializedCompanyDays = companyDays.map((d) => ({
@@ -46,5 +50,7 @@ export default async function HomePage() {
     createdAt: e.createdAt.toISOString(),
   }));
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHours={machineWorkHours} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} />;
+  const initialMachineWorkHoursTemplates = serializeTemplates(rawMachineWorkHoursTemplates);
+
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHoursTemplates={initialMachineWorkHoursTemplates} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} />;
 }

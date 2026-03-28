@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { checkScheduleViolationSync } from "@/lib/scheduleValidation";
+import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 type BatchUpdate = {
   id: number;
@@ -57,8 +57,12 @@ export async function POST(request: NextRequest) {
   });
 
   if (zakazkaUpdates.length > 0) {
-    const [schedule, allExceptions] = await Promise.all([
-      prisma.machineWorkHours.findMany(),
+    const machines = [...new Set(zakazkaUpdates.map((u) => u.machine))];
+    const [rawTemplates, allExceptions] = await Promise.all([
+      prisma.machineWorkHoursTemplate.findMany({
+        where: { machine: { in: machines } },
+        include: { days: true },
+      }),
       prisma.machineScheduleException.findMany({
         where: {
           date: {
@@ -72,13 +76,13 @@ export async function POST(request: NextRequest) {
         },
       }),
     ]);
+    const templates = serializeTemplates(rawTemplates);
 
     for (const u of zakazkaUpdates) {
       const start = new Date(u.startTime);
       const end = new Date(u.endTime);
-      const machineSchedule = schedule.filter((r) => r.machine === u.machine);
       const machineExceptions = allExceptions.filter((e) => e.machine === u.machine);
-      const violation = checkScheduleViolationSync(u.machine, start, end, machineSchedule, machineExceptions);
+      const violation = checkScheduleViolationWithTemplates(u.machine, start, end, templates, machineExceptions);
       if (violation) {
         return NextResponse.json({ error: violation }, { status: 422 });
       }
