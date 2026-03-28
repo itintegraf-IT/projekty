@@ -111,6 +111,10 @@ export async function POST(request: NextRequest) {
           specifikace: body.specifikace ?? null,
           // MATERIÁL POZNÁMKA (jen obsah — autor se nepřenáší, je server-owned)
           materialNote: body.materialNote ?? null,
+          // PANTONE + MATERIAL IN STOCK
+          pantoneRequiredDate: body.pantoneRequiredDate ? new Date(body.pantoneRequiredDate) : null,
+          pantoneOk: body.pantoneOk ?? false,
+          materialInStock: body.materialInStock ?? false,
           // OPAKOVÁNÍ
           recurrenceType: body.recurrenceType ?? "NONE",
           recurrenceParentId: body.recurrenceParentId ?? null,

@@ -34,8 +34,10 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
 
 const SPLIT_SHARED_FIELDS = [
   "orderNumber", "description", "specifikace", "deadlineExpedice",
+  "type", "blockVariant",
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
-  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk",
+  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
+  "pantoneRequiredDate", "pantoneOk",
   "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
 ] as const;
 type SplitSharedField = typeof SPLIT_SHARED_FIELDS[number];
@@ -71,6 +73,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         materialRequiredDate: body.materialRequiredDate,
         materialOk: body.materialOk,
         materialNote: body.materialNote,
+        pantoneRequiredDate: body.pantoneRequiredDate,
+        pantoneOk: body.pantoneOk,
+        materialInStock: body.materialInStock,
       };
     } else {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -115,6 +120,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const AUDITED_FIELDS = [
       "dataStatusLabel", "dataRequiredDate", "dataOk",
       "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
+      "pantoneRequiredDate", "pantoneOk", "materialInStock",
       "deadlineExpedice",
       "blockVariant",
     ] as const;
@@ -131,16 +137,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         resultingType
       );
 
-      // PRINT_RESET: pokud ADMIN/PLANOVAT skutečně mění startTime/endTime/machine a blok je potvrzený
-      const timingActuallyChanged = oldBlock != null && (
-        (allowed.startTime !== undefined && new Date(allowed.startTime as string).getTime() !== oldBlock.startTime.getTime()) ||
-        (allowed.endTime !== undefined && new Date(allowed.endTime as string).getTime() !== oldBlock.endTime.getTime()) ||
-        (allowed.machine !== undefined && allowed.machine !== oldBlock.machine)
-      );
-      const needsPrintReset =
-        timingActuallyChanged &&
-        oldBlock?.printCompletedAt != null &&
-        ["ADMIN", "PLANOVAT"].includes(session.role);
+      // Pokud se type mění z ZAKAZKA na jiný typ, vyčistit printCompleted jako konzistenční cleanup
+      const typeChangingAwayFromZakazka =
+        oldBlock?.type === "ZAKAZKA" &&
+        (allowed.type as string | undefined) !== undefined &&
+        (allowed.type as string | undefined) !== "ZAKAZKA";
 
       const updated = await tx.block.update({
         where: { id },
@@ -149,13 +150,13 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.machine !== undefined && { machine: allowed.machine as string }),
           ...(allowed.startTime !== undefined && { startTime: new Date(allowed.startTime as string) }),
           ...(allowed.endTime !== undefined && { endTime: new Date(allowed.endTime as string) }),
-          // PRINT_RESET — vyčistit potvrzení při přeplánování
-          ...(needsPrintReset && {
+          ...(allowed.type !== undefined && { type: allowed.type as string }),
+          // Pokud se type mění pryč od ZAKAZKA, vyčistit printCompleted
+          ...(typeChangingAwayFromZakazka && {
             printCompletedAt: null,
             printCompletedByUserId: null,
             printCompletedByUsername: null,
           }),
-          ...(allowed.type !== undefined && { type: allowed.type as string }),
           // Aplikovat blockVariant pokud byl explicitně zadán, nebo pokud se mění type (invariant: non-ZAKAZKA → STANDARD)
           ...((allowed.blockVariant !== undefined || allowed.type !== undefined) && { blockVariant }),
           ...(allowed.description !== undefined && { description: allowed.description as string }),
@@ -181,6 +182,14 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             materialNote: allowed.materialNote as string | null,
             materialNoteByUsername: allowed.materialNote ? session.username : null,
           }),
+          // PANTONE
+          ...(allowed.pantoneRequiredDate !== undefined && {
+            pantoneRequiredDate: allowed.pantoneRequiredDate ? new Date(allowed.pantoneRequiredDate as string) : null,
+          }),
+          ...(allowed.pantoneOk !== undefined && { pantoneOk: allowed.pantoneOk as boolean }),
+          // MATERIAL IN STOCK (pokud materialInStock=true, vynulovat materialRequiredDate)
+          ...(allowed.materialInStock !== undefined && { materialInStock: allowed.materialInStock as boolean }),
+          ...(allowed.materialInStock === true && { materialRequiredDate: null }),
           // BARVY
           ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
           ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),
@@ -219,19 +228,6 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             newValue: String(updated[field as AuditedField] ?? ""),
           }));
 
-        if (needsPrintReset) {
-          changes.push({
-            blockId: id,
-            orderNumber: oldBlock?.orderNumber ?? null,
-            userId: session.id,
-            username: session.username,
-            action: "PRINT_RESET",
-            field: "printCompletedAt",
-            oldValue: String(oldBlock?.printCompletedByUsername ?? ""),
-            newValue: "",
-          });
-        }
-
         if (changes.length > 0) {
           await tx.auditLog.createMany({ data: changes });
         }
@@ -247,6 +243,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           }
         }
         if (Object.keys(sharedUpdate).length > 0) {
+          // Pokud se type mění na non-ZAKAZKA, normalizovat blockVariant na STANDARD
+          if (sharedUpdate.type && sharedUpdate.type !== "ZAKAZKA") {
+            sharedUpdate.blockVariant = "STANDARD";
+          }
           await tx.block.updateMany({
             where: { splitGroupId: groupId, id: { not: id } },
             data: sharedUpdate,

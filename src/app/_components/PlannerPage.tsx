@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
-import { BLOCK_VARIANTS, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
+import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { pragueToUTC, utcToPragueHour, utcToPragueDateStr } from "@/lib/dateUtils";
 import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
 import type { MachineWorkHours } from "@/lib/machineWorkHours";
@@ -68,6 +68,9 @@ type QueueItem = {
   materialStatusId: number | null;
   materialStatusLabel: string | null;
   materialRequiredDate: string | null;
+  materialInStock: boolean;
+  pantoneRequiredDate: string | null;
+  pantoneOk: boolean;
   barvyStatusId: number | null;
   barvyStatusLabel: string | null;
   lakStatusId: number | null;
@@ -104,12 +107,6 @@ const TYPE_BUILDER_CONFIG = {
   UDRZBA:    { icon: Wrench,        label: "Údržba / Oprava", color: "#c0392b" },
 } as const;
 
-const VARIANT_CONFIG: Record<BlockVariant, { label: string; color: string }> = {
-  STANDARD:         { label: "Klasická",         color: "#3b82f6" },
-  BEZ_TECHNOLOGIE:  { label: "Bez technologie",  color: "#059669" },
-  BEZ_SACKU:        { label: "Bez sáčku",        color: "#e36414" },
-  POZASTAVENO:      { label: "Pozastaveno",       color: "#d00000" },
-};
 
 // ─── ZoomSlider ───────────────────────────────────────────────────────────────
 function ZoomSlider({ value, onChange, min = 3, max = 26 }: {
@@ -389,6 +386,7 @@ function BlockEdit({
   block,
   onClose,
   onSave,
+  onBlockUpdate,
   allBlocks,
   onDeleteAll,
   onSaveAll,
@@ -399,10 +397,12 @@ function BlockEdit({
   materialOpts: materialOptsProp,
   barvyOpts: barvyOptsProp,
   lakOpts: lakOptsProp,
+  onToast,
 }: {
   block: Block;
   onClose: () => void;
   onSave: (updated: Block) => void;
+  onBlockUpdate?: (updated: Block) => void;
   allBlocks: Block[];
   onDeleteAll: (ids: number[]) => Promise<void>;
   onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<void>;
@@ -413,6 +413,7 @@ function BlockEdit({
   materialOpts?: CodebookOption[];
   barvyOpts?: CodebookOption[];
   lakOpts?: CodebookOption[];
+  onToast?: (message: string, type: "success" | "error" | "info") => void;
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
   const [type, setType]               = useState(block.type);
@@ -445,6 +446,12 @@ function BlockEdit({
   );
   const [materialOk, setMaterialOk]             = useState(block.materialOk);
   const [materialNote, setMaterialNote]         = useState(block.materialNote ?? "");
+  const [materialInStock, setMaterialInStock]   = useState(block.materialInStock);
+  // PANTONE
+  const [pantoneRequiredDate, setPantoneRequiredDate] = useState(
+    block.pantoneRequiredDate ? utcToPragueDateStr(new Date(block.pantoneRequiredDate)) : ""
+  );
+  const [pantoneOk, setPantoneOk] = useState(block.pantoneOk);
   // BARVY
   const [barvyStatusId, setBarvyStatusId] = useState<string>(block.barvyStatusId?.toString() ?? "");
 
@@ -459,6 +466,23 @@ function BlockEdit({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isInSeries = block.recurrenceType !== "NONE" || block.recurrenceParentId !== null;
+
+  // SÉRIE — editace termínů jednotlivých výskytů
+  const [seriesOccDrafts, setSeriesOccDrafts] = useState<Array<{ blockId: number; date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }>>(() => {
+    if (!isInSeries) return [];
+    const rootId = block.recurrenceParentId ?? block.id;
+    return allBlocks
+      .filter((b) => b.id === rootId || b.recurrenceParentId === rootId)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+      .map((b) => ({
+        blockId: b.id,
+        date: utcToPragueDateStr(new Date(b.startTime)),
+        hour: utcToPragueHour(new Date(b.startTime)),
+        dataRequiredDate: b.dataRequiredDate ? utcToPragueDateStr(new Date(b.dataRequiredDate)) : "",
+        deadlineExpedice: b.deadlineExpedice ? utcToPragueDateStr(new Date(b.deadlineExpedice)) : "",
+      }));
+  });
+  const [seriesOccSaving, setSeriesOccSaving] = useState(false);
 
   // SPLIT SKUPINA
   const splitGroup = block.splitGroupId != null
@@ -482,6 +506,57 @@ function BlockEdit({
     return allBlocks
       .filter((b) => (b.id === rootId || b.recurrenceParentId === rootId) && new Date(b.startTime).getTime() >= blockStart)
       .map((b) => b.id);
+  }
+
+  async function handleSaveSeriesOccurrences() {
+    if (seriesOccSaving) return;
+    setSeriesOccSaving(true);
+    const rootId = block.recurrenceParentId ?? block.id;
+    const curSeries = allBlocks
+      .filter((b) => b.id === rootId || b.recurrenceParentId === rootId)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    let saved = 0;
+    let attempted = 0;
+    for (const draft of seriesOccDrafts) {
+      const orig = curSeries.find((b) => b.id === draft.blockId);
+      if (!orig) continue;
+      const origDate = utcToPragueDateStr(new Date(orig.startTime));
+      const origHour = utcToPragueHour(new Date(orig.startTime));
+      const origDataDate = orig.dataRequiredDate ? utcToPragueDateStr(new Date(orig.dataRequiredDate)) : "";
+      const origExpedice = orig.deadlineExpedice ? utcToPragueDateStr(new Date(orig.deadlineExpedice)) : "";
+      if (draft.date === origDate && draft.hour === origHour && draft.dataRequiredDate === origDataDate && draft.deadlineExpedice === origExpedice) continue;
+      attempted++;
+      const origDuration = new Date(orig.endTime).getTime() - new Date(orig.startTime).getTime();
+      const newStart = pragueToUTC(draft.date, draft.hour);
+      const newEnd = new Date(newStart.getTime() + origDuration);
+      try {
+        const res = await fetch(`/api/blocks/${draft.blockId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            startTime: newStart.toISOString(),
+            endTime: newEnd.toISOString(),
+            dataRequiredDate: draft.dataRequiredDate || null,
+            deadlineExpedice: draft.deadlineExpedice || null,
+          }),
+        });
+        if (res.ok) {
+          const updated: Block = await res.json();
+          onBlockUpdate?.(updated);
+          saved++;
+        }
+      } catch { /* skip */ }
+    }
+    setSeriesOccSaving(false);
+    if (attempted === 0) {
+      onToast?.("Žádné změny k uložení.", "info");
+    } else if (saved === attempted) {
+      onToast?.(`Uloženo ${saved} výskytů.`, "success");
+    } else if (saved > 0) {
+      onToast?.(`Uloženo ${saved}/${attempted} výskytů — některé selhaly.`, "error");
+    } else {
+      onToast?.("Uložení selhalo — zkus to znovu.", "error");
+    }
   }
 
   // Číselníky — preferujeme props z PlannerPage (single source of truth), fallback na vlastní fetch
@@ -539,9 +614,12 @@ function BlockEdit({
       dataOk,
       materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
       materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
-      materialRequiredDate: materialRequiredDate || null,
+      materialRequiredDate: materialInStock ? null : materialRequiredDate || null,
       materialOk,
       materialNote: materialNote.trim() || null,
+      materialInStock,
+      pantoneRequiredDate: pantoneRequiredDate || null,
+      pantoneOk,
       barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
       barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
       lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
@@ -779,42 +857,56 @@ function BlockEdit({
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
             <SectionLabel>Výrobní sloupečky</SectionLabel>
 
-            {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | EXPEDICE */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | PANTONE | EXPEDICE */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+              {/* DATA */}
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA</ColLabel>
                 <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum" />
                 <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: dataOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                  <div style={{
-                    width: 15, height: 15, borderRadius: 4, flexShrink: 0,
-                    background: dataOk ? "var(--success)" : "transparent",
-                    border: dataOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    transition: "all 120ms ease-out",
-                  }}>
+                  <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: dataOk ? "var(--success)" : "transparent", border: dataOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
                     {dataOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                   <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
                   OK
                 </label>
               </div>
+              {/* MATERIÁL */}
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <ColLabel>Materiál</ColLabel>
-                <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum" />
-                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: materialOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                  <div style={{
-                    width: 15, height: 15, borderRadius: 4, flexShrink: 0,
-                    background: materialOk ? "var(--success)" : "transparent",
-                    border: materialOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    transition: "all 120ms ease-out",
-                  }}>
-                    {materialOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                {materialInStock ? (
+                  <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#10b981" }}>Skladem ✓</div>
+                ) : (
+                  <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum" />
+                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
+                  {!materialInStock && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: materialOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                      <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: materialOk ? "var(--success)" : "transparent", border: materialOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                        {materialOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                      OK
+                    </label>
+                  )}
+                  <button type="button" onClick={() => { setMaterialInStock(!materialInStock); if (!materialInStock) { setMaterialRequiredDate(""); setMaterialOk(false); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: materialInStock ? "1px solid rgba(16,185,129,0.5)" : "1px solid var(--border)", background: materialInStock ? "rgba(16,185,129,0.15)" : "transparent", color: materialInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                    SKLAD
+                  </button>
+                </div>
+              </div>
+              {/* PANTONE */}
+              <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
+                <ColLabel>Pantone</ColLabel>
+                <DatePickerField value={pantoneRequiredDate} onChange={setPantoneRequiredDate} placeholder="Datum" />
+                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                  <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: pantoneOk ? "var(--success)" : "transparent", border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                    {pantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
-                  <input type="checkbox" checked={materialOk} onChange={(e) => setMaterialOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                  <input type="checkbox" checked={pantoneOk} onChange={(e) => setPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
                   OK
                 </label>
               </div>
+              {/* EXPEDICE */}
               <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
                 <ColLabel>Expedice</ColLabel>
                 <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} placeholder="Datum" />
@@ -868,6 +960,95 @@ function BlockEdit({
         </div>
 
         </div>{/* close: Hlavní pole disabled wrapper */}
+
+        {/* ── Termíny série ── */}
+        {canEdit && isInSeries && seriesOccDrafts.length > 1 && (
+          <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>Termíny série</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
+              {seriesOccDrafts.map((occ, i) => (
+                <div key={occ.blockId} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", borderRadius: 7, background: occ.blockId === block.id ? "rgba(59,130,246,0.08)" : "rgba(255,255,255,0.03)", border: occ.blockId === block.id ? "1px solid rgba(59,130,246,0.2)" : "1px solid rgba(255,255,255,0.06)" }}>
+                  {/* Řádek 1: badge + Tisk datum + hodina */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{
+                      flexShrink: 0, width: 20, height: 20, borderRadius: 4,
+                      background: occ.blockId === block.id ? "rgba(59,130,246,0.28)" : "rgba(59,130,246,0.1)",
+                      border: occ.blockId === block.id ? "1px solid rgba(59,130,246,0.55)" : "1px solid rgba(59,130,246,0.2)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 9, fontWeight: 700, color: "#93c5fd",
+                    }}>{i + 1}</div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>Tisk:</div>
+                    <div style={{ flex: 1 }}>
+                      <DatePickerField
+                        value={occ.date}
+                        onChange={(d) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, date: d } : o))}
+                        placeholder="Datum…"
+                      />
+                    </div>
+                    <div style={{ flex: "0 0 72px", position: "relative" }}>
+                      <select
+                        value={occ.hour}
+                        onChange={(e) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, hour: parseInt(e.target.value) } : o))}
+                        style={{
+                          appearance: "none", width: "100%", height: 30,
+                          background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,
+                          color: "var(--text)", fontSize: 11, fontWeight: 600,
+                          padding: "0 22px 0 8px", cursor: "pointer", outline: "none",
+                        }}
+                        onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                        onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                      >
+                        {Array.from({ length: 24 }, (_, h) => (
+                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                        ))}
+                      </select>
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
+                        style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", width: 10, height: 10, pointerEvents: "none" }}>
+                        <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  </div>
+                  {/* Řádek 2: DATA datum + EXP datum */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 26 }}>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>DATA:</div>
+                    <div style={{ flex: 1 }}>
+                      <DatePickerField
+                        value={occ.dataRequiredDate}
+                        onChange={(d) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, dataRequiredDate: d } : o))}
+                        placeholder="Termín dat…"
+                      />
+                    </div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 24, flexShrink: 0, textAlign: "right" }}>EXP:</div>
+                    <div style={{ flex: 1 }}>
+                      <DatePickerField
+                        value={occ.deadlineExpedice}
+                        onChange={(d) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, deadlineExpedice: d } : o))}
+                        placeholder="Expedice…"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveSeriesOccurrences}
+              disabled={seriesOccSaving}
+              style={{
+                marginTop: 8, width: "100%", height: 30,
+                borderRadius: 7, border: "1px solid rgba(59,130,246,0.3)",
+                background: "rgba(59,130,246,0.12)", color: "#93c5fd",
+                fontSize: 11, fontWeight: 600,
+                cursor: seriesOccSaving ? "default" : "pointer",
+                opacity: seriesOccSaving ? 0.65 : 1,
+                transition: "opacity 120ms ease-out",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+              }}
+            >
+              {seriesOccSaving ? "Ukládám…" : "Uložit termíny série"}
+            </button>
+          </div>
+        )}
 
         {/* Série — inline dialog */}
         {seriesConfirm ? (
@@ -1228,7 +1409,12 @@ const FIELD_LABELS: Record<string, string> = {
   materialStatusLabel: "Materiál stav",
   materialRequiredDate: "Materiál datum",
   materialOk: "Materiál OK",
+  materialNote: "Poznámka MTZ",
+  materialInStock: "Materiál skladem",
   deadlineExpedice: "Expedice termín",
+  pantoneRequiredDate: "Pantone datum",
+  pantoneOk: "Pantone OK",
+  blockVariant: "Stav zakázky",
 };
 
 function fmtAuditVal(val: string | null, field: string | null) {
@@ -1772,11 +1958,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [bDataRequiredDate, setBDataRequiredDate] = useState<string>("");
   const [bMaterialStatusId, setBMaterialStatusId]         = useState<string>("");
   const [bMaterialRequiredDate, setBMaterialRequiredDate] = useState<string>("");
+  const [bMaterialInStock, setBMaterialInStock]           = useState(false);
+  const [bPantoneRequiredDate, setBPantoneRequiredDate]   = useState<string>("");
+  const [bPantoneOk, setBPantoneOk]                       = useState(false);
   const [bBarvyStatusId, setBBarvyStatusId]       = useState<string>("");
   const [bLakStatusId, setBLakStatusId]           = useState<string>("");
   const [bSpecifikace, setBSpecifikace]           = useState("");
   const [bRecurrenceType, setBRecurrenceType]     = useState("NONE");
   const [bRecurrenceCount, setBRecurrenceCount]   = useState(2);
+  // Serie flow (jen pro bRecurrenceType !== "NONE")
+  const [bSeriesMachine, setBSeriesMachine]       = useState<"XL_105" | "XL_106">("XL_105");
+  const [bSeriesFirstDate, setBSeriesFirstDate]   = useState<string>("");
+  const [bSeriesFirstHour, setBSeriesFirstHour]   = useState<number>(7);
+  const [seriesPreview, setSeriesPreview]         = useState<Array<{ date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }>>([]);
+  const [seriesScheduling, setSeriesScheduling]   = useState(false);
 
   // Číselníky pro builder
   const [bDataOpts, setBDataOpts]         = useState<CodebookOption[]>([]);
@@ -1958,7 +2153,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         ]);
         if (shiftsRes.ok) setMachineWorkHours(await shiftsRes.json());
         if (exceptionsRes.ok) setMachineExceptions(await exceptionsRes.json());
-      } catch { /* tiché — stale data jsou lepší než error toast */ }
+      } catch (e) { console.debug("[schedule refresh]", e); /* tiché — stale data jsou lepší než error toast */ }
     }
     window.addEventListener("focus", refreshSchedule);
     return () => window.removeEventListener("focus", refreshSchedule);
@@ -2357,8 +2552,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   const SPLIT_SHARED_FIELDS = [
     "orderNumber", "description", "specifikace", "deadlineExpedice",
+    "type", "blockVariant",
     "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
-    "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk",
+    "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
+    "pantoneRequiredDate", "pantoneOk",
     "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
   ] as const;
 
@@ -2373,6 +2570,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       for (const f of SPLIT_SHARED_FIELDS) {
         (patch as Record<string, unknown>)[f] = (updated as Record<string, unknown>)[f];
       }
+      // Pokud se type mění na non-ZAKAZKA, normalizovat blockVariant na STANDARD
+      if (patch.type && patch.type !== "ZAKAZKA") patch.blockVariant = "STANDARD";
       setBlocks(prev => prev.map(b =>
         b.id !== updated.id &&
         (b.splitGroupId === updated.splitGroupId || b.id === updated.splitGroupId)
@@ -2712,7 +2911,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         dataRequiredDate: bDataRequiredDate || null,
         materialStatusId: bMaterialStatusId ? Number(bMaterialStatusId) : null,
         materialStatusLabel: findLabel(bMaterialOpts, bMaterialStatusId),
-        materialRequiredDate: bMaterialRequiredDate || null,
+        materialRequiredDate: bMaterialInStock ? null : bMaterialRequiredDate || null,
+        materialInStock: bMaterialInStock,
+        pantoneRequiredDate: bPantoneRequiredDate || null,
+        pantoneOk: bPantoneOk,
         barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
         barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
         lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
@@ -2729,6 +2931,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setBDataRequiredDate("");
     setBMaterialStatusId("");
     setBMaterialRequiredDate("");
+    setBMaterialInStock(false);
+    setBPantoneRequiredDate("");
+    setBPantoneOk(false);
     setBBarvyStatusId("");
     setBLakStatusId("");
     setBSpecifikace("");
@@ -2738,6 +2943,82 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setBlockVariant("STANDARD");
   }
 
+  async function handleScheduleSeries() {
+    if (!orderNumber.trim() || seriesPreview.length === 0 || seriesScheduling) return;
+    const durationMs = durationHours * 3600000;
+    const findLabel = (opts: CodebookOption[], id: string) => opts.find((o) => String(o.id) === id)?.label ?? null;
+    const baseBody = {
+      orderNumber: orderNumber.trim(),
+      machine: bSeriesMachine,
+      type,
+      blockVariant: type === "ZAKAZKA" ? blockVariant : "STANDARD",
+      description: description.trim() || null,
+      dataStatusId: bDataStatusId ? Number(bDataStatusId) : null,
+      dataStatusLabel: findLabel(bDataOpts, bDataStatusId),
+      materialStatusId: bMaterialStatusId ? Number(bMaterialStatusId) : null,
+      materialStatusLabel: findLabel(bMaterialOpts, bMaterialStatusId),
+      materialRequiredDate: bMaterialInStock ? null : bMaterialRequiredDate || null,
+      materialInStock: bMaterialInStock,
+      pantoneRequiredDate: bPantoneRequiredDate || null,
+      pantoneOk: bPantoneOk,
+      barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
+      barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
+      lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
+      lakStatusLabel: findLabel(bLakOpts, bLakStatusId),
+      specifikace: bSpecifikace || null,
+      recurrenceType: bRecurrenceType,
+    };
+    setSeriesScheduling(true);
+    let parentId: number | null = null;
+    let created = 0;
+    for (let i = 0; i < seriesPreview.length; i++) {
+      const occ = seriesPreview[i];
+      const startTime = pragueToUTC(occ.date, occ.hour);
+      const endTime = new Date(startTime.getTime() + durationMs);
+      const body: Record<string, unknown> = {
+        ...baseBody,
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        dataRequiredDate: occ.dataRequiredDate || null,
+        deadlineExpedice: occ.deadlineExpedice || null,
+      };
+      if (parentId !== null) body.recurrenceParentId = parentId;
+      try {
+        const res = await fetch("/api/blocks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          const block: Block = await res.json();
+          if (i === 0) parentId = block.id;
+          handleBlockCreate(block);
+          created++;
+        }
+      } catch { /* skip failed occurrence */ }
+    }
+    setSeriesScheduling(false);
+    if (created > 0 && created < seriesPreview.length) {
+      showToast(`Naplánováno jen ${created}/${seriesPreview.length} bloků — zkontroluj timeline.`, "error");
+    } else if (created > 0) {
+      showToast(`Série ${created} bloků naplánována.`, "success");
+    } else {
+      showToast("Naplánování série selhalo.", "error");
+    }
+    if (created > 0) {
+      setOrderNumber(""); setDescription("");
+      setBDataStatusId(""); setBDataRequiredDate("");
+      setBMaterialStatusId(""); setBMaterialRequiredDate(""); setBMaterialInStock(false);
+      setBPantoneRequiredDate(""); setBPantoneOk(false);
+      setBBarvyStatusId(""); setBLakStatusId("");
+      setBSpecifikace(""); setBDeadlineExpedice("");
+      setBRecurrenceType("NONE"); setBRecurrenceCount(2);
+      setBSeriesFirstDate(""); setBSeriesFirstHour(7);
+      setSeriesPreview([]);
+      setBlockVariant("STANDARD");
+    }
+  }
+
   function addRecurrenceInterval(date: Date, type: string): Date {
     const d = new Date(date);
     if (type === "DAILY") d.setDate(d.getDate() + 1);
@@ -2745,6 +3026,31 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     else if (type === "MONTHLY") d.setMonth(d.getMonth() + 1);
     return d;
   }
+
+  function generateSeriesPreview(firstDate: string, firstHour: number, count: number, rType: string, defaultDataDate: string, defaultExpedice: string): Array<{ date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }> {
+    if (!firstDate || rType === "NONE" || count < 1) return [];
+    const occurrences: Array<{ date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }> = [];
+    // UTC noon — bezpečné pro aritmetiku celých dnů ve všech timezone
+    let cur = new Date(firstDate + "T12:00:00.000Z");
+    for (let i = 0; i < count; i++) {
+      occurrences.push({ date: cur.toISOString().slice(0, 10), hour: firstHour, dataRequiredDate: defaultDataDate, deadlineExpedice: defaultExpedice });
+      cur = addRecurrenceInterval(cur, rType);
+    }
+    return occurrences;
+  }
+
+  // Regeneruje preview série při změně parametrů
+  // POZOR: bDataRequiredDate a bDeadlineExpedice jsou jen defaulty pro nově generované řádky —
+  // záměrně nejsou v dep array, aby ruční editace per-occurrence hodnot nebyla přepsána
+  // při změně počtu bloků nebo intervalu.
+  useEffect(() => {
+    if (bRecurrenceType === "NONE" || !bSeriesFirstDate) {
+      setSeriesPreview([]);
+      return;
+    }
+    setSeriesPreview(generateSeriesPreview(bSeriesFirstDate, bSeriesFirstHour, bRecurrenceCount, bRecurrenceType, bDataRequiredDate, bDeadlineExpedice));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bRecurrenceType, bRecurrenceCount, bSeriesFirstDate, bSeriesFirstHour]);
 
   async function handleExceptionUpsert(machine: string, date: Date, startHour: number, endHour: number, isActive: boolean) {
     try {
@@ -2775,6 +3081,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
+  async function handleBlockVariantChange(blockId: number, variant: BlockVariant) {
+    try {
+      const res = await fetch(`/api/blocks/${blockId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blockVariant: variant }),
+      });
+      if (!res.ok) throw new Error("Chyba serveru");
+      const updated: Block = await res.json();
+      handleBlockUpdate(updated);
+    } catch (error) {
+      console.error("Block variant change failed", error);
+      showToast("Nepodařilo se změnit stav zakázky.", "error");
+    }
+  }
+
   async function handleQueueDrop(itemId: number, machine: string, rawStartTime: Date) {
     const item = queue.find((q) => q.id === itemId);
     if (!item) return;
@@ -2797,7 +3119,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       dataRequiredDate: item.dataRequiredDate || null,
       materialStatusId: item.materialStatusId,
       materialStatusLabel: item.materialStatusLabel,
-      materialRequiredDate: item.materialRequiredDate || null,
+      materialRequiredDate: item.materialInStock ? null : item.materialRequiredDate || null,
+      materialInStock: item.materialInStock,
+      pantoneRequiredDate: item.pantoneRequiredDate || null,
+      pantoneOk: item.pantoneOk,
       barvyStatusId: item.barvyStatusId,
       barvyStatusLabel: item.barvyStatusLabel,
       lakStatusId: item.lakStatusId,
@@ -3363,7 +3688,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               {currentUser.role}
             </span>
           </span>
-          {currentUser.role === "ADMIN" && (
+          {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <a
               href="/admin"
               style={{
@@ -3511,6 +3836,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onPrintComplete={isTiskar || canEdit ? handlePrintComplete : undefined}
             assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}
             onNotify={canEdit ? handleNotify : undefined}
+            onBlockVariantChange={canEdit ? handleBlockVariantChange : undefined}
           />
         </div>
 
@@ -3555,6 +3881,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               block={editingBlock}
               onClose={() => setEditingBlock(null)}
               onSave={(updated) => { handleBlockUpdate(updated); setEditingBlock(null); }}
+              onBlockUpdate={handleBlockUpdate}
               allBlocks={blocks}
               onDeleteAll={handleDeleteAll}
               onSaveAll={handleSaveAll}
@@ -3565,6 +3892,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               materialOpts={bMaterialOpts}
               barvyOpts={bBarvyOpts}
               lakOpts={bLakOpts}
+              onToast={showToast}
             />
           ) : selectedBlock ? (
             <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />
@@ -3780,8 +4108,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
                       {/* Materiál — datum + dropdown v jednom řádku */}
                       <div>
-                        <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Materiál</label>
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                          <label style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>Materiál</label>
+                          <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: bMaterialInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer" }}>
+                            <Switch checked={bMaterialInStock} onCheckedChange={(checked) => { setBMaterialInStock(checked); if (checked) setBMaterialRequiredDate(""); }} />
+                            SKLADEM
+                          </label>
+                        </div>
+                        <div style={{ display: "flex", gap: 6, opacity: bMaterialInStock ? 0.4 : 1, pointerEvents: bMaterialInStock ? "none" : "auto" }}>
                           <div style={{ flex: "0 0 130px" }}>
                             <DatePickerField value={bMaterialRequiredDate} onChange={setBMaterialRequiredDate} placeholder="Datum dodání…" />
                           </div>
@@ -3813,8 +4147,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                         </div>
                       </div>
 
-                      {/* Barvy, Lak — 2×2 grid */}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {/* Pantone + Barvy + Lak — 3-sloupcový grid */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                        {/* Pantone — datepicker + OK */}
+                        <div>
+                          <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Pantone</label>
+                          <DatePickerField value={bPantoneRequiredDate} onChange={setBPantoneRequiredDate} placeholder="Datum…" />
+                          <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: bPantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                            <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: bPantoneOk ? "var(--success)" : "transparent", border: bPantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                              {bPantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                            </div>
+                            <input type="checkbox" checked={bPantoneOk} onChange={(e) => setBPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                            OK
+                          </label>
+                        </div>
+                        {/* Barvy + Lak */}
                         {([
                           { label: "Barvy",   value: bBarvyStatusId,    setter: setBBarvyStatusId,    opts: bBarvyOpts },
                           { label: "Lak",     value: bLakStatusId,      setter: setBLakStatusId,      opts: bLakOpts },
@@ -3910,11 +4257,128 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                       )}
                     </div>
                     {bRecurrenceType !== "NONE" && (
-                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>
-                        Vytvoří se {bRecurrenceCount} bloků · interval: {bRecurrenceType === "DAILY" ? "1 den" : bRecurrenceType === "WEEKLY" ? "7 dní" : "1 měsíc"}
-                      </div>
+                      <>
+                        {/* Stroj */}
+                        <div style={{ marginTop: 10 }}>
+                          <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Stroj</label>
+                          <div style={{ display: "flex", gap: 4 }}>
+                            {(["XL_105", "XL_106"] as const).map((m) => (
+                              <button key={m} type="button" onClick={() => setBSeriesMachine(m)} style={{
+                                flex: 1, height: 28, borderRadius: 6, fontSize: 11, fontWeight: bSeriesMachine === m ? 700 : 500,
+                                border: bSeriesMachine === m ? "1px solid rgba(59,130,246,0.5)" : "1px solid var(--border)",
+                                background: bSeriesMachine === m ? "rgba(59,130,246,0.15)" : "var(--surface-2)",
+                                color: bSeriesMachine === m ? "#93c5fd" : "var(--text-muted)",
+                                cursor: "pointer", transition: "all 0.12s ease-out",
+                              }}>{m === "XL_105" ? "XL 105" : "XL 106"}</button>
+                            ))}
+                          </div>
+                        </div>
+                        {/* První výskyt */}
+                        <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "flex-end" }}>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Datum 1. výskytu</label>
+                            <DatePickerField value={bSeriesFirstDate} onChange={setBSeriesFirstDate} placeholder="Datum…" />
+                          </div>
+                          <div style={{ flex: "0 0 84px" }}>
+                            <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Čas</label>
+                            <div style={{ position: "relative" }}>
+                              <select
+                                value={bSeriesFirstHour}
+                                onChange={(e) => setBSeriesFirstHour(parseInt(e.target.value))}
+                                style={{
+                                  appearance: "none", width: "100%", height: 32,
+                                  background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
+                                  color: "var(--text)", fontSize: 12, fontWeight: 600,
+                                  padding: "0 28px 0 10px", cursor: "pointer", outline: "none",
+                                }}
+                                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                              >
+                                {Array.from({ length: 24 }, (_, h) => (
+                                  <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                                ))}
+                              </select>
+                              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
+                                style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 11, height: 11, pointerEvents: "none" }}>
+                                <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
+
+                  {/* ── Preview série ── */}
+                  {bRecurrenceType !== "NONE" && seriesPreview.length > 0 && (
+                    <div style={{ paddingTop: 12, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>Preview série</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
+                        {seriesPreview.map((occ, i) => (
+                          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", borderRadius: 7, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                            {/* Řádek 1: badge + Tisk datum + hodina */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div style={{
+                                flexShrink: 0, width: 20, height: 20, borderRadius: 4,
+                                background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.25)",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 9, fontWeight: 700, color: "#93c5fd",
+                              }}>{i + 1}</div>
+                              <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>Tisk:</div>
+                              <div style={{ flex: 1 }}>
+                                <DatePickerField
+                                  value={occ.date}
+                                  onChange={(d) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, date: d } : o))}
+                                  placeholder="Datum…"
+                                />
+                              </div>
+                              <div style={{ flex: "0 0 72px", position: "relative" }}>
+                                <select
+                                  value={occ.hour}
+                                  onChange={(e) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, hour: parseInt(e.target.value) } : o))}
+                                  style={{
+                                    appearance: "none", width: "100%", height: 30,
+                                    background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,
+                                    color: "var(--text)", fontSize: 11, fontWeight: 600,
+                                    padding: "0 22px 0 8px", cursor: "pointer", outline: "none",
+                                  }}
+                                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                                >
+                                  {Array.from({ length: 24 }, (_, h) => (
+                                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                                  ))}
+                                </select>
+                                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
+                                  style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", width: 10, height: 10, pointerEvents: "none" }}>
+                                  <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </div>
+                            </div>
+                            {/* Řádek 2: DATA datum + EXP datum */}
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 26 }}>
+                              <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>DATA:</div>
+                              <div style={{ flex: 1 }}>
+                                <DatePickerField
+                                  value={occ.dataRequiredDate}
+                                  onChange={(d) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, dataRequiredDate: d } : o))}
+                                  placeholder="Termín dat…"
+                                />
+                              </div>
+                              <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 24, flexShrink: 0, textAlign: "right" }}>EXP:</div>
+                              <div style={{ flex: 1 }}>
+                                <DatePickerField
+                                  value={occ.deadlineExpedice}
+                                  onChange={(d) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, deadlineExpedice: d } : o))}
+                                  placeholder="Expedice…"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* ── Live náhled ── */}
                   <div style={{ paddingTop: 14, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
@@ -3939,36 +4403,61 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                     </div>
                   </div>
 
-                  {/* ── Přidat do fronty ── */}
+                  {/* ── CTA — podmíněné ── */}
                   <div style={{ paddingTop: 14, paddingBottom: 16 }}>
-                    <button
-                      type="button"
-                      onClick={handleAddToQueue}
-                      disabled={!orderNumber.trim()}
-                      style={{
-                        width: "100%",
-                        paddingTop: 11,
-                        paddingBottom: 11,
-                        borderRadius: 10,
-                        border: "none",
-                        background: orderNumber.trim() ? "#FFE600" : "rgba(255,255,255,0.06)",
-                        color: orderNumber.trim() ? "#111" : "rgba(255,255,255,0.2)",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        letterSpacing: "0.02em",
-                        cursor: orderNumber.trim() ? "pointer" : "default",
-                        transition: "background 120ms ease-out, transform 80ms ease-out",
-                        fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-                      }}
-                      onMouseDown={(e) => { if (orderNumber.trim()) (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.97)"; }}
-                      onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-                    >
-                      + Přidat do fronty
-                    </button>
-                    <div style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", marginTop: 6 }}>
-                      Přetáhni kartu z fronty na timeline → stroj a čas
-                    </div>
+                    {bRecurrenceType !== "NONE" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleScheduleSeries}
+                          disabled={!orderNumber.trim() || seriesPreview.length === 0 || seriesScheduling}
+                          style={{
+                            width: "100%", paddingTop: 11, paddingBottom: 11, borderRadius: 10, border: "none",
+                            background: (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) ? "#FFE600" : "rgba(255,255,255,0.06)",
+                            color: (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) ? "#111" : "rgba(255,255,255,0.2)",
+                            fontSize: 13, fontWeight: 700, letterSpacing: "0.02em",
+                            cursor: (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) ? "pointer" : "default",
+                            transition: "background 120ms ease-out, transform 80ms ease-out",
+                            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+                          }}
+                          onMouseDown={(e) => { if (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.97)"; }}
+                          onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
+                        >
+                          {seriesScheduling ? "Plánuji…" : `↻ Naplánovat sérii (${seriesPreview.length} bloků)`}
+                        </button>
+                        {seriesPreview.length === 0 && (
+                          <div style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", marginTop: 6 }}>
+                            Zadej datum prvního výskytu pro zobrazení preview
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleAddToQueue}
+                          disabled={!orderNumber.trim()}
+                          style={{
+                            width: "100%", paddingTop: 11, paddingBottom: 11, borderRadius: 10, border: "none",
+                            background: orderNumber.trim() ? "#FFE600" : "rgba(255,255,255,0.06)",
+                            color: orderNumber.trim() ? "#111" : "rgba(255,255,255,0.2)",
+                            fontSize: 13, fontWeight: 700, letterSpacing: "0.02em",
+                            cursor: orderNumber.trim() ? "pointer" : "default",
+                            transition: "background 120ms ease-out, transform 80ms ease-out",
+                            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+                          }}
+                          onMouseDown={(e) => { if (orderNumber.trim()) (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.97)"; }}
+                          onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
+                        >
+                          + Přidat do fronty
+                        </button>
+                        <div style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", marginTop: 6 }}>
+                          Přetáhni kartu z fronty na timeline → stroj a čas
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

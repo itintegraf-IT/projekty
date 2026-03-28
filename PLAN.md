@@ -96,7 +96,7 @@ Svislý proužek 3px, barva `rgba(251,191,36,0.8)` (amber), `borderRadius: 2` �
 
 ---
 
-## Etapa 4 — Notifikace pro MTZ a DTP
+## Etapa 4 — Notifikace pro MTZ a DTP ✅ Hotovo
 
 ### D14 — In-app upozornění z context menu
 

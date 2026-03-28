@@ -37,8 +37,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fetch existing blocks — needed for type check (only ZAKAZKA validated), PRINT_RESET check,
-  // and orderNumber for audit.
+  // Fetch existing blocks — needed for type check (only ZAKAZKA validated) and orderNumber for audit.
   const existingBlocks = await prisma.block.findMany({
     where: { id: { in: updates.map((u) => u.id) } },
     select: {
@@ -47,9 +46,6 @@ export async function POST(request: NextRequest) {
       machine: true,
       startTime: true,
       endTime: true,
-      printCompletedAt: true,
-      printCompletedByUserId: true,
-      printCompletedByUsername: true,
       orderNumber: true,
     },
   });
@@ -92,29 +88,16 @@ export async function POST(request: NextRequest) {
   try {
     const results = await prisma.$transaction(async (tx) => {
       const updated = await Promise.all(
-        updates.map((u) => {
-          const old = existingBlocks.find((b) => b.id === u.id);
-          const timingActuallyChanged =
-            old != null &&
-            (new Date(u.startTime).getTime() !== old.startTime.getTime() ||
-              new Date(u.endTime).getTime() !== old.endTime.getTime() ||
-              u.machine !== old.machine);
-          const needsPrintReset = timingActuallyChanged && old?.printCompletedAt != null;
-
-          return tx.block.update({
+        updates.map((u) =>
+          tx.block.update({
             where: { id: u.id },
             data: {
               startTime: new Date(u.startTime),
               endTime: new Date(u.endTime),
               machine: u.machine,
-              ...(needsPrintReset && {
-                printCompletedAt: null,
-                printCompletedByUserId: null,
-                printCompletedByUsername: null,
-              }),
             },
-          });
-        })
+          })
+        )
       );
 
       const auditRows: {
@@ -143,26 +126,6 @@ export async function POST(request: NextRequest) {
           oldValue: undefined,
           newValue: `${u.machine} ${u.startTime}–${u.endTime}`,
         });
-
-        const needsPrintReset =
-          old != null &&
-          old.printCompletedAt != null &&
-          (new Date(u.startTime).getTime() !== old.startTime.getTime() ||
-            new Date(u.endTime).getTime() !== old.endTime.getTime() ||
-            u.machine !== old.machine);
-
-        if (needsPrintReset) {
-          auditRows.push({
-            blockId: u.id,
-            orderNumber,
-            userId: session.id,
-            username: session.username,
-            action: "PRINT_RESET",
-            field: "printCompletedAt",
-            oldValue: String(old?.printCompletedByUsername ?? ""),
-            newValue: "",
-          });
-        }
       }
 
       await tx.auditLog.createMany({ data: auditRows });

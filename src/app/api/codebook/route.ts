@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 // POST /api/codebook — přidání nové položky (ADMIN only)
 export async function POST(request: NextRequest) {
   const session = await getSession();
-  if (!session || session.role !== "ADMIN") {
+  if (!session || !["ADMIN", "PLANOVAT"].includes(session.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

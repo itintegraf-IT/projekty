@@ -22,7 +22,9 @@ export function isHardcodedBlocked(machine: string, dayOfWeek: number, hour: num
  *   - schedule existuje, ale pro daný dayOfWeek chybí řádek → isHardcodedBlocked (stejné jako klient)
  */
 // `date` je string na klientu (serialized JSON), ale Date z Prisma na serveru — oba fungují s new Date()
-type ExceptionSlim = { date: Date | string; startHour: number; endHour: number; isActive: boolean };
+// `machine` je optional pro zpětnou kompatibilitu — pokud chybí, filtr se přeskočí (funguje jen pokud
+//  volající předal pole předfiltrované na správný stroj)
+type ExceptionSlim = { machine?: string; date: Date | string; startHour: number; endHour: number; isActive: boolean };
 
 export function checkScheduleViolationSync(
   machine: string,
@@ -36,8 +38,10 @@ export function checkScheduleViolationSync(
   let cur = new Date(startTime);
   while (cur < endTime) {
     const { hour, dayOfWeek, dateStr } = pragueOf(cur);
-    const exc = exceptions.find((e) => new Date(e.date).toISOString().slice(0, 10) === dateStr);
-    const row = exc ?? schedule.find((r) => r.dayOfWeek === dayOfWeek);
+    const exc = exceptions.find(
+      (e) => (!e.machine || e.machine === machine) && new Date(e.date).toISOString().slice(0, 10) === dateStr
+    );
+    const row = exc ?? schedule.find((r) => r.machine === machine && r.dayOfWeek === dayOfWeek);
     if (!row) {
       if (isHardcodedBlocked(machine, dayOfWeek, hour)) return "Blok zasahuje do doby mimo provoz stroje.";
     } else if (!row.isActive || hour < row.startHour || hour >= row.endHour) {

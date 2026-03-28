@@ -36,6 +36,9 @@ model Block {
   recurrenceType           String    @default("NONE")
   recurrenceParentId       Int?
   splitGroupId             Int?
+  pantoneRequiredDate      DateTime?
+  pantoneOk                Boolean   @default(false)
+  materialInStock          Boolean   @default(false)
   printCompletedAt         DateTime?
   printCompletedByUserId   Int?
   printCompletedByUsername String?
@@ -120,6 +123,32 @@ model Notification {
 
   @@index([targetRole, isRead, createdAt])
   @@index([blockId])
+}
+
+model MachineWorkHoursTemplate {
+  id        Int      @id @default(autoincrement())
+  machine   String   // "XL_105" | "XL_106"
+  label     String?
+  validFrom DateTime
+  validTo   DateTime?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  days      MachineWorkHoursTemplateDay[]
+
+  @@index([machine, validFrom])
+}
+
+model MachineWorkHoursTemplateDay {
+  id         Int     @id @default(autoincrement())
+  templateId Int
+  dayOfWeek  Int     // 0=neděle, 1=pondělí, ..., 6=sobota
+  startHour  Int     // 0–23
+  endHour    Int     // 1–24
+  isActive   Boolean @default(true)
+  template   MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, dayOfWeek])
 }
 
 model MachineScheduleException {

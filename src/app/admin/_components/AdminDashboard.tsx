@@ -138,7 +138,14 @@ const btnDanger: React.CSSProperties = {
 // ─── Komponenta ──────────────────────────────────────────────────────────────
 
 export default function AdminDashboard({ currentUser }: { currentUser: SessionUser }) {
-  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "audit" | "shifts">("users");
+  const isPlanovat = currentUser.role === "PLANOVAT";
+  const visibleTabs = (["users", "codebook", "audit", "shifts"] as const).filter((tab) => {
+    if (isPlanovat) return tab === "codebook" || tab === "shifts";
+    return true;
+  });
+  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "audit" | "shifts">(
+    isPlanovat ? "codebook" : "users"
+  );
 
   return (
     <div style={{
@@ -190,7 +197,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           padding: 3,
           gap: 3,
         }}>
-          {(["users", "codebook", "audit", "shifts"] as const).map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -215,15 +222,15 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
 
       {/* Content */}
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "20px" }}>
-        {activeTab === "users" ? (
+        {activeTab === "users" && !isPlanovat ? (
           <UsersSection currentUserId={currentUser.id} />
         ) : activeTab === "codebook" ? (
           <CodebookSection />
-        ) : activeTab === "audit" ? (
+        ) : activeTab === "audit" && !isPlanovat ? (
           <AuditLogSection />
-        ) : (
+        ) : activeTab === "shifts" ? (
           <WorkShiftsSection />
-        )}
+        ) : null}
       </div>
     </div>
   );
