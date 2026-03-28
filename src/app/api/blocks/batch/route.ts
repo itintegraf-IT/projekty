@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { checkScheduleViolationSync } from "@/lib/scheduleValidation";
 
 type BatchUpdate = {
   id: number;
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
       const end = new Date(u.endTime);
       const machineSchedule = schedule.filter((r) => r.machine === u.machine);
       const machineExceptions = allExceptions.filter((e) => e.machine === u.machine);
-      const violation = checkScheduleViolation(start, end, machineSchedule, machineExceptions);
+      const violation = checkScheduleViolationSync(u.machine, start, end, machineSchedule, machineExceptions);
       if (violation) {
         return NextResponse.json({ error: violation }, { status: 422 });
       }
@@ -177,44 +178,6 @@ export async function POST(request: NextRequest) {
     console.error("[POST /api/blocks/batch]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
-}
-
-// Business-time helper — hodiny a den týdne vždy v Europe/Prague
-const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const PRAGUE_FORMATTER = new Intl.DateTimeFormat("en", {
-  timeZone: "Europe/Prague",
-  year: "numeric", month: "2-digit", day: "2-digit",
-  weekday: "short", hour: "2-digit", hour12: false,
-});
-function pragueOf(d: Date): { hour: number; dayOfWeek: number; dateStr: string } {
-  const parts = PRAGUE_FORMATTER.formatToParts(d);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return {
-    hour: parseInt(get("hour"), 10),
-    dayOfWeek: DOW_SHORT.indexOf(get("weekday") as typeof DOW_SHORT[number]),
-    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
-  };
-}
-
-function checkScheduleViolation(
-  startTime: Date,
-  endTime: Date,
-  schedule: { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[],
-  exceptions: { date: Date; startHour: number; endHour: number; isActive: boolean }[]
-): string | null {
-  if (schedule.length === 0 && exceptions.length === 0) return null;
-  const SLOT_MS = 30 * 60 * 1000;
-  let cur = new Date(startTime);
-  while (cur < endTime) {
-    const { hour, dayOfWeek, dateStr } = pragueOf(cur);
-    const exc = exceptions.find((e) => new Date(e.date).toISOString().slice(0, 10) === dateStr);
-    const row = exc ?? schedule.find((r) => r.dayOfWeek === dayOfWeek);
-    if (row && (!row.isActive || hour < row.startHour || hour >= row.endHour)) {
-      return "Blok zasahuje do doby mimo provoz stroje.";
-    }
-    cur = new Date(cur.getTime() + SLOT_MS);
-  }
-  return null;
 }
 
 function isPrismaNotFound(error: unknown): boolean {

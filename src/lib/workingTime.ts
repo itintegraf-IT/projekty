@@ -1,31 +1,15 @@
 import type { MachineWorkHours } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
+import { pragueOf } from "@/lib/dateUtils";
+import { isHardcodedBlocked } from "@/lib/scheduleValidation";
 
-const WORK_START_H = 6;
-const WORK_END_H = 22;
 const SLOT_MS = 30 * 60 * 1000;
-
-function isNightXL105(date: Date): boolean {
-  const h = date.getHours();
-  return h >= WORK_END_H || h < WORK_START_H;
-}
 
 // XL_105: blocked Fri 22:00 → Mon 06:00 (full weekend + surrounding nights)
 // XL_106: blocked Fri 22:00 → Sun 22:00 (no night restriction on weekdays)
 function isBlockedSlot(machine: string, date: Date): boolean {
-  const dow = date.getDay();
-  const h   = date.getHours();
-  if (dow === 6) return true;                                              // Saturday — both machines
-  if (dow === 0) return machine === "XL_105" || h < WORK_END_H;           // Sunday — XL_105 all day, XL_106 until 22:00
-  if (dow === 5 && h >= WORK_END_H) return true;                          // Friday night — both machines
-  if (machine === "XL_105" && isNightXL105(date)) return true;            // Weekday nights — XL_105 only
-  return false;
-}
-
-function isSameDayLocal(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate();
+  const { hour, dayOfWeek } = pragueOf(date); // Prague TZ — správné i mimo Europe/Prague
+  return isHardcodedBlocked(machine, dayOfWeek, hour);
 }
 
 function isBlockedSlotDynamic(
@@ -34,14 +18,14 @@ function isBlockedSlotDynamic(
   schedule: MachineWorkHours[],
   exceptions?: MachineScheduleException[]
 ): boolean {
+  const { hour, dayOfWeek, dateStr } = pragueOf(date); // Prague TZ
   const exc = exceptions?.find(
-    (e) => e.machine === machine && isSameDayLocal(new Date(e.date), date)
+    (e) => e.machine === machine && new Date(e.date).toISOString().slice(0, 10) === dateStr
   );
-  const row = exc ?? schedule.find((r) => r.machine === machine && r.dayOfWeek === date.getDay());
-  if (!row) return isBlockedSlot(machine, date); // fallback na hardcoded
+  const row = exc ?? schedule.find((r) => r.machine === machine && r.dayOfWeek === dayOfWeek);
+  if (!row) return isHardcodedBlocked(machine, dayOfWeek, hour); // fallback — stejné jako server
   if (!row.isActive) return true;
-  const h = date.getHours();
-  return h < row.startHour || h >= row.endHour;
+  return hour < row.startHour || hour >= row.endHour;
 }
 
 function blockOverlapsBlockedTime(

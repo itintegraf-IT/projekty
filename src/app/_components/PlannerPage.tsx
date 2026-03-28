@@ -1947,6 +1947,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     return () => clearInterval(interval);
   }, [fetchTodayAudit, fetchNotifications]);
 
+  // Refresh schedule (machineWorkHours + exceptions) při návratu do okna —
+  // zajišťuje, že klientský snap používá aktuální data i po změně v jiné relaci
+  useEffect(() => {
+    async function refreshSchedule() {
+      try {
+        const [shiftsRes, exceptionsRes] = await Promise.all([
+          fetch("/api/machine-shifts"),
+          fetch("/api/machine-exceptions"),
+        ]);
+        if (shiftsRes.ok) setMachineWorkHours(await shiftsRes.json());
+        if (exceptionsRes.ok) setMachineExceptions(await exceptionsRes.json());
+      } catch { /* tiché — stale data jsou lepší než error toast */ }
+    }
+    window.addEventListener("focus", refreshSchedule);
+    return () => window.removeEventListener("focus", refreshSchedule);
+  }, []);
+
   // Polling bloků každých 30 s — merge jen printCompleted* pole
   useEffect(() => {
     const pollBlocks = async () => {
@@ -2920,7 +2937,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (!group.length || !target) return;
     // Anchor = nejstarší startTime ve skupině
     const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
-    const pasteMs = target.time.getTime();
+    const anchorBlock = group.find((b) => new Date(b.startTime).getTime() === anchorMs)!;
+    const anchorDuration = new Date(anchorBlock.endTime).getTime() - anchorMs;
+    // Snap anchor pokud je lock zapnutý — zachová relativní rozstupy skupiny
+    const snappedTarget = workingTimeLockRef.current
+      ? snapToNextValidStart(target.machine, target.time, anchorDuration, machineWorkHours, machineExceptions)
+      : target.time;
+    const pasteMs = snappedTarget.getTime();
 
     // POST všechny bloky sekvenčně — při prvním selhání se zastaví a žádný lokální stav se nezmění
     const created: Block[] = [];
