@@ -59,6 +59,8 @@ export type Block = {
   endTime: string;
   type: string;
   blockVariant?: BlockVariant | null;
+  jobPresetId: number | null;
+  jobPresetLabel: string | null;
   description: string | null;
   locked: boolean;
   deadlineExpedice: string | null;
@@ -842,7 +844,13 @@ function BlockCard({
   const barvyText   = chipTextColor(barvyKey);
   const lakText     = chipTextColor(lakKey);
 
-  const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
+  const hasNoteRow = Boolean(
+    block.dataStatusLabel ||
+    block.materialStatusLabel ||
+    block.barvyStatusLabel ||
+    block.lakStatusLabel ||
+    block.specifikace
+  );
 
   // Výškové mody (vzájemně se vylučují)
   const MODE_FULL    = clampedHeight >= 48;                              // plný layout (od ~1h při zoom=26)
@@ -2636,7 +2644,7 @@ export default function TimelineGrid({
                   // Vždy renderujeme na původní pozici; při tažení blok zešedne (ghost at origin)
                   const top    = dateToY(new Date(block.startTime), viewStart, slotHeight);
                   const height = dateToY(new Date(block.endTime), viewStart, slotHeight) - top;
-                  const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace].some(f => f?.toLowerCase().includes(filter));
+                  const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace, block.jobPresetLabel].some(f => f?.toLowerCase().includes(filter));
                   const dimmed   = (!blockMatchesFilter) || !!isThisBlockDragging;
                   const selected = !isThisBlockDragging && block.id === selectedBlockId;
                   // Split skupina — O(1) lookup z předpočítané mapy

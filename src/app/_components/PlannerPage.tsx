@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { pragueToUTC, utcToPragueHour, utcToPragueDateStr } from "@/lib/dateUtils";
@@ -18,6 +18,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Lock, Unlock, ClipboardList, Pin, Wrench, CalendarDays } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import DatePickerField from "./DatePickerField";
+import {
+  applyJobPresetToDraft,
+  presetSupportsType,
+  type JobPreset,
+  type JobPresetDraftValues,
+} from "@/lib/jobPresets";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
 type NotificationItem = {
@@ -65,6 +71,8 @@ type QueueItem = {
   orderNumber: string;
   type: string;
   blockVariant: BlockVariant;
+  jobPresetId?: number | null;
+  jobPresetLabel?: string | null;
   durationHours: number;
   description: string;
   dataStatusId: number | null;
@@ -115,6 +123,16 @@ const TYPE_BUILDER_CONFIG = {
   REZERVACE: { icon: Pin,           label: "Rezervace",       color: "#7c3aed" },
   UDRZBA:    { icon: Wrench,        label: "Údržba / Oprava", color: "#c0392b" },
 } as const;
+
+const JOB_PRESET_TONE_PALETTE = ["#1a6bcc", "#d97706", "#0f9f6e", "#c2410c", "#7c3aed"] as const;
+
+function getJobPresetTone(preset: Pick<JobPreset, "name">, index: number) {
+  const normalized = preset.name.toLowerCase().replace(/\s+/g, " ").trim();
+  if (normalized.includes("105")) return "#1a6bcc";
+  if (normalized.includes("led")) return "#d97706";
+  if (normalized.includes("iml")) return "#0f9f6e";
+  return JOB_PRESET_TONE_PALETTE[index % JOB_PRESET_TONE_PALETTE.length];
+}
 
 
 // ─── ZoomSlider ───────────────────────────────────────────────────────────────
@@ -245,6 +263,24 @@ function formatDuration(hours: number): string {
   return `${h}:${m.toString().padStart(2, "0")} hod`;
 }
 
+function emptyPresetDraft(type: string): JobPresetDraftValues {
+  return {
+    blockVariant: type === "ZAKAZKA" ? "STANDARD" : normalizeBlockVariant("STANDARD", type),
+    specifikace: "",
+    dataStatusId: "",
+    dataRequiredDate: "",
+    materialStatusId: "",
+    materialRequiredDate: "",
+    materialInStock: false,
+    pantoneRequiredDate: "",
+    barvyStatusId: "",
+    lakStatusId: "",
+    deadlineExpedice: "",
+    jobPresetId: null,
+    jobPresetLabel: "",
+  };
+}
+
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
 
@@ -264,6 +300,7 @@ function BlockEdit({
   materialOpts: materialOptsProp,
   barvyOpts: barvyOptsProp,
   lakOpts: lakOptsProp,
+  jobPresets = [],
   onToast,
 }: {
   block: Block;
@@ -280,6 +317,7 @@ function BlockEdit({
   materialOpts?: CodebookOption[];
   barvyOpts?: CodebookOption[];
   lakOpts?: CodebookOption[];
+  jobPresets?: JobPreset[];
   onToast?: (message: string, type: "success" | "error" | "info") => void;
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
@@ -327,6 +365,8 @@ function BlockEdit({
 
   // SPECIFIKACE
   const [specifikace, setSpecifikace] = useState(block.specifikace ?? "");
+  const [jobPresetId, setJobPresetId] = useState<number | null>(block.jobPresetId ?? null);
+  const [jobPresetLabel, setJobPresetLabel] = useState(block.jobPresetLabel ?? "");
 
   // SÉRIE — potvrzovací dialog
   const [seriesConfirm, setSeriesConfirm] = useState<"save" | "delete" | null>(null);
@@ -452,6 +492,33 @@ function BlockEdit({
     });
   }, [dataOptsProp]);
 
+  const compatibleJobPresets = useMemo(
+    () => jobPresets.filter((preset) => preset.isActive && presetSupportsType(preset, type)),
+    [jobPresets, type]
+  );
+  const presetSelectOptions = useMemo(() => {
+    const selected = jobPresets.find((preset) => preset.id === jobPresetId) ?? null;
+    if (selected && !compatibleJobPresets.some((preset) => preset.id === selected.id)) {
+      return [selected, ...compatibleJobPresets];
+    }
+    return compatibleJobPresets;
+  }, [compatibleJobPresets, jobPresetId, jobPresets]);
+
+  useEffect(() => {
+    if (type === "UDRZBA") {
+      if (jobPresetId !== null || jobPresetLabel) {
+        setJobPresetId(null);
+        setJobPresetLabel("");
+      }
+      return;
+    }
+    if (jobPresetId === null) return;
+    const existingPreset = jobPresets.find((preset) => preset.id === jobPresetId);
+    if (existingPreset && presetSupportsType(existingPreset, type)) return;
+    setJobPresetId(null);
+    setJobPresetLabel("");
+  }, [jobPresetId, jobPresetLabel, jobPresets, type]);
+
 
   function resolveLabel(opts: CodebookOption[], id: string): string | null {
     return opts.find((o) => o.id.toString() === id)?.label ?? null;
@@ -467,11 +534,70 @@ function BlockEdit({
     el.style.height = Math.max(32, el.scrollHeight) + "px";
   }, []);
 
+  function buildPresetDraft(): JobPresetDraftValues {
+    return {
+      blockVariant,
+      specifikace,
+      dataStatusId,
+      dataRequiredDate,
+      materialStatusId,
+      materialRequiredDate,
+      materialInStock,
+      pantoneRequiredDate,
+      barvyStatusId,
+      lakStatusId,
+      deadlineExpedice,
+      jobPresetId,
+      jobPresetLabel,
+    };
+  }
+
+  function applyPreset(preset: JobPreset) {
+    const { next, overwrittenFields } = applyJobPresetToDraft(buildPresetDraft(), preset, type);
+    if (
+      overwrittenFields.length > 0 &&
+      !window.confirm(`Preset přepíše ${overwrittenFields.length} vyplněných polí. Pokračovat?`)
+    ) {
+      return;
+    }
+    setBlockVariant(next.blockVariant);
+    setSpecifikace(next.specifikace);
+    setDataStatusId(next.dataStatusId);
+    setDataRequiredDate(next.dataRequiredDate);
+    setMaterialStatusId(next.materialStatusId);
+    setMaterialRequiredDate(next.materialRequiredDate);
+    setMaterialInStock(next.materialInStock);
+    setPantoneRequiredDate(next.pantoneRequiredDate);
+    setBarvyStatusId(next.barvyStatusId);
+    setLakStatusId(next.lakStatusId);
+    setDeadlineExpedice(next.deadlineExpedice);
+    setJobPresetId(next.jobPresetId);
+    setJobPresetLabel(next.jobPresetLabel);
+  }
+
+  function clearPresetSelection() {
+    const next = emptyPresetDraft(type);
+    setBlockVariant(next.blockVariant);
+    setSpecifikace(next.specifikace);
+    setDataStatusId(next.dataStatusId);
+    setDataRequiredDate(next.dataRequiredDate);
+    setMaterialStatusId(next.materialStatusId);
+    setMaterialRequiredDate(next.materialRequiredDate);
+    setMaterialInStock(next.materialInStock);
+    setPantoneRequiredDate(next.pantoneRequiredDate);
+    setBarvyStatusId(next.barvyStatusId);
+    setLakStatusId(next.lakStatusId);
+    setDeadlineExpedice(next.deadlineExpedice);
+    setJobPresetId(null);
+    setJobPresetLabel("");
+  }
+
   function buildPayload(): Record<string, unknown> {
     return {
       orderNumber: orderNumber.trim(),
       type,
       blockVariant: type === "ZAKAZKA" ? blockVariant : "STANDARD",
+      jobPresetId: type === "UDRZBA" ? null : jobPresetId,
       description: description.trim() || null,
       locked,
       deadlineExpedice: deadlineExpedice || null,
@@ -637,6 +763,84 @@ function BlockEdit({
             ))}
           </div>
         </div>
+
+        {type !== "UDRZBA" && (
+          <div style={{ marginTop: 8 }}>
+            <SectionLabel>Preset</SectionLabel>
+            {jobPresetLabel && (
+              <div style={{ marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                  Aktivní:
+                  <span style={{ marginLeft: 6, color: "var(--text)", fontWeight: 700 }}>{jobPresetLabel}</span>
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                  Předvyplnění je jen návrh
+                </div>
+              </div>
+            )}
+            {presetSelectOptions.length > 0 ? (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 5 }}>
+                {presetSelectOptions.map((preset, index) => {
+                  const active = jobPresetId === preset.id;
+                  const tone = getJobPresetTone(preset, index);
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      style={{
+                        minHeight: 30,
+                        padding: "5px 8px",
+                        borderRadius: 7,
+                        border: active ? `1px solid ${tone}` : "1px solid var(--border)",
+                        background: active ? `${tone}26` : "var(--surface-2)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.12s",
+                        boxShadow: active ? `inset 0 1px 0 ${tone}33, 0 0 0 1px ${tone}22` : "none",
+                      }}
+                    >
+                      <span style={{ fontSize: 8, fontWeight: active ? 700 : 600, color: active ? tone : "var(--text-muted)", textAlign: "center", lineHeight: 1.15, letterSpacing: "0.03em" }}>
+                        {preset.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                Pro tento typ zatím není dostupný žádný preset.
+              </div>
+            )}
+            <div style={{ marginTop: 6 }}>
+              <button
+                type="button"
+                onClick={clearPresetSelection}
+                disabled={jobPresetId === null && !jobPresetLabel}
+                style={{
+                  width: "100%",
+                  height: 34,
+                  borderRadius: 10,
+                  border: "1px solid color-mix(in oklab, var(--border) 88%, transparent)",
+                  background: "linear-gradient(180deg, color-mix(in oklab, var(--surface-2) 94%, white 6%) 0%, var(--surface-2) 100%)",
+                  color: "var(--text-muted)",
+                  fontSize: 10,
+                  fontWeight: 700,
+                  cursor: jobPresetId === null && !jobPresetLabel ? "default" : "pointer",
+                  opacity: jobPresetId === null && !jobPresetLabel ? 0.5 : 1,
+                  boxShadow: "inset 0 1px 0 color-mix(in oklab, white 24%, transparent)",
+                }}
+              >
+                Vyčistit preset
+              </button>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.4 }}>
+              Výběr pouze předvyplní nastavená pole. Vyčištění preset odpojí a smaže jeho předvyplněné hodnoty.
+            </div>
+          </div>
+        )}
 
         {/* Varianta zakázky — jen pro ZAKAZKA */}
         {type === "ZAKAZKA" && (
@@ -1270,6 +1474,7 @@ function DeadlineRow({ label, value, ok, date }: { label: string; value: string;
 
 // ─── InfoPanel ────────────────────────────────────────────────────────────────
 const FIELD_LABELS: Record<string, string> = {
+  jobPresetLabel: "Preset",
   dataStatusLabel: "DATA stav",
   dataRequiredDate: "DATA datum",
   dataOk: "DATA OK",
@@ -1808,6 +2013,8 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     orderNumber: r.code,
     type: "REZERVACE",
     blockVariant: "STANDARD",
+    jobPresetId: typeof p.jobPresetId === "number" ? p.jobPresetId : typeof p.jobPresetId === "string" ? Number(p.jobPresetId) || null : null,
+    jobPresetLabel: typeof p.jobPresetLabel === "string" ? p.jobPresetLabel : null,
     durationHours: typeof p.durationHours === "number" ? p.durationHours : 2,
     description: typeof p.description === "string" ? p.description : r.companyName,
     dataStatusId: null,
@@ -1889,6 +2096,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [bBarvyStatusId, setBBarvyStatusId]       = useState<string>("");
   const [bLakStatusId, setBLakStatusId]           = useState<string>("");
   const [bSpecifikace, setBSpecifikace]           = useState("");
+  const [bJobPresetId, setBJobPresetId]           = useState<number | null>(null);
+  const [bJobPresetLabel, setBJobPresetLabel]     = useState("");
   const [bRecurrenceType, setBRecurrenceType]     = useState("NONE");
   const [bRecurrenceCount, setBRecurrenceCount]   = useState(2);
   // Serie flow (jen pro bRecurrenceType !== "NONE")
@@ -1903,12 +2112,32 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [bMaterialOpts, setBMaterialOpts] = useState<CodebookOption[]>([]);
   const [bBarvyOpts, setBBarvyOpts]       = useState<CodebookOption[]>([]);
   const [bLakOpts, setBLakOpts]           = useState<CodebookOption[]>([]);
+  const [jobPresets, setJobPresets]       = useState<JobPreset[]>([]);
 
   // Lookup mapa badgeColor pro TimelineGrid — jen id → barva, fallback null = zachovat per-field výchozí
   const badgeColorMap: Record<number, string | null> = Object.fromEntries(
     [...bDataOpts, ...bMaterialOpts, ...bBarvyOpts, ...bLakOpts]
       .map((o) => [o.id, o.badgeColor])
   );
+
+  const compatibleBuilderPresets = useMemo(
+    () => jobPresets.filter((preset) => preset.isActive && presetSupportsType(preset, type)),
+    [jobPresets, type]
+  );
+  useEffect(() => {
+    if (type === "UDRZBA") {
+      if (bJobPresetId !== null || bJobPresetLabel) {
+        setBJobPresetId(null);
+        setBJobPresetLabel("");
+      }
+      return;
+    }
+    if (bJobPresetId === null) return;
+    const existingPreset = jobPresets.find((preset) => preset.id === bJobPresetId);
+    if (existingPreset && presetSupportsType(existingPreset, type)) return;
+    setBJobPresetId(null);
+    setBJobPresetLabel("");
+  }, [bJobPresetId, bJobPresetLabel, jobPresets, type]);
 
   // Queue (manuální)
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -2026,14 +2255,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       fetch("/api/codebook?category=MATERIAL").then((r) => r.json()),
       fetch("/api/codebook?category=BARVY").then((r) => r.json()),
       fetch("/api/codebook?category=LAK").then((r) => r.json()),
-    ]).then(([d, m, b, l]) => {
+      fetch("/api/job-presets?includeInactive=true").then((r) => r.json()),
+    ]).then(([d, m, b, l, presets]) => {
       setBDataOpts(d);
       setBMaterialOpts(m);
       setBBarvyOpts(b);
       setBLakOpts(l);
+      setJobPresets(Array.isArray(presets) ? presets : []);
     }).catch((error) => {
-      console.error("Codebooks load failed", error);
-      showToast("Nepodařilo se načíst číselníky.", "error");
+      console.error("Planner supporting data load failed", error);
+      showToast("Nepodařilo se načíst číselníky a presety.", "error");
     });
   }, []);
 
@@ -2225,7 +2456,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     ? blocks
         .filter(b => {
           const q = filterText.trim().toLowerCase();
-          const matches = [b.orderNumber, b.description, b.specifikace].some(f => f?.toLowerCase().includes(q));
+          const matches = [b.orderNumber, b.description, b.specifikace, b.jobPresetLabel].some(f => f?.toLowerCase().includes(q));
           return matches && new Date(b.startTime) < viewStart;
         })
         .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
@@ -2237,7 +2468,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     ? blocks
         .filter(b => {
           const q = filterText.trim().toLowerCase();
-          return [b.orderNumber, b.description, b.specifikace].some(f => f?.toLowerCase().includes(q));
+          return [b.orderNumber, b.description, b.specifikace, b.jobPresetLabel].some(f => f?.toLowerCase().includes(q));
         })
         .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     : [];
@@ -2514,6 +2745,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   const SPLIT_SHARED_FIELDS = [
     "orderNumber", "description", "specifikace", "deadlineExpedice",
+    "jobPresetId", "jobPresetLabel",
     "type", "blockVariant",
     "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
     "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
@@ -2654,6 +2886,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       description: block.description,
       locked: block.locked,
       deadlineExpedice: block.deadlineExpedice,
+      jobPresetId: block.jobPresetId,
       dataStatusId: block.dataStatusId,
       dataStatusLabel: block.dataStatusLabel,
       dataRequiredDate: block.dataRequiredDate,
@@ -2763,6 +2996,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       orderNumber: b.orderNumber, machine: b.machine, startTime: b.startTime,
       endTime: b.endTime, type: b.type, blockVariant: b.blockVariant,
       description: b.description, locked: b.locked, deadlineExpedice: b.deadlineExpedice,
+      jobPresetId: b.jobPresetId,
       dataStatusId: b.dataStatusId, dataStatusLabel: b.dataStatusLabel,
       dataRequiredDate: b.dataRequiredDate, dataOk: b.dataOk,
       materialStatusId: b.materialStatusId, materialStatusLabel: b.materialStatusLabel,
@@ -2855,6 +3089,85 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setCompanyDays((prev) => prev.filter((d) => d.id !== id));
   }
 
+  function buildBuilderPresetDraft(): JobPresetDraftValues {
+    return {
+      blockVariant,
+      specifikace: bSpecifikace,
+      dataStatusId: bDataStatusId,
+      dataRequiredDate: bDataRequiredDate,
+      materialStatusId: bMaterialStatusId,
+      materialRequiredDate: bMaterialRequiredDate,
+      materialInStock: bMaterialInStock,
+      pantoneRequiredDate: bPantoneRequiredDate,
+      barvyStatusId: bBarvyStatusId,
+      lakStatusId: bLakStatusId,
+      deadlineExpedice: bDeadlineExpedice,
+      jobPresetId: bJobPresetId,
+      jobPresetLabel: bJobPresetLabel,
+    };
+  }
+
+  function applyPresetToBuilder(preset: JobPreset) {
+    const { next, overwrittenFields } = applyJobPresetToDraft(buildBuilderPresetDraft(), preset, type);
+    if (
+      overwrittenFields.length > 0 &&
+      !window.confirm(`Preset přepíše ${overwrittenFields.length} vyplněných polí. Pokračovat?`)
+    ) {
+      return;
+    }
+    setBlockVariant(next.blockVariant);
+    setBSpecifikace(next.specifikace);
+    setBDataStatusId(next.dataStatusId);
+    setBDataRequiredDate(next.dataRequiredDate);
+    setBMaterialStatusId(next.materialStatusId);
+    setBMaterialRequiredDate(next.materialRequiredDate);
+    setBMaterialInStock(next.materialInStock);
+    setBPantoneRequiredDate(next.pantoneRequiredDate);
+    setBBarvyStatusId(next.barvyStatusId);
+    setBLakStatusId(next.lakStatusId);
+    setBDeadlineExpedice(next.deadlineExpedice);
+    setBJobPresetId(next.jobPresetId);
+    setBJobPresetLabel(next.jobPresetLabel);
+  }
+
+  function clearBuilderPresetSelection() {
+    const next = emptyPresetDraft(type);
+    setBlockVariant(next.blockVariant);
+    setBSpecifikace(next.specifikace);
+    setBDataStatusId(next.dataStatusId);
+    setBDataRequiredDate(next.dataRequiredDate);
+    setBMaterialStatusId(next.materialStatusId);
+    setBMaterialRequiredDate(next.materialRequiredDate);
+    setBMaterialInStock(next.materialInStock);
+    setBPantoneRequiredDate(next.pantoneRequiredDate);
+    setBBarvyStatusId(next.barvyStatusId);
+    setBLakStatusId(next.lakStatusId);
+    setBDeadlineExpedice(next.deadlineExpedice);
+    setBJobPresetId(null);
+    setBJobPresetLabel("");
+  }
+
+  function resetBuilderForm() {
+    setOrderNumber("");
+    setDescription("");
+    setBDataStatusId("");
+    setBDataRequiredDate("");
+    setBMaterialStatusId("");
+    setBMaterialRequiredDate("");
+    setBMaterialInStock(false);
+    setBPantoneRequiredDate("");
+    setBPantoneOk(false);
+    setBBarvyStatusId("");
+    setBLakStatusId("");
+    setBSpecifikace("");
+    setBDeadlineExpedice("");
+    setBRecurrenceType("NONE");
+    setBRecurrenceCount(2);
+    setBJobPresetId(null);
+    setBJobPresetLabel("");
+    setBlockVariant("STANDARD");
+  }
+
   function handleAddToQueue() {
     if (!orderNumber.trim()) return;
     const findLabel = (opts: CodebookOption[], id: string) =>
@@ -2866,6 +3179,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         orderNumber: orderNumber.trim(),
         type,
         blockVariant: type === "ZAKAZKA" ? blockVariant : "STANDARD",
+        jobPresetId: type === "UDRZBA" ? null : bJobPresetId,
+        jobPresetLabel: type === "UDRZBA" ? null : bJobPresetLabel || null,
         durationHours,
         description: description.trim(),
         dataStatusId: bDataStatusId ? Number(bDataStatusId) : null,
@@ -2887,22 +3202,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         recurrenceCount: bRecurrenceType !== "NONE" ? bRecurrenceCount : 1,
       },
     ]);
-    setOrderNumber("");
-    setDescription("");
-    setBDataStatusId("");
-    setBDataRequiredDate("");
-    setBMaterialStatusId("");
-    setBMaterialRequiredDate("");
-    setBMaterialInStock(false);
-    setBPantoneRequiredDate("");
-    setBPantoneOk(false);
-    setBBarvyStatusId("");
-    setBLakStatusId("");
-    setBSpecifikace("");
-    setBDeadlineExpedice("");
-    setBRecurrenceType("NONE");
-    setBRecurrenceCount(2);
-    setBlockVariant("STANDARD");
+    resetBuilderForm();
   }
 
   async function handleScheduleSeries() {
@@ -2914,6 +3214,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       machine: bSeriesMachine,
       type,
       blockVariant: type === "ZAKAZKA" ? blockVariant : "STANDARD",
+      jobPresetId: type === "UDRZBA" ? null : bJobPresetId,
       description: description.trim() || null,
       dataStatusId: bDataStatusId ? Number(bDataStatusId) : null,
       dataStatusLabel: findLabel(bDataOpts, bDataStatusId),
@@ -2968,16 +3269,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       showToast("Naplánování série selhalo.", "error");
     }
     if (created > 0) {
-      setOrderNumber(""); setDescription("");
-      setBDataStatusId(""); setBDataRequiredDate("");
-      setBMaterialStatusId(""); setBMaterialRequiredDate(""); setBMaterialInStock(false);
-      setBPantoneRequiredDate(""); setBPantoneOk(false);
-      setBBarvyStatusId(""); setBLakStatusId("");
-      setBSpecifikace(""); setBDeadlineExpedice("");
-      setBRecurrenceType("NONE"); setBRecurrenceCount(2);
+      resetBuilderForm();
       setBSeriesFirstDate(""); setBSeriesFirstHour(7);
       setSeriesPreview([]);
-      setBlockVariant("STANDARD");
     }
   }
 
@@ -3076,6 +3370,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       machine,
       type: item.type,
       blockVariant: item.blockVariant,
+      jobPresetId: item.jobPresetId ?? null,
       description: item.description || null,
       dataStatusId: item.dataStatusId,
       dataStatusLabel: item.dataStatusLabel,
@@ -3200,6 +3495,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           machine: target.machine,
           type: src.type,
           blockVariant: src.blockVariant,
+          jobPresetId: src.jobPresetId,
           startTime: newStart.toISOString(),
           endTime: newEnd.toISOString(),
           description: src.description,
@@ -3263,6 +3559,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             orderNumber: src.orderNumber, machine: target.machine, type: src.type, blockVariant: src.blockVariant,
+            jobPresetId: src.jobPresetId,
             startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
             description: src.description, locked: false,
             deadlineExpedice: src.deadlineExpedice,
@@ -3889,6 +4186,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               materialOpts={bMaterialOpts}
               barvyOpts={bBarvyOpts}
               lakOpts={bLakOpts}
+              jobPresets={jobPresets}
               onToast={showToast}
             />
           ) : selectedBlock ? (
@@ -3965,6 +4263,81 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                       ))}
                     </div>
                   </div>
+
+                  {type !== "UDRZBA" && (
+                    <div style={{ paddingTop: 10, paddingBottom: 14, borderBottom: type === "ZAKAZKA" ? "none" : "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
+                        Preset
+                      </div>
+                      {bJobPresetLabel && (
+                        <div style={{ marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                            Aktivní:
+                            <span style={{ marginLeft: 6, color: "var(--text)", fontWeight: 700 }}>{bJobPresetLabel}</span>
+                          </div>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                            Předvyplnění je jen návrh
+                          </div>
+                        </div>
+                      )}
+                      {compatibleBuilderPresets.length > 0 ? (
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 5 }}>
+                          {compatibleBuilderPresets.map((preset, index) => {
+                            const active = bJobPresetId === preset.id;
+                            const tone = getJobPresetTone(preset, index);
+                            return (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => applyPresetToBuilder(preset)}
+                                style={{
+                                  minHeight: 30,
+                                  padding: "5px 8px",
+                                  borderRadius: 7,
+                                  border: active ? `1px solid ${tone}` : "1px solid var(--border)",
+                                  background: active ? `${tone}26` : "var(--surface-2)",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  transition: "all 0.12s",
+                                  boxShadow: active ? `inset 0 1px 0 ${tone}33, 0 0 0 1px ${tone}22` : "none",
+                                }}
+                              >
+                                <span style={{ fontSize: 8, fontWeight: active ? 700 : 600, color: active ? tone : "var(--text-muted)", letterSpacing: "0.03em", lineHeight: 1.15, textAlign: "center" }}>
+                                  {preset.name}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                          Pro tento typ zatím není dostupný žádný preset.
+                        </div>
+                      )}
+                      <div style={{ marginTop: 6 }}>
+                        <button
+                          type="button"
+                          onClick={clearBuilderPresetSelection}
+                          disabled={bJobPresetId === null && !bJobPresetLabel}
+                          style={{
+                            width: "100%", height: 34, borderRadius: 10, border: "1px solid color-mix(in oklab, var(--border) 88%, transparent)",
+                            background: "linear-gradient(180deg, color-mix(in oklab, var(--surface-2) 94%, white 6%) 0%, var(--surface-2) 100%)",
+                            color: "var(--text-muted)", fontSize: 11, fontWeight: 700,
+                            cursor: bJobPresetId === null && !bJobPresetLabel ? "default" : "pointer",
+                            opacity: bJobPresetId === null && !bJobPresetLabel ? 0.5 : 1,
+                            boxShadow: "inset 0 1px 0 color-mix(in oklab, white 24%, transparent)",
+                          }}
+                        >
+                          Vyčistit preset
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.4 }}>
+                        Výběr pouze předvyplní nastavená pole. Vyčištění preset odpojí a smaže jeho předvyplněné hodnoty.
+                      </div>
+                    </div>
+                  )}
 
                   {/* ── Stav zakázky — jen pro ZAKAZKA ── */}
                   {type === "ZAKAZKA" && (
@@ -4418,6 +4791,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                       </div>
                       {description && (
                         <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.4 }}>{description}</div>
+                      )}
+                      {bJobPresetLabel && type !== "UDRZBA" && (
+                        <div style={{ fontSize: 10, color: "var(--accent)", marginTop: 4, lineHeight: 1.4, fontWeight: 700 }}>
+                          {bJobPresetLabel}
+                        </div>
                       )}
                       <div style={{ fontSize: 10, color: typeConfig?.color ?? "var(--text-muted)", marginTop: 5 }}>
                         {typeConfig && <typeConfig.icon size={10} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 3 }} />}{typeConfig?.label} · {formatDuration(durationHours)}

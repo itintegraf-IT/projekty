@@ -55,6 +55,12 @@ const LAK_OPTIONS = [
   { label: "vysoce lesklá disperse", sortOrder: 9 },
 ];
 
+const SYSTEM_JOB_PRESETS = [
+  { name: "XL 105", sortOrder: 0, machineConstraint: "XL_105" },
+  { name: "XL 106 LED", sortOrder: 1, machineConstraint: "XL_106" },
+  { name: "XL 106 IML", sortOrder: 2, machineConstraint: "XL_106" },
+];
+
 async function main() {
   console.log("🚀 Integraf produkční bootstrap...");
 
@@ -169,6 +175,30 @@ async function main() {
       console.log(`✅ Default template vytvořena pro ${machine} (${days.length} dnů, zdroj: ${src})`);
     } else {
       console.log(`ℹ️  Template pro ${machine}: výchozí šablona již existuje — přeskočeno.`);
+    }
+  }
+
+  // 5. Systémové presety job builderu — vytvořit pouze pokud chybí
+  for (const preset of SYSTEM_JOB_PRESETS) {
+    const exists = await prisma.jobPreset.findFirst({
+      where: { isSystemPreset: true, name: preset.name },
+      select: { id: true },
+    });
+    if (!exists) {
+      await prisma.jobPreset.create({
+        data: {
+          name: preset.name,
+          isSystemPreset: true,
+          isActive: true,
+          sortOrder: preset.sortOrder,
+          appliesToZakazka: true,
+          appliesToRezervace: true,
+          machineConstraint: preset.machineConstraint,
+        },
+      });
+      console.log(`✅ Job preset vytvořen: ${preset.name}`);
+    } else {
+      console.log(`ℹ️  Job preset '${preset.name}' již existuje — přeskočeno.`);
     }
   }
 

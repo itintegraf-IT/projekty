@@ -53,6 +53,12 @@ const LAK_OPTIONS = [
   { label: "vysoce lesklá disperse", sortOrder: 9 },
 ];
 
+const SYSTEM_JOB_PRESETS = [
+  { name: "XL 105", sortOrder: 0, machineConstraint: "XL_105" },
+  { name: "XL 106 LED", sortOrder: 1, machineConstraint: "XL_106" },
+  { name: "XL 106 IML", sortOrder: 2, machineConstraint: "XL_106" },
+];
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -89,6 +95,17 @@ async function main() {
   console.log(
     `Číselníky: ${dataOpts.length} DATA, ${materialOpts.length} MATERIAL, ${barvyOpts.length} BARVY, ${lakOpts.length} LAK`
   );
+
+  await prisma.jobPreset.deleteMany();
+  await prisma.jobPreset.createMany({
+    data: SYSTEM_JOB_PRESETS.map((preset) => ({
+      ...preset,
+      isSystemPreset: true,
+      isActive: true,
+      appliesToZakazka: true,
+      appliesToRezervace: true,
+    })),
+  });
 
   // Zkratky pro seed bloků
   const DATA_PRIPRAVENO  = dataOpts.find((o) => o.label === "PŘIPRAVENO")!;

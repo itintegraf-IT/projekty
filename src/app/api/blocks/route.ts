@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 export async function GET(req: NextRequest) {
@@ -106,11 +107,18 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const finalOrderNumberPreview = reservation ? reservation.code : String(body.orderNumber);
+    const finalTypePreview = reservation ? "REZERVACE" : blockType;
+    const presetResult = await resolvePresetForBlock(body.jobPresetId, finalTypePreview);
+    if ("error" in presetResult) {
+      return NextResponse.json({ error: presetResult.error }, { status: 400 });
+    }
+
     // Atomická transakce: block.create + auditLog.create buď oba projdou, nebo oba selžou
     const block = await prisma.$transaction(async (tx) => {
       // Pokud jde o rezervaci — vynutit typ REZERVACE a orderNumber = kód rezervace
-      const finalOrderNumber = reservation ? reservation.code : String(body.orderNumber);
-      const finalType = reservation ? "REZERVACE" : blockType;
+      const finalOrderNumber = finalOrderNumberPreview;
+      const finalType = finalTypePreview;
       const finalVariant = reservation ? "STANDARD" : blockVariant;
       const finalRecurrence = reservation ? "NONE" : (body.recurrenceType ?? "NONE");
 
@@ -154,6 +162,9 @@ export async function POST(request: NextRequest) {
           recurrenceParentId: body.recurrenceParentId ?? null,
           // SPLIT SKUPINA
           splitGroupId: body.splitGroupId ?? null,
+          // JOB PRESET
+          jobPresetId: presetResult.jobPresetId,
+          jobPresetLabel: presetResult.jobPresetLabel,
           // REZERVACE
           reservationId: reservationId ?? null,
         },
@@ -206,4 +217,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Chyba při vytváření bloku" }, { status: 500 });
   }
 }
-

@@ -42,6 +42,8 @@ model Block {
   printCompletedAt         DateTime?
   printCompletedByUserId   Int?
   printCompletedByUsername String?
+  jobPresetId              Int?
+  jobPresetLabel           String?
   reservationId            Int?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @default(now()) @updatedAt
@@ -53,7 +55,34 @@ model Block {
 
   @@index([recurrenceParentId])
   @@index([splitGroupId])
+  @@index([jobPresetId])
   @@index([reservationId])
+}
+
+model JobPreset {
+  id                             Int      @id @default(autoincrement())
+  name                           String
+  isSystemPreset                 Boolean  @default(false)
+  isActive                       Boolean  @default(true)
+  sortOrder                      Int      @default(0)
+  appliesToZakazka               Boolean  @default(true)
+  appliesToRezervace             Boolean  @default(true)
+  machineConstraint              String?
+  blockVariant                   String?
+  specifikace                    String?  @db.Text
+  dataStatusId                   Int?
+  dataRequiredDateOffsetDays     Int?
+  materialStatusId               Int?
+  materialRequiredDateOffsetDays Int?
+  materialInStock                Boolean?
+  pantoneRequiredDateOffsetDays  Int?
+  barvyStatusId                  Int?
+  lakStatusId                    Int?
+  deadlineExpediceOffsetDays     Int?
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @default(now()) @updatedAt
+
+  @@index([isActive, sortOrder])
 }
 
 model CodebookOption {

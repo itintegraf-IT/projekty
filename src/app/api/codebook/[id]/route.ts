@@ -59,6 +59,41 @@ export async function DELETE(
   if (isNaN(numId)) return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
 
   try {
+    const existing = await prisma.codebookOption.findUnique({
+      where: { id: numId },
+      select: { category: true, label: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: "Položka nenalezena" }, { status: 404 });
+    }
+
+    const presetWhere =
+      existing.category === "DATA"
+        ? { dataStatusId: numId }
+        : existing.category === "MATERIAL"
+          ? { materialStatusId: numId }
+          : existing.category === "BARVY"
+            ? { barvyStatusId: numId }
+            : existing.category === "LAK"
+              ? { lakStatusId: numId }
+              : null;
+
+    if (presetWhere) {
+      const dependentPreset = await prisma.jobPreset.findFirst({
+        where: {
+          isActive: true,
+          ...presetWhere,
+        },
+        select: { name: true },
+      });
+      if (dependentPreset) {
+        return NextResponse.json(
+          { error: `Položku nelze smazat — používá ji aktivní preset '${dependentPreset.name}'.` },
+          { status: 409 }
+        );
+      }
+    }
+
     await prisma.codebookOption.delete({ where: { id: numId } });
     return NextResponse.json({ ok: true });
   } catch (error) {

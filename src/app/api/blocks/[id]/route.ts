@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -34,6 +35,7 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
 
 const SPLIT_SHARED_FIELDS = [
   "orderNumber", "description", "specifikace", "deadlineExpedice",
+  "jobPresetId", "jobPresetLabel",
   "type", "blockVariant",
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
   "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
@@ -134,11 +136,15 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       "pantoneRequiredDate", "pantoneOk", "materialInStock",
       "deadlineExpedice",
       "blockVariant",
+      "jobPresetLabel",
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
 
     const block = await prisma.$transaction(async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });
+      if (!oldBlock) {
+        throw new Error("NOT_FOUND");
+      }
 
       // Normalizace blockVariant — platí na výsledný type, ne jen na vstup
       // Fallback na existující hodnotu z DB pokud blockVariant není v requestu (předchází tiché přepísání na STANDARD)
@@ -147,6 +153,33 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         (allowed.blockVariant as string | undefined) ?? oldBlock?.blockVariant,
         resultingType
       );
+      const presetExplicitlyChanged = allowed.jobPresetId !== undefined;
+      let presetUpdate:
+        | { jobPresetId: number | null; jobPresetLabel: string | null }
+        | null = null;
+
+      if (resultingType === "UDRZBA") {
+        presetUpdate = { jobPresetId: null, jobPresetLabel: null };
+      } else if (presetExplicitlyChanged) {
+        const presetResult = await resolvePresetForBlock(allowed.jobPresetId, resultingType);
+        if ("error" in presetResult) {
+          throw new Error(`PRESET:${presetResult.error}`);
+        }
+        presetUpdate = presetResult;
+      } else if (allowed.type !== undefined && oldBlock.jobPresetId) {
+        const existingPreset = await prisma.jobPreset.findUnique({
+          where: { id: oldBlock.jobPresetId },
+          select: { appliesToZakazka: true, appliesToRezervace: true },
+        });
+        if (existingPreset) {
+          if (resultingType === "ZAKAZKA" && !existingPreset.appliesToZakazka) {
+            throw new Error("PRESET:Vybraný preset není povolen pro zakázku.");
+          }
+          if (resultingType === "REZERVACE" && !existingPreset.appliesToRezervace) {
+            throw new Error("PRESET:Vybraný preset není povolen pro rezervaci.");
+          }
+        }
+      }
 
       // Pokud se type mění z ZAKAZKA na jiný typ, vyčistit printCompleted jako konzistenční cleanup
       const typeChangingAwayFromZakazka =
@@ -170,6 +203,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           }),
           // Aplikovat blockVariant pokud byl explicitně zadán, nebo pokud se mění type (invariant: non-ZAKAZKA → STANDARD)
           ...((allowed.blockVariant !== undefined || allowed.type !== undefined) && { blockVariant }),
+          ...(presetUpdate && {
+            jobPresetId: presetUpdate.jobPresetId,
+            jobPresetLabel: presetUpdate.jobPresetLabel,
+          }),
           ...(allowed.description !== undefined && { description: allowed.description as string }),
           ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
           ...(allowed.deadlineExpedice !== undefined && {
@@ -253,6 +290,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             sharedUpdate[field] = (updated as Record<string, unknown>)[field];
           }
         }
+        if (presetExplicitlyChanged || resultingType === "UDRZBA") {
+          sharedUpdate.jobPresetId = updated.jobPresetId;
+          sharedUpdate.jobPresetLabel = updated.jobPresetLabel;
+        }
         if (Object.keys(sharedUpdate).length > 0) {
           // Pokud se type mění na non-ZAKAZKA, normalizovat blockVariant na STANDARD
           if (sharedUpdate.type && sharedUpdate.type !== "ZAKAZKA") {
@@ -270,6 +311,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(block);
   } catch (error: unknown) {
+    if (error instanceof Error && error.message.startsWith("PRESET:")) {
+      return NextResponse.json({ error: error.message.slice("PRESET:".length) }, { status: 400 });
+    }
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
+    }
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
     }
