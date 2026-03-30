@@ -9,10 +9,20 @@ export default async function HomePage() {
   const session = await getSession();
   if (!session) redirect("/login");
   const isTiskar = session.role === "TISKAR";
+  const isPlanner = ["ADMIN", "PLANOVAT"].includes(session.role);
+
   const blocks = await prisma.block.findMany({
     where: isTiskar && session.assignedMachine ? { machine: session.assignedMachine } : undefined,
     orderBy: { startTime: "asc" },
   });
+
+  // QUEUE_READY rezervace — jen pro PLANOVAT/ADMIN (OBCHODNIK na plánovači nemá přístup k drag&drop)
+  const queueReadyReservations = isPlanner
+    ? await prisma.reservation.findMany({
+        where: { status: "QUEUE_READY" },
+        orderBy: { preparedAt: "asc" },
+      })
+    : [];
 
   // Serialize Date objects to ISO strings for client component
   const serialized = blocks.map((b) => ({
@@ -52,5 +62,18 @@ export default async function HomePage() {
 
   const initialMachineWorkHoursTemplates = serializeTemplates(rawMachineWorkHoursTemplates);
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHoursTemplates={initialMachineWorkHoursTemplates} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} />;
+  const serializedQueueReservations = queueReadyReservations.map((r) => ({
+    ...r,
+    requestedExpeditionDate: r.requestedExpeditionDate.toISOString(),
+    requestedDataDate: r.requestedDataDate.toISOString(),
+    preparedAt: r.preparedAt?.toISOString() ?? null,
+    scheduledStartTime: r.scheduledStartTime?.toISOString() ?? null,
+    scheduledEndTime: r.scheduledEndTime?.toISOString() ?? null,
+    scheduledAt: r.scheduledAt?.toISOString() ?? null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+    planningPayload: r.planningPayload as Record<string, unknown> | null,
+  }));
+
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHoursTemplates={initialMachineWorkHoursTemplates} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} initialQueueReservations={serializedQueueReservations} />;
 }

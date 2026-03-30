@@ -17,13 +17,18 @@ import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Lock, Unlock, ClipboardList, Pin, Wrench, CalendarDays } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
+import DatePickerField from "./DatePickerField";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
 type NotificationItem = {
   id: number;
-  blockId: number;
+  type?: string;
+  message?: string;
+  blockId: number | null;
   blockOrderNumber: string | null;
-  targetRole: string;
+  targetRole: string | null;
+  targetUserId?: number | null;
+  reservationId?: number | null;
   createdByUserId: number;
   createdByUsername: string;
   isRead: boolean;
@@ -56,7 +61,7 @@ type CodebookOption = {
 };
 
 type QueueItem = {
-  id: number;
+  id: number | string;
   orderNumber: string;
   type: string;
   blockVariant: BlockVariant;
@@ -79,6 +84,10 @@ type QueueItem = {
   deadlineExpedice: string;
   recurrenceType: string;
   recurrenceCount: number;
+  // Rezervace-specific
+  reservationId?: number;
+  reservationCode?: string;
+  companyName?: string;
 };
 
 type PushSuggestion = {
@@ -238,148 +247,6 @@ function formatDuration(hours: number): string {
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
-
-// ─── DatePickerField ──────────────────────────────────────────────────────────
-const MONTH_NAMES_CS = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
-const DAY_NAMES_CS   = ["Po","Út","St","Čt","Pá","So","Ne"];
-const navBtnStyle: React.CSSProperties = {
-  width: 28, height: 28, borderRadius: 8, border: "none",
-  background: "var(--surface-2)", color: "var(--text-muted)",
-  display: "flex", alignItems: "center", justifyContent: "center",
-  cursor: "pointer", transition: "background 100ms ease-out",
-};
-
-function DatePickerField({
-  value,
-  onChange,
-  placeholder = "Vyberte datum…",
-  asButton = false,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  asButton?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
-  const today = new Date();
-  const selected = value ? new Date(value + "T00:00:00") : undefined;
-  const [viewYear,  setViewYear]  = useState(() => selected?.getFullYear()  ?? today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(() => selected?.getMonth()     ?? today.getMonth());
-
-  function toStr(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  }
-  function prevMonth() {
-    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
-    else setViewMonth(m => m - 1);
-  }
-  function nextMonth() {
-    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
-    else setViewMonth(m => m + 1);
-  }
-
-  // Grid Po=0 … Ne=6
-  const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const cells: (number | null)[] = [
-    ...Array(firstDow).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
-  ];
-  while (cells.length % 7 !== 0) cells.push(null);
-
-  const displayLabel = selected
-    ? selected.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" })
-    : placeholder;
-
-  const CELL = 36;
-  const GAP  = 3;
-
-  const triggerBtn = (onClick?: () => void) => (
-    <button onClick={onClick} style={asButton ? {
-      height: 32, borderRadius: 6,
-      border: "1px solid var(--border)", background: "transparent",
-      color: "var(--text)", fontSize: 11, padding: "0 10px",
-      display: "flex", alignItems: "center", gap: 5,
-      cursor: "pointer", outline: "none", whiteSpace: "nowrap",
-      transition: "background 120ms ease-out",
-    } as React.CSSProperties : {
-      height: 32, width: "100%", borderRadius: 6,
-      border: "1px solid var(--border)", background: "var(--surface-2)",
-      color: selected ? "var(--text)" : "var(--text-muted)",
-      fontSize: 12, padding: "0 10px",
-      display: "flex", alignItems: "center", gap: 6,
-      cursor: "pointer", outline: "none", boxSizing: "border-box",
-      transition: "border-color 120ms ease-out",
-    } as React.CSSProperties}>
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: asButton ? 0.6 : 0.4, flexShrink: 0 }}>
-        <rect x="3" y="4" width="18" height="18" rx="2"/>
-        <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-      </svg>
-      <span>{displayLabel}</span>
-    </button>
-  );
-
-  if (!mounted) return triggerBtn();
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        {triggerBtn()}
-      </PopoverTrigger>
-      <PopoverContent align="start" side="top" className="w-auto p-0 border-0" style={{ background: "var(--surface)", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }}>
-        <div style={{ width: 7 * CELL + 6 * GAP + 32, padding: "16px 16px 12px", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
-
-          {/* Hlavička */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <button onClick={prevMonth} style={navBtnStyle}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em" }}>
-              {MONTH_NAMES_CS[viewMonth]} {viewYear}
-            </span>
-            <button onClick={nextMonth} style={navBtnStyle}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-          </div>
-
-          {/* Zkratky dnů */}
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, marginBottom: 4 }}>
-            {DAY_NAMES_CS.map(d => (
-              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 500, color: "var(--text-muted)", paddingBottom: 4 }}>{d}</div>
-            ))}
-          </div>
-
-          {/* Dny */}
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
-            {cells.map((day, i) => {
-              if (!day) return <div key={i} style={{ width: CELL, height: CELL }} />;
-              const isSelected = !!selected && selected.getDate() === day && selected.getMonth() === viewMonth && selected.getFullYear() === viewYear;
-              const isToday    = today.getDate() === day && today.getMonth() === viewMonth && today.getFullYear() === viewYear;
-              return (
-                <button key={i}
-                  onClick={() => { onChange(toStr(new Date(viewYear, viewMonth, day))); setOpen(false); }}
-                  style={{
-                    width: CELL, height: CELL, borderRadius: "50%",
-                    background: isSelected ? "#3b82f6" : isToday && !isSelected ? "rgba(59,130,246,0.15)" : "transparent",
-                    color: isSelected ? "#fff" : isToday ? "#3b82f6" : "var(--text)",
-                    border: isToday ? "1.5px solid #3b82f6" : "1.5px solid transparent",
-                    fontSize: 13, fontWeight: isSelected || isToday ? 700 : 400,
-                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                    transition: "background 100ms ease-out",
-                  }}
-                >
-                  {day}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 // ─── BlockEdit ────────────────────────────────────────────────────────────────
 function BlockEdit({
@@ -1520,34 +1387,49 @@ function InboxPanel({ notifications, onClose, onMarkRead, onJumpToBlock }: {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {notifications.map((n) => (
-              <div key={n.id} style={{ padding: "8px 10px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)", opacity: n.isRead ? 0.5 : 1 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>od {n.createdByUsername}</span>
-                  <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{fmtDatetime(n.createdAt)}</span>
+            {notifications.map((n) => {
+              const isReservationNotif = n.type && n.type !== "BLOCK_NOTIFY";
+              return (
+                <div key={n.id} style={{ padding: "8px 10px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)", opacity: n.isRead ? 0.5 : 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>od {n.createdByUsername}</span>
+                    <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{fmtDatetime(n.createdAt)}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                    {isReservationNotif ? (
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, color: "var(--text)", lineHeight: 1.4 }}>{n.message}</div>
+                        {n.reservationId && (
+                          <a
+                            href={`/rezervace?id=${n.reservationId}`}
+                            style={{ fontSize: 11, color: "#7c3aed", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}
+                          >
+                            → Zobrazit rezervaci
+                          </a>
+                        )}
+                      </div>
+                    ) : n.blockOrderNumber ? (
+                      <button
+                        onClick={() => onJumpToBlock(n.blockOrderNumber!)}
+                        style={{ background: "none", border: "none", padding: 0, color: "#3b82f6", fontWeight: 600, cursor: "pointer", fontSize: 11, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}
+                      >
+                        {n.blockOrderNumber}
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>#{n.blockId}</span>
+                    )}
+                    {!n.isRead && (
+                      <button
+                        onClick={() => onMarkRead(n.id)}
+                        style={{ fontSize: 10, fontWeight: 600, color: "#22c55e", background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}
+                      >
+                        ✓ Přečteno
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                  {n.blockOrderNumber ? (
-                    <button
-                      onClick={() => onJumpToBlock(n.blockOrderNumber!)}
-                      style={{ background: "none", border: "none", padding: 0, color: "#3b82f6", fontWeight: 600, cursor: "pointer", fontSize: 11, textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}
-                    >
-                      {n.blockOrderNumber}
-                    </button>
-                  ) : (
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>#{n.blockId}</span>
-                  )}
-                  {!n.isRead && (
-                    <button
-                      onClick={() => onMarkRead(n.id)}
-                      style={{ fontSize: 10, fontWeight: 600, color: "#22c55e", background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0 }}
-                    >
-                      ✓ Přečteno
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1908,8 +1790,51 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   );
 }
 
+// ─── Reservation queue types ──────────────────────────────────────────────────
+type ReservationQueueItem = {
+  id: number;
+  code: string;
+  companyName: string;
+  planningPayload: Record<string, unknown> | null;
+  requestedExpeditionDate: string;
+  requestedDataDate: string;
+  preparedAt: string | null;
+};
+
+function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
+  const p = r.planningPayload ?? {};
+  return {
+    id: `r_${r.id}`,
+    orderNumber: r.code,
+    type: "REZERVACE",
+    blockVariant: "STANDARD",
+    durationHours: typeof p.durationHours === "number" ? p.durationHours : 2,
+    description: typeof p.description === "string" ? p.description : r.companyName,
+    dataStatusId: null,
+    dataStatusLabel: null,
+    dataRequiredDate: typeof p.dataRequiredDate === "string" ? p.dataRequiredDate : r.requestedDataDate.slice(0, 10),
+    materialStatusId: null,
+    materialStatusLabel: null,
+    materialRequiredDate: typeof p.materialRequiredDate === "string" ? p.materialRequiredDate : null,
+    materialInStock: Boolean(p.materialInStock),
+    pantoneRequiredDate: typeof p.pantoneRequiredDate === "string" ? p.pantoneRequiredDate : null,
+    pantoneOk: Boolean(p.pantoneOk),
+    barvyStatusId: null,
+    barvyStatusLabel: null,
+    lakStatusId: null,
+    lakStatusLabel: null,
+    specifikace: typeof p.specifikace === "string" ? p.specifikace : "",
+    deadlineExpedice: typeof p.deadlineExpedice === "string" ? p.deadlineExpedice : r.requestedExpeditionDate.slice(0, 10),
+    recurrenceType: "NONE",
+    recurrenceCount: 1,
+    reservationId: r.id,
+    reservationCode: r.code,
+    companyName: r.companyName,
+  };
+}
+
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHoursTemplates, initialMachineExceptions, currentUser }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHoursTemplates: MachineWorkHoursTemplate[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null } }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHoursTemplates, initialMachineExceptions, currentUser, initialQueueReservations = [] }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHoursTemplates: MachineWorkHoursTemplate[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[] }) {
   // Role-based permissions
   const canEdit     = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
   const canEditData = canEdit || currentUser.role === "DTP";
@@ -1985,10 +1910,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       .map((o) => [o.id, o.badgeColor])
   );
 
-  // Queue
+  // Queue (manuální)
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const queueIdRef = useRef(0);
   const [draggingQueueItem, setDraggingQueueItem] = useState<QueueItem | null>(null);
+
+  // Rezervační fronta (QUEUE_READY rezervace ze serveru — persistentní)
+  const [reservationQueue, setReservationQueue] = useState<QueueItem[]>(() =>
+    initialQueueReservations.map(reservationToQueueItem)
+  );
 
   // Timeline state
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
@@ -2054,6 +1984,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   // Načtení preferencí z localStorage po mount (SSR-safe — default se renderuje server i client stejně)
   useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setFilterText(q);
     const z = localStorage.getItem("ig-planner-zoom");
     if (z) setSlotHeight(Math.max(3, Math.min(26, Number(z))));
     const w = localStorage.getItem("ig-planner-aside-width");
@@ -2123,9 +2055,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       .catch(() => { /* zachovat poslední validní data a count — neměnit stav */ });
   }, [currentUser.role]);
 
-  // Načtení notifikací (jen pro DTP + MTZ)
+  // Načtení notifikací (DTP + MTZ + OBCHODNIK)
   const fetchNotifications = useCallback(() => {
-    if (!["DTP", "MTZ"].includes(currentUser.role)) return;
+    if (!["DTP", "MTZ", "OBCHODNIK"].includes(currentUser.role)) return;
     fetch("/api/notifications")
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data: NotificationItem[]) => {
@@ -2170,9 +2102,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const res = await fetch("/api/blocks");
         if (!res.ok) return;
         const fresh: Block[] = await res.json();
+        const freshById = new Map(fresh.map((block) => [block.id, block]));
         const mergePrintCompleted = (b: Block): Block => {
-          const f = fresh.find((x) => x.id === b.id);
+          const f = freshById.get(b.id);
           if (!f) return b;
+          if (
+            b.printCompletedAt === f.printCompletedAt &&
+            b.printCompletedByUserId === f.printCompletedByUserId &&
+            b.printCompletedByUsername === f.printCompletedByUsername
+          ) {
+            return b;
+          }
           return {
             ...b,
             printCompletedAt: f.printCompletedAt,
@@ -2180,7 +2120,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             printCompletedByUsername: f.printCompletedByUsername,
           };
         };
-        setBlocks((prev) => prev.map(mergePrintCompleted));
+        setBlocks((prev) => {
+          let changed = false;
+          const next = prev.map((block) => {
+            const merged = mergePrintCompleted(block);
+            if (merged !== block) changed = true;
+            return merged;
+          });
+          return changed ? next : prev;
+        });
         setSelectedBlock((sel) => sel ? mergePrintCompleted(sel) : null);
         setEditingBlock((eb) => eb ? mergePrintCompleted(eb) : null);
       } catch {
@@ -2422,7 +2370,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       new Date(b.startTime).getTime() < ms && new Date(b.endTime).getTime() > ms
     );
     if (preceding) {
-      const newStart = new Date(preceding.endTime).getTime();
+      let rawStart = new Date(preceding.endTime);
+      // Pokud je lock zapnutý, snapneme výslednou pozici přes blokované časy
+      // (preceding.endTime může ležet uvnitř šrafování — např. blok přesahující přes noc)
+      if (workingTimeLockRef.current) {
+        rawStart = snapToNextValidStartWithTemplates(current.machine, rawStart, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions);
+      }
+      const newStart = rawStart.getTime();
       try {
         const res = await fetch(`/api/blocks/${current.id}`, {
           method: "PUT",
@@ -2531,8 +2485,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString() }),
-          }).then(r => {
-            if (!r.ok) throw new Error(`Chain push HTTP ${r.status}`);
+          }).then(async r => {
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({})) as { error?: string };
+              throw new Error(err.error ?? `Chain push HTTP ${r.status}`);
+            }
             return r.json() as Promise<Block>;
           });
         })
@@ -2546,8 +2503,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         if (lastResult) void autoResolveOverlap(lastResult, allExcluded);
       }
     } catch (error) {
-      console.error("Auto-push chain update failed", error);
-      showToast("Nepodařilo se automaticky posunout navazující bloky.", "error");
+      const msg = error instanceof Error ? error.message : "Nepodařilo se automaticky posunout navazující bloky.";
+      showToast(msg, "error");
+      await revertMovedBlock();
       return "failed";
     }
 
@@ -3101,18 +3059,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
-  async function handleQueueDrop(itemId: number, machine: string, rawStartTime: Date) {
-    const item = queue.find((q) => q.id === itemId);
+  async function handleQueueDrop(itemId: number | string, machine: string, rawStartTime: Date) {
+    const item = queue.find((q) => q.id === itemId) ?? reservationQueue.find((r) => r.id === itemId);
     if (!item) return;
     const durationMs = item.durationHours * 60 * 60 * 1000;
-    // Snap na pracovní dobu pokud je zamknutý pracovní čas
+    // Snap na pracovní dobu — kontrolujeme jen START slot (30 min), ne celou délku bloku.
+    // Pokud konec bloku zasahuje do šrafování, server vrátí 422 a blok se nesloží.
     const startTime = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(machine, rawStartTime, durationMs, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(machine, rawStartTime, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions)
       : rawStartTime;
     const rType = item.recurrenceType ?? "NONE";
     const rCount = rType !== "NONE" ? Math.max(1, item.recurrenceCount ?? 1) : 1;
 
-    const baseBody = {
+    const baseBody: Record<string, unknown> = {
       orderNumber: item.orderNumber,
       machine,
       type: item.type,
@@ -3134,6 +3093,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       specifikace: item.specifikace || null,
       deadlineExpedice: item.deadlineExpedice || null,
       recurrenceType: rType,
+      // Rezervace — pokud jde o rezervační item, přidat reservationId
+      ...(item.reservationId !== undefined && { reservationId: item.reservationId }),
+    };
+
+    const isReservationItem = item.reservationId !== undefined;
+    const removeFromQueue = () => {
+      if (isReservationItem) {
+        setReservationQueue((prev) => prev.filter((q) => q.id !== itemId));
+      } else {
+        setQueue((prev) => prev.filter((q) => q.id !== itemId));
+      }
     };
 
     try {
@@ -3146,6 +3116,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
+        // 409 = rezervace už není QUEUE_READY (mohla být mezitím naplánována někým jiným)
+        if (res1.status === 409 && isReservationItem) {
+          showToast(`Rezervace ${item.reservationCode ?? ""} už není dostupná — obnovte stránku.`, "error");
+          setDraggingQueueItem(null);
+          return;
+        }
         throw new Error(err.error ?? "Chyba serveru");
       }
       const parentBlock: Block = await res1.json();
@@ -3160,7 +3136,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       if (overlapResult === "failed") {
         // POST proběhl, blok existuje v DB/UI, ale overlap resolution selhala
-        setQueue((prev) => prev.filter((q) => q.id !== itemId));
+        removeFromQueue();
         setDraggingQueueItem(null);
         showToast("Blok byl vytvořen, ale nepodařilo se automaticky vyřešit překryv — zkontroluj pozici na timeline.", "info");
         return;
@@ -3189,7 +3165,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         }
       }
 
-      setQueue((prev) => prev.filter((q) => q.id !== itemId));
+      removeFromQueue();
       setDraggingQueueItem(null);
       const y = dateToY(startTime, viewStart);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
@@ -3212,7 +3188,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
     const newStart = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, rawStart, durationMs, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, rawStart, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions)
       : rawStart;
     const newEnd = new Date(newStart.getTime() + durationMs);
     try {
@@ -3268,9 +3244,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
     const anchorBlock = group.find((b) => new Date(b.startTime).getTime() === anchorMs)!;
     const anchorDuration = new Date(anchorBlock.endTime).getTime() - anchorMs;
-    // Snap anchor pokud je lock zapnutý — zachová relativní rozstupy skupiny
+    // Snap anchor pokud je lock zapnutý — jen start slot, ne celá délka bloku
     const snappedTarget = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, target.time, anchorDuration, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, target.time, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions)
       : target.time;
     const pasteMs = snappedTarget.getTime();
 
@@ -3297,7 +3273,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             specifikace: src.specifikace,
           }),
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(err.error ?? `HTTP ${res.status}`);
+        }
         created.push(await res.json() as Block);
       }
     } catch (err) {
@@ -3319,7 +3298,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           return;
         }
       }
-      showToast("Chyba při vložení skupiny — žádné bloky nebyly přidány.", "error");
+      const errMsg = err instanceof Error ? err.message : "Chyba při vložení skupiny";
+      showToast(`${errMsg} — žádné bloky nebyly přidány.`, "error");
       return;
     }
 
@@ -3705,6 +3685,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               Správa
             </a>
           )}
+          {["ADMIN", "PLANOVAT", "OBCHODNIK"].includes(currentUser.role) && (
+            <a
+              href="/rezervace"
+              style={{
+                padding: "3px 10px", fontSize: 11, borderRadius: 6,
+                background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.3)",
+                color: "#7c3aed", cursor: "pointer", textDecoration: "none",
+                whiteSpace: "nowrap", transition: "all 120ms ease-out",
+              }}
+            >
+              Rezervace
+            </a>
+          )}
           <ThemeToggle />
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <div style={{ position: "relative" }}>
@@ -3738,7 +3731,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               )}
             </div>
           )}
-          {["DTP", "MTZ"].includes(currentUser.role) && (
+          {["DTP", "MTZ", "OBCHODNIK"].includes(currentUser.role) && (
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => { setShowInboxPanel(true); fetchNotifications(); }}
@@ -3851,8 +3844,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           document.body.style.userSelect = "none";
         }} />}
 
-        {/* InboxPanel pro DTP/MTZ — mimo canEdit aside */}
-        {["DTP", "MTZ"].includes(currentUser.role) && showInboxPanel && (
+        {/* InboxPanel pro DTP/MTZ/OBCHODNIK — mimo canEdit aside */}
+        {["DTP", "MTZ", "OBCHODNIK"].includes(currentUser.role) && showInboxPanel && (
           <aside style={{ width: 320, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             <InboxPanel
               notifications={notifications}
@@ -3899,7 +3892,32 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               onToast={showToast}
             />
           ) : selectedBlock ? (
-            <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />
+              {/* "Upozornit obchod" — jen pokud blok má reservationId a canEdit */}
+              {canEdit && selectedBlock.reservationId && (
+                <div style={{ padding: "8px 16px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+                  <button
+                    onClick={async () => {
+                      const r = await fetch(`/api/reservations/${selectedBlock.reservationId}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "notify" }),
+                      });
+                      if (r.ok) showToast("Upozornění odesláno obchodníkovi", "success");
+                      else showToast("Chyba při odesílání upozornění", "error");
+                    }}
+                    style={{
+                      width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(124,58,237,0.3)",
+                      background: "rgba(124,58,237,0.08)", color: "#7c3aed", fontFamily: "inherit",
+                      fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "background 150ms ease-out",
+                    }}
+                  >
+                    Upozornit obchod
+                  </button>
+                </div>
+              )}
+            </div>
           ) : (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "var(--surface)", borderLeft: "1px solid var(--border)" }}>
 
@@ -4521,6 +4539,55 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Připravené rezervace ── */}
+                {reservationQueue.length > 0 && (
+                  <div style={{ borderTop: "1px solid var(--border)", background: "rgba(124,58,237,0.04)", padding: "12px 16px 16px", flexShrink: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "#7c3aed" }}>Připravené rezervace</div>
+                      <div style={{ minWidth: 18, height: 18, borderRadius: 9, background: "#7c3aed", color: "#fff", fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 5px" }}>
+                        {reservationQueue.length}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {reservationQueue.map((item) => (
+                        <div
+                          key={item.id}
+                          className="pressable-card"
+                          onMouseDown={(e) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault();
+                            setDraggingQueueItem(item);
+                          }}
+                          style={{
+                            display: "flex", alignItems: "stretch",
+                            background: "var(--surface)",
+                            borderRadius: 6,
+                            border: "1px solid rgba(124,58,237,0.3)",
+                            overflow: "hidden",
+                            cursor: draggingQueueItem?.id === item.id ? "grabbing" : "grab",
+                          }}
+                        >
+                          <div style={{ width: 3, background: "#7c3aed", flexShrink: 0 }} />
+                          <div style={{ flex: 1, padding: "7px 9px", minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: "#7c3aed", background: "rgba(124,58,237,0.12)", padding: "1px 5px", borderRadius: 4 }}>
+                                {item.reservationCode}
+                              </span>
+                              <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>Rezervace</span>
+                            </div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {item.companyName}
+                            </div>
+                            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>
+                              {formatDuration(item.durationHours)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

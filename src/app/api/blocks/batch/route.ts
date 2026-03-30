@@ -58,22 +58,21 @@ export async function POST(request: NextRequest) {
 
   if (zakazkaUpdates.length > 0) {
     const machines = [...new Set(zakazkaUpdates.map((u) => u.machine))];
-    const [rawTemplates, allExceptions] = await Promise.all([
+    const allStartMs = zakazkaUpdates.map((u) => new Date(u.startTime).getTime());
+    const allEndMs   = zakazkaUpdates.map((u) => new Date(u.endTime).getTime());
+    const rangeStart = new Date(Math.min(...allStartMs) - 24 * 60 * 60 * 1000);
+    const rangeEnd   = new Date(Math.max(...allEndMs)   + 24 * 60 * 60 * 1000);
+
+    const [rawTemplates, allExceptions, companyDays] = await Promise.all([
       prisma.machineWorkHoursTemplate.findMany({
         where: { machine: { in: machines } },
         include: { days: true },
       }),
       prisma.machineScheduleException.findMany({
-        where: {
-          date: {
-            gte: new Date(
-              Math.min(...zakazkaUpdates.map((u) => new Date(u.startTime).getTime())) - 24 * 60 * 60 * 1000
-            ),
-            lte: new Date(
-              Math.max(...zakazkaUpdates.map((u) => new Date(u.endTime).getTime())) + 24 * 60 * 60 * 1000
-            ),
-          },
-        },
+        where: { date: { gte: rangeStart, lte: rangeEnd } },
+      }),
+      prisma.companyDay.findMany({
+        where: { startDate: { lt: new Date(Math.max(...allEndMs)) }, endDate: { gt: new Date(Math.min(...allStartMs)) } },
       }),
     ]);
     const templates = serializeTemplates(rawTemplates);
@@ -85,6 +84,12 @@ export async function POST(request: NextRequest) {
       const violation = checkScheduleViolationWithTemplates(u.machine, start, end, templates, machineExceptions);
       if (violation) {
         return NextResponse.json({ error: violation }, { status: 422 });
+      }
+      const cdConflict = companyDays.find(
+        (cd) => (cd.machine === null || cd.machine === u.machine) && cd.startDate < end && cd.endDate > start
+      );
+      if (cdConflict) {
+        return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
       }
     }
   }

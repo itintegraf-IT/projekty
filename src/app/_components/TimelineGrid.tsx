@@ -93,6 +93,7 @@ export type Block = {
   printCompletedAt: string | null;
   printCompletedByUserId: number | null;
   printCompletedByUsername: string | null;
+  reservationId: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -162,8 +163,8 @@ interface TimelineGridProps {
   onBlockUpdate: (updatedBlock: Block, addToHistory?: boolean) => void;
   onBlockCreate: (newBlock: Block) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
-  queueDragItem?: { id: number; durationHours: number; type: string } | null;
-  onQueueDrop?: (itemId: number, machine: string, startTime: Date) => void;
+  queueDragItem?: { id: number | string; durationHours: number; type: string } | null;
+  onQueueDrop?: (itemId: number | string, machine: string, startTime: Date) => void;
   onQueueDragCancel?: () => void;
   onBlockDoubleClick?: (block: Block) => void;
   companyDays?: CompanyDay[];
@@ -808,7 +809,7 @@ function BlockCard({
 
   const isPrintDone   = block.printCompletedAt != null;
   const isPozastaveno = block.type === "ZAKAZKA" && block.blockVariant === "POZASTAVENO";
-  const isOverdue     = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
+  const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
   const clampedHeight = Math.max(height, 20);
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
@@ -933,6 +934,7 @@ function BlockCard({
     <div
       ref={blockCardRef}
       data-block="true"
+      data-planner-block-card="true"
       onMouseDown={block.locked ? undefined : onMouseDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -952,10 +954,9 @@ function BlockCard({
         display: "flex", flexDirection: "column",
         overflow: "hidden", userSelect: "none",
         transition: isDragging ? "none" : "box-shadow 0.15s",
-        animationName: isOverdue ? "tiskarOverduePulse" : "blockEnter",
-        animationDuration: isOverdue ? "1.8s" : "220ms",
-        animationTimingFunction: isOverdue ? "ease-in-out" : "cubic-bezier(0.34, 1.56, 0.64, 1)",
-        animationIterationCount: isOverdue ? "infinite" : undefined,
+        animationName: "blockEnter",
+        animationDuration: "220ms",
+        animationTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
         animationFillMode: "backwards",
       }}
     >
@@ -1919,7 +1920,10 @@ export default function TimelineGrid({
         const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
         let newStart      = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         if (workingTimeLockRef.current) {
-          newStart = snapToNextValidStartWithTemplates(newMachine, newStart, duration, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
+          // Snap jen pokud START slot je v blokovaném čase — nekontroluj celou délku bloku.
+          // Pokud start je validní ale konec přesahuje do šrafování, server vrátí 422
+          // a blok se automaticky vrátí na původní pozici (PUT selže → setBlocks se nevolá).
+          newStart = snapToNextValidStartWithTemplates(newMachine, newStart, SLOT_MS, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
         }
         const newEnd      = new Date(newStart.getTime() + duration);
         try {
@@ -2152,6 +2156,21 @@ export default function TimelineGrid({
     );
   }
 
+  const viewEnd = addDays(viewStart, totalDays);
+  const viewStartMs = viewStart.getTime();
+  const viewEndMs = viewEnd.getTime();
+  const visibleBlocksByMachine = new Map<string, Block[]>(visibleMachines.map((machine) => [machine, []]));
+  for (const block of blocks) {
+    const bucket = visibleBlocksByMachine.get(block.machine);
+    if (!bucket) continue;
+    const blockStartMs = new Date(block.startTime).getTime();
+    const blockEndMs = new Date(block.endTime).getTime();
+    if (Number.isNaN(blockStartMs) || Number.isNaN(blockEndMs)) continue;
+    if (blockStartMs < viewEndMs && blockEndMs > viewStartMs) {
+      bucket.push(block);
+    }
+  }
+
   // ── Precompute split group map — O(n) místo O(n²) v machineBlocks.map() ───
   const splitGroupMap = (() => {
     const map = new Map<number, Block[]>();
@@ -2375,7 +2394,7 @@ export default function TimelineGrid({
 
           {/* ── Strojové sloupce ──────────────────────────────────────────── */}
           {visibleMachines.map((machine, colIdx) => {
-            const machineBlocks = blocks.filter((b) => b.machine === machine);
+            const machineBlocks = visibleBlocksByMachine.get(machine) ?? [];
 
             return (
               <Fragment key={machine}>
@@ -2514,14 +2533,14 @@ export default function TimelineGrid({
                   return (
                     <div
                       key={n.key}
-                      style={{ position: "absolute", top: renderTop, height: renderHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: canEdit ? "auto" : "none", border: borderStyle, boxSizing: "border-box", transition: isBeingDragged ? "none" : "opacity 100ms", zIndex: 2 }}
-                      onMouseEnter={() => canEdit && setHoveredOverlayKey(n.key)}
-                      onMouseLeave={() => setHoveredOverlayKey(null)}
+                      style={{ position: "absolute", top: renderTop, height: renderHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", border: borderStyle, boxSizing: "border-box", transition: isBeingDragged ? "none" : "opacity 100ms", zIndex: 2 }}
                     >
                       {/* × tlačítko */}
-                      {showUI && (
+                      {canEdit && (
                         <button
-                          style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(239,68,68,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1, zIndex: 10 }}
+                          style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(239,68,68,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1, zIndex: 10, pointerEvents: "auto" }}
+                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
+                          onMouseLeave={() => setHoveredOverlayKey(null)}
                           onMouseDown={(e) => e.stopPropagation()}
                           onClick={async (e) => {
                             e.stopPropagation();
@@ -2547,9 +2566,11 @@ export default function TimelineGrid({
                         >×</button>
                       )}
                       {/* Horní handle — jen pro end-block (táhne workEnd nahoru/dolů) */}
-                      {showUI && n.overlayType === "end-block" && (
+                      {canEdit && n.overlayType === "end-block" && (
                         <div
-                          style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
+                          style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10, pointerEvents: "auto" }}
+                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
+                          onMouseLeave={() => setHoveredOverlayKey(null)}
                           onMouseDown={(e) => {
                             e.preventDefault(); e.stopPropagation();
                             const workStart = blockedOverlays[machine].find(
@@ -2561,9 +2582,11 @@ export default function TimelineGrid({
                         />
                       )}
                       {/* Spodní handle — jen pro start-block (táhne workStart nahoru/dolů) */}
-                      {showUI && n.overlayType === "start-block" && (
+                      {canEdit && n.overlayType === "start-block" && (
                         <div
-                          style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
+                          style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10, pointerEvents: "auto" }}
+                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
+                          onMouseLeave={() => setHoveredOverlayKey(null)}
                           onMouseDown={(e) => {
                             e.preventDefault(); e.stopPropagation();
                             const workEnd = blockedOverlays[machine].find(

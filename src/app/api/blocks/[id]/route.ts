@@ -99,7 +99,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           const checkMachine = (allowed.machine as string | undefined) ?? existing.machine;
           const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : existing.startTime;
           const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : existing.endTime;
-          const [rawTemplates, exceptions] = await Promise.all([
+          const [rawTemplates, exceptions, companyDays] = await Promise.all([
             prisma.machineWorkHoursTemplate.findMany({
               where: { machine: checkMachine },
               include: { days: true },
@@ -113,10 +113,17 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
                 },
               },
             }),
+            prisma.companyDay.findMany({
+              where: { startDate: { lt: checkEnd }, endDate: { gt: checkStart } },
+            }),
           ]);
           const templates = serializeTemplates(rawTemplates);
           const violation = checkScheduleViolationWithTemplates(checkMachine, checkStart, checkEnd, templates, exceptions);
           if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+          const cdConflict = companyDays.find(
+            (cd) => cd.machine === null || cd.machine === checkMachine
+          );
+          if (cdConflict) return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
         }
       }
     }
@@ -286,7 +293,10 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      const blockToDelete = await tx.block.findUnique({ where: { id }, select: { orderNumber: true } });
+      const blockToDelete = await tx.block.findUnique({
+        where: { id },
+        select: { orderNumber: true, reservationId: true },
+      });
 
       await tx.auditLog.create({
         data: {
@@ -299,6 +309,21 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
       });
 
       await tx.block.delete({ where: { id } });
+
+      // Pokud byl blok spojen s rezervací ve stavu SCHEDULED → revert na QUEUE_READY
+      if (blockToDelete?.reservationId) {
+        await tx.reservation.updateMany({
+          where: { id: blockToDelete.reservationId, status: "SCHEDULED" },
+          data: {
+            status: "QUEUE_READY",
+            scheduledBlockId: null,
+            scheduledMachine: null,
+            scheduledStartTime: null,
+            scheduledEndTime: null,
+            scheduledAt: null,
+          },
+        });
+      }
     });
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

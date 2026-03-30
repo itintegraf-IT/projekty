@@ -10,7 +10,33 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { blockId, blockOrderNumber } = body;
+  const { blockId, blockOrderNumber, type, message, targetUserId, reservationId } = body;
+
+  // Rozlišení: starý BLOCK_NOTIFY flow (blockId) vs. nový rezervační flow (targetUserId)
+  if (targetUserId !== undefined) {
+    // Rezervační notifikace — přímá pro konkrétního uživatele
+    if (typeof targetUserId !== "number") {
+      return NextResponse.json({ error: "Neplatné targetUserId" }, { status: 400 });
+    }
+    try {
+      await prisma.notification.create({
+        data: {
+          type: type ?? "RESERVATION_MANUAL",
+          message: message ?? "",
+          targetUserId,
+          reservationId: reservationId ?? null,
+          createdByUserId: session.id,
+          createdByUsername: session.username,
+        },
+      });
+      return NextResponse.json({ ok: true });
+    } catch (error) {
+      console.error("[POST /api/notifications] rezervační", error);
+      return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
+    }
+  }
+
+  // Starý flow: BLOCK_NOTIFY pro MTZ + DTP
   if (!blockId || typeof blockId !== "number") {
     return NextResponse.json({ error: "Neplatné blockId" }, { status: 400 });
   }
@@ -37,6 +63,14 @@ export async function GET() {
     if (["MTZ", "DTP"].includes(session.role)) {
       const notifications = await prisma.notification.findMany({
         where: { targetRole: session.role },
+        orderBy: [{ isRead: "asc" }, { createdAt: "desc" }],
+        take: 50,
+      });
+      return NextResponse.json(notifications);
+    }
+    if (session.role === "OBCHODNIK") {
+      const notifications = await prisma.notification.findMany({
+        where: { targetUserId: session.id },
         orderBy: [{ isRead: "asc" }, { createdAt: "desc" }],
         take: 50,
       });

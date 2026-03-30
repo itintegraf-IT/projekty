@@ -12,18 +12,22 @@
 
 ## Přehled změn
 
-Tato vlna navazuje na současnou planner aplikaci postavenou nad Next.js, React, TypeScript, Prisma a MySQL. Zaměřuje se na přesnější plánování opakovaných zakázek, rozšíření sdíleného chování split skupin, upravený model pracovní doby, nové výrobní sloupečky a změnu pravidel kolem potvrzení tisku.
+Tato vlna navazuje na současnou planner aplikaci postavenou nad Next.js, React, TypeScript, Prisma a MySQL. Zaměřuje se na přesnější plánování opakovaných zakázek, rozšíření sdíleného chování split skupin, upravený model pracovní doby, nové výrobní sloupečky, změnu pravidel kolem potvrzení tisku a nový workflow rezervací mezi obchodem a plánovačem.
 
 | ID | Oblast | Změna | Stav |
 |----|--------|-------|------|
-| 1 | Opakování a série | Preview všech výskytů + ruční editace termínů jednotlivých opakování | ⬜ Nezačato |
-| 2 | Splitované zakázky | Propagace `type` a `blockVariant` mezi všemi částmi splitu | ⬜ Nezačato |
-| 3 | Role a oprávnění | `PLANOVAT` dostane omezený přístup do `/admin` | ⬜ Nezačato |
+| 1 | Opakování a série | Preview všech výskytů + ruční editace termínů jednotlivých opakování | ✅ Hotovo |
+| 2 | Splitované zakázky | Propagace `type` a `blockVariant` mezi všemi částmi splitu | ✅ Hotovo |
+| 3 | Role a oprávnění | `PLANOVAT` dostane omezený přístup do `/admin` | ✅ Hotovo |
 | 4 | Pracovní doba strojů | Periodické šablony s platností `od-do` | ✅ Hotovo |
-| 5 | Výrobní sloupečky | Nový sloupec `Pantone` s datem a `OK` | 🔄 Rozpracováno (DB hotovo, UI chybí) |
-| 6 | Výrobní sloupečky | `Materiál = SKLADEM` jako dedikovaný režim místo data | 🔄 Rozpracováno (DB hotovo, UI chybí) |
+| 5 | Výrobní sloupečky | Nový sloupec `Pantone` s datem a `OK` | ✅ Hotovo |
+| 6 | Výrobní sloupečky | `Materiál = SKLADEM` jako dedikovaný režim místo data | ✅ Hotovo |
 | 7 | Potvrzení tisku | Zrušení automatického `PRINT_RESET` při přesunu bloku | ✅ Hotovo |
-| 8 | Context menu zakázky | Submenu `Stav zakázky` v pravém kliknutí na blok | ⬜ Nezačato |
+| 8 | Context menu zakázky | Submenu `Stav zakázky` v pravém kliknutí na blok | ✅ Hotovo |
+| 9 | Role a oprávnění | Nová role `OBCHODNIK` s viewer-like plannerem a přístupem do rezervací | ⬜ Nezačato |
+| 10 | Rezervace | Samostatné centrum rezervací pro obchod a plánovače | ⬜ Nezačato |
+| 11 | Notifikace | Přímé notifikace mezi plánovačem a konkrétním obchodníkem | ⬜ Nezačato |
+| 12 | Přílohy | Volitelné přílohy k rezervaci | ⬜ Nezačato |
 
 > Stav měň na: ⬜ Nezačato / 🔄 Rozpracováno / ✅ Hotovo / 🐛 Chyba
 
@@ -399,13 +403,368 @@ Pod ní se otevře submenu s položkami:
 
 ---
 
+## Rezervace a role obchodník
+
+### Účel
+
+Současný proces rezervací běží mimo planner v jiném softwaru. Nově se má přesunout přímo do této aplikace tak, aby:
+
+- obchodník založil žádost o rezervaci,
+- plánovač ji přijal nebo zamítl,
+- přijatá rezervace se doplnila o plánovací metadata,
+- následně se propsala do fronty planneru,
+- po skutečném vložení na timeline vznikl blok typu `REZERVACE`,
+- obchodník dostal zpětnou informaci do vlastního zvonečku.
+
+Rezervace je v této vlně samostatný business objekt předcházející bloku v planneru. Není to jen dočasný lokální queue item.
+
+### Role `OBCHODNIK`
+
+- Zavést novou roli `OBCHODNIK`.
+- Na planneru má mít stejný read-only přístup jako dnešní `VIEWER`.
+- `OBCHODNIK`:
+  - vidí hlavní planner timeline,
+  - nevidí Job Builder aside,
+  - nemůže drag & drop, resize, split, editaci detailu, mazání ani potvrzení tisku,
+  - nemá přístup do `/admin`,
+  - v headeru navíc vidí CTA `Rezervace`,
+  - má přístup na novou stránku `/rezervace`,
+  - v modulu rezervací vidí pouze své vlastní rezervace a své vlastní přímé notifikace.
+- `PLANOVAT` a `ADMIN` mají do modulu rezervací přístup také.
+- `DTP`, `MTZ`, `TISKAR` a `VIEWER` do modulu rezervací přístup nemají.
+
+### Informační architektura modulu
+
+- Modul rezervací má být samostatná stránka `/rezervace`, ne další přetížený panel v pravém aside planneru.
+- V headeru planneru i na stránce `/rezervace` má být jasně viditelné tlačítko nebo záložka `Rezervace`.
+- CTA `Rezervace` má mít badge pro:
+  - `PLANOVAT`, `ADMIN`: počet `SUBMITTED` rezervací.
+- Pro `OBCHODNIK` se nepoužívá samostatný badge na CTA `Rezervace` jako notifikační zdroj pravdy.
+- Nepřečtené přímé notifikace obchodníka se zobrazují ve zvonečku.
+- UI má držet současný vizuální jazyk aplikace:
+  - horní toolbar,
+  - iOS-like segmented přepínače,
+  - jednoduché karty/listy,
+  - jeden jasný primární CTA směr,
+  - minimum vrstev modálních dialogů.
+- Pro `OBCHODNIK` zobrazit 3 hlavní dashboardy:
+  - `Nová žádost`
+  - `Moje aktivní`
+  - `Archiv`
+- Pro `PLANOVAT` a `ADMIN` zobrazit 3 hlavní dashboardy:
+  - `Nové žádosti`
+  - `K naplánování`
+  - `Archiv`
+
+### Kód rezervace
+
+- Každá rezervace po prvním úspěšném odeslání dostane jedinečný kód ve formátu:
+  - `R4609`
+- Formát znamená:
+  - prefix `R`,
+  - bez mezer,
+  - bez lomítek,
+  - bez nulování na fixní délku.
+- Kód rezervace je hlavní uživatelské identifikační číslo rezervace napříč celým systémem.
+- Kód je:
+  - immutable,
+  - unique,
+  - zobrazený v seznamu, detailu, archivní historii, notifikacích i na výsledném bloku.
+- Doporučené pravidlo implementace:
+  - kód vzniká serverově z vytvořeného DB `id` rezervace,
+  - tj. po vytvoření záznamu s `id = 4609` se uloží `code = "R4609"`.
+
+### Stavový model rezervace
+
+Použij tento explicitní stavový model:
+
+- `SUBMITTED`
+  - obchodník odeslal žádost,
+  - čeká na první rozhodnutí plánovače,
+  - pro plánovače patří do dashboardu `Nové žádosti`.
+- `ACCEPTED`
+  - plánovač potvrdil, že rezervaci chce dále připravit,
+  - ještě není ve frontě timeline,
+  - patří do dashboardu `K naplánování`.
+- `QUEUE_READY`
+  - plánovač doplnil plánovací data a rezervace je připravena do planner fronty,
+  - ještě neexistuje reálný blok na timeline,
+  - patří do dashboardu `K naplánování`.
+- `SCHEDULED`
+  - z rezervace byl skutečně vytvořen blok na timeline,
+  - patří do archivu.
+- `REJECTED`
+  - plánovač rezervaci odmítl,
+  - má povinný důvod odmítnutí,
+  - patří do archivu.
+
+Archiv je v této vlně odvozený pohled nad finálními stavy `SCHEDULED` a `REJECTED`, nikoli samostatný status.
+
+### Obchodník — vytvoření žádosti
+
+Obchodník při založení rezervace vyplňuje tato pole:
+
+- `companyName`
+  - povinné,
+  - název firmy / klienta.
+- `erpOfferNumber`
+  - povinné,
+  - číslo nabídky z ERP systému.
+- `requestedExpeditionDate`
+  - povinné,
+  - požadovaný termín expedice do.
+- `requestedDataDate`
+  - povinné,
+  - požadovaný termín dodání dat do.
+- `requestText`
+  - nepovinné,
+  - volný text / zadání / obchodní poznámka.
+- `attachments`
+  - nepovinné,
+  - přílohy k rezervaci.
+
+Pravidla:
+
+- Odeslání rezervace je explicitní akce `Požádat o rezervaci`.
+- Teprve při této akci vznikne DB záznam a kód rezervace.
+- V této vlně není potřeba ukládat rozpracovaný draft rezervace průběžně na server.
+- Pokud je `requestedDataDate > requestedExpeditionDate`, UI má zobrazit varování, ale nemusí to být hard stop.
+- Po úspěšném odeslání:
+  - zobrazit success stav s kódem rezervace,
+  - přesunout uživatele do detailu nebo seznamu `Moje aktivní`.
+
+### Plánovač — zpracování žádosti
+
+Plánovač v dashboardu `Nové žádosti` vidí pro každou rezervaci minimálně:
+
+- kód rezervace,
+- firmu,
+- ERP číslo nabídky,
+- termín expedice,
+- termín dodání dat,
+- jméno obchodníka,
+- datum vytvoření,
+- stav příloh.
+
+Na rezervaci musí mít dvě hlavní akce:
+
+- `Přijmout`
+- `Nelze zařadit`
+
+Pravidla zamítnutí:
+
+- Zamítnutí musí vždy vyžadovat textový důvod.
+- Důvod se uloží do rezervace a zároveň se pošle obchodníkovi do notifikace.
+- Po zamítnutí se stav nastaví na `REJECTED`.
+
+Pravidla přijetí:
+
+- Přijetí nastaví stav `ACCEPTED`.
+- Po přijetí se otevře rezervační plánovací formulář.
+- Rezervace se tím ještě nesmí sama vložit na timeline.
+
+### Rezervační plánovací formulář
+
+Po akci `Přijmout` se musí otevřít formulář nebo sheet navazující na logiku současného Job Builderu, ale se zjednodušeným a přesně řízeným chováním.
+
+Formulář má mít:
+
+- read-only část:
+  - kód rezervace,
+  - firma,
+  - ERP číslo nabídky,
+  - požadovaný termín expedice,
+  - požadovaný termín dodání dat,
+  - původní text obchodníka,
+  - seznam příloh.
+- editovatelnou plánovací část:
+  - `description`
+  - `durationHours`
+  - `deadlineExpedice`
+  - `dataStatusId`
+  - `dataStatusLabel`
+  - `dataRequiredDate`
+  - `materialStatusId`
+  - `materialStatusLabel`
+  - `materialRequiredDate`
+  - `materialInStock`
+  - `pantoneRequiredDate`
+  - `pantoneOk`
+  - `barvyStatusId`
+  - `barvyStatusLabel`
+  - `lakStatusId`
+  - `lakStatusLabel`
+  - `specifikace`
+
+Další pravidla:
+
+- `description` se při otevření formuláře předvyplní z `companyName`.
+- `type` je pro rezervaci vždy natvrdo `REZERVACE`.
+- `orderNumber` je pro výsledný blok vždy natvrdo kód rezervace.
+- Opakování (`recurrenceType`) se v této vlně pro rezervace neřeší.
+- Split chování se v této vlně pro rezervace neřeší.
+- Formulář v této vlně neřeší konkrétní stroj ani konkrétní čas startu.
+- Výsledkem formuláře není přímé vytvoření bloku, ale persistentní příprava do planner fronty.
+
+### Připravení rezervace do planner fronty
+
+Po potvrzení plánovacího formuláře:
+
+- se plánovací payload uloží serverově do rezervace,
+- stav přejde na `QUEUE_READY`,
+- planner musí po návratu na hlavní stránku `/` vidět připravenou rezervaci ve frontě builderu.
+
+Kritické pravidlo:
+
+- rezervace připravená do fronty nesmí existovat jen v lokálním `useState` queue planneru,
+- musí přežít reload stránky, odhlášení i otevření v jiné relaci plánovače.
+
+Praktický důsledek:
+
+- data připravené rezervace musí být persistována v DB,
+- planner home page při načtení musí vedle bloků načíst i rezervace ve stavu `QUEUE_READY`,
+- klient z nich musí vytvořit queue karty obdobné dnešní frontě.
+
+Queue karta rezervace musí být vizuálně odlišena:
+
+- badge `Rezervace`,
+- kód rezervace jako hlavní identifikátor,
+- firma jako sekundární text,
+- případně ERP číslo nabídky jako doplňkový údaj.
+
+### Vložení rezervace na timeline
+
+Když plánovač přetáhne queue kartu rezervace na timeline:
+
+- výsledkem musí být vytvoření bloku typu `REZERVACE`,
+- `orderNumber` bloku musí být kód rezervace,
+- blok musí nést vazbu na source rezervaci,
+- po úspěšném vytvoření se rezervace musí přepnout do stavu `SCHEDULED`,
+- do rezervace se musí uložit:
+  - `scheduledBlockId`,
+  - `scheduledMachine`,
+  - `scheduledStartTime`,
+  - `scheduledEndTime`,
+  - `scheduledAt`.
+
+Další pravidla:
+
+- pokud drop selže nebo `POST /api/blocks` skončí chybou, rezervace musí zůstat `QUEUE_READY`,
+- pokud vytvoření bloku uspěje, queue karta rezervace musí zmizet z fronty,
+- blok vzniklý z rezervace musí v detailu umět zobrazit odkaz zpět na rezervaci.
+
+### Archiv a dohledatelnost
+
+Archiv rezervací musí být přístupný:
+
+- obchodníkovi pro jeho vlastní rezervace,
+- plánovači a adminovi pro všechny rezervace.
+
+Archivní záznam musí být dohledatelný podle:
+
+- kódu rezervace,
+- firmy,
+- ERP čísla nabídky,
+- obchodníka.
+
+Archivní detail musí minimálně zobrazit:
+
+- všechny původní vstupní údaje žádosti,
+- přílohy,
+- konečný stav,
+- kdo rozhodl,
+- kdy rozhodl,
+- důvod zamítnutí nebo výsledné naplánování,
+- odkaz na související blok, pokud je stav `SCHEDULED`.
+
+Pravidlo pro tuto vlnu:
+
+- zamítnutá rezervace se v této vlně znovu neotevírá a neupravuje,
+- pokud bude potřeba požadavek podat znovu, založí se nová rezervace.
+
+### Notifikace rezervací
+
+Rezervační flow musí používat přímé notifikace na konkrétního uživatele, ne jen notifikace cílené na roli.
+
+Obchodník musí dostat notifikaci minimálně v těchto situacích:
+
+- plánovač rezervaci zamítne,
+- rezervace je skutečně zařazena do plánu,
+- plánovač ručně použije akci `Upozornit obchod`.
+
+Obsah notifikace při zařazení do plánu má obsahovat minimálně:
+
+- kód rezervace,
+- stroj,
+- datum,
+- čas.
+
+Další pravidla:
+
+- `OBCHODNIK` musí mít v headeru zvoneček analogický dnešnímu inbox panelu pro `DTP` a `MTZ`,
+- notifikace musí po kliknutí otevřít detail rezervace nebo příslušný blok,
+- stávající DTP/MTZ notifikace musí zůstat funkční,
+- plánovač má mít badge nových rezervací na CTA `Rezervace`.
+
+### Přílohy
+
+Rezervace v této vlně mají podporovat nepovinné přílohy.
+
+Podporované chování:
+
+- nahrání příloh při založení rezervace,
+- zobrazení seznamu příloh v detailu rezervace,
+- stažení přílohy,
+- smazání přílohy před finálním uzavřením rezervace.
+
+Doporučené limity první verze:
+
+- max 5 příloh na jednu rezervaci,
+- max 10 MB na soubor,
+- povolené typy:
+  - PDF
+  - DOC
+  - DOCX
+  - XLS
+  - XLSX
+  - PNG
+  - JPG
+  - JPEG
+
+Pravidla ukládání:
+
+- binární data příloh se nemají ukládat do DB jako blob,
+- do DB se ukládají metadata,
+- samotné soubory se ukládají na filesystem mimo git-tracked část repa,
+- doporučený storage root je `data/reservation-attachments/`,
+- tento storage root musí být v `.gitignore`,
+- storage path musí být deterministická a odvozená od rezervace.
+
+### Mimo scope této vlny
+
+- editace již odeslané rezervace obchodníkem,
+- reopen nebo resubmit zamítnuté rezervace,
+- automatická synchronizace do ERP,
+- e-mailové nebo SMS notifikace,
+- opakované rezervace,
+- splitování rezervací do více bloků.
+
+---
+
 ## DB změny
+
+### User
+
+Model `User` se rozšíří v rovině povolených rolí o:
+
+- `OBCHODNIK`
 
 ### Block
 
 Model `Block` se rozšíří minimálně o tato pole:
 
 ```prisma
+reservationId       Int?
 pantoneRequiredDate DateTime?
 pantoneOk           Boolean   @default(false)
 materialInStock     Boolean   @default(false)
@@ -413,9 +772,112 @@ materialInStock     Boolean   @default(false)
 
 ### Poznámky k poli `Block`
 
+- `reservationId` je nullable vazba na source rezervaci.
+- Blok vzniklý z rezervace musí mít:
+  - `type = REZERVACE`
+  - `orderNumber = reservation.code`
 - `pantoneRequiredDate` je samostatný datumový sloupec, není to codebook label.
 - `pantoneOk` přepíná zobrazení hodnoty na `OK`.
 - `materialInStock` je dedikovaný boolean pro režim `SKLADEM`.
+
+### Reservation
+
+Zavést nový model `Reservation`:
+
+```prisma
+model Reservation {
+  id                      Int      @id @default(autoincrement())
+  code                    String   @unique
+  status                  String
+  companyName             String
+  erpOfferNumber          String
+  requestedExpeditionDate DateTime
+  requestedDataDate       DateTime
+  requestText             String?  @db.Text
+  requestedByUserId       Int
+  requestedByUsername     String
+  plannerUserId           Int?
+  plannerUsername         String?
+  plannerDecisionReason   String?  @db.Text
+  planningPayload         Json?
+  preparedAt              DateTime?
+  scheduledBlockId        Int?
+  scheduledMachine        String?
+  scheduledStartTime      DateTime?
+  scheduledEndTime        DateTime?
+  scheduledAt             DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @default(now()) @updatedAt
+  attachments             ReservationAttachment[]
+  blocks                  Block[]
+
+  @@index([status, createdAt])
+  @@index([requestedByUserId, status, createdAt])
+  @@index([erpOfferNumber])
+}
+```
+
+Poznámky:
+
+- `code` se generuje serverově po vytvoření záznamu ve formátu `R{id}`.
+- `planningPayload` je persistentní snapshot dat potřebných pro queue kartu a následné vytvoření bloku.
+- `planningPayload` v této vlně nesmí obsahovat konkrétní `machine`, `startTime` ani `endTime`.
+
+### ReservationAttachment
+
+Zavést nový model `ReservationAttachment`:
+
+```prisma
+model ReservationAttachment {
+  id                 Int      @id @default(autoincrement())
+  reservationId      Int
+  originalName       String
+  storageKey         String   @unique
+  mimeType           String
+  sizeBytes          Int
+  uploadedByUserId   Int
+  uploadedByUsername String
+  createdAt          DateTime @default(now())
+  reservation        Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@index([reservationId, createdAt])
+}
+```
+
+### Notification
+
+Stávající model `Notification` je potřeba rozšířit tak, aby kromě notifikací cílených na roli uměl i přímé notifikace konkrétnímu uživateli.
+
+Minimální cílový shape:
+
+```prisma
+model Notification {
+  id                Int      @id @default(autoincrement())
+  type              String
+  message           String
+  targetRole        String?
+  targetUserId      Int?
+  reservationId     Int?
+  blockId           Int?
+  blockOrderNumber  String?
+  createdByUserId   Int
+  createdByUsername String
+  isRead            Boolean  @default(false)
+  readAt            DateTime?
+  createdAt         DateTime @default(now())
+
+  @@index([targetRole, isRead, createdAt])
+  @@index([targetUserId, isRead, createdAt])
+  @@index([reservationId, createdAt])
+  @@index([blockId, createdAt])
+}
+```
+
+Pravidla:
+
+- roli cílené DTP/MTZ notifikace musí dál fungovat,
+- obchodnické notifikace musí používat `targetUserId`,
+- `blockId` už nesmí být povinné, protože notifikace může vzniknout ještě před vytvořením bloku.
 
 ### Split shared fields
 
@@ -513,27 +975,238 @@ Migrace musí:
 #### POST
 
 - Přidat podporu polí:
+  - `reservationId`
   - `pantoneRequiredDate`
   - `pantoneOk`
   - `materialInStock`
 - Pro opakovanou sérii se builder v této vlně může opřít o opakované volání `POST /api/blocks` bez nového specializovaného series endpointu.
+- Pokud request obsahuje `reservationId`, server musí:
+  - načíst rezervaci,
+  - ověřit stav `QUEUE_READY`,
+  - vynutit `type = REZERVACE`,
+  - vynutit `orderNumber = reservation.code`,
+  - vynutit `recurrenceType = NONE`,
+  - uložit vazbu `reservationId` do vytvořeného bloku,
+  - po úspěšném vytvoření bloku přepnout rezervaci do stavu `SCHEDULED`,
+  - uložit plánovací metadata (`scheduledBlockId`, `scheduledMachine`, `scheduledStartTime`, `scheduledEndTime`, `scheduledAt`),
+  - vytvořit přímou notifikaci pro obchodníka.
 
 ### `/api/blocks/[id]`
 
 #### PUT
 
 - Přidat podporu polí:
+  - `reservationId`
   - `pantoneRequiredDate`
   - `pantoneOk`
   - `materialInStock`
 - Rozšířit split propagaci o nová sdílená pole včetně `type` a `blockVariant`.
 - Přestat nulovat print completion při změně `startTime`, `endTime` nebo `machine`.
 - Pokud se `type` změní pryč od `ZAKAZKA`, vyčistit print completion a normalizovat `blockVariant`.
+- Pokud blok už má `reservationId`, nesmí běžná editace tuto vazbu svévolně odpojit.
 
 ### `/api/blocks/batch`
 
 - Přestat používat automatický `PRINT_RESET`.
 - Zachovat validaci provozní doby, ale nad novým resolved modelem šablon + exceptions.
+
+### `/api/reservations`
+
+#### GET
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+  - `OBCHODNIK`
+- Query params:
+
+```ts
+{
+  bucket: "new" | "active" | "archive",
+  q?: string
+}
+```
+
+- Význam bucketů:
+  - pro `PLANOVAT`, `ADMIN`:
+    - `new` = `SUBMITTED`
+    - `active` = `ACCEPTED`, `QUEUE_READY`
+    - `archive` = `SCHEDULED`, `REJECTED`
+  - pro `OBCHODNIK`:
+    - `active` = moje `SUBMITTED`, `ACCEPTED`, `QUEUE_READY`
+    - `archive` = moje `SCHEDULED`, `REJECTED`
+- `OBCHODNIK` smí dostat jen své vlastní rezervace.
+- Vyhledávání `q` musí filtrovat minimálně přes:
+  - `code`
+  - `companyName`
+  - `erpOfferNumber`
+  - `requestedByUsername`
+
+#### POST
+
+- Přístup:
+  - `ADMIN`
+  - `OBCHODNIK`
+- Body:
+
+```ts
+{
+  companyName: string,
+  erpOfferNumber: string,
+  requestedExpeditionDate: string, // YYYY-MM-DD
+  requestedDataDate: string,       // YYYY-MM-DD
+  requestText?: string | null
+}
+```
+
+- Server v rámci vytvoření:
+  - založí rezervaci se stavem `SUBMITTED`,
+  - doplní `requestedByUserId` a `requestedByUsername` ze session,
+  - vygeneruje `code` ve formátu `R{id}`.
+
+### `/api/reservations/[id]`
+
+#### GET
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+  - `OBCHODNIK` pouze pokud je creator rezervace
+- Response musí vracet:
+  - detail rezervace,
+  - seznam příloh,
+  - summary navázaného bloku, pokud existuje.
+
+### `/api/reservations/[id]/accept`
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+- Body:
+
+```ts
+{}
+```
+
+- Povolený zdrojový stav:
+  - `SUBMITTED`
+- Výsledek:
+  - nastaví `status = ACCEPTED`,
+  - uloží `plannerUserId` a `plannerUsername`.
+
+### `/api/reservations/[id]/reject`
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+- Body:
+
+```ts
+{
+  reason: string
+}
+```
+
+- Povolené zdrojové stavy:
+  - `SUBMITTED`
+  - `ACCEPTED`
+  - `QUEUE_READY`
+- Výsledek:
+  - nastaví `status = REJECTED`,
+  - uloží `plannerUserId`, `plannerUsername`, `plannerDecisionReason`,
+  - pokud byla rezervace `QUEUE_READY`, zruší její pending queue stav,
+  - vytvoří přímou notifikaci pro obchodníka.
+
+### `/api/reservations/[id]/prepare`
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+- Povolený zdrojový stav:
+  - `ACCEPTED`
+- Body:
+
+```ts
+{
+  description?: string | null,
+  durationHours: number,
+  deadlineExpedice: string | null,
+  dataStatusId: number | null,
+  dataStatusLabel: string | null,
+  dataRequiredDate: string | null,
+  materialStatusId: number | null,
+  materialStatusLabel: string | null,
+  materialRequiredDate: string | null,
+  materialInStock: boolean,
+  pantoneRequiredDate: string | null,
+  pantoneOk: boolean,
+  barvyStatusId: number | null,
+  barvyStatusLabel: string | null,
+  lakStatusId: number | null,
+  lakStatusLabel: string | null,
+  specifikace: string | null
+}
+```
+
+- Server musí:
+  - validovat povinné položky jako délku tisku,
+  - vynutit výsledný `type = REZERVACE`,
+  - neumožnit recurrence pole,
+  - uložit payload do `planningPayload`,
+  - nastavit `status = QUEUE_READY`,
+  - vyplnit `preparedAt`.
+
+### `/api/reservations/[id]/attachments`
+
+#### POST
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+  - `OBCHODNIK` pouze pokud je creator rezervace
+- Povolené zdrojové stavy:
+  - `SUBMITTED`
+  - `ACCEPTED`
+- Request:
+  - `multipart/form-data`
+  - jeden soubor na request
+- Server musí validovat typ souboru a velikost.
+
+### `/api/reservations/[id]/attachments/[attachmentId]`
+
+#### GET
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+  - `OBCHODNIK` pouze pokud je creator rezervace
+- Vrací stream nebo download response souboru.
+
+#### DELETE
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+  - `OBCHODNIK` pouze pokud je creator rezervace
+- Povolené zdrojové stavy:
+  - `SUBMITTED`
+  - `ACCEPTED`
+
+### `/api/reservations/[id]/notify-requester`
+
+- Přístup:
+  - `ADMIN`
+  - `PLANOVAT`
+- Slouží pro manuální akci `Upozornit obchod`.
+- Body:
+
+```ts
+{
+  message?: string | null
+}
+```
+
+- Pokud `message` není poslána, server vytvoří defaultní text z rezervace a případně navázaného bloku.
 
 ### `/api/codebook`
 
@@ -546,11 +1219,20 @@ Migrace musí:
 
 Audit musí nově logovat změny polí:
 
+- `reservationId`
 - `pantoneRequiredDate`
 - `pantoneOk`
 - `materialInStock`
 
 Audit už nemá vytvářet automatickou akci `PRINT_RESET` při move flow.
+
+Rezervace mají mít vlastní auditovatelnou historii změn minimálně v těchto momentech:
+
+- vytvoření rezervace,
+- přijetí rezervace,
+- zamítnutí rezervace,
+- příprava do queue,
+- skutečné naplánování na timeline.
 
 ---
 
@@ -558,35 +1240,56 @@ Audit už nemá vytvářet automatickou akci `PRINT_RESET` při move flow.
 
 ### UI akce
 
-| Akce | ADMIN | PLANOVAT | DTP | MTZ | TISKAR | VIEWER |
-|------|-------|----------|-----|-----|--------|--------|
-| Vidět planner | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Vidět `/admin` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Vidět tab `Uživatelé` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Vidět tab `Číselníky` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Vidět tab `Pracovní doba` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Vidět tab `Audit log` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Editovat DATA | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Editovat MATERIÁL | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Editovat Pantone | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Přepnout `Materiál = SKLADEM` | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| Měnit stav zakázky přes context menu | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Označit / vrátit `Hotovo` | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Akce | ADMIN | PLANOVAT | DTP | MTZ | TISKAR | VIEWER | OBCHODNIK |
+|------|-------|----------|-----|-----|--------|--------|-----------|
+| Vidět planner | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
+| Vidět `/admin` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vidět tab `Uživatelé` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vidět tab `Číselníky` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vidět tab `Pracovní doba` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vidět tab `Audit log` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vidět `/rezervace` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Vidět vlastní rezervace | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Vidět všechny rezervace | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vytvořit žádost o rezervaci | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Přijmout / zamítnout rezervaci | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Připravit rezervaci do fronty | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Vidět přílohy rezervace | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Nahrávat / mazat přílohy rezervace | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Editovat DATA | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Editovat MATERIÁL | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Editovat Pantone | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Přepnout `Materiál = SKLADEM` | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ |
+| Měnit stav zakázky přes context menu | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Označit / vrátit `Hotovo` | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Upozornit obchod z bloku rezervace | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ### API endpointy
 
-| Endpoint | ADMIN | PLANOVAT | DTP | MTZ | TISKAR | VIEWER |
-|----------|-------|----------|-----|-----|--------|--------|
-| `GET /api/machine-shifts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `POST /api/machine-shifts` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `PUT /api/machine-shifts/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `DELETE /api/machine-shifts/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `GET /api/codebook` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `POST /api/codebook` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `PUT /api/codebook/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `DELETE /api/codebook/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `GET /api/admin/users*` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| `GET /api/audit` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Endpoint | ADMIN | PLANOVAT | DTP | MTZ | TISKAR | VIEWER | OBCHODNIK |
+|----------|-------|----------|-----|-----|--------|--------|-----------|
+| `GET /api/machine-shifts` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/machine-shifts` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `PUT /api/machine-shifts/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `DELETE /api/machine-shifts/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/codebook` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `POST /api/codebook` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `PUT /api/codebook/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `DELETE /api/codebook/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/admin/users*` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/audit` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/reservations` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `POST /api/reservations` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `GET /api/reservations/[id]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `POST /api/reservations/[id]/accept` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `POST /api/reservations/[id]/reject` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `POST /api/reservations/[id]/prepare` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `POST /api/reservations/[id]/attachments` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `GET /api/reservations/[id]/attachments/[attachmentId]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `DELETE /api/reservations/[id]/attachments/[attachmentId]` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| `POST /api/reservations/[id]/notify-requester` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `GET /api/notifications` | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| `PATCH /api/notifications/[id]/read` | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
 
 ---
 
@@ -646,6 +1349,50 @@ Audit už nemá vytvářet automatickou akci `PRINT_RESET` při move flow.
    - Přepnout stav na `Bez technologie`.
    - Ověřit okamžitou změnu vzhledu a správnou split propagaci.
 
+10. **Obchodník založí rezervaci**
+   - Přihlásit se jako `OBCHODNIK`.
+   - Otevřít `/rezervace` a založit novou žádost s firmou, ERP číslem, termínem expedice, termínem dat a textem.
+   - Ověřit, že po odeslání vznikl kód ve formátu `R4609`.
+   - Ověřit, že rezervace spadla do `Moje aktivní` se stavem `SUBMITTED`.
+
+11. **Plánovač zamítne rezervaci**
+   - Přihlásit se jako `PLANOVAT`.
+   - Otevřít dashboard `Nové žádosti`.
+   - Zamítnout rezervaci s textovým důvodem.
+   - Ověřit stav `REJECTED`, přesun do archivu a přímou notifikaci obchodníkovi.
+
+12. **Plánovač připraví rezervaci do fronty**
+   - Přihlásit se jako `PLANOVAT`.
+   - Přijmout rezervaci.
+   - Vyplnit rezervační plánovací formulář.
+   - Potvrdit přípravu do fronty.
+   - Ověřit stav `QUEUE_READY`.
+   - Obnovit stránku `/` a ověřit, že queue karta rezervace nezmizela.
+
+13. **Vložení rezervace na timeline**
+   - Přetáhnout queue kartu rezervace na timeline.
+   - Ověřit vznik bloku:
+     - `type = REZERVACE`
+     - `orderNumber = code rezervace`
+   - Ověřit, že rezervace přešla do `SCHEDULED`.
+   - Ověřit uložení `scheduledBlockId`, stroje a času.
+
+14. **Obchodník dostane informaci o naplánování**
+   - Po úspěšném dropu rezervace na timeline přihlásit obchodníka.
+   - Ověřit notifikaci ve zvonečku.
+   - Ověřit, že notifikace obsahuje kód rezervace, datum, čas a stroj.
+
+15. **Archiv rezervací**
+   - Otevřít archiv jako `PLANOVAT`.
+   - Dohledat rezervaci podle kódu, firmy i ERP čísla nabídky.
+   - Ověřit zobrazení důvodu zamítnutí nebo odkazu na výsledný blok.
+
+16. **Přílohy rezervace**
+   - Přiložit k rezervaci PDF a obrázek.
+   - Ověřit zobrazení příloh v detailu pro obchodníka i plánovače.
+   - Ověřit download.
+   - Ověřit, že po smazání metadata i soubor zmizí korektně.
+
 ---
 
 ## Kritická pravidla implementace
@@ -658,5 +1405,9 @@ Audit už nemá vytvářet automatickou akci `PRINT_RESET` při move flow.
 - **MCP nástroje:** před novým UI patternem ověřit dostupné komponentové možnosti přes projektové MCP servery, zejména shadcn.
 - **Split skupiny:** změny sdílených polí musí být konzistentní serverově i lokálně v client state.
 - **Pracovní doba:** klientský snap i serverová validace musí používat stejnou resolved logiku.
+- **Rezervační queue:** rezervace připravená do fronty musí být serverově persistentní; nesmí zůstat jen v klientském `useState`.
+- **Invarianta rezervace:** blok vzniklý z rezervace musí mít vždy `type = REZERVACE` a `orderNumber = reservation.code`.
+- **Notifikace obchodníka:** přímé notifikace musí být cílené na konkrétního uživatele, ne přes `targetRole`.
+- **Přílohy:** soubory rezervací nesmí skončit v git-tracked části repa ani v DB blob poli.
+- **OBCHODNIK role:** musí mít stejnou read-only bezpečnost jako `VIEWER`; nesmí existovat skrytá write cesta přes UI ani API.
 - **Dokumentace po implementaci:** finální stav promítnout minimálně do `CLAUDE.md` a `PLAN.md`; `DOKUMENTACE.md` aktualizovat v těch sekcích, které se touto vlnou skutečně mění.
-

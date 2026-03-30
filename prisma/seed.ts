@@ -270,11 +270,12 @@ async function main() {
 
   // 3. Uživatelé — upsert (nemazat existující, jen přidat chybějící)
   const seedUsers = [
-    { username: "admin",    password: "admin",    role: "ADMIN" },
-    { username: "planovac", password: "planovac", role: "PLANOVAT" },
-    { username: "mtz",      password: "mtz",      role: "MTZ" },
-    { username: "dtp",      password: "dtp",      role: "DTP" },
-    { username: "viewer",   password: "viewer",   role: "VIEWER" },
+    { username: "admin",     password: "admin",     role: "ADMIN" },
+    { username: "planovac",  password: "planovac",  role: "PLANOVAT" },
+    { username: "mtz",       password: "mtz",       role: "MTZ" },
+    { username: "dtp",       password: "dtp",       role: "DTP" },
+    { username: "viewer",    password: "viewer",    role: "VIEWER" },
+    { username: "obchodnik", password: "obchodnik", role: "OBCHODNIK" },
   ];
   for (const u of seedUsers) {
     await prisma.user.upsert({

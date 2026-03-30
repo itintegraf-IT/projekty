@@ -30,3 +30,7 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+
+# Reservation attachments storage (filesystem, not in git)
+data/
+!data/reservation-attachments/.gitkeep

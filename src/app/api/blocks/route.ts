@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       const machine = body.machine as string;
       const startTime = new Date(body.startTime);
       const endTime = new Date(body.endTime);
-      const [rawTemplates, exceptions] = await Promise.all([
+      const [rawTemplates, exceptions, companyDays] = await Promise.all([
         prisma.machineWorkHoursTemplate.findMany({
           where: { machine },
           include: { days: true },
@@ -76,22 +76,52 @@ export async function POST(request: NextRequest) {
             },
           },
         }),
+        prisma.companyDay.findMany({
+          where: { startDate: { lt: endTime }, endDate: { gt: startTime } },
+        }),
       ]);
       const templates = serializeTemplates(rawTemplates);
       const violation = checkScheduleViolationWithTemplates(machine, startTime, endTime, templates, exceptions);
       if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+      const cdConflict = companyDays.find((cd) => cd.machine === null || cd.machine === machine);
+      if (cdConflict) return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
+    }
+
+    // Pokud je přítomno reservationId — drop z QUEUE_READY fronty rezervace
+    const reservationId: number | undefined = body.reservationId ? Number(body.reservationId) : undefined;
+    let reservation: { id: number; code: string; requestedByUserId: number; status: string } | null = null;
+    if (reservationId !== undefined) {
+      reservation = await prisma.reservation.findUnique({
+        where: { id: reservationId },
+        select: { id: true, code: true, requestedByUserId: true, status: true },
+      });
+      if (!reservation) {
+        return NextResponse.json({ error: "Rezervace nenalezena" }, { status: 404 });
+      }
+      if (reservation.status !== "QUEUE_READY") {
+        return NextResponse.json(
+          { error: "Rezervace není ve stavu QUEUE_READY — nelze naplánovat" },
+          { status: 409 }
+        );
+      }
     }
 
     // Atomická transakce: block.create + auditLog.create buď oba projdou, nebo oba selžou
     const block = await prisma.$transaction(async (tx) => {
+      // Pokud jde o rezervaci — vynutit typ REZERVACE a orderNumber = kód rezervace
+      const finalOrderNumber = reservation ? reservation.code : String(body.orderNumber);
+      const finalType = reservation ? "REZERVACE" : blockType;
+      const finalVariant = reservation ? "STANDARD" : blockVariant;
+      const finalRecurrence = reservation ? "NONE" : (body.recurrenceType ?? "NONE");
+
       const newBlock = await tx.block.create({
         data: {
-          orderNumber: String(body.orderNumber),
+          orderNumber: finalOrderNumber,
           machine: body.machine,
           startTime: new Date(body.startTime),
           endTime: new Date(body.endTime),
-          type: blockType,
-          blockVariant,
+          type: finalType,
+          blockVariant: finalVariant,
           description: body.description ?? null,
           locked: body.locked ?? false,
           deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
@@ -120,10 +150,12 @@ export async function POST(request: NextRequest) {
           pantoneOk: body.pantoneOk ?? false,
           materialInStock: body.materialInStock ?? false,
           // OPAKOVÁNÍ
-          recurrenceType: body.recurrenceType ?? "NONE",
+          recurrenceType: finalRecurrence,
           recurrenceParentId: body.recurrenceParentId ?? null,
           // SPLIT SKUPINA
           splitGroupId: body.splitGroupId ?? null,
+          // REZERVACE
+          reservationId: reservationId ?? null,
         },
       });
 
@@ -136,6 +168,34 @@ export async function POST(request: NextRequest) {
           action: "CREATE",
         },
       });
+
+      // Pokud jde o rezervaci — přepnout na SCHEDULED + notifikace
+      if (reservation) {
+        const startTime = new Date(body.startTime);
+        const endTime = new Date(body.endTime);
+        const startCZ = startTime.toLocaleString("cs-CZ", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" });
+        await tx.reservation.update({
+          where: { id: reservation.id },
+          data: {
+            status: "SCHEDULED",
+            scheduledBlockId: newBlock.id,
+            scheduledMachine: body.machine,
+            scheduledStartTime: startTime,
+            scheduledEndTime: endTime,
+            scheduledAt: new Date(),
+          },
+        });
+        await tx.notification.create({
+          data: {
+            type: "RESERVATION_SCHEDULED",
+            message: `Rezervace ${reservation.code} byla zařazena na ${body.machine.replace("_", " ")} dne ${startCZ}`,
+            reservationId: reservation.id,
+            targetUserId: reservation.requestedByUserId,
+            createdByUserId: session.id,
+            createdByUsername: session.username,
+          },
+        });
+      }
 
       return newBlock;
     });
