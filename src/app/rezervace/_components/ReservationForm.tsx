@@ -178,11 +178,11 @@ export default function ReservationForm({ onCreated }: Props) {
           />
         </div>
         <div>
-          <label style={labelStyle}>Číslo nabídky ERP *</label>
+          <label style={labelStyle}>Nabídka Cicero *</label>
           <input
             value={erpOfferNumber}
             onChange={(e) => setErpOfferNumber(e.target.value)}
-            placeholder="NPB-2026-0001"
+            placeholder="N-26-12345"
             style={inputStyle}
             required
           />

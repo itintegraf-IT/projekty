@@ -2212,7 +2212,7 @@ export default function TimelineGrid({
     return s;
   })();
 
-  type HalfHourMark = { y: number; label: string; isFullHour: boolean; isLabel: boolean };
+  type HalfHourMark = { y: number; label: string; isFullHour: boolean; isLabel: boolean; key: string };
   const halfHourMarkers: HalfHourMark[] = [];
   // Kolik slotů (po 30 min) přeskočit mezi viditelnými štítky
   const labelStep = slotHeight >= 14 ? 1 : slotHeight >= 7 ? 2 : slotHeight >= 4 ? 4 : 8;
@@ -2228,7 +2228,7 @@ export default function TimelineGrid({
 
   for (let di = 0; di < totalDays; di++) {
     const day      = addDays(viewStart, di);
-    const dayY     = di * dayHeight;
+    const dayY     = dateToY(day, viewStart, slotHeight);
     const dow      = day.getDay();
     const isWeekend = dow === 0 || dow === 6;
     const isToday  = isSameDay(day, todayDate);
@@ -2278,7 +2278,7 @@ export default function TimelineGrid({
     for (let s = 0; s < 48; s++) {
       const h = Math.floor(s / 2);
       const m = s % 2 === 0 ? "00" : "30";
-      halfHourMarkers.push({ y: dayY + s * slotHeight, label: `${String(h).padStart(2, "0")}:${m}`, isFullHour: m === "00", isLabel: s % labelStep === 0 });
+      halfHourMarkers.push({ y: dayY + s * slotHeight, label: `${String(h).padStart(2, "0")}:${m}`, isFullHour: m === "00", isLabel: s % labelStep === 0, key: `${di}-${s}` });
     }
   }
 
@@ -2383,7 +2383,7 @@ export default function TimelineGrid({
             })}
             {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
               <div
-                key={m.y}
+                key={m.key}
                 style={{
                   position: "absolute",
                   top: m.y,
@@ -2421,7 +2421,7 @@ export default function TimelineGrid({
                   >
                     {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
                       <div
-                        key={m.y}
+                        key={m.key}
                         style={{
                           position: "absolute",
                           top: m.y,
@@ -2622,12 +2622,12 @@ export default function TimelineGrid({
 
                 {/* Hodinové čáry */}
                 {halfHourMarkers.filter((m) => m.isLabel && m.isFullHour).map((m) => (
-                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 70%, transparent)" }} />
+                  <div key={m.key} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 70%, transparent)" }} />
                 ))}
 
                 {/* Půlhodinové čáry */}
                 {halfHourMarkers.filter((m) => m.isLabel && !m.isFullHour).map((m) => (
-                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 45%, transparent)" }} />
+                  <div key={m.key} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 45%, transparent)" }} />
                 ))}
 
                 {/* Aktuální čas */}

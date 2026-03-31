@@ -49,7 +49,7 @@ interface Props {
 }
 
 type TabObchodnik = "nova" | "aktivni" | "archiv";
-type TabPlanner = "nove" | "fronta" | "archiv";
+type TabPlanner = "nova" | "nove" | "fronta" | "archiv";
 type AnyTab = TabObchodnik | TabPlanner;
 
 const isObchodnik = (role: string) => role === "OBCHODNIK";
@@ -171,6 +171,7 @@ export default function RezervacePage({ currentUser, initialSelectedId }: Props)
   ];
 
   const tabsPlanner: { key: TabPlanner; label: string }[] = [
+    { key: "nova", label: "Nová žádost" },
     { key: "nove", label: "Nové žádosti" },
     { key: "fronta", label: "K naplánování" },
     { key: "archiv", label: "Archiv" },
@@ -264,7 +265,7 @@ export default function RezervacePage({ currentUser, initialSelectedId }: Props)
         </div>
 
         {/* Obsah záložek */}
-        {(activeTab === "nova") && isObchodnik(currentUser.role) && (
+        {(activeTab === "nova") && (
           <ReservationForm currentUser={currentUser} onCreated={handleCreated} />
         )}
 

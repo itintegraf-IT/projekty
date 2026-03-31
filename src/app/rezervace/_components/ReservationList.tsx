@@ -43,7 +43,10 @@ export default function ReservationList({ reservation: r, currentUser, isSelecte
       onClick={onSelect}
       style={{
         background: "var(--card)",
-        border: `1px solid ${isSelected ? "#7c3aed" : "var(--border)"}`,
+        borderTop: `1px solid ${isSelected ? "#7c3aed" : "var(--border)"}`,
+        borderRight: `1px solid ${isSelected ? "#7c3aed" : "var(--border)"}`,
+        borderBottom: `1px solid ${isSelected ? "#7c3aed" : "var(--border)"}`,
+        borderLeft: `3px solid #7c3aed`,
         borderRadius: 10,
         padding: "12px 16px",
         cursor: "pointer",
@@ -51,7 +54,6 @@ export default function ReservationList({ reservation: r, currentUser, isSelecte
         alignItems: "flex-start",
         gap: 12,
         transition: "border-color 150ms ease-out",
-        borderLeft: `3px solid #7c3aed`,
       }}
     >
       {/* Kód */}

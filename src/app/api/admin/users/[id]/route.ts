@@ -25,7 +25,7 @@ export async function PUT(
     if (session.id === numId) {
       return NextResponse.json({ error: "Nelze změnit vlastní roli" }, { status: 403 });
     }
-    const VALID_ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "VIEWER"];
+    const VALID_ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "OBCHODNIK", "VIEWER"];
     if (!VALID_ROLES.includes(body.role)) {
       return NextResponse.json({ error: "Neplatná role" }, { status: 400 });
     }

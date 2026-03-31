@@ -2176,7 +2176,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Ref pro deep link highlight — zajistí že goToMatch(0) proběhne jen jednou po prvním načtení bloků
   const highlightExecuted = useRef(!initialFilterText);
   const [jumpDate, setJumpDate]     = useState("");
-  const [reportDate, setReportDate] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [headerScrolled, setHeaderScrolled] = useState(false);
   useEffect(() => {
@@ -3836,8 +3835,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         }}>
         <div className="flex items-center gap-3">
           <img src="/logo.png" alt="Integraf" style={{ height: 28, width: "auto", objectFit: "contain", flexShrink: 0 }} />
-          <div style={{ width: 1, height: 20, background: "var(--border)", flexShrink: 0 }} />
-          <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: "var(--text-muted)", whiteSpace: "nowrap" }}>Výrobní plán</div>
         </div>
 
         <div className="flex items-center gap-2 ml-4 flex-1">
@@ -3961,19 +3958,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
         <div className="ml-auto flex items-center gap-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
           {canEdit && (
-            <div style={{ display: "flex", gap: 2 }}>
-              <button
-                onClick={() => { const entry = undoStack.current.pop(); if (entry) entry.undo().then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); }).catch((err: unknown) => { undoStack.current.push(entry); setCanUndo(true); console.error("Undo failed", err); showToast("Vrácení zpět selhalo.", "error"); }); }}
-                disabled={!canUndo}
-                title="Vrátit zpět (Ctrl+Z)"
-                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canUndo ? "var(--border)" : "color-mix(in oklab, var(--border) 50%, transparent)"}`, color: canUndo ? "var(--text-muted)" : "color-mix(in oklab, var(--text-muted) 45%, transparent)", cursor: canUndo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
-              >↩</button>
-              <button
-                onClick={() => { const entry = redoStack.current.pop(); if (entry) entry.redo().then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); }).catch((err: unknown) => { redoStack.current.push(entry); setCanRedo(true); console.error("Redo failed", err); showToast("Znovu provedení selhalo.", "error"); }); }}
-                disabled={!canRedo}
-                title="Znovu provést (Ctrl+Shift+Z)"
-                style={{ padding: "2px 7px", fontSize: 13, borderRadius: 5, background: "transparent", border: `1px solid ${canRedo ? "var(--border)" : "color-mix(in oklab, var(--border) 50%, transparent)"}`, color: canRedo ? "var(--text-muted)" : "color-mix(in oklab, var(--text-muted) 45%, transparent)", cursor: canRedo ? "pointer" : "default", transition: "all 120ms ease-out", lineHeight: 1.4 }}
-              >↪</button>
               <button
                 onClick={() => setWorkingTimeLock(p => !p)}
                 title={workingTimeLock ? "Víkendy/noc blokovány — klik pro flexibilní mód" : "Flexibilní mód — klik pro zamknutí"}
@@ -3985,7 +3969,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                   cursor: "pointer", transition: "all 120ms ease-out",
                 }}
               >{workingTimeLock ? <Lock size={14} strokeWidth={1.5} /> : <Unlock size={14} strokeWidth={1.5} />}</button>
-            </div>
           )}
           {canEdit && (
             <Button
@@ -3997,25 +3980,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               <CalendarDays size={12} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 5 }} />Odstávky
             </Button>
           )}
-          <DatePickerField
-            value={reportDate}
-            onChange={(v) => {
-              setReportDate("");
-              window.open(`/report/daily?date=${v}`, "_blank");
-            }}
-            placeholder="Tisknout den"
-            asButton
-          />
-          <span>{blocks.length} bloků</span>
-          <span style={{ width: 1, height: 16, background: "var(--border)" }} />
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
             {currentUser.username}
-            <span style={{
-              marginLeft: 6, fontSize: 10, color: "var(--text-muted)",
-              background: "var(--surface-2)", borderRadius: 4, padding: "1px 5px",
-            }}>
-              {currentUser.role}
-            </span>
           </span>
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <a

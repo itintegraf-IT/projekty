@@ -31,7 +31,7 @@ interface CodebookItem {
 
 // ─── Konstanty ───────────────────────────────────────────────────────────────
 
-const ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "VIEWER"] as const;
+const ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "OBCHODNIK", "VIEWER"] as const;
 type Role = typeof ROLES[number];
 
 const ROLE_COLORS: Record<string, string> = {
@@ -40,6 +40,7 @@ const ROLE_COLORS: Record<string, string> = {
   MTZ: "#30d158",
   DTP: "#ff9f0a",
   TISKAR: "#ac8cff",
+  OBCHODNIK: "#0ea5e9",
   VIEWER: "#636366",
 };
 const ROLE_BG: Record<string, string> = {
@@ -48,6 +49,7 @@ const ROLE_BG: Record<string, string> = {
   MTZ: "rgba(48,209,88,0.15)",
   DTP: "rgba(255,159,10,0.15)",
   TISKAR: "rgba(172,140,255,0.15)",
+  OBCHODNIK: "rgba(14,165,233,0.15)",
   VIEWER: "rgba(99,99,102,0.15)",
 };
 const ROLE_LABELS: Record<string, string> = {
@@ -56,6 +58,7 @@ const ROLE_LABELS: Record<string, string> = {
   MTZ: "MTZ",
   DTP: "DTP",
   TISKAR: "Tiskař",
+  OBCHODNIK: "Obchodník",
   VIEWER: "Prohlížeč",
 };
 const MACHINE_LABELS: Record<string, string> = {

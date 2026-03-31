@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth";
 import bcrypt from "bcryptjs";
 
 const ROLE_ORDER: Record<string, number> = {
-  ADMIN: 0, PLANOVAT: 1, MTZ: 2, DTP: 3, TISKAR: 4, VIEWER: 5,
+  ADMIN: 0, PLANOVAT: 1, MTZ: 2, DTP: 3, TISKAR: 4, OBCHODNIK: 5, VIEWER: 6,
 };
 
 // GET /api/admin/users — seznam uživatelů (ADMIN only)
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Chybí username, password nebo role" }, { status: 400 });
   }
 
-  const VALID_ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "VIEWER"];
+  const VALID_ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "OBCHODNIK", "VIEWER"];
   if (!VALID_ROLES.includes(role)) {
     return NextResponse.json({ error: "Neplatná role" }, { status: 400 });
   }
