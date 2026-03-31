@@ -12,11 +12,20 @@ function isBlockedSlotDynamic(
   exceptions?: MachineScheduleException[]
 ): boolean {
   const { hour, dayOfWeek, dateStr } = pragueOf(date); // Prague TZ
-  const exc = exceptions?.find(
+  // Exception přebíjí template — stejná precedence jako server
+  const excRow = exceptions?.find(
     (e) => e.machine === machine && new Date(e.date).toISOString().slice(0, 10) === dateStr
   );
-  const row = exc ?? schedule.find((r) => r.machine === machine && r.dayOfWeek === dayOfWeek);
-  if (!row) return isHardcodedBlocked(machine, dayOfWeek, hour); // fallback — stejné jako server
+  if (excRow) {
+    if (!excRow.isActive) return true;
+    return hour < excRow.startHour || hour >= excRow.endHour;
+  }
+  const row = schedule.find((r) => r.machine === machine && r.dayOfWeek === dayOfWeek);
+  if (!row) {
+    // Zrcadlení serverové logiky: template existuje ale chybí řádek pro tento den → blokováno.
+    if (schedule.some((r) => r.machine === machine)) return true;
+    return isHardcodedBlocked(machine, dayOfWeek, hour);
+  }
   if (!row.isActive) return true;
   return hour < row.startHour || hour >= row.endHour;
 }

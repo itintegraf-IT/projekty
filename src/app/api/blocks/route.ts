@@ -59,6 +59,8 @@ export async function POST(request: NextRequest) {
     // Server-side validace pracovní doby (jen pro ZAKAZKA)
     const blockType = body.type ?? "ZAKAZKA";
     const blockVariant = normalizeBlockVariant(body.blockVariant, blockType);
+    // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
+    const bypassScheduleValidation = body.bypassScheduleValidation === true;
     if (blockType === "ZAKAZKA") {
       const machine = body.machine as string;
       const startTime = new Date(body.startTime);
@@ -81,46 +83,49 @@ export async function POST(request: NextRequest) {
           where: { startDate: { lt: endTime }, endDate: { gt: startTime } },
         }),
       ]);
-      const templates = serializeTemplates(rawTemplates);
-      const violation = checkScheduleViolationWithTemplates(machine, startTime, endTime, templates, exceptions);
-      if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+      if (!bypassScheduleValidation) {
+        const templates = serializeTemplates(rawTemplates);
+        const violation = checkScheduleViolationWithTemplates(machine, startTime, endTime, templates, exceptions);
+        if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+      }
+      // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
       const cdConflict = companyDays.find((cd) => cd.machine === null || cd.machine === machine);
       if (cdConflict) return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
     }
 
-    // Pokud je přítomno reservationId — drop z QUEUE_READY fronty rezervace
+    // Pokud je přítomno reservationId — ověřit existenci (mimo transakci)
     const reservationId: number | undefined = body.reservationId ? Number(body.reservationId) : undefined;
-    let reservation: { id: number; code: string; requestedByUserId: number; status: string } | null = null;
+    let reservationPreview: { id: number; code: string; requestedByUserId: number } | null = null;
     if (reservationId !== undefined) {
-      reservation = await prisma.reservation.findUnique({
+      const found = await prisma.reservation.findUnique({
         where: { id: reservationId },
         select: { id: true, code: true, requestedByUserId: true, status: true },
       });
-      if (!reservation) {
+      if (!found) {
         return NextResponse.json({ error: "Rezervace nenalezena" }, { status: 404 });
       }
-      if (reservation.status !== "QUEUE_READY") {
+      if (found.status !== "QUEUE_READY") {
         return NextResponse.json(
           { error: "Rezervace není ve stavu QUEUE_READY — nelze naplánovat" },
           { status: 409 }
         );
       }
+      reservationPreview = { id: found.id, code: found.code, requestedByUserId: found.requestedByUserId };
     }
 
-    const finalOrderNumberPreview = reservation ? reservation.code : String(body.orderNumber);
-    const finalTypePreview = reservation ? "REZERVACE" : blockType;
+    const finalOrderNumberPreview = reservationPreview ? reservationPreview.code : String(body.orderNumber);
+    const finalTypePreview = reservationPreview ? "REZERVACE" : blockType;
     const presetResult = await resolvePresetForBlock(body.jobPresetId, finalTypePreview);
     if ("error" in presetResult) {
       return NextResponse.json({ error: presetResult.error }, { status: 400 });
     }
 
-    // Atomická transakce: block.create + auditLog.create buď oba projdou, nebo oba selžou
+    // Atomická transakce: block.create + auditLog.create + rezervace SCHEDULED update
     const block = await prisma.$transaction(async (tx) => {
-      // Pokud jde o rezervaci — vynutit typ REZERVACE a orderNumber = kód rezervace
       const finalOrderNumber = finalOrderNumberPreview;
       const finalType = finalTypePreview;
-      const finalVariant = reservation ? "STANDARD" : blockVariant;
-      const finalRecurrence = reservation ? "NONE" : (body.recurrenceType ?? "NONE");
+      const finalVariant = reservationPreview ? "STANDARD" : blockVariant;
+      const finalRecurrence = reservationPreview ? "NONE" : (body.recurrenceType ?? "NONE");
 
       const newBlock = await tx.block.create({
         data: {
@@ -180,13 +185,15 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Pokud jde o rezervaci — přepnout na SCHEDULED + notifikace
-      if (reservation) {
+      // Pokud jde o rezervaci — atomicky ověřit stav QUEUE_READY a přepnout na SCHEDULED
+      if (reservationPreview) {
         const startTime = new Date(body.startTime);
         const endTime = new Date(body.endTime);
         const startCZ = startTime.toLocaleString("cs-CZ", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" });
-        await tx.reservation.update({
-          where: { id: reservation.id },
+        // updateMany s WHERE status=QUEUE_READY — pokud jiný plánovač mezitím rezervaci zabrал,
+        // count=0 a transakce se rollbackuje (eliminuje TOCTOU race condition)
+        const updateResult = await tx.reservation.updateMany({
+          where: { id: reservationPreview.id, status: "QUEUE_READY" },
           data: {
             status: "SCHEDULED",
             scheduledBlockId: newBlock.id,
@@ -196,12 +203,15 @@ export async function POST(request: NextRequest) {
             scheduledAt: new Date(),
           },
         });
+        if (updateResult.count === 0) {
+          throw new Error("RESERVATION_NOT_AVAILABLE");
+        }
         await tx.notification.create({
           data: {
             type: "RESERVATION_SCHEDULED",
-            message: `Rezervace ${reservation.code} byla zařazena na ${body.machine.replace("_", " ")} dne ${startCZ}`,
-            reservationId: reservation.id,
-            targetUserId: reservation.requestedByUserId,
+            message: `Rezervace ${reservationPreview.code} byla zařazena na ${body.machine.replace("_", " ")} dne ${startCZ}`,
+            reservationId: reservationPreview.id,
+            targetUserId: reservationPreview.requestedByUserId,
             createdByUserId: session.id,
             createdByUsername: session.username,
           },
@@ -212,7 +222,13 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(block, { status: 201 });
-  } catch (error) {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === "RESERVATION_NOT_AVAILABLE") {
+      return NextResponse.json(
+        { error: "Rezervace již není dostupná — jiný plánovač ji mezitím přiřadil" },
+        { status: 409 }
+      );
+    }
     console.error("[POST /api/blocks]", error);
     return NextResponse.json({ error: "Chyba při vytváření bloku" }, { status: 500 });
   }

@@ -82,6 +82,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     } else {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
+    const bypassScheduleValidation = (body as Record<string, unknown>).bypassScheduleValidation === true;
+    // Explicitně smazat příznak z allowed — nesmí jít do prisma.block.update
+    delete (allowed as Record<string, unknown>).bypassScheduleValidation;
     // Remove undefined values
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
 
@@ -119,9 +123,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
               where: { startDate: { lt: checkEnd }, endDate: { gt: checkStart } },
             }),
           ]);
-          const templates = serializeTemplates(rawTemplates);
-          const violation = checkScheduleViolationWithTemplates(checkMachine, checkStart, checkEnd, templates, exceptions);
-          if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+          if (!bypassScheduleValidation) {
+            const templates = serializeTemplates(rawTemplates);
+            const violation = checkScheduleViolationWithTemplates(checkMachine, checkStart, checkEnd, templates, exceptions);
+            if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+          }
+          // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
           const cdConflict = companyDays.find(
             (cd) => cd.machine === null || cd.machine === checkMachine
           );

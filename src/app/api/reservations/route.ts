@@ -16,14 +16,18 @@ export async function GET(req: NextRequest) {
     const bucket = url.searchParams.get("bucket"); // "new" | "active" | "archive"
     const q = url.searchParams.get("q")?.trim() ?? "";
 
-    // Stavy dle bucketu
+    // Stavy dle bucketu — role-aware mapping (spec: SPECIFIKACE_DALSI_VLNY_ZMEN.md §GET /api/reservations)
     let statusFilter: string[] | undefined;
-    if (bucket === "new") {
-      statusFilter = ["SUBMITTED"];
-    } else if (bucket === "active") {
-      statusFilter = ["ACCEPTED", "QUEUE_READY", "SCHEDULED"];
-    } else if (bucket === "archive") {
-      statusFilter = ["REJECTED", "SCHEDULED"];
+    if (session.role === "OBCHODNIK") {
+      // OBCHODNIK: active = vlastní SUBMITTED+ACCEPTED+QUEUE_READY; archive = SCHEDULED+REJECTED
+      if (bucket === "active")  statusFilter = ["SUBMITTED", "ACCEPTED", "QUEUE_READY"];
+      else if (bucket === "archive") statusFilter = ["SCHEDULED", "REJECTED"];
+      // bucket "new" → žádný filtr (OBCHODNIK nemá záložku Nové)
+    } else {
+      // ADMIN, PLANOVAT: new=SUBMITTED; active=ACCEPTED+QUEUE_READY; archive=SCHEDULED+REJECTED
+      if (bucket === "new")         statusFilter = ["SUBMITTED"];
+      else if (bucket === "active") statusFilter = ["ACCEPTED", "QUEUE_READY"];
+      else if (bucket === "archive") statusFilter = ["SCHEDULED", "REJECTED"];
     }
 
     // OBCHODNIK vidí jen vlastní rezervace
@@ -88,6 +92,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validace datumů — odmítnout nevalidní hodnoty před zápisem do DB
+    const expDate = new Date(requestedExpeditionDate);
+    const dataDate = new Date(requestedDataDate);
+    if (isNaN(expDate.getTime())) {
+      return NextResponse.json({ error: "Neplatný formát requestedExpeditionDate" }, { status: 400 });
+    }
+    if (isNaN(dataDate.getTime())) {
+      return NextResponse.json({ error: "Neplatný formát requestedDataDate" }, { status: 400 });
+    }
+
     // Atomická transakce: create + generování kódu R{id}
     const reservation = await prisma.$transaction(async (tx) => {
       const r = await tx.reservation.create({
@@ -95,8 +109,8 @@ export async function POST(request: NextRequest) {
           status: "SUBMITTED",
           companyName: String(companyName),
           erpOfferNumber: String(erpOfferNumber),
-          requestedExpeditionDate: new Date(requestedExpeditionDate),
-          requestedDataDate: new Date(requestedDataDate),
+          requestedExpeditionDate: expDate,
+          requestedDataDate: dataDate,
           requestText: requestText ? String(requestText) : null,
           requestedByUserId: session.id,
           requestedByUsername: session.username,

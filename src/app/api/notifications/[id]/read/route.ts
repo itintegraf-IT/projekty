@@ -16,8 +16,11 @@ export async function PATCH(_request: NextRequest, { params }: RouteContext) {
     const notif = await prisma.notification.findUnique({ where: { id } });
     if (!notif) return NextResponse.json({ error: "Nenalezeno" }, { status: 404 });
 
-    // MTZ/DTP může označit jen svoji notifikaci; ADMIN může vše
-    if (session.role !== "ADMIN" && notif.targetRole !== session.role) {
+    // ADMIN může vše; DTP/MTZ jen svoji roli; OBCHODNIK jen notifikace cílené na jeho userId
+    const isOwner = session.role === "ADMIN"
+      || notif.targetRole === session.role
+      || notif.targetUserId === session.id;
+    if (!isOwner) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

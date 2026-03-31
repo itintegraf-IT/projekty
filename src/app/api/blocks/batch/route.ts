@@ -18,12 +18,15 @@ export async function POST(request: NextRequest) {
   }
 
   let updates: BatchUpdate[];
+  let bypassScheduleValidation = false;
   try {
     const body = await request.json();
     if (!Array.isArray(body.updates) || body.updates.length === 0) {
       return NextResponse.json({ error: "updates musí být neprázdné pole" }, { status: 400 });
     }
     updates = body.updates;
+    // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
+    bypassScheduleValidation = body.bypassScheduleValidation === true;
   } catch {
     return NextResponse.json({ error: "Neplatný JSON" }, { status: 400 });
   }
@@ -80,11 +83,14 @@ export async function POST(request: NextRequest) {
     for (const u of zakazkaUpdates) {
       const start = new Date(u.startTime);
       const end = new Date(u.endTime);
-      const machineExceptions = allExceptions.filter((e) => e.machine === u.machine);
-      const violation = checkScheduleViolationWithTemplates(u.machine, start, end, templates, machineExceptions);
-      if (violation) {
-        return NextResponse.json({ error: violation }, { status: 422 });
+      if (!bypassScheduleValidation) {
+        const machineExceptions = allExceptions.filter((e) => e.machine === u.machine);
+        const violation = checkScheduleViolationWithTemplates(u.machine, start, end, templates, machineExceptions);
+        if (violation) {
+          return NextResponse.json({ error: violation }, { status: 422 });
+        }
       }
+      // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
       const cdConflict = companyDays.find(
         (cd) => (cd.machine === null || cd.machine === u.machine) && cd.startDate < end && cd.endDate > start
       );

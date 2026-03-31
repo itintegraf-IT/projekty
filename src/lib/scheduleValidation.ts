@@ -97,7 +97,11 @@ export function checkScheduleViolationWithTemplates(
     } else {
       const row = schedule.find((r) => r.dayOfWeek === dayOfWeek);
       if (!row) {
-        if (isHardcodedBlocked(machine, dayOfWeek, hour)) return "Blok zasahuje do doby mimo provoz stroje.";
+        // Template pro stroj existuje, ale chybí řádek pro tento den → den je mimo provoz.
+        // Fallback na hardcoded pravidla jen pokud template vůbec neexistuje (schedule.length === 0).
+        if (schedule.length > 0 || isHardcodedBlocked(machine, dayOfWeek, hour)) {
+          return "Blok zasahuje do doby mimo provoz stroje.";
+        }
       } else if (!row.isActive || hour < row.startHour || hour >= row.endHour) {
         return "Blok zasahuje do doby mimo provoz stroje.";
       }

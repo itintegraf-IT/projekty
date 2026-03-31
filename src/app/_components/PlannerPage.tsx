@@ -2041,7 +2041,7 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
 }
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHoursTemplates, initialMachineExceptions, currentUser, initialQueueReservations = [] }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHoursTemplates: MachineWorkHoursTemplate[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[] }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHoursTemplates, initialMachineExceptions, currentUser, initialQueueReservations = [], initialFilterText }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHoursTemplates: MachineWorkHoursTemplate[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[]; initialFilterText?: string }) {
   // Role-based permissions
   const canEdit     = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
   const canEditData = canEdit || currentUser.role === "DTP";
@@ -2171,8 +2171,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   pasteTargetRef.current = pasteTarget;
   const clipboardGroupRef = useRef<Block[]>([]);
   const isGroupCutRef = useRef(false);
-  const [filterText, setFilterText] = useState("");
+  const [filterText, setFilterText] = useState(initialFilterText ?? "");
   const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  // Ref pro deep link highlight — zajistí že goToMatch(0) proběhne jen jednou po prvním načtení bloků
+  const highlightExecuted = useRef(!initialFilterText);
   const [jumpDate, setJumpDate]     = useState("");
   const [reportDate, setReportDate] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -2432,8 +2434,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const effectiveDaysBack = isTiskar ? 1 : daysBack;
   const viewStart = startOfDay(addDays(new Date(), -effectiveDaysBack));
 
-  // "Přejít na" blok mimo rozsah — ref pro čekající scroll po změně daysBack
+  // "Přejít na" blok mimo rozsah — ref pro čekající scroll + výběr bloku po změně daysBack/daysAhead
   const pendingScrollMs = useRef<number | null>(null);
+  const pendingSelectBlock = useRef<Block | null>(null);
   useLayoutEffect(() => {
     const target = pendingScrollMs.current;
     if (target === null) return;
@@ -2441,6 +2444,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const newViewStart = startOfDay(addDays(new Date(), -daysBack));
     const y = dateToY(new Date(target), newViewStart, slotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
+    if (pendingSelectBlock.current) {
+      setSelectedBlock(pendingSelectBlock.current);
+      pendingSelectBlock.current = null;
+    }
   }, [daysBack, daysAhead]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleJumpToOutOfRange(block: Block) {
@@ -2477,14 +2484,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const block = searchMatches[idx];
     const blockTime = new Date(block.startTime);
     if (blockTime < viewStart) {
-      // Blok je v historii za viewStart — rozšíř daysBack
+      // Blok je v historii za viewStart — rozšíř daysBack, blok se vybere po re-renderu
+      pendingSelectBlock.current = block;
       handleJumpToOutOfRange(block);
     } else {
       const today = startOfDay(new Date());
       const diffDays = Math.round((today.getTime() - blockTime.getTime()) / (24 * 60 * 60 * 1000));
       if (diffDays < -daysAhead) {
-        // Blok je v budoucnosti za viewEnd — rozšíř daysAhead
+        // Blok je v budoucnosti za viewEnd — rozšíř daysAhead, blok se vybere po re-renderu
         pendingScrollMs.current = blockTime.getTime();
+        pendingSelectBlock.current = block;
         setDaysAhead(-diffDays + 5);
       } else {
         const y = dateToY(blockTime, viewStart, slotHeight);
@@ -2493,6 +2502,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
     }
   }
+
+  // Deep link /?highlight=X — auto-otevřít první shodu po inicializaci
+  useEffect(() => {
+    if (highlightExecuted.current || searchMatches.length === 0) return;
+    highlightExecuted.current = true;
+    goToMatch(0);
+  // goToMatch závisí na searchMatches — spustit jakmile jsou k dispozici
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchMatches]);
 
   function goToNextMatch() {
     if (!filterText.trim() || searchMatches.length === 0) return;
@@ -2578,7 +2596,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const res = await fetch(`/api/blocks/${current.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ startTime: new Date(orig.startTime).toISOString(), endTime: new Date(orig.endTime).toISOString(), machine: orig.machine }),
+          body: JSON.stringify({ startTime: new Date(orig.startTime).toISOString(), endTime: new Date(orig.endTime).toISOString(), machine: orig.machine, bypassScheduleValidation: !workingTimeLockRef.current }),
         });
         if (res.ok) {
           const reverted = await res.json() as Block;
@@ -2605,14 +2623,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // Pokud je lock zapnutý, snapneme výslednou pozici přes blokované časy
       // (preceding.endTime může ležet uvnitř šrafování — např. blok přesahující přes noc)
       if (workingTimeLockRef.current) {
-        rawStart = snapToNextValidStartWithTemplates(current.machine, rawStart, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions);
+        rawStart = snapToNextValidStartWithTemplates(current.machine, rawStart, duration, machineWorkHoursTemplates, machineExceptions);
       }
       const newStart = rawStart.getTime();
       try {
         const res = await fetch(`/api/blocks/${current.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ startTime: new Date(newStart).toISOString(), endTime: new Date(newStart + duration).toISOString() }),
+          body: JSON.stringify({ startTime: new Date(newStart).toISOString(), endTime: new Date(newStart + duration).toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }),
         });
         if (res.ok) {
           current = await res.json() as Block;
@@ -2715,7 +2733,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           return fetch(`/api/blocks/${b.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString() }),
+            body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }),
           }).then(async r => {
             if (!r.ok) {
               const err = await r.json().catch(() => ({})) as { error?: string };
@@ -2781,8 +2799,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (timeOrMachineChanged) {
         void autoResolveOverlap(updated, new Set([updated.id]), prev);
         if (addToHistory) {
-          const prevSnap = { startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine };
-          const nextSnap = { startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine };
+          const bypassAtTime = !workingTimeLockRef.current;
+          const prevSnap = { startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine, bypassScheduleValidation: bypassAtTime };
+          const nextSnap = { startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine, bypassScheduleValidation: bypassAtTime };
           undoStack.current.push({
             undo: async () => {
               const res = await fetch(`/api/blocks/${updated.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevSnap) });
@@ -2815,6 +2834,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             endTime: u.endTime.toISOString(),
             machine: u.machine,
           })),
+          bypassScheduleValidation: !workingTimeLockRef.current,
         }),
       });
       if (!batchRes.ok) {
@@ -2827,14 +2847,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const prevSnaps = updates.map(u => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime, endTime: o.endTime, machine: o.machine } : null; }).filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[];
       const nextSnaps = updates.map(u => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }));
       if (prevSnaps.length > 0) {
+        const bypassAtTime = !workingTimeLockRef.current;
         undoStack.current.push({
           undo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps }) });
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps, bypassScheduleValidation: bypassAtTime }) });
             if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
             const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
           redo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps }) });
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps, bypassScheduleValidation: bypassAtTime }) });
             if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
             const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
@@ -2870,6 +2891,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setBlocks((prev) => prev.filter((b) => b.id !== block.id));
     setSelectedBlock(null);
     setEditingBlock(null);
+
+    // Pokud byl blok spojen s rezervací — server ji vrátil do QUEUE_READY;
+    // klient ji musí přidat zpět do fialové fronty (bez reloadu)
+    if (block.reservationId) {
+      try {
+        const rRes = await fetch(`/api/reservations/${block.reservationId}`);
+        if (rRes.ok) {
+          const rData = await rRes.json();
+          if (rData.status === "QUEUE_READY") {
+            setReservationQueue((prev) => {
+              const alreadyIn = prev.some((q) => q.id === `r_${rData.id}`);
+              return alreadyIn ? prev : [...prev, reservationToQueueItem(rData)];
+            });
+          }
+        }
+      } catch {
+        // Nepodařilo se načíst — queue se zaktualizuje při dalším reloadu
+      }
+      // REZERVACE bloky přeskakujeme undo — vztah rezervace↔blok je komplexní
+      return;
+    }
 
     // Undo jen pro standalone bloky — série mají komplexní parent/child vztahy
     if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
@@ -3357,11 +3399,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const item = queue.find((q) => q.id === itemId) ?? reservationQueue.find((r) => r.id === itemId);
     if (!item) return;
     const durationMs = item.durationHours * 60 * 60 * 1000;
-    // Snap na pracovní dobu — kontrolujeme jen START slot (30 min), ne celou délku bloku.
-    // Pokud konec bloku zasahuje do šrafování, server vrátí 422 a blok se nesloží.
-    const startTime = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(machine, rawStartTime, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions)
+    // Snap na pracovní dobu — kontrolujeme celou délku bloku, ne jen 30 min.
+    const rawSnapped = workingTimeLockRef.current
+      ? snapToNextValidStartWithTemplates(machine, rawStartTime, durationMs, machineWorkHoursTemplates, machineExceptions)
       : rawStartTime;
+    const startTime = rawSnapped;
+    if (workingTimeLockRef.current && rawSnapped.getTime() !== rawStartTime.getTime()) {
+      showToast("Blok umístěn do nejbližšího dostupného slotu (mimo pracovní dobu).", "info");
+    }
     const rType = item.recurrenceType ?? "NONE";
     const rCount = rType !== "NONE" ? Math.max(1, item.recurrenceCount ?? 1) : 1;
 
@@ -3407,7 +3452,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const res1 = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString() }),
+        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }),
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
@@ -3450,6 +3495,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               startTime: curStart.toISOString(),
               endTime: curEnd.toISOString(),
               recurrenceParentId: parentBlock.id,
+              bypassScheduleValidation: !workingTimeLockRef.current,
             }),
           });
           if (res.ok) {
@@ -3483,7 +3529,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
     const newStart = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, rawStart, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, rawStart, durationMs, machineWorkHoursTemplates, machineExceptions)
       : rawStart;
     const newEnd = new Date(newStart.getTime() + durationMs);
     try {
@@ -3514,6 +3560,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           lakStatusId: src.lakStatusId,
           lakStatusLabel: src.lakStatusLabel,
           specifikace: src.specifikace,
+          bypassScheduleValidation: !workingTimeLockRef.current,
         }),
       });
       if (!res.ok) throw new Error();
@@ -3540,9 +3587,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
     const anchorBlock = group.find((b) => new Date(b.startTime).getTime() === anchorMs)!;
     const anchorDuration = new Date(anchorBlock.endTime).getTime() - anchorMs;
-    // Snap anchor pokud je lock zapnutý — jen start slot, ne celá délka bloku
+    // Snap anchor pokud je lock zapnutý — kontrolujeme celou délku anchor bloku
     const snappedTarget = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, target.time, 30 * 60 * 1000, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, target.time, anchorDuration, machineWorkHoursTemplates, machineExceptions)
       : target.time;
     const pasteMs = snappedTarget.getTime();
 
@@ -3568,6 +3615,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             barvyStatusId: src.barvyStatusId, barvyStatusLabel: src.barvyStatusLabel,
             lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
             specifikace: src.specifikace,
+            bypassScheduleValidation: !workingTimeLockRef.current,
           }),
         });
         if (!res.ok) {
@@ -4120,6 +4168,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             canEditData={canEditData}
             canEditMat={canEditMat}
             onError={(msg) => showToast(msg, "error")}
+            onInfo={(msg) => showToast(msg, "info")}
             workingTimeLock={workingTimeLock}
             badgeColorMap={badgeColorMap}
             machineWorkHours={machineWorkHoursTemplates}

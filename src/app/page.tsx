@@ -5,7 +5,11 @@ import PlannerPage from "./_components/PlannerPage";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { serializeTemplates } from "@/lib/scheduleValidation";
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ highlight?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login");
   const isTiskar = session.role === "TISKAR";
@@ -62,6 +66,13 @@ export default async function HomePage() {
 
   const initialMachineWorkHoursTemplates = serializeTemplates(rawMachineWorkHoursTemplates);
 
+  const params = await searchParams;
+  const highlightBlockId = params.highlight ? parseInt(params.highlight, 10) : undefined;
+  // Pokud ?highlight=X odkazuje na konkrétní blok, najít jeho orderNumber pro filterText
+  const highlightOrderNumber = highlightBlockId && !isNaN(highlightBlockId)
+    ? (serialized.find((b) => b.id === highlightBlockId)?.orderNumber ?? undefined)
+    : undefined;
+
   const serializedQueueReservations = queueReadyReservations.map((r) => ({
     ...r,
     requestedExpeditionDate: r.requestedExpeditionDate.toISOString(),
@@ -75,5 +86,5 @@ export default async function HomePage() {
     planningPayload: r.planningPayload as Record<string, unknown> | null,
   }));
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHoursTemplates={initialMachineWorkHoursTemplates} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} initialQueueReservations={serializedQueueReservations} />;
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHoursTemplates={initialMachineWorkHoursTemplates} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} initialQueueReservations={serializedQueueReservations} initialFilterText={highlightOrderNumber} />;
 }

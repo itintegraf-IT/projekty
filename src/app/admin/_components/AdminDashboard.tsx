@@ -137,6 +137,17 @@ const btnDanger: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const btnAddAccent: React.CSSProperties = {
+  ...btnSecondary,
+  display: "flex",
+  alignItems: "center",
+  gap: 7,
+  background: "rgba(59,130,246,0.12)",
+  color: "#3b82f6",
+  border: "1px solid rgba(59,130,246,0.3)",
+  fontWeight: 600,
+};
+
 // ─── Komponenta ──────────────────────────────────────────────────────────────
 
 export default function AdminDashboard({ currentUser }: { currentUser: SessionUser }) {
@@ -296,18 +307,12 @@ function UsersSection({ currentUserId }: { currentUserId: number }) {
         </span>
         <button
           onClick={() => { setShowAddForm(!showAddForm); setAddError(""); }}
-          style={{
-            display: "flex", alignItems: "center", gap: 5,
-            background: "transparent", border: "none",
-            color: "var(--accent)", fontSize: 13, fontWeight: 500,
-            cursor: "pointer", padding: "4px 8px",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-          }}
+          style={btnAddAccent}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.25" stroke="var(--accent)" strokeWidth="1.5"/>
-            <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
+            <circle cx="7" cy="7" r="6.25" stroke="currentColor" strokeWidth="1.5"/>
+            <line x1="7" y1="4" x2="7" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="4" y1="7" x2="10" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
           Přidat
         </button>
@@ -833,18 +838,12 @@ function CodebookSection() {
         </span>
         <button
           onClick={() => { setShowAddForm(!showAddForm); setAddLabel(""); setAddIsWarning(false); setAddBadgeColor(null); }}
-          style={{
-            display: "flex", alignItems: "center", gap: 5,
-            background: "transparent", border: "none",
-            color: "var(--accent)", fontSize: 13, fontWeight: 500,
-            cursor: "pointer", padding: "4px 8px",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-          }}
+          style={btnAddAccent}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.25" stroke="var(--accent)" strokeWidth="1.5"/>
-            <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
+            <circle cx="7" cy="7" r="6.25" stroke="currentColor" strokeWidth="1.5"/>
+            <line x1="7" y1="4" x2="7" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="4" y1="7" x2="10" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
           Přidat
         </button>
@@ -1335,20 +1334,14 @@ function PresetSection() {
         </span>
         <button
           onClick={openCreate}
-          style={{
-            display: "flex", alignItems: "center", gap: 5,
-            background: "transparent", border: "none",
-            color: "var(--accent)", fontSize: 13, fontWeight: 500,
-            cursor: "pointer", padding: "4px 8px",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-          }}
+          type="button"
+          style={btnAddAccent}
         >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.25" stroke="var(--accent)" strokeWidth="1.5"/>
-            <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <line x1="6" y1="2.25" x2="6" y2="9.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+            <line x1="2.25" y1="6" x2="9.75" y2="6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
           </svg>
-          Přidat
+          Přidat preset
         </button>
       </div>
 
@@ -2222,11 +2215,7 @@ function WorkShiftsSection() {
               if (defTmpl) setAddDays(defTmpl.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })));
               setShowAddForm(true);
             }}
-            style={{
-              alignSelf: "flex-start", background: "none", border: "1px dashed #3b82f6",
-              borderRadius: 8, color: "#3b82f6", cursor: "pointer", fontSize: 13,
-              padding: "8px 14px", transition: "all 0.15s ease-out",
-            }}
+            style={{ ...btnAddAccent, alignSelf: "flex-start" }}
           >
             + Přidat šablonu
           </button>

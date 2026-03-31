@@ -142,13 +142,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const storageKey = crypto.randomUUID();
     const originalName = sanitizeFilename(file.name);
 
-    // Uložit na filesystem: data/reservation-attachments/{reservationId}/{uuid}
-    const storageDir = path.join(process.cwd(), "data", "reservation-attachments", String(id));
-    await mkdir(storageDir, { recursive: true });
-    const filePath = path.join(storageDir, storageKey);
-    await writeFile(filePath, buffer);
-
-    // Uložit metadata do DB
+    // Nejdřív DB záznam, pak zápis na disk — eliminuje file leak při selhání DB
     const attachment = await prisma.reservationAttachment.create({
       data: {
         reservationId: id,
@@ -160,6 +154,18 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         uploadedByUsername: session.username,
       },
     });
+
+    // Zapsat soubor na filesystem: data/reservation-attachments/{reservationId}/{uuid}
+    const storageDir = path.join(process.cwd(), "data", "reservation-attachments", String(id));
+    await mkdir(storageDir, { recursive: true });
+    const filePath = path.join(storageDir, storageKey);
+    try {
+      await writeFile(filePath, buffer);
+    } catch (writeError) {
+      // Rollback DB záznamu pokud zápis na disk selže
+      await prisma.reservationAttachment.delete({ where: { id: attachment.id } }).catch(() => {});
+      throw writeError;
+    }
 
     return NextResponse.json(attachment, { status: 201 });
   } catch (error) {

@@ -4,10 +4,17 @@ import RezervacePage from "./_components/RezervacePage";
 
 const ALLOWED_ROLES = ["ADMIN", "PLANOVAT", "OBCHODNIK"];
 
-export default async function RezervaciPage() {
+export default async function RezervaciPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ id?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login");
   if (!ALLOWED_ROLES.includes(session.role)) redirect("/");
+
+  const params = await searchParams;
+  const initialId = params.id ? parseInt(params.id, 10) : undefined;
 
   return (
     <RezervacePage
@@ -16,6 +23,7 @@ export default async function RezervaciPage() {
         username: session.username,
         role: session.role,
       }}
+      initialSelectedId={isNaN(initialId ?? NaN) ? undefined : initialId}
     />
   );
 }

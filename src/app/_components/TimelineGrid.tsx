@@ -184,6 +184,7 @@ interface TimelineGridProps {
   canEditData?: boolean;
   canEditMat?: boolean;
   onError?: (msg: string) => void;
+  onInfo?: (msg: string) => void;
   workingTimeLock?: boolean;
   badgeColorMap?: Record<number, string | null>;
   machineWorkHours?: MachineWorkHoursTemplate[];
@@ -1660,6 +1661,7 @@ export default function TimelineGrid({
   canEditData = false,
   canEditMat = false,
   onError,
+  onInfo,
   workingTimeLock = true,
   badgeColorMap = {},
   machineWorkHours,
@@ -1693,7 +1695,7 @@ export default function TimelineGrid({
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel });
   const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -1713,8 +1715,8 @@ export default function TimelineGrid({
   useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel };
-  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel]);
 
   useEffect(() => { queueDragItemRef.current = queueDragItem ?? null; }, [queueDragItem]);
 
@@ -1926,16 +1928,17 @@ export default function TimelineGrid({
         const originalTop = dateToY(ds.originalStart, vs, sh);
         const newMachine  = clientXToMachine(e.clientX);
         const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
-        let newStart      = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
+        const requestedStart = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
+        let newStart = requestedStart;
         if (workingTimeLockRef.current) {
-          // Snap jen pokud START slot je v blokovaném čase — nekontroluj celou délku bloku.
-          // Pokud start je validní ale konec přesahuje do šrafování, server vrátí 422
-          // a blok se automaticky vrátí na původní pozici (PUT selže → setBlocks se nevolá).
-          newStart = snapToNextValidStartWithTemplates(newMachine, newStart, SLOT_MS, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
+          newStart = snapToNextValidStartWithTemplates(newMachine, requestedStart, duration, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
+          if (newStart.getTime() !== requestedStart.getTime()) {
+            callbacksRef.current.onInfo?.("Blok přesunut mimo pracovní dobu — automaticky umístěn do nejbližšího dostupného slotu.");
+          }
         }
         const newEnd      = new Date(newStart.getTime() + duration);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine, bypassScheduleValidation: !workingTimeLockRef.current }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
@@ -1954,7 +1957,7 @@ export default function TimelineGrid({
         const finalEnd       = snapToSlot(yToDate(originalTop + newHeightRaw, vs, sh));
         const minEnd         = new Date(ds.originalStart.getTime() + SLOT_MS);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString() }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo změnit.");

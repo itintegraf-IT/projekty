@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import ReservationForm from "./ReservationForm";
 import ReservationList from "./ReservationList";
@@ -45,6 +45,7 @@ export interface ReservationAttachment {
 
 interface Props {
   currentUser: { id: number; username: string; role: string };
+  initialSelectedId?: number;
 }
 
 type TabObchodnik = "nova" | "aktivni" | "archiv";
@@ -54,7 +55,7 @@ type AnyTab = TabObchodnik | TabPlanner;
 const isObchodnik = (role: string) => role === "OBCHODNIK";
 const isPlanner = (role: string) => ["ADMIN", "PLANOVAT"].includes(role);
 
-export default function RezervacePage({ currentUser }: Props) {
+export default function RezervacePage({ currentUser, initialSelectedId }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<AnyTab>(
     isObchodnik(currentUser.role) ? "nova" : "nove"
@@ -62,6 +63,9 @@ export default function RezervacePage({ currentUser }: Props) {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // Ref pro deep link — drží pending ID přes re-rendery, vyčistí se po úspěšném výběru
+  const deepLinkPendingId = useRef<number | null>(initialSelectedId ?? null);
 
   // Mapování záložky → bucket pro API
   function tabToBucket(tab: AnyTab): string {
@@ -72,13 +76,24 @@ export default function RezervacePage({ currentUser }: Props) {
 
   const fetchReservations = useCallback(async (tab: AnyTab) => {
     setLoading(true);
-    setSelectedId(null);
+    // Nečistit selectedId pokud čekáme na deep link výběr — ten nastavíme po fetchnutí dat
+    if (!deepLinkPendingId.current) {
+      setSelectedId(null);
+    }
     try {
       const bucket = tabToBucket(tab);
       const res = await fetch(`/api/reservations?bucket=${bucket}`);
       if (!res.ok) throw new Error("Chyba načítání");
-      const data = await res.json();
+      const data: Reservation[] = await res.json();
       setReservations(data);
+      // Po načtení dat: pokud čeká deep link, vybrat odpovídající rezervaci
+      if (deepLinkPendingId.current) {
+        const found = data.find((r) => r.id === deepLinkPendingId.current);
+        if (found) {
+          setSelectedId(found.id);
+          deepLinkPendingId.current = null;
+        }
+      }
     } catch (err) {
       console.error("[RezervacePage] fetchReservations", err);
     } finally {
@@ -91,6 +106,47 @@ export default function RezervacePage({ currentUser }: Props) {
       fetchReservations(activeTab);
     }
   }, [activeTab, fetchReservations]);
+
+  // Deep link: ?id=X — zjistit stav rezervace a přepnout na správnou záložku
+  // fetchReservations po přepnutí záložky pak sám nastaví selectedId přes deepLinkPendingId
+  useEffect(() => {
+    if (!initialSelectedId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/reservations/${initialSelectedId}`);
+        if (!res.ok) return;
+        const r: Reservation = await res.json();
+        let targetTab: AnyTab;
+        if (isObchodnik(currentUser.role)) {
+          targetTab = r.status === "SUBMITTED" || r.status === "ACCEPTED" || r.status === "QUEUE_READY"
+            ? "aktivni" : "archiv";
+        } else {
+          if (r.status === "SUBMITTED") targetTab = "nove";
+          else if (r.status === "ACCEPTED" || r.status === "QUEUE_READY") targetTab = "fronta";
+          else targetTab = "archiv";
+        }
+        // Pokud je to jiná záložka než výchozí, přepnout — to spustí fetchReservations který vybere item
+        // Pokud je to ta samá záložka, fetchReservations se znovu nespustí — vybrat přímo
+        setActiveTab((prev) => {
+          if (prev === targetTab) {
+            // Záložka se nemění → fetchReservations se znovu nespustí → vybrat teď
+            setReservations((prevRes) => {
+              const found = prevRes.find((x) => x.id === r.id);
+              if (found) {
+                setSelectedId(r.id);
+                deepLinkPendingId.current = null;
+              }
+              return prevRes;
+            });
+          }
+          return targetTab;
+        });
+      } catch {
+        // Ignorovat — odkaz je nepovinný
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelectedId]);
 
   function handleTabChange(tab: AnyTab) {
     setActiveTab(tab);
