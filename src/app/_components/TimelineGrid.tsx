@@ -819,6 +819,9 @@ function BlockCard({
   const clampedHeight = Math.max(height, 20);
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
+  const dataDisplayLabel = block.dataStatusLabel?.trim() || "OK";
+  const dataCanToggle = block.dataOk || !!block.dataRequiredDate;
+  const dataCanOpenCalendar = !block.dataOk && canEditData && !!onInlineDatePick;
   // materialInStock potlačuje warning logiku materiálu
   const effectiveMaterialDate = block.materialInStock ? null : block.materialRequiredDate;
   const effectiveMaterialOk   = block.materialInStock ? true : block.materialOk;
@@ -981,7 +984,7 @@ function BlockCard({
 
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
-        const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dStateKey = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
@@ -1002,10 +1005,10 @@ function BlockCard({
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
-                <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-                  onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
+                <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                  {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
@@ -1049,7 +1052,7 @@ function BlockCard({
             {/* Pravá část: status chips + série */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+                {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1072,7 +1075,7 @@ function BlockCard({
 
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
-        const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dStateKey = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const chipStyle = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
@@ -1092,10 +1095,10 @@ function BlockCard({
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
-                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-                  onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
+                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                  {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
@@ -1140,7 +1143,7 @@ function BlockCard({
             {/* Pravá část: status chips + série + split */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+                {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1195,7 +1198,7 @@ function BlockCard({
           {/* Pravá část: status chips + série + split */}
           {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-              {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+              {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
               {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
               {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1218,11 +1221,12 @@ function BlockCard({
           onMouseLeave={() => setBadgeHovered(false)}
         >
           <DateBadge
-            label="DATA" dateStr={block.dataRequiredDate}
+            label="DATA" dateStr={block.dataOk ? null : block.dataRequiredDate}
+            overrideText={block.dataOk ? dataDisplayLabel : undefined}
             ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
             onToggle={() => toggleField("dataOk", block.dataOk)}
-            onDoubleClick={canEditData ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
+            onDoubleClick={dataCanOpenCalendar ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
             statusLabel={block.dataStatusLabel}
           />
           <MaterialNoteAffordance block={block}>
@@ -1255,7 +1259,7 @@ function BlockCard({
 
       {/* ── Řádek 2b: Kompaktní datum chipy (MODE_FULL, 48–59px — plný DateBadge se nevejde) ── */}
       {showDatesCompact && (() => {
-        const dSK = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dSK = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mSK = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eSK = !block.deadlineExpedice ? "empty" : "neutral";
         const pSK = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
@@ -1273,10 +1277,10 @@ function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden", alignItems: "center" }}>
-            <span style={cs(dSK, FIELD_ACCENT.DATA, !!block.dataRequiredDate)}
-              onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-              onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-              D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
+            <span style={cs(dSK, FIELD_ACCENT.DATA, dataCanToggle)}
+              onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+              onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+              {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
             </span>
             <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
               <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)}
