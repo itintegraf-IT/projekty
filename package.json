@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "prisma:seed": "prisma db seed",
-    "prisma:bootstrap": "tsx prisma/bootstrap-prod.ts"
+    "prisma:bootstrap": "tsx prisma/bootstrap-prod.ts",
+    "deploy:server": "bash scripts/deploy.sh"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
