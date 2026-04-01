@@ -183,6 +183,8 @@ model MachineWorkHoursTemplateDay {
   dayOfWeek  Int     // 0=neděle, 1=pondělí, ..., 6=sobota
   startHour  Int     // 0–23
   endHour    Int     // 1–24
+  startSlot  Int?    // 0–47 (30min sloty, end exclusive)
+  endSlot    Int?    // 1–48
   isActive   Boolean @default(true)
   template   MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
@@ -195,6 +197,8 @@ model MachineScheduleException {
   date      DateTime // konkrétní datum (uloženo jako 00:00:00 UTC)
   startHour Int      // 0–23
   endHour   Int      // 1–24
+  startSlot Int?     // 0–47 (30min sloty, end exclusive)
+  endSlot   Int?     // 1–48
   isActive  Boolean  @default(true)
   label     String?  // nepovinný popis
   createdAt DateTime @default(now())

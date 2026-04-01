@@ -3349,13 +3349,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bRecurrenceType, bRecurrenceCount, bSeriesFirstDate, bSeriesFirstHour]);
 
-  async function handleExceptionUpsert(machine: string, date: Date, startHour: number, endHour: number, isActive: boolean) {
+  async function handleExceptionUpsert(machine: string, date: Date, startSlot: number, endSlot: number, isActive: boolean) {
     try {
       const res = await fetch("/api/machine-exceptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         // Datum posíláme jako YYYY-MM-DD lokálního (CZ) kalendářního dne — bez UTC posunu
-        body: JSON.stringify({ machine, date: `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`, startHour, endHour, isActive }),
+        body: JSON.stringify({
+          machine,
+          date: `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`,
+          startSlot,
+          endSlot,
+          isActive,
+        }),
       });
       if (!res.ok) { showToast("Nepodařilo se uložit výjimku.", "error"); return; }
       const exc: MachineScheduleException = await res.json();
@@ -3945,79 +3951,88 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               type="button"
               onClick={() => setDaysBack(b => b + 30)}
               title="Rozšířit historii o 30 dní"
-              style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, lineHeight: 1, transition: "all 120ms ease-out" }}
+              style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, lineHeight: 1, transition: "all 120ms ease-out" }}
             >←</button>
             <button
               type="button"
               onClick={() => { pendingScrollMs.current = Date.now() + daysAhead * 24 * 60 * 60 * 1000; setDaysAhead(a => a + 30); }}
               title="Rozšířit budoucnost o 30 dní"
-              style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, lineHeight: 1, transition: "all 120ms ease-out" }}
+              style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, lineHeight: 1, transition: "all 120ms ease-out" }}
             >→</button>
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
+        <div className="ml-auto flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+          {/* Tier 1 — ikonová tlačítka */}
           {canEdit && (
-              <button
-                onClick={() => setWorkingTimeLock(p => !p)}
-                title={workingTimeLock ? "Víkendy/noc blokovány — klik pro flexibilní mód" : "Flexibilní mód — klik pro zamknutí"}
-                style={{
-                  marginLeft: 4, padding: "2px 8px", fontSize: 13, borderRadius: 5, lineHeight: 1.4,
-                  background: workingTimeLock ? "rgba(251,146,60,0.10)" : "var(--surface-2)",
-                  border: `1px solid ${workingTimeLock ? "rgba(251,146,60,0.30)" : "var(--border)"}`,
-                  color: workingTimeLock ? "#fb923c" : "var(--text-muted)",
-                  cursor: "pointer", transition: "all 120ms ease-out",
-                }}
-              >{workingTimeLock ? <Lock size={14} strokeWidth={1.5} /> : <Unlock size={14} strokeWidth={1.5} />}</button>
+            <button
+              onClick={() => setWorkingTimeLock(p => !p)}
+              title={workingTimeLock ? "Víkendy/noc blokovány — klik pro flexibilní mód" : "Flexibilní mód — klik pro zamknutí"}
+              style={{
+                width: 28, height: 28, borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: workingTimeLock ? "rgba(251,146,60,0.10)" : "var(--surface-2)",
+                border: `1px solid ${workingTimeLock ? "rgba(251,146,60,0.30)" : "var(--border)"}`,
+                color: workingTimeLock ? "#fb923c" : "var(--text-muted)",
+                cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
+              }}
+            >{workingTimeLock ? <Lock size={14} strokeWidth={1.5} /> : <Unlock size={14} strokeWidth={1.5} />}</button>
           )}
+
+          {/* Tier 2 — textová tlačítka */}
           {canEdit && (
-            <Button
-              variant={showShutdowns ? "secondary" : "ghost"}
-              size="sm"
+            <button
               onClick={() => setShowShutdowns((s) => !s)}
-              className="h-8 text-xs border-slate-700"
+              title="Plánované odstávky"
+              style={{
+                height: 28, padding: "0 10px", borderRadius: 8,
+                display: "flex", alignItems: "center", gap: 5,
+                background: showShutdowns ? "color-mix(in oklab, var(--brand) 12%, var(--surface-2))" : "var(--surface-2)",
+                border: `1px solid ${showShutdowns ? "color-mix(in oklab, var(--brand) 35%, var(--border))" : "var(--border)"}`,
+                color: showShutdowns ? "var(--brand)" : "var(--text-muted)",
+                fontSize: 12, cursor: "pointer", transition: "all 120ms ease-out", whiteSpace: "nowrap",
+              }}
             >
-              <CalendarDays size={12} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 5 }} />Odstávky
-            </Button>
+              <CalendarDays size={12} strokeWidth={1.5} />Odstávky
+            </button>
           )}
-          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {currentUser.username}
-          </span>
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <a
               href="/admin"
               style={{
-                padding: "3px 10px", fontSize: 11, borderRadius: 6,
-                background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.35)",
-                color: "#3b82f6", cursor: "pointer", textDecoration: "none",
-                whiteSpace: "nowrap", transition: "all 120ms ease-out",
+                height: 28, padding: "0 10px", borderRadius: 8,
+                display: "flex", alignItems: "center",
+                background: "var(--surface-2)", border: "1px solid var(--border)",
+                color: "#3b82f6", fontSize: 12, cursor: "pointer",
+                textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
               }}
-            >
-              Správa
-            </a>
+            >Správa</a>
           )}
           {["ADMIN", "PLANOVAT", "OBCHODNIK"].includes(currentUser.role) && (
             <a
               href="/rezervace"
               style={{
-                padding: "3px 10px", fontSize: 11, borderRadius: 6,
-                background: "rgba(124,58,237,0.12)", border: "1px solid rgba(124,58,237,0.3)",
-                color: "#7c3aed", cursor: "pointer", textDecoration: "none",
-                whiteSpace: "nowrap", transition: "all 120ms ease-out",
+                height: 28, padding: "0 10px", borderRadius: 8,
+                display: "flex", alignItems: "center",
+                background: "var(--surface-2)", border: "1px solid var(--border)",
+                color: "#7c3aed", fontSize: 12, cursor: "pointer",
+                textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
               }}
-            >
-              Rezervace
-            </a>
+            >Rezervace</a>
           )}
+
           <ThemeToggle />
+
+          {/* Bell — audit (ADMIN/PLANOVAT) */}
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <div style={{ position: "relative" }}>
               <button
                 onClick={handleOpenInfoPanel}
                 title="Aktivita DTP a MTZ za poslední 3 dny"
                 style={{
-                  width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: showInfoPanel ? "rgba(59,130,246,0.14)" : "transparent",
+                  width: 28, height: 28, borderRadius: 8,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: showInfoPanel ? "rgba(59,130,246,0.14)" : "var(--surface-2)",
                   border: `1px solid ${showInfoPanel ? "rgba(59,130,246,0.35)" : "var(--border)"}`,
                   color: showInfoPanel ? "#3b82f6" : "var(--text-muted)",
                   cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
@@ -4036,20 +4051,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                   fontSize: 8, fontWeight: 700,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   pointerEvents: "none",
-                }}>
-                  {auditNewCount > 9 ? "9+" : auditNewCount}
-                </span>
+                }}>{auditNewCount > 9 ? "9+" : auditNewCount}</span>
               )}
             </div>
           )}
+
+          {/* Bell — inbox (DTP/MTZ/OBCHODNIK) */}
           {["DTP", "MTZ", "OBCHODNIK"].includes(currentUser.role) && (
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => { setShowInboxPanel(true); fetchNotifications(); }}
                 title="Upozornění"
                 style={{
-                  width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center",
-                  background: showInboxPanel ? "rgba(59,130,246,0.14)" : "transparent",
+                  width: 28, height: 28, borderRadius: 8,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: showInboxPanel ? "rgba(59,130,246,0.14)" : "var(--surface-2)",
                   border: `1px solid ${showInboxPanel ? "rgba(59,130,246,0.35)" : "var(--border)"}`,
                   color: showInboxPanel ? "#3b82f6" : "var(--text-muted)",
                   cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
@@ -4068,17 +4084,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                   fontSize: 8, fontWeight: 700,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   pointerEvents: "none",
-                }}>
-                  {notifNewCount > 9 ? "9+" : notifNewCount}
-                </span>
+                }}>{notifNewCount > 9 ? "9+" : notifNewCount}</span>
               )}
             </div>
           )}
-          {/* Lasso badge — počet vybraných bloků nebo hint pro nové uživatele */}
+
+          {/* Lasso badge */}
           {canEdit && selectedBlockIds.size > 0 && (
             <div style={{
               display: "flex", alignItems: "center", gap: 6,
-              padding: "4px 10px", borderRadius: 8,
+              padding: "0 10px", height: 28, borderRadius: 8,
               background: "color-mix(in oklab, var(--accent) 12%, var(--surface))",
               border: "1px solid color-mix(in oklab, var(--accent) 35%, var(--border))",
               color: "var(--accent)", fontSize: 12, whiteSpace: "nowrap",
@@ -4090,16 +4105,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               >×</button>
             </div>
           )}
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: "3px 10px", fontSize: 11, borderRadius: 6,
-              background: "transparent", border: "1px solid var(--border)",
-              color: "var(--text-muted)", cursor: "pointer", transition: "all 120ms ease-out",
-            }}
-          >
-            Odhlásit
-          </button>
+
+          {/* Username + Odhlásit */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 4 }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{currentUser.username}</span>
+            <button
+              onClick={handleLogout}
+              style={{
+                height: 28, padding: "0 10px", borderRadius: 8,
+                background: "var(--surface-2)", border: "1px solid var(--border)",
+                color: "var(--text-muted)", fontSize: 12, cursor: "pointer", transition: "all 120ms ease-out",
+              }}
+            >Odhlásit</button>
+          </div>
         </div>
       </header>}
 

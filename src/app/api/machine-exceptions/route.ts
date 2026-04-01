@@ -1,6 +1,36 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import {
+  getSlotRange,
+  isValidSlotWindow,
+  legacyHoursFromSlots,
+  slotToHour,
+} from "@/lib/timeSlots";
+
+function serializeException(e: {
+  id: number;
+  machine: string;
+  date: Date;
+  startHour: number;
+  endHour: number;
+  startSlot: number | null;
+  endSlot: number | null;
+  isActive: boolean;
+  label: string | null;
+  createdAt: Date;
+}) {
+  const { startSlot, endSlot } = getSlotRange(e);
+  return {
+    ...e,
+    startHour: slotToHour(startSlot),
+    endHour: slotToHour(endSlot),
+    startSlot,
+    endSlot,
+    date: e.date.toISOString(),
+    createdAt: e.createdAt.toISOString(),
+  };
+}
 
 // GET — any authenticated session
 export async function GET() {
@@ -11,11 +41,7 @@ export async function GET() {
     orderBy: [{ date: "asc" }, { machine: "asc" }],
   });
 
-  const serialized = exceptions.map((e) => ({
-    ...e,
-    date: e.date.toISOString(),
-    createdAt: e.createdAt.toISOString(),
-  }));
+  const serialized = exceptions.map(serializeException);
 
   return NextResponse.json(serialized);
 }
@@ -29,19 +55,20 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { machine, date, startHour, endHour, isActive, label } = body;
+  const { machine, date, isActive, label } = body;
+  let startSlot: number;
+  let endSlot: number;
+  try {
+    ({ startSlot, endSlot } = getSlotRange(body));
+  } catch {
+    return NextResponse.json({ error: "Chybí startSlot/endSlot nebo startHour/endHour" }, { status: 400 });
+  }
 
   if (!machine || !date) {
     return NextResponse.json({ error: "machine a date jsou povinné" }, { status: 400 });
   }
-  if (typeof startHour !== "number" || startHour < 0 || startHour > 23) {
-    return NextResponse.json({ error: "startHour musí být 0–23" }, { status: 400 });
-  }
-  if (typeof endHour !== "number" || endHour < 1 || endHour > 24) {
-    return NextResponse.json({ error: "endHour musí být 1–24" }, { status: 400 });
-  }
-  if (isActive !== false && startHour >= endHour) {
-    return NextResponse.json({ error: "startHour musí být menší než endHour" }, { status: 400 });
+  if (!isValidSlotWindow(startSlot, endSlot)) {
+    return NextResponse.json({ error: "Neplatný rozsah startSlot/endSlot" }, { status: 400 });
   }
 
   // Datum jako YYYY-MM-DD string (klient posílá lokální datum) → UTC midnight.
@@ -52,16 +79,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "date musí být ve formátu YYYY-MM-DD" }, { status: 400 });
   }
   const utcMidnight = new Date(datePart + "T00:00:00.000Z");
+  const legacyHours = legacyHoursFromSlots(startSlot, endSlot);
 
   const exception = await prisma.machineScheduleException.upsert({
     where: { machine_date: { machine, date: utcMidnight } },
-    update: { startHour, endHour, isActive: isActive ?? true, label: label ?? null },
-    create: { machine, date: utcMidnight, startHour, endHour, isActive: isActive ?? true, label: label ?? null },
+    update: {
+      startHour: legacyHours.startHour,
+      endHour: legacyHours.endHour,
+      startSlot,
+      endSlot,
+      isActive: isActive ?? true,
+      label: label ?? null,
+    },
+    create: {
+      machine,
+      date: utcMidnight,
+      startHour: legacyHours.startHour,
+      endHour: legacyHours.endHour,
+      startSlot,
+      endSlot,
+      isActive: isActive ?? true,
+      label: label ?? null,
+    },
   });
 
-  return NextResponse.json({
-    ...exception,
-    date: exception.date.toISOString(),
-    createdAt: exception.createdAt.toISOString(),
-  });
+  return NextResponse.json(serializeException(exception));
 }

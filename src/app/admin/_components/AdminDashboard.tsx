@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
 import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
-import type { MachineWorkHoursTemplate, MachineWorkHoursTemplateDay } from "@/lib/machineWorkHours";
+import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { summarizeJobPreset, type JobPreset } from "@/lib/jobPresets";
+import { durationHoursFromSlots, formatSlot, getSlotRange } from "@/lib/timeSlots";
+import { pragueOf } from "@/lib/dateUtils";
 
 // ─── Typy ────────────────────────────────────────────────────────────────────
 
@@ -1463,10 +1465,22 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
 
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
 const DAY_LABELS_CS = ["Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle"];
-const HOUR_OPTIONS = Array.from({ length: 25 }, (_, i) => i); // 0–24
+const SLOT_OPTIONS = Array.from({ length: 49 }, (_, i) => i); // 0–48
 
-function fmtHour(h: number) {
-  return `${String(h).padStart(2, "0")}:00`;
+type WorkHoursDay = {
+  id?: number;
+  dayOfWeek: number;
+  startSlot?: number | null;
+  endSlot?: number | null;
+  startHour?: number;
+  endHour?: number;
+  isActive: boolean;
+};
+
+type DayDraft = { dayOfWeek: number; startSlot: number; endSlot: number; isActive: boolean };
+
+function fmtSlot(slot: number) {
+  return formatSlot(slot);
 }
 
 function fmtDateRange(validFrom: string, validTo: string | null): string {
@@ -1483,9 +1497,9 @@ function WorkHoursGrid({
   machines,
   onUpdate,
 }: {
-  days: MachineWorkHoursTemplateDay[];
+  days: WorkHoursDay[];
   machines: string[];
-  onUpdate: (dayOfWeek: number, machine: string, patch: Partial<MachineWorkHoursTemplateDay>) => void;
+  onUpdate: (dayOfWeek: number, machine: string, patch: Partial<DayDraft>) => void;
 }) {
   return (
     <div style={{
@@ -1521,12 +1535,20 @@ function WorkHoursGrid({
                 </button>
                 {row.isActive ? (
                   <>
-                    <select value={row.startHour} onChange={(e) => onUpdate(dow, machine, { startHour: Number(e.target.value) })} style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}>
-                      {HOUR_OPTIONS.filter((h) => h < row.endHour).map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    <select
+                      value={getSlotRange(row).startSlot}
+                      onChange={(e) => onUpdate(dow, machine, { startSlot: Number(e.target.value) })}
+                      style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}
+                    >
+                      {SLOT_OPTIONS.filter((slot) => slot < getSlotRange(row).endSlot).map((slot) => <option key={slot} value={slot}>{fmtSlot(slot)}</option>)}
                     </select>
                     <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>–</span>
-                    <select value={row.endHour} onChange={(e) => onUpdate(dow, machine, { endHour: Number(e.target.value) })} style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}>
-                      {HOUR_OPTIONS.filter((h) => h > row.startHour && h <= 24).map((h) => <option key={h} value={h}>{fmtHour(h)}</option>)}
+                    <select
+                      value={getSlotRange(row).endSlot}
+                      onChange={(e) => onUpdate(dow, machine, { endSlot: Number(e.target.value) })}
+                      style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}
+                    >
+                      {SLOT_OPTIONS.filter((slot) => slot > getSlotRange(row).startSlot).map((slot) => <option key={slot} value={slot}>{fmtSlot(slot)}</option>)}
                     </select>
                   </>
                 ) : (
@@ -1542,10 +1564,13 @@ function WorkHoursGrid({
 }
 
 // Týdenní přehled — zobrazuje se vedle WorkHoursGrid
-function WeekSummary({ days }: { days: { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[] }) {
+function WeekSummary({ days }: { days: { dayOfWeek: number; startSlot?: number | null; endSlot?: number | null; startHour?: number; endHour?: number; isActive: boolean }[] }) {
   const DAY_SHORT = ["Ne", "Po", "Út", "St", "Čt", "Pá", "So"];
   const activeDays = days.filter((d) => d.isActive);
-  const totalHours = activeDays.reduce((sum, d) => sum + (d.endHour - d.startHour), 0);
+  const totalHours = activeDays.reduce((sum, d) => {
+    const { startSlot, endSlot } = getSlotRange(d);
+    return sum + durationHoursFromSlots(startSlot, endSlot);
+  }, 0);
   const MAX_H = 18; // reference max pro vizuální bar
 
   return (
@@ -1565,7 +1590,7 @@ function WeekSummary({ days }: { days: { dayOfWeek: number; startHour: number; e
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
         {[1, 2, 3, 4, 5, 6, 0].map((dow) => {
           const d = days.find((x) => x.dayOfWeek === dow);
-          const hours = d?.isActive ? d.endHour - d.startHour : 0;
+          const hours = d?.isActive ? durationHoursFromSlots(getSlotRange(d).startSlot, getSlotRange(d).endSlot) : 0;
           const pct = Math.min(hours / MAX_H, 1);
           return (
             <div key={dow} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -1698,17 +1723,15 @@ function DatePickerField({ value, onChange, placeholder = "Vyberte datum…" }: 
   );
 }
 
-type DayDraft = { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean };
-
 function defaultDays(): DayDraft[] {
   return [
-    { dayOfWeek: 1, startHour: 6, endHour: 22, isActive: true },
-    { dayOfWeek: 2, startHour: 6, endHour: 22, isActive: true },
-    { dayOfWeek: 3, startHour: 6, endHour: 22, isActive: true },
-    { dayOfWeek: 4, startHour: 6, endHour: 22, isActive: true },
-    { dayOfWeek: 5, startHour: 6, endHour: 22, isActive: true },
-    { dayOfWeek: 6, startHour: 6, endHour: 22, isActive: false },
-    { dayOfWeek: 0, startHour: 6, endHour: 22, isActive: false },
+    { dayOfWeek: 1, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 2, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 3, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 4, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 5, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 6, startSlot: 12, endSlot: 44, isActive: false },
+    { dayOfWeek: 0, startSlot: 12, endSlot: 44, isActive: false },
   ];
 }
 
@@ -1754,7 +1777,7 @@ function WorkShiftsSection() {
       .catch(() => { setTemplates([]); setLoading(false); });
   }, []);
 
-  function updateDefaultDay(machine: string, dayOfWeek: number, patch: Partial<MachineWorkHoursTemplateDay>) {
+  function updateDefaultDay(machine: string, dayOfWeek: number, patch: Partial<DayDraft>) {
     setTemplates((prev) => prev.map((t) => {
       if (t.machine !== machine || !t.isDefault) return t;
       return { ...t, days: t.days.map((d) => d.dayOfWeek === dayOfWeek ? { ...d, ...patch } : d) };
@@ -1772,7 +1795,13 @@ function WorkShiftsSection() {
       const res = await fetch("/api/machine-shifts", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ machine, days: tmpl.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })) }),
+        body: JSON.stringify({
+          machine,
+          days: tmpl.days.map((d) => {
+            const { startSlot, endSlot } = getSlotRange(d);
+            return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+          }),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1890,7 +1919,15 @@ function WorkShiftsSection() {
       window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
       const newFrom = meta?.validFrom ?? String(tmpl.validFrom).slice(0, 10);
       const newTo = meta?.validTo || (tmpl.validTo ? String(tmpl.validTo).slice(0, 10) : null);
-      await checkAndShowConflicts(tmpl.machine, newFrom, newTo, days ?? tmpl.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })));
+      await checkAndShowConflicts(
+        tmpl.machine,
+        newFrom,
+        newTo,
+        days ?? tmpl.days.map((d) => {
+          const { startSlot, endSlot } = getSlotRange(d);
+          return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+        })
+      );
     } catch {
       setEditingError((prev) => ({ ...prev, [tmpl.id]: "Síťová chyba." }));
     } finally {
@@ -1918,12 +1955,12 @@ function WorkShiftsSection() {
         if (startTs < fromTs || startTs > toTs) return false;
         const start = new Date(b.startTime);
         const end = new Date(b.endTime);
-        const dow = start.getDay();
+        const dow = pragueOf(start).dayOfWeek;
         const tmplDay = days.find((d) => d.dayOfWeek === dow);
         if (!tmplDay || !tmplDay.isActive) return true;
-        const sh = start.getHours() + start.getMinutes() / 60;
-        const eh = end.getHours() + end.getMinutes() / 60;
-        return sh < tmplDay.startHour || eh > tmplDay.endHour;
+        const blockStartSlot = pragueOf(start).slot;
+        const blockEndSlot = pragueOf(new Date(Math.max(start.getTime(), end.getTime() - 1))).slot + 1;
+        return blockStartSlot < tmplDay.startSlot || blockEndSlot > tmplDay.endSlot;
       });
 
       if (conflicts.length > 0) {
@@ -2102,7 +2139,10 @@ function WorkShiftsSection() {
                     <WorkHoursGrid
                       days={(editingDays[tmpl.id] ?? tmpl.days).map((d, i) => ({ ...d, id: i }))}
                       machines={[tmpl.machine]}
-                      onUpdate={(dow, _m, patch) => updateTempDay(tmpl.id, tmpl.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })), dow, patch)}
+                      onUpdate={(dow, _m, patch) => updateTempDay(tmpl.id, tmpl.days.map((d) => {
+                        const { startSlot, endSlot } = getSlotRange(d);
+                        return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+                      }), dow, patch)}
                     />
                     <WeekSummary days={editingDays[tmpl.id] ?? tmpl.days} />
                   </div>
@@ -2215,7 +2255,10 @@ function WorkShiftsSection() {
             onClick={() => {
               // Předvyplnit addDays z aktuální default šablony (první nalezená)
               const defTmpl = templates.find((t) => t.isDefault);
-              if (defTmpl) setAddDays(defTmpl.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })));
+              if (defTmpl) setAddDays(defTmpl.days.map((d) => {
+                const { startSlot, endSlot } = getSlotRange(d);
+                return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+              }));
               setShowAddForm(true);
             }}
             style={{ ...btnAddAccent, alignSelf: "flex-start" }}

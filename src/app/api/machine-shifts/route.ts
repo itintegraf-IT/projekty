@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  getSlotRange,
+  isValidSlotWindow,
+  legacyHoursFromSlots,
+  slotToHour,
+} from "@/lib/timeSlots";
 
 function serializeTemplate(t: {
   id: number;
@@ -9,12 +15,22 @@ function serializeTemplate(t: {
   validFrom: Date;
   validTo: Date | null;
   isDefault: boolean;
-  days: { id: number; dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[];
+  days: { id: number; dayOfWeek: number; startHour: number; endHour: number; startSlot: number | null; endSlot: number | null; isActive: boolean }[];
 }) {
   return {
     ...t,
     validFrom: t.validFrom.toISOString().slice(0, 10),
     validTo: t.validTo ? t.validTo.toISOString().slice(0, 10) : null,
+    days: t.days.map((d) => {
+      const { startSlot, endSlot } = getSlotRange(d);
+      return {
+        ...d,
+        startHour: slotToHour(startSlot),
+        endHour: slotToHour(endSlot),
+        startSlot,
+        endSlot,
+      };
+    }),
   };
 }
 
@@ -35,7 +51,7 @@ export async function PUT(req: Request) {
   if (!["ADMIN", "PLANOVAT"].includes(session.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body: { machine: string; days: { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[] } =
+  const body: { machine: string; days: { dayOfWeek: number; startHour?: number; endHour?: number; startSlot?: number; endSlot?: number; isActive: boolean }[] } =
     await req.json();
 
   if (!body.machine || !Array.isArray(body.days))
@@ -46,15 +62,26 @@ export async function PUT(req: Request) {
   if (JSON.stringify(sortedDays) !== "[0,1,2,3,4,5,6]")
     return NextResponse.json({ error: "days musí obsahovat každý dayOfWeek 0–6 právě jednou" }, { status: 400 });
 
+  const normalizedDays: Array<{
+    dayOfWeek: number;
+    startHour: number;
+    endHour: number;
+    startSlot: number;
+    endSlot: number;
+    isActive: boolean;
+  }> = [];
   for (const d of body.days) {
     if (!Number.isInteger(d.dayOfWeek) || d.dayOfWeek < 0 || d.dayOfWeek > 6)
       return NextResponse.json({ error: "dayOfWeek musí být celé číslo 0–6" }, { status: 400 });
-    if (!Number.isInteger(d.startHour) || d.startHour < 0 || d.startHour > 23)
-      return NextResponse.json({ error: "Neplatný startHour" }, { status: 400 });
-    if (!Number.isInteger(d.endHour) || d.endHour < 1 || d.endHour > 24)
-      return NextResponse.json({ error: "Neplatný endHour" }, { status: 400 });
-    if (d.isActive && d.startHour >= d.endHour)
-      return NextResponse.json({ error: "startHour musí být menší než endHour" }, { status: 400 });
+    let range;
+    try {
+      range = getSlotRange(d);
+    } catch {
+      return NextResponse.json({ error: "Chybí startSlot/endSlot nebo startHour/endHour" }, { status: 400 });
+    }
+    if (!isValidSlotWindow(range.startSlot, range.endSlot))
+      return NextResponse.json({ error: "Neplatný rozsah startSlot/endSlot" }, { status: 400 });
+    normalizedDays.push({ ...d, ...range, ...legacyHoursFromSlots(range.startSlot, range.endSlot) });
   }
 
   const defaultTemplate = await prisma.machineWorkHoursTemplate.findFirst({
@@ -64,10 +91,16 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Výchozí šablona nenalezena — spusťte bootstrap." }, { status: 404 });
 
   await prisma.$transaction(
-    body.days.map((d) =>
+    normalizedDays.map((d) =>
       prisma.machineWorkHoursTemplateDay.updateMany({
         where: { templateId: defaultTemplate.id, dayOfWeek: d.dayOfWeek },
-        data: { startHour: d.startHour, endHour: d.endHour, isActive: d.isActive },
+        data: {
+          startHour: d.startHour,
+          endHour: d.endHour,
+          startSlot: d.startSlot,
+          endSlot: d.endSlot,
+          isActive: d.isActive,
+        },
       })
     )
   );
@@ -91,7 +124,7 @@ export async function POST(req: Request) {
     label?: string;
     validFrom: string; // YYYY-MM-DD
     validTo?: string;  // YYYY-MM-DD nebo chybí
-    days: { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[];
+    days: { dayOfWeek: number; startHour?: number; endHour?: number; startSlot?: number; endSlot?: number; isActive: boolean }[];
   } = await req.json();
 
   if (!body.machine || !body.validFrom || !Array.isArray(body.days))
@@ -111,15 +144,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "validFrom musí být před validTo" }, { status: 400 });
 
   // Validace hodin + dayOfWeek
+  const normalizedDays: Array<{
+    dayOfWeek: number;
+    startHour: number;
+    endHour: number;
+    startSlot: number;
+    endSlot: number;
+    isActive: boolean;
+  }> = [];
   for (const d of body.days) {
     if (!Number.isInteger(d.dayOfWeek) || d.dayOfWeek < 0 || d.dayOfWeek > 6)
       return NextResponse.json({ error: "dayOfWeek musí být celé číslo 0–6" }, { status: 400 });
-    if (!Number.isInteger(d.startHour) || d.startHour < 0 || d.startHour > 23)
-      return NextResponse.json({ error: "Neplatný startHour" }, { status: 400 });
-    if (!Number.isInteger(d.endHour) || d.endHour < 1 || d.endHour > 24)
-      return NextResponse.json({ error: "Neplatný endHour" }, { status: 400 });
-    if (d.isActive && d.startHour >= d.endHour)
-      return NextResponse.json({ error: "startHour musí být menší než endHour" }, { status: 400 });
+    let range;
+    try {
+      range = getSlotRange(d);
+    } catch {
+      return NextResponse.json({ error: "Chybí startSlot/endSlot nebo startHour/endHour" }, { status: 400 });
+    }
+    if (!isValidSlotWindow(range.startSlot, range.endSlot))
+      return NextResponse.json({ error: "Neplatný rozsah startSlot/endSlot" }, { status: 400 });
+    normalizedDays.push({ ...d, ...range, ...legacyHoursFromSlots(range.startSlot, range.endSlot) });
   }
 
   // Overlap check + create v jedné transakci — prevence race condition při souběžných POST
@@ -150,7 +194,16 @@ export async function POST(req: Request) {
           validFrom: newFrom,
           validTo: newTo,
           isDefault: false,
-          days: { create: body.days.map((d) => ({ dayOfWeek: d.dayOfWeek, startHour: d.startHour, endHour: d.endHour, isActive: d.isActive })) },
+          days: {
+            create: normalizedDays.map((d) => ({
+              dayOfWeek: d.dayOfWeek,
+              startHour: d.startHour,
+              endHour: d.endHour,
+              startSlot: d.startSlot,
+              endSlot: d.endSlot,
+              isActive: d.isActive,
+            })),
+          },
         },
         include: { days: { orderBy: { dayOfWeek: "asc" } } },
       });

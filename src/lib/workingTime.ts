@@ -2,6 +2,7 @@ import type { MachineWorkHours, MachineWorkHoursTemplate } from "@/lib/machineWo
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
 import { pragueOf } from "@/lib/dateUtils";
 import { isHardcodedBlocked, resolveScheduleRows } from "@/lib/scheduleValidation";
+import { getSlotRange } from "@/lib/timeSlots";
 
 const SLOT_MS = 30 * 60 * 1000;
 
@@ -11,23 +12,25 @@ function isBlockedSlotDynamic(
   schedule: MachineWorkHours[],
   exceptions?: MachineScheduleException[]
 ): boolean {
-  const { hour, dayOfWeek, dateStr } = pragueOf(date); // Prague TZ
+  const { slot, dayOfWeek, dateStr } = pragueOf(date); // Prague TZ
   // Exception přebíjí template — stejná precedence jako server
   const excRow = exceptions?.find(
     (e) => e.machine === machine && new Date(e.date).toISOString().slice(0, 10) === dateStr
   );
   if (excRow) {
     if (!excRow.isActive) return true;
-    return hour < excRow.startHour || hour >= excRow.endHour;
+    const excRange = getSlotRange(excRow);
+    return slot < excRange.startSlot || slot >= excRange.endSlot;
   }
   const row = schedule.find((r) => r.machine === machine && r.dayOfWeek === dayOfWeek);
   if (!row) {
     // Zrcadlení serverové logiky: template existuje ale chybí řádek pro tento den → blokováno.
     if (schedule.some((r) => r.machine === machine)) return true;
-    return isHardcodedBlocked(machine, dayOfWeek, hour);
+    return isHardcodedBlocked(machine, dayOfWeek, slot);
   }
   if (!row.isActive) return true;
-  return hour < row.startHour || hour >= row.endHour;
+  const rowRange = getSlotRange(row);
+  return slot < rowRange.startSlot || slot >= rowRange.endSlot;
 }
 
 type BlockRef = { machine: string; originalStart: Date; originalEnd: Date };

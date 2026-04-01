@@ -4,6 +4,8 @@ export type MachineWorkHours = {
   dayOfWeek: number; // 0=neděle, 1=pondělí, ..., 6=sobota
   startHour: number; // 0–23
   endHour: number;   // 1–24 (24 = konec dne)
+  startSlot?: number | null; // 0–47
+  endSlot?: number | null;   // 1–48
   isActive: boolean;
 };
 
@@ -13,6 +15,8 @@ export type MachineWorkHoursTemplateDay = {
   dayOfWeek: number; // 0–6
   startHour: number;
   endHour: number;
+  startSlot?: number | null;
+  endSlot?: number | null;
   isActive: boolean;
   // Nemá pole `machine` — machine se přidává při mapování v resolveScheduleRows
 };

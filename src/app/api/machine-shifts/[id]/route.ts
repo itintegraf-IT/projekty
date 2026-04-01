@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  getSlotRange,
+  isValidSlotWindow,
+  legacyHoursFromSlots,
+  slotToHour,
+} from "@/lib/timeSlots";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -11,12 +17,22 @@ function serializeTemplate(t: {
   validFrom: Date;
   validTo: Date | null;
   isDefault: boolean;
-  days: { id: number; dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[];
+  days: { id: number; dayOfWeek: number; startHour: number; endHour: number; startSlot: number | null; endSlot: number | null; isActive: boolean }[];
 }) {
   return {
     ...t,
     validFrom: t.validFrom.toISOString().slice(0, 10),
     validTo: t.validTo ? t.validTo.toISOString().slice(0, 10) : null,
+    days: t.days.map((d) => {
+      const { startSlot, endSlot } = getSlotRange(d);
+      return {
+        ...d,
+        startHour: slotToHour(startSlot),
+        endHour: slotToHour(endSlot),
+        startSlot,
+        endSlot,
+      };
+    }),
   };
 }
 
@@ -38,7 +54,7 @@ export async function PUT(
     label?: string | null;
     validFrom?: string;  // YYYY-MM-DD — ignorováno pro default šablony
     validTo?: string | null;
-    days?: { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[];
+    days?: { dayOfWeek: number; startHour?: number; endHour?: number; startSlot?: number; endSlot?: number; isActive: boolean }[];
   } = await req.json();
 
   const template = await prisma.machineWorkHoursTemplate.findUnique({
@@ -53,14 +69,21 @@ export async function PUT(
     return NextResponse.json({ error: "Výchozí šabloně nelze nastavit datum platnosti" }, { status: 400 });
 
   // Validace hodin pokud jsou days přítomny
+  let normalizedDays:
+    Array<{ dayOfWeek: number; startHour: number; endHour: number; startSlot: number; endSlot: number; isActive: boolean }>
+    | null = null;
   if (body.days) {
+    normalizedDays = [];
     for (const d of body.days) {
-      if (d.startHour < 0 || d.startHour > 23)
-        return NextResponse.json({ error: "Neplatný startHour" }, { status: 400 });
-      if (d.endHour < 1 || d.endHour > 24)
-        return NextResponse.json({ error: "Neplatný endHour" }, { status: 400 });
-      if (d.isActive && d.startHour >= d.endHour)
-        return NextResponse.json({ error: "startHour musí být menší než endHour" }, { status: 400 });
+      let range;
+      try {
+        range = getSlotRange(d);
+      } catch {
+        return NextResponse.json({ error: "Chybí startSlot/endSlot nebo startHour/endHour" }, { status: 400 });
+      }
+      if (!isValidSlotWindow(range.startSlot, range.endSlot))
+        return NextResponse.json({ error: "Neplatný rozsah startSlot/endSlot" }, { status: 400 });
+      normalizedDays.push({ dayOfWeek: d.dayOfWeek, ...legacyHoursFromSlots(range.startSlot, range.endSlot), ...range, isActive: d.isActive });
     }
   }
 
@@ -76,12 +99,18 @@ export async function PUT(
       await tx.machineWorkHoursTemplate.update({ where: { id }, data: metaUpdate });
     }
 
-    if (body.days) {
+    if (normalizedDays) {
       await Promise.all(
-        body.days.map((d) =>
+        normalizedDays.map((d) =>
           tx.machineWorkHoursTemplateDay.updateMany({
             where: { templateId: id, dayOfWeek: d.dayOfWeek },
-            data: { startHour: d.startHour, endHour: d.endHour, isActive: d.isActive },
+            data: {
+              startHour: d.startHour,
+              endHour: d.endHour,
+              startSlot: d.startSlot,
+              endSlot: d.endSlot,
+              isActive: d.isActive,
+            },
           })
         )
       );

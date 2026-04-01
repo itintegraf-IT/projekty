@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import PlannerPage from "./_components/PlannerPage";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { serializeTemplates } from "@/lib/scheduleValidation";
+import { getSlotRange, slotToHour } from "@/lib/timeSlots";
 
 export default async function HomePage({
   searchParams,
@@ -60,6 +61,10 @@ export default async function HomePage({
 
   const serializedMachineExceptions = machineExceptions.map((e) => ({
     ...e,
+    startHour: slotToHour(getSlotRange(e).startSlot),
+    endHour: slotToHour(getSlotRange(e).endSlot),
+    startSlot: getSlotRange(e).startSlot,
+    endSlot: getSlotRange(e).endSlot,
     date: e.date.toISOString(),
     createdAt: e.createdAt.toISOString(),
   }));

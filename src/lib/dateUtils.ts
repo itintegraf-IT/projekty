@@ -5,19 +5,23 @@
 const PRAGUE_PARTS_FMT = new Intl.DateTimeFormat("en", {
   timeZone: "Europe/Prague",
   year: "numeric", month: "2-digit", day: "2-digit",
-  weekday: "short", hour: "2-digit", hour12: false,
+  weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
 });
 const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 /**
- * UTC Date → { hour, dayOfWeek, dateStr } v Europe/Prague timezone.
+ * UTC Date → { hour, minute, slot, dayOfWeek, dateStr } v Europe/Prague timezone.
  * Sdílená utility pro server (route soubory) i klient (workingTime.ts).
  */
-export function pragueOf(d: Date): { hour: number; dayOfWeek: number; dateStr: string } {
+export function pragueOf(d: Date): { hour: number; minute: number; slot: number; dayOfWeek: number; dateStr: string } {
   const parts = PRAGUE_PARTS_FMT.formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const hour = parseInt(get("hour"), 10);
+  const minute = parseInt(get("minute"), 10);
   return {
-    hour: parseInt(get("hour"), 10),
+    hour,
+    minute,
+    slot: hour * 2 + (minute >= 30 ? 1 : 0),
     dayOfWeek: DOW_SHORT.indexOf(get("weekday") as typeof DOW_SHORT[number]),
     dateStr: `${get("year")}-${get("month")}-${get("day")}`,
   };

@@ -40,9 +40,14 @@ INSERT INTO `JobPreset` (
     `appliesToRezervace`,
     `machineConstraint`
 )
-SELECT * FROM (
-    SELECT 'XL 105', true, true, 0, true, true, 'XL_105'
-) AS tmp
+SELECT
+    'XL 105',
+    true,
+    true,
+    0,
+    true,
+    true,
+    'XL_105'
 WHERE NOT EXISTS (
     SELECT 1 FROM `JobPreset` WHERE `isSystemPreset` = true AND `name` = 'XL 105'
 );
@@ -56,9 +61,14 @@ INSERT INTO `JobPreset` (
     `appliesToRezervace`,
     `machineConstraint`
 )
-SELECT * FROM (
-    SELECT 'XL 106 LED', true, true, 1, true, true, 'XL_106'
-) AS tmp
+SELECT
+    'XL 106 LED',
+    true,
+    true,
+    1,
+    true,
+    true,
+    'XL_106'
 WHERE NOT EXISTS (
     SELECT 1 FROM `JobPreset` WHERE `isSystemPreset` = true AND `name` = 'XL 106 LED'
 );
@@ -72,9 +82,14 @@ INSERT INTO `JobPreset` (
     `appliesToRezervace`,
     `machineConstraint`
 )
-SELECT * FROM (
-    SELECT 'XL 106 IML', true, true, 2, true, true, 'XL_106'
-) AS tmp
+SELECT
+    'XL 106 IML',
+    true,
+    true,
+    2,
+    true,
+    true,
+    'XL_106'
 WHERE NOT EXISTS (
     SELECT 1 FROM `JobPreset` WHERE `isSystemPreset` = true AND `name` = 'XL 106 IML'
 );

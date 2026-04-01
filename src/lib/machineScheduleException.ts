@@ -4,6 +4,8 @@ export type MachineScheduleException = {
   date: string;         // ISO string (serialized pro client)
   startHour: number;    // 0–23
   endHour: number;      // 1–24
+  startSlot?: number | null; // 0–47
+  endSlot?: number | null;   // 1–48
   isActive: boolean;
   label: string | null;
 };

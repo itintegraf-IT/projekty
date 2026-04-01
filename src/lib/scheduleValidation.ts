@@ -1,5 +1,6 @@
 import { pragueOf } from "./dateUtils";
 import type { MachineWorkHours, MachineWorkHoursTemplate } from "./machineWorkHours";
+import { getSlotRange, slotFromHourBoundary, slotToHour } from "./timeSlots";
 
 /**
  * Vrátí MachineWorkHours-kompatibilní řádky pro konkrétní datum z pole šablon.
@@ -12,7 +13,7 @@ export function resolveScheduleRows(
   machine: string,
   date: Date,
   templates: MachineWorkHoursTemplate[]
-): Array<{ machine: string; dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }> {
+): Array<{ machine: string; dayOfWeek: number; startHour: number; endHour: number; startSlot: number; endSlot: number; isActive: boolean }> {
   const dateStr = pragueOf(date).dateStr; // Europe/Prague datum — nikdy UTC slice (off-by-one v noci)
   const machineTemplates = templates.filter((t) => t.machine === machine);
 
@@ -31,6 +32,8 @@ export function resolveScheduleRows(
     dayOfWeek: d.dayOfWeek,
     startHour: d.startHour,
     endHour: d.endHour,
+    startSlot: getSlotRange(d).startSlot,
+    endSlot: getSlotRange(d).endSlot,
     isActive: d.isActive,
   }));
 }
@@ -46,6 +49,18 @@ export function serializeTemplates(
     ...t,
     validFrom: (t.validFrom as Date).toISOString().slice(0, 10),
     validTo: t.validTo ? (t.validTo as Date).toISOString().slice(0, 10) : null,
+    days: Array.isArray(t.days)
+      ? (t.days as MachineWorkHoursTemplate["days"]).map((d) => {
+          const { startSlot, endSlot } = getSlotRange(d);
+          return {
+            ...d,
+            startSlot,
+            endSlot,
+            startHour: slotToHour(startSlot),
+            endHour: slotToHour(endSlot),
+          };
+        })
+      : [],
   })) as MachineWorkHoursTemplate[];
 }
 
@@ -53,17 +68,25 @@ export function serializeTemplates(
  * Hardcoded pravidla pro bloky mimo provoz — fallback když schedule neobsahuje
  * řádek pro daný dayOfWeek. Parametry jsou v Europe/Prague timezone.
  */
-export function isHardcodedBlocked(machine: string, dayOfWeek: number, hour: number): boolean {
+export function isHardcodedBlocked(machine: string, dayOfWeek: number, slot: number): boolean {
   if (dayOfWeek === 6) return true;                                     // sobota — oba stroje
-  if (dayOfWeek === 0) return machine === "XL_105" || hour < 22;       // neděle — XL_105 celý den, XL_106 do 22:00
-  if (dayOfWeek === 5 && hour >= 22) return true;                       // pátek noc — oba stroje
-  if (machine === "XL_105" && (hour >= 22 || hour < 6)) return true;   // všední noc — jen XL_105
+  if (dayOfWeek === 0) return machine === "XL_105" || slot < slotFromHourBoundary(22);       // neděle — XL_105 celý den, XL_106 do 22:00
+  if (dayOfWeek === 5 && slot >= slotFromHourBoundary(22)) return true;                       // pátek noc — oba stroje
+  if (machine === "XL_105" && (slot >= slotFromHourBoundary(22) || slot < slotFromHourBoundary(6))) return true;   // všední noc — jen XL_105
   return false;
 }
 
 // `date` je string na klientu (serialized JSON), ale Date z Prisma na serveru — oba fungují s new Date()
 // `machine` je optional pro zpětnou kompatibilitu — pokud chybí, filtr se přeskočí
-type ExceptionSlim = { machine?: string; date: Date | string; startHour: number; endHour: number; isActive: boolean };
+type ExceptionSlim = {
+  machine?: string;
+  date: Date | string;
+  startHour: number;
+  endHour: number;
+  startSlot?: number | null;
+  endSlot?: number | null;
+  isActive: boolean;
+};
 
 /**
  * Validace bloku vůči provozním hodinám s per-slot template resolve.
@@ -81,7 +104,7 @@ export function checkScheduleViolationWithTemplates(
   const scheduleCache = new Map<string, ReturnType<typeof resolveScheduleRows>>();
   let cur = new Date(startTime);
   while (cur < endTime) {
-    const { hour, dayOfWeek, dateStr } = pragueOf(cur);
+    const { slot, dayOfWeek, dateStr } = pragueOf(cur);
     if (!scheduleCache.has(dateStr)) {
       scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, templates));
     }
@@ -91,7 +114,8 @@ export function checkScheduleViolationWithTemplates(
     );
     // Exception přebíjí template
     if (exc) {
-      if (!exc.isActive || hour < exc.startHour || hour >= exc.endHour) {
+      const excRange = getSlotRange(exc);
+      if (!exc.isActive || slot < excRange.startSlot || slot >= excRange.endSlot) {
         return "Blok zasahuje do doby mimo provoz stroje.";
       }
     } else {
@@ -99,11 +123,14 @@ export function checkScheduleViolationWithTemplates(
       if (!row) {
         // Template pro stroj existuje, ale chybí řádek pro tento den → den je mimo provoz.
         // Fallback na hardcoded pravidla jen pokud template vůbec neexistuje (schedule.length === 0).
-        if (schedule.length > 0 || isHardcodedBlocked(machine, dayOfWeek, hour)) {
+        if (schedule.length > 0 || isHardcodedBlocked(machine, dayOfWeek, slot)) {
           return "Blok zasahuje do doby mimo provoz stroje.";
         }
-      } else if (!row.isActive || hour < row.startHour || hour >= row.endHour) {
-        return "Blok zasahuje do doby mimo provoz stroje.";
+      } else {
+        const rowRange = getSlotRange(row);
+        if (!row.isActive || slot < rowRange.startSlot || slot >= rowRange.endSlot) {
+          return "Blok zasahuje do doby mimo provoz stroje.";
+        }
       }
     }
     cur = new Date(cur.getTime() + SLOT_MS);
