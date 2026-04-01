@@ -10,6 +10,7 @@
  * Spuštění: npm run prisma:bootstrap
  */
 
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 

@@ -1,5 +1,6 @@
 -- AlterTable
-ALTER TABLE `Block` ADD COLUMN `splitGroupId` INTEGER NULL;
+-- INT UNSIGNED: musí odpovídat typu `Block.id` (např. DB z mysql-schema.sql má UNSIGNED)
+ALTER TABLE `Block` ADD COLUMN `splitGroupId` INT UNSIGNED NULL;
 
 -- CreateIndex
 CREATE INDEX `Block_splitGroupId_idx` ON `Block`(`splitGroupId`);

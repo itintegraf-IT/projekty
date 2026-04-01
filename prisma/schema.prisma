@@ -35,7 +35,7 @@ model Block {
   materialNoteByUsername String?
   recurrenceType           String    @default("NONE")
   recurrenceParentId       Int?
-  splitGroupId             Int?
+  splitGroupId             Int?      @db.UnsignedInt
   pantoneRequiredDate      DateTime?
   pantoneOk                Boolean   @default(false)
   materialInStock          Boolean   @default(false)
