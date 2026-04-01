@@ -3,7 +3,20 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
-import { pragueToUTC, utcToPragueHour, utcToPragueDateStr } from "@/lib/dateUtils";
+import {
+  addDaysToCivilDate,
+  addMonthsToCivilDate,
+  diffCivilDateDays,
+  formatCivilDate,
+  formatPragueDateShort,
+  formatPragueDateTime,
+  formatPragueTime,
+  normalizeCivilDateInput,
+  pragueToUTC,
+  todayPragueDateStr,
+  utcToPragueDateStr,
+  utcToPragueHour,
+} from "@/lib/dateUtils";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
@@ -221,31 +234,22 @@ const DURATION_OPTIONS = Array.from({ length: 48 }, (_, i) => {
 });
 
 // ─── Pomocné funkce ───────────────────────────────────────────────────────────
-function startOfDay(d: Date): Date {
-  const r = new Date(d);
-  r.setHours(0, 0, 0, 0);
-  return r;
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
-
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleString("cs-CZ", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  if (Number.isNaN(d.getTime())) return "—";
+  return formatPragueDateTime(d);
 }
 
 function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("cs-CZ", {
-    day: "2-digit", month: "2-digit", year: "numeric",
-  });
+  return formatCivilDate(iso);
+}
+
+function formatPragueMaybeToday(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const isToday = utcToPragueDateStr(d) === todayPragueDateStr();
+  const time = formatPragueTime(d);
+  return isToday ? time : `${formatPragueDateShort(d)} ${time}`;
 }
 
 function durationHuman(startIso: string, endIso: string): string {
@@ -1376,9 +1380,7 @@ function BlockDetail({
           <div style={{ padding: "7px 12px", display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, color: "#22c55e", fontWeight: 700 }}>✓ Tisk dokončen</span>
             <span style={{ fontSize: 10, color: "var(--text-muted)", flex: 1 }}>
-              {new Date(block.printCompletedAt).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit" })}
-              {" "}
-              {new Date(block.printCompletedAt).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+              {formatPragueDateTime(new Date(block.printCompletedAt))}
               {block.printCompletedByUsername && ` — ${block.printCompletedByUsername}`}
             </span>
           </div>
@@ -1395,7 +1397,7 @@ function BlockDetail({
             {blockHistory.map((log, i) => (
               <div key={log.id} style={{ padding: "5px 10px", borderTop: i > 0 ? "1px solid var(--border)" : undefined, display: "flex", gap: 8, alignItems: "flex-start" }}>
                 <div style={{ fontSize: 9, color: "var(--text-muted)", whiteSpace: "nowrap", paddingTop: 1, minWidth: 70 }}>
-                  {new Date(log.createdAt).toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit" })} {new Date(log.createdAt).toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" })}
+                  {formatPragueDateShort(new Date(log.createdAt))} {formatPragueTime(new Date(log.createdAt))}
                 </div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", flex: 1 }}>
                   <span style={{ color: "var(--text)", fontWeight: 600 }}>{log.username}</span>
@@ -1492,19 +1494,19 @@ const FIELD_LABELS: Record<string, string> = {
 function fmtAuditVal(val: string | null, field: string | null) {
   if (!val || val === "null") return "—";
   if (field === "dataOk" || field === "materialOk") return val === "true" ? "✓ OK" : "✗ Ne";
-  if (val.includes("T") && val.includes("Z")) {
-    try { return new Date(val).toLocaleDateString("cs-CZ"); } catch { return val; }
+  if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
+    return formatCivilDate(val);
+  }
+  if (val.includes("T")) {
+    const d = new Date(val);
+    if (!Number.isNaN(d.getTime())) return formatPragueDateTime(d);
   }
   return val;
 }
 
 function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; onClose: () => void; onJumpToBlock: (orderNumber: string) => void }) {
   function fmtDatetime(iso: string) {
-    const d = new Date(iso);
-    const tz = "Europe/Prague";
-    const isToday = d.toLocaleDateString("en-CA", { timeZone: tz }) === new Date().toLocaleDateString("en-CA", { timeZone: tz });
-    const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: tz });
-    return isToday ? time : d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", timeZone: tz }) + " " + time;
+    return formatPragueMaybeToday(iso);
   }
   function fmtVal(val: string | null, field: string | null) {
     return fmtAuditVal(val, field);
@@ -1569,11 +1571,7 @@ function InboxPanel({ notifications, onClose, onMarkRead, onJumpToBlock }: {
   onJumpToBlock: (orderNumber: string) => void;
 }) {
   function fmtDatetime(iso: string) {
-    const d = new Date(iso);
-    const tz = "Europe/Prague";
-    const isToday = d.toLocaleDateString("en-CA", { timeZone: tz }) === new Date().toLocaleDateString("en-CA", { timeZone: tz });
-    const time = d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: tz });
-    return isToday ? time : d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", timeZone: tz }) + " " + time;
+    return formatPragueMaybeToday(iso);
   }
 
   return (
@@ -2431,7 +2429,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   const effectiveDaysBack = isTiskar ? 1 : daysBack;
-  const viewStart = startOfDay(addDays(new Date(), -effectiveDaysBack));
+  const viewStart = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -effectiveDaysBack), 0, 0);
 
   // "Přejít na" blok mimo rozsah — ref pro čekající scroll + výběr bloku po změně daysBack/daysAhead
   const pendingScrollMs = useRef<number | null>(null);
@@ -2440,7 +2438,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const target = pendingScrollMs.current;
     if (target === null) return;
     pendingScrollMs.current = null;
-    const newViewStart = startOfDay(addDays(new Date(), -daysBack));
+    const newViewStart = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -daysBack), 0, 0);
     const y = dateToY(new Date(target), newViewStart, slotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     if (pendingSelectBlock.current) {
@@ -2450,9 +2448,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }, [daysBack, daysAhead]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleJumpToOutOfRange(block: Block) {
-    const blockDate = startOfDay(new Date(block.startTime));
-    const today = startOfDay(new Date());
-    const diffDays = Math.round((today.getTime() - blockDate.getTime()) / (24 * 60 * 60 * 1000));
+    const diffDays = diffCivilDateDays(utcToPragueDateStr(new Date(block.startTime)), todayPragueDateStr());
     pendingScrollMs.current = new Date(block.startTime).getTime();
     setDaysBack(Math.max(3, diffDays + 5));
   }
@@ -2487,8 +2483,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       pendingSelectBlock.current = block;
       handleJumpToOutOfRange(block);
     } else {
-      const today = startOfDay(new Date());
-      const diffDays = Math.round((today.getTime() - blockTime.getTime()) / (24 * 60 * 60 * 1000));
+      const diffDays = diffCivilDateDays(utcToPragueDateStr(blockTime), todayPragueDateStr());
       if (diffDays < -daysAhead) {
         // Blok je v budoucnosti za viewEnd — rozšíř daysAhead, blok se vybere po re-renderu
         pendingScrollMs.current = blockTime.getTime();
@@ -2538,10 +2533,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   function handleJumpToDate(dateStr: string) {
-    if (!dateStr) return;
-    const d = new Date(dateStr + "T00:00:00");
-    const today = startOfDay(new Date());
-    const diffDays = Math.round((today.getTime() - d.getTime()) / (24 * 60 * 60 * 1000));
+    const normalized = normalizeCivilDateInput(dateStr);
+    if (!normalized) return;
+    const d = pragueToUTC(normalized, 0, 0);
+    const diffDays = diffCivilDateDays(normalized, todayPragueDateStr());
     if (diffDays > daysBack) {
       // Datum je před aktuálním viewStart — rozšíř historii, pak scrollni
       pendingScrollMs.current = d.getTime();
@@ -3317,11 +3312,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   function addRecurrenceInterval(date: Date, type: string): Date {
-    const d = new Date(date);
-    if (type === "DAILY") d.setDate(d.getDate() + 1);
-    else if (type === "WEEKLY") d.setDate(d.getDate() + 7);
-    else if (type === "MONTHLY") d.setMonth(d.getMonth() + 1);
-    return d;
+    const dateStr = normalizeCivilDateInput(date);
+    if (!dateStr) return date;
+    if (type === "DAILY") return pragueToUTC(addDaysToCivilDate(dateStr, 1), 12, 0);
+    if (type === "WEEKLY") return pragueToUTC(addDaysToCivilDate(dateStr, 7), 12, 0);
+    if (type === "MONTHLY") return pragueToUTC(addMonthsToCivilDate(dateStr, 1), 12, 0);
+    return date;
   }
 
   function generateSeriesPreview(firstDate: string, firstHour: number, count: number, rType: string, defaultDataDate: string, defaultExpedice: string): Array<{ date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }> {
@@ -3357,7 +3353,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         // Datum posíláme jako YYYY-MM-DD lokálního (CZ) kalendářního dne — bez UTC posunu
         body: JSON.stringify({
           machine,
-          date: `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`,
+          date: utcToPragueDateStr(date),
           startSlot,
           endSlot,
           isActive,

@@ -1,4 +1,4 @@
-import { pragueOf } from "./dateUtils";
+import { normalizeCivilDateInput, pragueOf } from "./dateUtils";
 import type { MachineWorkHours, MachineWorkHoursTemplate } from "./machineWorkHours";
 import { getSlotRange, slotFromHourBoundary, slotToHour } from "./timeSlots";
 
@@ -47,8 +47,8 @@ export function serializeTemplates(
 ): MachineWorkHoursTemplate[] {
   return raw.map((t) => ({
     ...t,
-    validFrom: (t.validFrom as Date).toISOString().slice(0, 10),
-    validTo: t.validTo ? (t.validTo as Date).toISOString().slice(0, 10) : null,
+    validFrom: normalizeCivilDateInput(t.validFrom as Date)!,
+    validTo: normalizeCivilDateInput(t.validTo as Date | null) ?? null,
     days: Array.isArray(t.days)
       ? (t.days as MachineWorkHoursTemplate["days"]).map((d) => {
           const { startSlot, endSlot } = getSlotRange(d);
@@ -110,7 +110,7 @@ export function checkScheduleViolationWithTemplates(
     }
     const schedule = scheduleCache.get(dateStr)!;
     const exc = exceptions.find(
-      (e) => (!e.machine || e.machine === machine) && new Date(e.date).toISOString().slice(0, 10) === dateStr
+      (e) => (!e.machine || e.machine === machine) && normalizeCivilDateInput(e.date) === dateStr
     );
     // Exception přebíjí template
     if (exc) {

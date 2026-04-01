@@ -1,6 +1,6 @@
 import type { MachineWorkHours, MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
-import { pragueOf } from "@/lib/dateUtils";
+import { normalizeCivilDateInput, pragueOf } from "@/lib/dateUtils";
 import { isHardcodedBlocked, resolveScheduleRows } from "@/lib/scheduleValidation";
 import { getSlotRange } from "@/lib/timeSlots";
 
@@ -15,7 +15,7 @@ function isBlockedSlotDynamic(
   const { slot, dayOfWeek, dateStr } = pragueOf(date); // Prague TZ
   // Exception přebíjí template — stejná precedence jako server
   const excRow = exceptions?.find(
-    (e) => e.machine === machine && new Date(e.date).toISOString().slice(0, 10) === dateStr
+    (e) => e.machine === machine && normalizeCivilDateInput(e.date) === dateStr
   );
   if (excRow) {
     if (!excRow.isActive) return true;

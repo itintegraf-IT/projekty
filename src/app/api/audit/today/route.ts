@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { addDaysToCivilDate, pragueToUTC, todayPragueDateStr } from "@/lib/dateUtils";
 
 export async function GET() {
   const session = await getSession();
@@ -9,9 +10,7 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  threeDaysAgo.setHours(0, 0, 0, 0);
+  const threeDaysAgo = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -3), 0, 0);
 
   try {
     // Načíst dnešní logy od uživatelů s rolí DTP, MTZ nebo TISKAR

@@ -2,6 +2,13 @@
 
 import { Reservation } from "./RezervacePage";
 
+const DATE_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: "Europe/Prague",
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
 interface Props {
   reservation: Reservation;
   currentUser: { id: number; username: string; role: string };
@@ -27,7 +34,7 @@ const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
 
 function fmtDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleDateString("cs-CZ", { day: "numeric", month: "short", year: "numeric" });
+    return DATE_FMT.format(new Date(iso));
   } catch {
     return iso;
   }

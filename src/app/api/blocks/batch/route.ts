@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { serializeBlock } from "@/lib/blockSerialization";
 import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 type BatchUpdate = {
@@ -148,7 +149,7 @@ export async function POST(request: NextRequest) {
       return updated;
     });
 
-    return NextResponse.json(results);
+    return NextResponse.json(results.map(serializeBlock));
   } catch (error: unknown) {
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Jeden nebo více bloků nenalezeno" }, { status: 404 });

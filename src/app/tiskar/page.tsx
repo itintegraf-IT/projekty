@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { startOfDay, addDays } from "date-fns";
+import { serializeBlock } from "@/lib/blockSerialization";
+import { addDaysToCivilDate, pragueToUTC, utcToPragueDateStr } from "@/lib/dateUtils";
 import TiskarMonitor from "./_components/TiskarMonitor";
 
 export default async function TiskarPage() {
@@ -13,8 +14,9 @@ export default async function TiskarPage() {
     redirect("/login");
   }
 
-  const viewStart = startOfDay(new Date());
-  const viewEnd = addDays(viewStart, 7);
+  const viewStartDate = utcToPragueDateStr(new Date());
+  const viewStart = pragueToUTC(viewStartDate, 0, 0);
+  const viewEnd = pragueToUTC(addDaysToCivilDate(viewStartDate, 7), 0, 0);
 
   const blocks = await prisma.block.findMany({
     where: {
@@ -26,17 +28,7 @@ export default async function TiskarPage() {
   });
 
   // Serializovat Date → string pro client component
-  const serializedBlocks = blocks.map((b) => ({
-    ...b,
-    startTime: b.startTime.toISOString(),
-    endTime: b.endTime.toISOString(),
-    deadlineExpedice: b.deadlineExpedice?.toISOString() ?? null,
-    dataRequiredDate: b.dataRequiredDate?.toISOString() ?? null,
-    materialRequiredDate: b.materialRequiredDate?.toISOString() ?? null,
-    printCompletedAt: b.printCompletedAt?.toISOString() ?? null,
-    createdAt: b.createdAt.toISOString(),
-    updatedAt: b.updatedAt.toISOString(),
-  }));
+  const serializedBlocks = blocks.map(serializeBlock);
 
   return (
     <TiskarMonitor

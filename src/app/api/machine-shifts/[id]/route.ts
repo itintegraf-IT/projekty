@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { civilDateToUTCMidnight, normalizeCivilDateInput, parseCivilDateWriteInput } from "@/lib/dateUtils";
 import {
   getSlotRange,
   isValidSlotWindow,
@@ -21,8 +22,8 @@ function serializeTemplate(t: {
 }) {
   return {
     ...t,
-    validFrom: t.validFrom.toISOString().slice(0, 10),
-    validTo: t.validTo ? t.validTo.toISOString().slice(0, 10) : null,
+    validFrom: normalizeCivilDateInput(t.validFrom)!,
+    validTo: normalizeCivilDateInput(t.validTo),
     days: t.days.map((d) => {
       const { startSlot, endSlot } = getSlotRange(d);
       return {
@@ -88,42 +89,69 @@ export async function PUT(
   }
 
   // Metadata update + child days update v jedné transakci
-  const updated = await prisma.$transaction(async (tx) => {
-    const metaUpdate: Record<string, unknown> = {};
-    if (body.label !== undefined) metaUpdate.label = body.label;
-    if (!template.isDefault) {
-      if (body.validFrom !== undefined) metaUpdate.validFrom = new Date(body.validFrom + "T00:00:00.000Z");
-      if (body.validTo !== undefined) metaUpdate.validTo = body.validTo ? new Date(body.validTo + "T00:00:00.000Z") : null;
-    }
-    if (Object.keys(metaUpdate).length > 0) {
-      await tx.machineWorkHoursTemplate.update({ where: { id }, data: metaUpdate });
-    }
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const metaUpdate: Record<string, unknown> = {};
+      if (body.label !== undefined) metaUpdate.label = body.label;
+      if (!template.isDefault) {
+        if (body.validFrom !== undefined) {
+          const validFrom = parseCivilDateWriteInput(body.validFrom);
+          if (!validFrom) {
+            throw Object.assign(new Error("invalid-validFrom"), { code: "INVALID_VALID_FROM" });
+          }
+          metaUpdate.validFrom = civilDateToUTCMidnight(validFrom);
+        }
+        if (body.validTo !== undefined) {
+          if (body.validTo === null || body.validTo === "") {
+            metaUpdate.validTo = null;
+          } else {
+            const validTo = parseCivilDateWriteInput(body.validTo);
+            if (!validTo) {
+              throw Object.assign(new Error("invalid-validTo"), { code: "INVALID_VALID_TO" });
+            }
+            metaUpdate.validTo = civilDateToUTCMidnight(validTo);
+          }
+        }
+      }
+      if (Object.keys(metaUpdate).length > 0) {
+        await tx.machineWorkHoursTemplate.update({ where: { id }, data: metaUpdate });
+      }
 
-    if (normalizedDays) {
-      await Promise.all(
-        normalizedDays.map((d) =>
-          tx.machineWorkHoursTemplateDay.updateMany({
-            where: { templateId: id, dayOfWeek: d.dayOfWeek },
-            data: {
-              startHour: d.startHour,
-              endHour: d.endHour,
-              startSlot: d.startSlot,
-              endSlot: d.endSlot,
-              isActive: d.isActive,
-            },
-          })
-        )
-      );
-    }
+      if (normalizedDays) {
+        await Promise.all(
+          normalizedDays.map((d) =>
+            tx.machineWorkHoursTemplateDay.updateMany({
+              where: { templateId: id, dayOfWeek: d.dayOfWeek },
+              data: {
+                startHour: d.startHour,
+                endHour: d.endHour,
+                startSlot: d.startSlot,
+                endSlot: d.endSlot,
+                isActive: d.isActive,
+              },
+            })
+          )
+        );
+      }
 
-    return tx.machineWorkHoursTemplate.findUnique({
-      where: { id },
-      include: { days: { orderBy: { dayOfWeek: "asc" } } },
+      return tx.machineWorkHoursTemplate.findUnique({
+        where: { id },
+        include: { days: { orderBy: { dayOfWeek: "asc" } } },
+      });
     });
-  });
 
-  if (!updated) return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
-  return NextResponse.json(serializeTemplate(updated));
+    if (!updated) return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
+    return NextResponse.json(serializeTemplate(updated));
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "INVALID_VALID_FROM") {
+      return NextResponse.json({ error: "Neplatné datum validFrom" }, { status: 400 });
+    }
+    if (code === "INVALID_VALID_TO") {
+      return NextResponse.json({ error: "Neplatné datum validTo" }, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 export async function DELETE(
