@@ -1,0 +1,2 @@
+# Shell skripty musí mít LF (jinak na Linuxu selže shebang #!/usr/bin/env bash)
+*.sh text eol=lf
