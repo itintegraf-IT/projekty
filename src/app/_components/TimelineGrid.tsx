@@ -1,11 +1,15 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
-import { snapGroupDelta, snapToNextValidStart } from "@/lib/workingTime";
+import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
+import { utcToPragueDateStr } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
-import type { BlockVariant } from "@/lib/blockVariants";
+import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
+import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
 import { Lock, Clock } from "lucide-react";
-import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
+import { resolveScheduleRows } from "@/lib/scheduleValidation";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
 import {
   HoverCard,
@@ -18,10 +22,22 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
 } from "@/components/ui/context-menu";
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
+
+// Sdílený styl pro label chip uvnitř company day overlaye (Z10)
+const COMPANY_DAY_CHIP_STYLE: CSSProperties = {
+  position: "absolute", top: 4, left: 8, height: 14, padding: "0 5px",
+  borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca",
+  fontSize: 9, fontWeight: 700, letterSpacing: "0.04em",
+  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+  maxWidth: "calc(100% - 16px)", display: "flex", alignItems: "center", lineHeight: 1,
+};
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
 const HEADER_HEIGHT = 33;       // výška sticky headeru (px) — pro sticky label uvnitř dne
 const TIME_COL_W = 72;          // šířka sloupce s časy (px)
@@ -31,6 +47,8 @@ const VIEW_DAYS_AHEAD = 30;
 
 const WORK_START_H = 6;
 const WORK_END_H = 22;
+const WORK_START_SLOT = WORK_START_H * 2;
+const WORK_END_SLOT = WORK_END_H * 2;
 const MACHINES = ["XL_105", "XL_106"] as const;
 const SLOT_MS = 30 * 60 * 1000;
 const DRAG_THRESHOLD = 5;
@@ -44,6 +62,8 @@ export type Block = {
   endTime: string;
   type: string;
   blockVariant?: BlockVariant | null;
+  jobPresetId: number | null;
+  jobPresetLabel: string | null;
   description: string | null;
   locked: boolean;
   deadlineExpedice: string | null;
@@ -57,6 +77,10 @@ export type Block = {
   materialStatusLabel: string | null;
   materialRequiredDate: string | null;
   materialOk: boolean;
+  materialInStock: boolean;
+  // Výrobní sloupečky — PANTONE
+  pantoneRequiredDate: string | null;
+  pantoneOk: boolean;
   // Výrobní sloupečky — BARVY
   barvyStatusId: number | null;
   barvyStatusLabel: string | null;
@@ -70,9 +94,11 @@ export type Block = {
   materialNoteByUsername: string | null;
   recurrenceType: string;
   recurrenceParentId: number | null;
+  splitGroupId: number | null;
   printCompletedAt: string | null;
   printCompletedByUserId: number | null;
   printCompletedByUsername: string | null;
+  reservationId: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -84,8 +110,8 @@ type BlockedOverlay = {
   date: Date;
   machine: string;
   overlayType: "start-block" | "end-block" | "full-block";
-  effectiveStartHour: number;
-  effectiveEndHour: number;
+  effectiveStartSlot: number;
+  effectiveEndSlot: number;
   isException: boolean;
   exceptionId: number | null;
 };
@@ -94,7 +120,7 @@ type OverlayDragPreview = {
   machine: string;
   date: Date;
   edge: "start" | "end";
-  hour: number;
+  slot: number;
   overlayKey: string;
 } | null;
 
@@ -120,8 +146,8 @@ type DragInternalState =
       machine: string;
       date: Date;
       edge: "start" | "end";
-      originalBoundaryHour: number;
-      otherBoundaryHour: number;
+      originalBoundarySlot: number;
+      otherBoundarySlot: number;
       startClientY: number;
       overlayKey: string;
     };
@@ -142,8 +168,8 @@ interface TimelineGridProps {
   onBlockUpdate: (updatedBlock: Block, addToHistory?: boolean) => void;
   onBlockCreate: (newBlock: Block) => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
-  queueDragItem?: { id: number; durationHours: number; type: string } | null;
-  onQueueDrop?: (itemId: number, machine: string, startTime: Date) => void;
+  queueDragItem?: { id: number | string; durationHours: number; type: string } | null;
+  onQueueDrop?: (itemId: number | string, machine: string, startTime: Date) => void;
   onQueueDragCancel?: () => void;
   onBlockDoubleClick?: (block: Block) => void;
   companyDays?: CompanyDay[];
@@ -152,6 +178,7 @@ interface TimelineGridProps {
   daysBack?: number;
   copiedBlockId?: number | null;
   onGridClick?: (machine: string, time: Date) => void;
+  onGridClickEmpty?: () => void;
   onBlockCopy?: (block: Block) => void;
   selectedBlockIds?: Set<number>;
   onMultiSelect?: (ids: Set<number>) => void;
@@ -160,15 +187,18 @@ interface TimelineGridProps {
   canEditData?: boolean;
   canEditMat?: boolean;
   onError?: (msg: string) => void;
+  onInfo?: (msg: string) => void;
   workingTimeLock?: boolean;
   badgeColorMap?: Record<number, string | null>;
-  machineWorkHours?: MachineWorkHours[];
+  machineWorkHours?: MachineWorkHoursTemplate[];
   machineExceptions?: MachineScheduleException[];
-  onExceptionUpsert?: (machine: string, date: Date, startHour: number, endHour: number, isActive: boolean) => Promise<void>;
+  onExceptionUpsert?: (machine: string, date: Date, startSlot: number, endSlot: number, isActive: boolean) => Promise<void>;
   onExceptionDelete?: (id: number) => Promise<void>;
   isTiskar?: boolean;
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
   assignedMachine?: string | null;
+  onNotify?: (blockId: number, orderNumber: string) => void;
+  onBlockVariantChange?: (blockId: number, variant: BlockVariant) => void;
 }
 
 type QueueDropPreview = {
@@ -368,7 +398,7 @@ function fmtDate(s: string | null | undefined): string {
   if (!s) return "–";
   const d = new Date(s);
   if (isNaN(d.getTime())) return "–";
-  return d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Prague" });
 }
 
 // Zkrácený formát bez roku: "5.1."
@@ -376,7 +406,7 @@ function fmtDateShort(s: string | null | undefined): string {
   if (!s) return "–";
   const d = new Date(s);
   if (isNaN(d.getTime())) return "–";
-  return `${d.getDate()}.${d.getMonth() + 1}.`;
+  return d.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric", timeZone: "Europe/Prague" });
 }
 
 function deadlineState(requiredDate: string | null | undefined, ok: boolean, now: Date, blockStartTime?: string | Date): "none" | "ok" | "warning" | "danger" | "earlyStart" {
@@ -402,6 +432,7 @@ const FIELD_ACCENT = {
   DATA:     "color-mix(in oklab, #0ea5e9 78%, var(--text) 22%)",  // tyrkysová — data
   MATERIAL: "color-mix(in oklab, #22c55e 78%, var(--text) 22%)",  // zelená — materiál
   EXPEDICE: "color-mix(in oklab, #f97316 78%, var(--text) 22%)",  // oranžová — expedice
+  PANTONE:  "color-mix(in oklab, #a855f7 78%, var(--text) 22%)",  // fialová — pantone
 };
 
 // Deadline barvy jako tokeny — použito v DateBadge
@@ -449,9 +480,9 @@ const DAY_NAMES_TG   = ["Po","Út","St","Čt","Pá","So","Ne"];
 
 // ─── InlineDatePicker — floating calendar pro dvojklik na badge ───────────────
 function InlineDatePicker({
-  x, y, currentValue, onPick, onClose,
+  x, y, currentValue, onPick, onClose, onPickSkladem,
 }: {
-  x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void;
+  x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void; onPickSkladem?: () => void;
 }) {
   const today = new Date();
   const safeDate = currentValue ? currentValue.slice(0, 10) : "";
@@ -534,6 +565,21 @@ function InlineDatePicker({
             );
           })}
         </div>
+        {onPickSkladem && (
+          <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+            <button
+              onClick={() => { onPickSkladem(); onClose(); }}
+              style={{
+                width: "100%", padding: "6px 0", borderRadius: 8, border: "none",
+                background: "rgba(16,185,129,0.15)", color: "#10b981",
+                fontSize: 12, fontWeight: 700, cursor: "pointer",
+                letterSpacing: "0.04em",
+              }}
+            >
+              Skladem ✓
+            </button>
+          </div>
+        )}
       </div>
     </>
   );
@@ -541,14 +587,14 @@ function InlineDatePicker({
 
 // ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
 function DateBadge({
-  label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick,
+  label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick, statusLabel, overrideText,
 }: {
-  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle: () => void; onDoubleClick?: (rect: DOMRect) => void;
+  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle: () => void; onDoubleClick?: (rect: DOMRect) => void; statusLabel?: string | null; overrideText?: string;
 }) {
   const [loading, setLoading] = useState(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const empty = !dateStr;
-  const fmt = dateStr ? fmtDate(dateStr) : "—";
+  const empty = !dateStr && !overrideText;
+  const fmt = dateStr ? fmtDate(dateStr) : (overrideText ?? "—");
 
   const neutralAccent = accent ?? "var(--text-muted)";
   const stateKey = empty ? "empty" : ok ? "ok" : danger ? "danger" : warn ? "warning" : earlyStart ? "earlyStart" : "neutral";
@@ -601,7 +647,7 @@ function DateBadge({
         {label}
       </span>
       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{fmt}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: dateColor, lineHeight: 1 }}>{overrideText ?? (ok && statusLabel ? statusLabel : fmt)}</span>
         {!empty && (
           <span style={{ fontSize: 10, lineHeight: 1, color: empty ? "var(--text-muted)" : "rgba(255,255,255,0.80)" }}
                 title={earlyStart ? "Start zakázky před dodáním" : undefined}>
@@ -718,7 +764,8 @@ function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
   canEdit, canEditData, canEditMat, onInlineDatePick, badgeColorMap,
-  onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete,
+  onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
+  splitPart, splitTotal,
 }: {
   block: Block;
   top: number;
@@ -729,6 +776,8 @@ function BlockCard({
   isCopied: boolean;
   multiSelected: boolean;
   now: Date;
+  splitPart?: number;
+  splitTotal?: number;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onMouseDown?: (e: React.MouseEvent) => void;
@@ -738,19 +787,24 @@ function BlockCard({
   canEdit?: boolean;
   canEditData?: boolean;
   canEditMat?: boolean;
-  onInlineDatePick?: (blockId: number, field: "data" | "material", currentValue: string, rect: DOMRect) => void;
+  onInlineDatePick?: (blockId: number, field: "data" | "material" | "pantone", currentValue: string, rect: DOMRect) => void;
   badgeColorMap?: Record<number, string | null>;
   onBlockCopy?: () => void;
   onBlockSplit?: (splitAt: Date) => void;
   getSplitAt?: (clientY: number) => Date;
   isTiskar?: boolean;
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
+  onNotify?: (blockId: number, orderNumber: string) => void;
+  onBlockVariantChange?: (blockId: number, variant: BlockVariant) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
+  const [badgeHovered, setBadgeHovered]   = useState(false);
   const [printPending, setPrintPending]   = useState(false);
+  const blockCardRef = useRef<HTMLDivElement>(null);
   const compactDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compactMatTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const compactPanTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [noteOpen, setNoteOpen]   = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
@@ -761,11 +815,16 @@ function BlockCard({
 
   const isPrintDone   = block.printCompletedAt != null;
   const isPozastaveno = block.type === "ZAKAZKA" && block.blockVariant === "POZASTAVENO";
-  const isOverdue     = block.type !== "UDRZBA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
+  const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
   const clampedHeight = Math.max(height, 20);
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
-  const materialDeadlineState = deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
+  // materialInStock potlačuje warning logiku materiálu
+  const effectiveMaterialDate = block.materialInStock ? null : block.materialRequiredDate;
+  const effectiveMaterialOk   = block.materialInStock ? true : block.materialOk;
+  const materialDeadlineState = block.materialInStock
+    ? "ok"
+    : deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
 
   const s = isPrintDone
     ? BLOCK_PRINT_DONE
@@ -789,7 +848,13 @@ function BlockCard({
   const barvyText   = chipTextColor(barvyKey);
   const lakText     = chipTextColor(lakKey);
 
-  const hasNoteRow = (block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace);
+  const hasNoteRow = Boolean(
+    block.dataStatusLabel ||
+    block.materialStatusLabel ||
+    block.barvyStatusLabel ||
+    block.lakStatusLabel ||
+    block.specifikace
+  );
 
   // Výškové mody (vzájemně se vylučují)
   const MODE_FULL    = clampedHeight >= 48;                              // plný layout (od ~1h při zoom=26)
@@ -814,7 +879,7 @@ function BlockCard({
         ? `0 6px 24px rgba(0,0,0,0.55), 0 0 16px ${glow}, inset 0 1px 0 rgba(255,255,255,0.08)`
         : `0 2px 8px rgba(0,0,0,0.35), 0 0 10px ${glow}, inset 0 1px 0 rgba(255,255,255,0.05)`;
 
-  async function toggleField(field: "dataOk" | "materialOk", current: boolean) {
+  async function toggleField(field: "dataOk" | "materialOk" | "pantoneOk", current: boolean) {
     try {
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
@@ -875,9 +940,13 @@ function BlockCard({
   const hasNote = !!block.materialNote;
   const showMenu = (canEdit && !block.locked) || canEditMat || hasNote;
 
+  const showTooltip = block.type !== "UDRZBA" && !badgeHovered;
+
   const blockDiv = (
     <div
+      ref={blockCardRef}
       data-block="true"
+      data-planner-block-card="true"
       onMouseDown={block.locked ? undefined : onMouseDown}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -897,10 +966,9 @@ function BlockCard({
         display: "flex", flexDirection: "column",
         overflow: "hidden", userSelect: "none",
         transition: isDragging ? "none" : "box-shadow 0.15s",
-        animationName: isOverdue ? "tiskarOverduePulse" : "blockEnter",
-        animationDuration: isOverdue ? "1.8s" : "220ms",
-        animationTimingFunction: isOverdue ? "ease-in-out" : "cubic-bezier(0.34, 1.56, 0.64, 1)",
-        animationIterationCount: isOverdue ? "infinite" : undefined,
+        animationName: "blockEnter",
+        animationDuration: "220ms",
+        animationTimingFunction: "cubic-bezier(0.34, 1.56, 0.64, 1)",
         animationFillMode: "backwards",
       }}
     >
@@ -914,8 +982,9 @@ function BlockCard({
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
         const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = !block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
+        const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
         const dateChip = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 10, fontWeight: 600,
           color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
@@ -939,15 +1008,22 @@ function BlockCard({
                   D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
-                  <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                    onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                    M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+                  <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                    M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                   </span>
                 </MaterialNoteAffordance>
                 <span style={dateChip(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
+                {(block.pantoneRequiredDate || block.pantoneOk) && (
+                  <span style={dateChip(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
+                    onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 220); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
+                    onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                    P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
+                  </span>
+                )}
                 <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
@@ -997,7 +1073,7 @@ function BlockCard({
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
         const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = !block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const chipStyle = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600,
@@ -1022,15 +1098,25 @@ function BlockCard({
                   D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
-                  <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                    onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                    M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+                  <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                    M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                   </span>
                 </MaterialNoteAffordance>
                 <span style={chipStyle(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
+                {(block.pantoneRequiredDate || block.pantoneOk) && (() => {
+                  const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
+                  return (
+                    <span style={chipStyle(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
+                      onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 220); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
+                      onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                      P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
+                    </span>
+                  );
+                })()}
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
@@ -1051,8 +1137,8 @@ function BlockCard({
                 </span>
               )}
             </div>
-            {/* Pravá část: status chips + série */}
-            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+            {/* Pravá část: status chips + série + split */}
+            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
                 {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
@@ -1060,6 +1146,9 @@ function BlockCard({
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
                 {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                   <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
+                )}
+                {(splitTotal ?? 0) > 1 && (
+                  <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
                 )}
               </div>
             )}
@@ -1103,8 +1192,8 @@ function BlockCard({
               </span>
             )}
           </div>
-          {/* Pravá část: status chips + série */}
-          {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+          {/* Pravá část: status chips + série + split */}
+          {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
               {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
@@ -1113,6 +1202,9 @@ function BlockCard({
               {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                 <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
               )}
+              {(splitTotal ?? 0) > 1 && (
+                <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
+              )}
             </div>
           )}
         </div>
@@ -1120,24 +1212,28 @@ function BlockCard({
 
       {/* ── Řádek 2: Klikatelné date badges (FULL mode) — vždy všechny 3 ── */}
       {showDates && block.type !== "UDRZBA" && (
-        <div style={{
-          padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap",
-          flexShrink: 0, alignItems: "center",
-        }}>
+        <div
+          style={{ padding: "2px 7px 3px", display: "flex", gap: 5, flexWrap: "nowrap", flexShrink: 0, alignItems: "center" }}
+          onMouseEnter={() => setBadgeHovered(true)}
+          onMouseLeave={() => setBadgeHovered(false)}
+        >
           <DateBadge
             label="DATA" dateStr={block.dataRequiredDate}
             ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
             onToggle={() => toggleField("dataOk", block.dataOk)}
             onDoubleClick={canEditData ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
+            statusLabel={block.dataStatusLabel}
           />
           <MaterialNoteAffordance block={block}>
             <DateBadge
-              label="MAT." dateStr={block.materialRequiredDate}
-              ok={materialDeadlineState === "ok"} warn={materialDeadlineState === "warning"} danger={materialDeadlineState === "danger"} earlyStart={materialDeadlineState === "earlyStart"}
+              label="MAT." dateStr={block.materialInStock ? null : block.materialRequiredDate}
+              overrideText={block.materialInStock ? "SKLADEM" : undefined}
+              ok={block.materialInStock || materialDeadlineState === "ok"} warn={!block.materialInStock && materialDeadlineState === "warning"} danger={!block.materialInStock && materialDeadlineState === "danger"} earlyStart={!block.materialInStock && materialDeadlineState === "earlyStart"}
               accent={FIELD_ACCENT.MATERIAL}
-              onToggle={() => toggleField("materialOk", block.materialOk)}
+              onToggle={block.materialInStock ? () => {} : () => toggleField("materialOk", block.materialOk)}
               onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", rect) : undefined}
+              statusLabel={block.materialStatusLabel}
             />
           </MaterialNoteAffordance>
           <DateBadge
@@ -1145,14 +1241,24 @@ function BlockCard({
             ok={false} warn={false} danger={false} accent={FIELD_ACCENT.EXPEDICE}
             onToggle={() => {}}
           />
+          {(block.pantoneRequiredDate || block.pantoneOk) && (
+            <DateBadge
+              label="PAN." dateStr={block.pantoneOk ? null : block.pantoneRequiredDate}
+              overrideText={block.pantoneOk ? "OK" : undefined}
+              ok={block.pantoneOk} warn={false} danger={false} accent={FIELD_ACCENT.PANTONE}
+              onToggle={() => toggleField("pantoneOk", block.pantoneOk)}
+              onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "pantone", block.pantoneRequiredDate ?? "", rect) : undefined}
+            />
+          )}
         </div>
       )}
 
       {/* ── Řádek 2b: Kompaktní datum chipy (MODE_FULL, 48–59px — plný DateBadge se nevejde) ── */}
       {showDatesCompact && (() => {
         const dSK = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mSK = !block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState;
+        const mSK = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eSK = !block.deadlineExpedice ? "empty" : "neutral";
+        const pSK = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
         const cs = (sk: string, fa: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600,
           color: sk === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
@@ -1173,24 +1279,31 @@ function BlockCard({
               D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
             </span>
             <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
-              <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate)}
-                onClick={block.materialRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                M&nbsp;{block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+              <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)}
+                onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
               </span>
             </MaterialNoteAffordance>
             <span style={cs(eSK, FIELD_ACCENT.EXPEDICE, false)}>
               E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
             </span>
+            {(block.pantoneRequiredDate || block.pantoneOk) && (
+              <span style={cs(pSK, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
+                onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 220); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
+                onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
+              </span>
+            )}
           </div>
         );
       })()}
 
       {/* ── Řádek 3: Specifikace (celý text) ── */}
       {showSpec && block.specifikace && (
-        <div style={{ padding: "0 9px 3px", flexShrink: 0 }}>
+        <div style={{ padding: "0 9px 3px", flexShrink: 0, position: "relative", zIndex: 2 }}>
           <span style={{
-            fontSize: 9, color: "var(--text-muted)", lineHeight: 1.3,
+            fontSize: 10, color: s.textSub, opacity: 0.82, lineHeight: 1.3,
             display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
             overflow: "hidden",
           }}>
@@ -1311,6 +1424,121 @@ function BlockCard({
           </div>
         </div>
       )}
+
+      {/* ── Indikátor specifikace — svislý proužek vpravo ── */}
+      {block.specifikace && block.specifikace.length > 0 && !showSpec && (
+        <div
+          title="Obsahuje specifikaci"
+          style={{
+            position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)",
+            width: 3, height: "55%", minHeight: 8, maxHeight: 22,
+            borderRadius: 2, background: "rgba(251,191,36,0.8)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+
+      {/* ── Hover tooltip iOS-style pro malé bloky (< 60px) — portálovaný mimo stacking context ── */}
+      {showTooltip && hovered && (() => {
+        const rect = blockCardRef.current?.getBoundingClientRect();
+        if (!rect || typeof document === "undefined") return null;
+        const tooltipW = 240;
+        const margin = 10;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        // Prefer right of block, fall back to left if not enough space
+        const spaceRight = vw - rect.right - margin;
+        const showRight = spaceRight >= tooltipW;
+        const rawLeft = showRight ? rect.right + margin : rect.left - margin - tooltipW;
+        // Clamp to viewport so tooltip never goes off-screen
+        const left = Math.max(margin, Math.min(rawLeft, vw - tooltipW - margin));
+        const top = Math.max(8, Math.min(rect.top, vh - 220));
+        // Format time
+        const startD = new Date(block.startTime);
+        const endD   = new Date(block.endTime);
+        const fmtTime = (d: Date) => d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
+        const fmtDay  = (d: Date) => d.toLocaleDateString("cs-CZ", { day: "numeric", month: "short", timeZone: "Europe/Prague" });
+        const sameDay = fmtDay(startD) === fmtDay(endD);
+        const timeLabel = sameDay
+          ? `${fmtDay(startD)}, ${fmtTime(startD)}–${fmtTime(endD)}`
+          : `${fmtDay(startD)} ${fmtTime(startD)} – ${fmtDay(endD)} ${fmtTime(endD)}`;
+        const machineLabel = block.machine === "XL_105" ? "XL 105" : "XL 106";
+        const hasDateInfo = block.dataRequiredDate || block.materialRequiredDate || block.deadlineExpedice;
+        return createPortal(
+          <div style={{
+            position: "fixed",
+            left,
+            top,
+            width: tooltipW,
+            zIndex: 9999,
+            background: "rgba(28,28,30,0.88)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 14,
+            padding: "12px 14px",
+            pointerEvents: "none",
+            boxShadow: "0 16px 48px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.25)",
+            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+          }}>
+            {/* Číslo zakázky + stroj */}
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: block.description || block.specifikace ? 3 : 6 }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: "rgba(255,255,255,0.95)", letterSpacing: "-0.01em" }}>
+                {block.orderNumber}
+              </span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: "rgba(255,255,255,0.35)", letterSpacing: "0.06em", textTransform: "uppercase", flexShrink: 0, marginLeft: 8 }}>
+                {machineLabel}
+              </span>
+            </div>
+            {/* Popis */}
+            {block.description && (
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", lineHeight: 1.4, marginBottom: block.specifikace ? 3 : 6 }}>
+                {block.description}
+              </div>
+            )}
+            {/* Specifikace */}
+            {block.specifikace && (
+              <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.42)", fontStyle: "italic", lineHeight: 1.35, marginBottom: 6 }}>
+                {block.specifikace}
+              </div>
+            )}
+            {/* Čas */}
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", lineHeight: 1.4 }}>
+              {timeLabel}
+            </div>
+            {/* Termíny */}
+            {hasDateInfo && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 4 }}>
+                {block.dataRequiredDate && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.03em" }}>DATA</span>
+                    <span style={{ color: block.dataOk ? "#30d158" : "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>
+                      {fmtDate(block.dataRequiredDate)}{block.dataOk ? " ✓" : ""}
+                    </span>
+                  </div>
+                )}
+                {block.materialRequiredDate && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.03em" }}>MATERIÁL</span>
+                    <span style={{ color: block.materialOk ? "#30d158" : "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>
+                      {fmtDate(block.materialRequiredDate)}{block.materialOk ? " ✓" : ""}
+                    </span>
+                  </div>
+                )}
+                {block.deadlineExpedice && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 10 }}>
+                    <span style={{ color: "rgba(255,255,255,0.35)", letterSpacing: "0.03em" }}>EXPEDICE</span>
+                    <span style={{ color: "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>
+                      {fmtDate(block.deadlineExpedice)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>,
+          document.body
+        );
+      })()}
     </div>
   );
 
@@ -1331,6 +1559,23 @@ function BlockCard({
         style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "4px", minWidth: 180, zIndex: 500 }}
         onClick={(e) => e.stopPropagation()}
       >
+        {canEdit && !block.locked && block.type === "ZAKAZKA" && (
+          <>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger style={menuItemStyle}>
+                Stav zakázky
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: 4, minWidth: 160 }}>
+                {BLOCK_VARIANTS.map((v) => (
+                  <ContextMenuItem key={v} onClick={() => onBlockVariantChange?.(block.id, v)} style={menuItemStyle}>
+                    {block.blockVariant === v ? "✓ " : "\u00a0\u00a0"}{VARIANT_CONFIG[v].label}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSeparator />
+          </>
+        )}
         {canEdit && !block.locked && (
           <>
             <ContextMenuItem
@@ -1383,6 +1628,17 @@ function BlockCard({
             </ContextMenuItem>
           </>
         )}
+        {canEdit && block.type === "ZAKAZKA" && onNotify && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => onNotify(block.id, block.orderNumber)}
+              style={menuItemStyle}
+            >
+              📣 Upozornit MTZ + DTP
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -1399,6 +1655,7 @@ export default function TimelineGrid({
   daysBack,
   copiedBlockId,
   onGridClick,
+  onGridClickEmpty,
   onBlockCopy,
   selectedBlockIds,
   onMultiSelect,
@@ -1407,6 +1664,7 @@ export default function TimelineGrid({
   canEditData = false,
   canEditMat = false,
   onError,
+  onInfo,
   workingTimeLock = true,
   badgeColorMap = {},
   machineWorkHours,
@@ -1416,6 +1674,8 @@ export default function TimelineGrid({
   isTiskar,
   onPrintComplete,
   assignedMachine,
+  onNotify,
+  onBlockVariantChange,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -1429,7 +1689,7 @@ export default function TimelineGrid({
   const [dragPreview, setDragPreview] = useState<DragPreview>(null);
   const queuePreviewRefs = useRef<(HTMLDivElement | null)[]>([null, null]);
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
-  const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material"; currentValue: string; x: number; y: number } | null>(null);
+  const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material" | "pantone"; currentValue: string; x: number; y: number } | null>(null);
   const [overlayDragPreview, setOverlayDragPreview] = useState<OverlayDragPreview>(null);
   const [hoveredOverlayKey, setHoveredOverlayKey] = useState<string | null>(null);
 
@@ -1438,7 +1698,7 @@ export default function TimelineGrid({
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel });
   const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -1458,8 +1718,8 @@ export default function TimelineGrid({
   useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel };
-  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onQueueDrop, onQueueDragCancel]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel]);
 
   useEffect(() => { queueDragItemRef.current = queueDragItem ?? null; }, [queueDragItem]);
 
@@ -1586,10 +1846,11 @@ export default function TimelineGrid({
         const newEnd     = new Date(anchor.originalEnd.getTime() + deltaMs);
         setDragPreview({ blockId: ds.anchorBlockId, top: dateToY(newStart, vs, sh), height: dateToY(newEnd, vs, sh) - dateToY(newStart, vs, sh), machine: newMachine });
       } else if (ds.type === "overlay-resize") {
-        // Jeden slot = sh px = 30 min, takže 1 hodina = 2*sh px
-        const deltaHours = Math.round(deltaY / (sh * 2));
-        const newHour = Math.max(1, Math.min(23, ds.originalBoundaryHour + deltaHours));
-        setOverlayDragPreview({ machine: ds.machine, date: ds.date, edge: ds.edge, hour: newHour, overlayKey: ds.overlayKey });
+        const deltaSlots = Math.round(deltaY / sh);
+        const newSlot = ds.edge === "start"
+          ? Math.max(1, Math.min(ds.otherBoundarySlot - 1, ds.originalBoundarySlot + deltaSlots))
+          : Math.max(ds.otherBoundarySlot + 1, Math.min(DAY_SLOT_COUNT - 1, ds.originalBoundarySlot + deltaSlots));
+        setOverlayDragPreview({ machine: ds.machine, date: ds.date, edge: ds.edge, slot: newSlot, overlayKey: ds.overlayKey });
       }
     }
 
@@ -1671,13 +1932,17 @@ export default function TimelineGrid({
         const originalTop = dateToY(ds.originalStart, vs, sh);
         const newMachine  = clientXToMachine(e.clientX);
         const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
-        let newStart      = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
+        const requestedStart = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
+        let newStart = requestedStart;
         if (workingTimeLockRef.current) {
-          newStart = snapToNextValidStart(newMachine, newStart, duration, machineWorkHoursRef.current, machineExceptionsRef.current);
+          newStart = snapToNextValidStartWithTemplates(newMachine, requestedStart, duration, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
+          if (newStart.getTime() !== requestedStart.getTime()) {
+            callbacksRef.current.onInfo?.("Blok přesunut mimo pracovní dobu — automaticky umístěn do nejbližšího dostupného slotu.");
+          }
         }
         const newEnd      = new Date(newStart.getTime() + duration);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine, bypassScheduleValidation: !workingTimeLockRef.current }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
@@ -1696,7 +1961,7 @@ export default function TimelineGrid({
         const finalEnd       = snapToSlot(yToDate(originalTop + newHeightRaw, vs, sh));
         const minEnd         = new Date(ds.originalStart.getTime() + SLOT_MS);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString() }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo změnit.");
@@ -1714,7 +1979,7 @@ export default function TimelineGrid({
         const newMachine = clientXToMachine(e.clientX);
         if (workingTimeLockRef.current) {
           const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
-          const { deltaMs: snapped, wasSnapped } = snapGroupDelta(blocksOnNewMachine, deltaMs, machineWorkHoursRef.current, machineExceptionsRef.current);
+          const { deltaMs: snapped, wasSnapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
           deltaMs = snapped;
           if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
         }
@@ -1727,12 +1992,14 @@ export default function TimelineGrid({
         callbacksRef.current.onMultiBlockUpdate?.(updates);
       } else if (ds.type === "overlay-resize") {
         const sh2 = slotHeightRef.current;
-        const deltaHours = Math.round((e.clientY - ds.startClientY) / (sh2 * 2));
-        let newHour = Math.max(1, Math.min(23, ds.originalBoundaryHour + deltaHours));
-        const newStartHour = ds.edge === "start" ? newHour : 0;
-        const newEndHour   = ds.edge === "end"   ? newHour : 24;
+        const deltaSlots = Math.round((e.clientY - ds.startClientY) / sh2);
+        const newSlot = ds.edge === "start"
+          ? Math.max(1, Math.min(ds.otherBoundarySlot - 1, ds.originalBoundarySlot + deltaSlots))
+          : Math.max(ds.otherBoundarySlot + 1, Math.min(DAY_SLOT_COUNT - 1, ds.originalBoundarySlot + deltaSlots));
+        const newStartSlot = ds.edge === "start" ? newSlot : ds.otherBoundarySlot;
+        const newEndSlot   = ds.edge === "end"   ? newSlot : ds.otherBoundarySlot;
         setOverlayDragPreview(null);
-        await exceptionCallbacksRef.current.onExceptionUpsert?.(ds.machine, ds.date, newStartHour, newEndHour, true);
+        await exceptionCallbacksRef.current.onExceptionUpsert?.(ds.machine, ds.date, newStartSlot, newEndSlot, true);
       }
     }
 
@@ -1802,13 +2069,75 @@ export default function TimelineGrid({
 
   async function handleSplitBlockAt(block: Block, splitAt: Date) {
     try {
-      const res1 = await fetch(`/api/blocks/${block.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: splitAt.toISOString() }) });
-      onBlockUpdate(await res1.json());
-      const res2 = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderNumber: block.orderNumber, machine: block.machine, type: block.type, blockVariant: block.blockVariant, startTime: splitAt.toISOString(), endTime: block.endTime, description: block.description, deadlineExpedice: block.deadlineExpedice, dataStatusId: block.dataStatusId, dataStatusLabel: block.dataStatusLabel, dataRequiredDate: block.dataRequiredDate, dataOk: block.dataOk, materialStatusId: block.materialStatusId, materialStatusLabel: block.materialStatusLabel, materialRequiredDate: block.materialRequiredDate, materialOk: block.materialOk, barvyStatusId: block.barvyStatusId, barvyStatusLabel: block.barvyStatusLabel, lakStatusId: block.lakStatusId, lakStatusLabel: block.lakStatusLabel, specifikace: block.specifikace }) });
+      // Krok 1: zkrátit původní blok
+      const res1 = await fetch(`/api/blocks/${block.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endTime: splitAt.toISOString() }),
+      });
+      if (!res1.ok) {
+        const err = await res1.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Nepodařilo se zkrátit blok.");
+      }
+      const updatedBlock: Block = await res1.json();
+
+      // Krok 2: zajistit splitGroupId pro root blok (self-link pokud první split)
+      let rootSplitGroupId: number;
+      if (updatedBlock.splitGroupId != null) {
+        rootSplitGroupId = updatedBlock.splitGroupId;
+        onBlockUpdate(updatedBlock);
+      } else {
+        const res1b = await fetch(`/api/blocks/${block.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ splitGroupId: block.id }),
+        });
+        if (!res1b.ok) {
+          const err = await res1b.json().catch(() => ({})) as { error?: string };
+          throw new Error(err.error ?? "Nepodařilo se nastavit skupinu bloku.");
+        }
+        const rootBlock: Block = await res1b.json();
+        onBlockUpdate(rootBlock);
+        rootSplitGroupId = block.id;
+      }
+
+      // Krok 3: vytvořit nový blok jako sourozence
+      const res2 = await fetch("/api/blocks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderNumber: block.orderNumber,
+          machine: block.machine,
+          type: block.type,
+          blockVariant: block.blockVariant,
+          startTime: splitAt.toISOString(),
+          endTime: block.endTime,
+          description: block.description,
+          deadlineExpedice: block.deadlineExpedice,
+          dataStatusId: block.dataStatusId,
+          dataStatusLabel: block.dataStatusLabel,
+          dataRequiredDate: block.dataRequiredDate,
+          dataOk: block.dataOk,
+          materialStatusId: block.materialStatusId,
+          materialStatusLabel: block.materialStatusLabel,
+          materialRequiredDate: block.materialRequiredDate,
+          materialOk: block.materialOk,
+          barvyStatusId: block.barvyStatusId,
+          barvyStatusLabel: block.barvyStatusLabel,
+          lakStatusId: block.lakStatusId,
+          lakStatusLabel: block.lakStatusLabel,
+          specifikace: block.specifikace,
+          splitGroupId: rootSplitGroupId,
+        }),
+      });
+      if (!res2.ok) {
+        const err = await res2.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Nepodařilo se vytvořit druhý blok.");
+      }
       onBlockCreate(await res2.json());
     } catch (error) {
       console.error("Block split failed", error);
-      callbacksRef.current.onError?.("Blok se nepodařilo rozdělit.");
+      callbacksRef.current.onError?.((error instanceof Error ? error.message : null) ?? "Blok se nepodařilo rozdělit.");
     }
   }
 
@@ -1841,6 +2170,36 @@ export default function TimelineGrid({
     );
   }
 
+  const viewEnd = addDays(viewStart, totalDays);
+  const viewStartMs = viewStart.getTime();
+  const viewEndMs = viewEnd.getTime();
+  const visibleBlocksByMachine = new Map<string, Block[]>(visibleMachines.map((machine) => [machine, []]));
+  for (const block of blocks) {
+    const bucket = visibleBlocksByMachine.get(block.machine);
+    if (!bucket) continue;
+    const blockStartMs = new Date(block.startTime).getTime();
+    const blockEndMs = new Date(block.endTime).getTime();
+    if (Number.isNaN(blockStartMs) || Number.isNaN(blockEndMs)) continue;
+    if (blockStartMs < viewEndMs && blockEndMs > viewStartMs) {
+      bucket.push(block);
+    }
+  }
+
+  // ── Precompute split group map — O(n) místo O(n²) v machineBlocks.map() ───
+  const splitGroupMap = (() => {
+    const map = new Map<number, Block[]>();
+    for (const b of blocks) {
+      if (b.splitGroupId == null) continue;
+      const gid = b.splitGroupId;
+      if (!map.has(gid)) map.set(gid, []);
+      map.get(gid)!.push(b);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    }
+    return map;
+  })();
+
   // ── Precompute markers ─────────────────────────────────────────────────────
   const todayDate = new Date();
 
@@ -1856,29 +2215,37 @@ export default function TimelineGrid({
     return s;
   })();
 
-  type HalfHourMark = { y: number; label: string; isFullHour: boolean; isLabel: boolean };
+  type HalfHourMark = { y: number; label: string; isFullHour: boolean; isLabel: boolean; key: string };
   const halfHourMarkers: HalfHourMark[] = [];
   // Kolik slotů (po 30 min) přeskočit mezi viditelnými štítky
   const labelStep = slotHeight >= 14 ? 1 : slotHeight >= 7 ? 2 : slotHeight >= 4 ? 4 : 8;
 
   const blockedOverlays: Record<string, BlockedOverlay[]> = { XL_105: [], XL_106: [] };
 
+  // Předpočítané Prague date rozsahy pro company days — Prague midnight ≠ UTC midnight
+  const companyDayPragueRanges = companyDays?.map((cd) => ({
+    cd,
+    startPrague: utcToPragueDateStr(new Date(cd.startDate)),
+    endPrague:   utcToPragueDateStr(new Date(cd.endDate)),
+  })) ?? [];
+
   for (let di = 0; di < totalDays; di++) {
     const day      = addDays(viewStart, di);
-    const dayY     = di * dayHeight;
+    const dayY     = dateToY(day, viewStart, slotHeight);
     const dow      = day.getDay();
     const isWeekend = dow === 0 || dow === 6;
     const isToday  = isSameDay(day, todayDate);
     const dateStr  = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const isHoliday = holidays.has(dateStr);
-    const companyDayMatch = companyDays?.find((cd) => dateStr >= cd.startDate.slice(0, 10) && dateStr <= cd.endDate.slice(0, 10));
+    const companyDayMatch = companyDayPragueRanges.find(({ startPrague, endPrague }) => dateStr >= startPrague && dateStr <= endPrague)?.cd;
     days.push({ date: day, y: dayY, isWeekend, isToday, isHoliday, isCompanyDay: !!companyDayMatch, companyDayLabel: companyDayMatch?.label });
     // Blocked overlays — výjimka přebíjí šablonu, fallback na hardcoded
     for (const machine of visibleMachines) {
       const exc = machineExceptions?.find(
         (e) => e.machine === machine && e.date.slice(0, 10) === dateStr
       );
-      const row = exc ?? machineWorkHours?.find((r) => r.machine === machine && r.dayOfWeek === dow);
+      const resolvedRows = machineWorkHours ? resolveScheduleRows(machine, day, machineWorkHours) : [];
+      const row = exc ?? resolvedRows.find((r) => r.dayOfWeek === dow);
       const isException = !!exc;
       const excId = exc?.id ?? null;
 
@@ -1886,35 +2253,36 @@ export default function TimelineGrid({
         // Fallback: původní hardcoded logika (bez interakce)
         if (machine === "XL_105") {
           if (dow === 6 || dow === 0) {
-            blockedOverlays.XL_105.push({ top: dayY, height: dayHeight, key: `b105-we-${di}`, date: day, machine, overlayType: "full-block", effectiveStartHour: 0, effectiveEndHour: 24, isException: false, exceptionId: null });
+            blockedOverlays.XL_105.push({ top: dayY, height: dayHeight, key: `b105-we-${di}`, date: day, machine, overlayType: "full-block", effectiveStartSlot: 0, effectiveEndSlot: DAY_SLOT_COUNT, isException: false, exceptionId: null });
           } else {
-            blockedOverlays.XL_105.push({ top: dayY, height: WORK_START_H * 2 * slotHeight, key: `b105-ns-${di}`, date: day, machine, overlayType: "start-block", effectiveStartHour: 0, effectiveEndHour: WORK_START_H, isException: false, exceptionId: null });
-            blockedOverlays.XL_105.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b105-ne-${di}`, date: day, machine, overlayType: "end-block", effectiveStartHour: WORK_END_H, effectiveEndHour: 24, isException: false, exceptionId: null });
+            blockedOverlays.XL_105.push({ top: dayY, height: WORK_START_SLOT * slotHeight, key: `b105-ns-${di}`, date: day, machine, overlayType: "start-block", effectiveStartSlot: 0, effectiveEndSlot: WORK_START_SLOT, isException: false, exceptionId: null });
+            blockedOverlays.XL_105.push({ top: dayY + WORK_END_SLOT * slotHeight, height: (DAY_SLOT_COUNT - WORK_END_SLOT) * slotHeight, key: `b105-ne-${di}`, date: day, machine, overlayType: "end-block", effectiveStartSlot: WORK_END_SLOT, effectiveEndSlot: DAY_SLOT_COUNT, isException: false, exceptionId: null });
           }
         } else {
           if (dow === 6) {
-            blockedOverlays.XL_106.push({ top: dayY, height: dayHeight, key: `b106-sat-${di}`, date: day, machine, overlayType: "full-block", effectiveStartHour: 0, effectiveEndHour: 24, isException: false, exceptionId: null });
+            blockedOverlays.XL_106.push({ top: dayY, height: dayHeight, key: `b106-sat-${di}`, date: day, machine, overlayType: "full-block", effectiveStartSlot: 0, effectiveEndSlot: DAY_SLOT_COUNT, isException: false, exceptionId: null });
           } else if (dow === 0) {
-            blockedOverlays.XL_106.push({ top: dayY, height: WORK_END_H * 2 * slotHeight, key: `b106-sun-${di}`, date: day, machine, overlayType: "start-block", effectiveStartHour: 0, effectiveEndHour: WORK_END_H, isException: false, exceptionId: null });
+            blockedOverlays.XL_106.push({ top: dayY, height: WORK_END_SLOT * slotHeight, key: `b106-sun-${di}`, date: day, machine, overlayType: "start-block", effectiveStartSlot: 0, effectiveEndSlot: WORK_END_SLOT, isException: false, exceptionId: null });
           } else if (dow === 5) {
-            blockedOverlays.XL_106.push({ top: dayY + WORK_END_H * 2 * slotHeight, height: (24 - WORK_END_H) * 2 * slotHeight, key: `b106-fri-${di}`, date: day, machine, overlayType: "end-block", effectiveStartHour: WORK_END_H, effectiveEndHour: 24, isException: false, exceptionId: null });
+            blockedOverlays.XL_106.push({ top: dayY + WORK_END_SLOT * slotHeight, height: (DAY_SLOT_COUNT - WORK_END_SLOT) * slotHeight, key: `b106-fri-${di}`, date: day, machine, overlayType: "end-block", effectiveStartSlot: WORK_END_SLOT, effectiveEndSlot: DAY_SLOT_COUNT, isException: false, exceptionId: null });
           }
         }
       } else if (!row.isActive) {
-        blockedOverlays[machine].push({ top: dayY, height: dayHeight, key: `b-${machine}-off-${di}`, date: day, machine, overlayType: "full-block", effectiveStartHour: 0, effectiveEndHour: 24, isException, exceptionId: excId });
+        blockedOverlays[machine].push({ top: dayY, height: dayHeight, key: `b-${machine}-off-${di}`, date: day, machine, overlayType: "full-block", effectiveStartSlot: 0, effectiveEndSlot: DAY_SLOT_COUNT, isException, exceptionId: excId });
       } else {
-        if (row.startHour > 0) {
-          blockedOverlays[machine].push({ top: dayY, height: row.startHour * 2 * slotHeight, key: `b-${machine}-ns-${di}`, date: day, machine, overlayType: "start-block", effectiveStartHour: 0, effectiveEndHour: row.startHour, isException, exceptionId: excId });
+        const rowRange = getSlotRange(row);
+        if (rowRange.startSlot > 0) {
+          blockedOverlays[machine].push({ top: dayY, height: rowRange.startSlot * slotHeight, key: `b-${machine}-ns-${di}`, date: day, machine, overlayType: "start-block", effectiveStartSlot: 0, effectiveEndSlot: rowRange.startSlot, isException, exceptionId: excId });
         }
-        if (row.endHour < 24) {
-          blockedOverlays[machine].push({ top: dayY + row.endHour * 2 * slotHeight, height: (24 - row.endHour) * 2 * slotHeight, key: `b-${machine}-ne-${di}`, date: day, machine, overlayType: "end-block", effectiveStartHour: row.endHour, effectiveEndHour: 24, isException, exceptionId: excId });
+        if (rowRange.endSlot < DAY_SLOT_COUNT) {
+          blockedOverlays[machine].push({ top: dayY + rowRange.endSlot * slotHeight, height: (DAY_SLOT_COUNT - rowRange.endSlot) * slotHeight, key: `b-${machine}-ne-${di}`, date: day, machine, overlayType: "end-block", effectiveStartSlot: rowRange.endSlot, effectiveEndSlot: DAY_SLOT_COUNT, isException, exceptionId: excId });
         }
       }
     }
     for (let s = 0; s < 48; s++) {
       const h = Math.floor(s / 2);
       const m = s % 2 === 0 ? "00" : "30";
-      halfHourMarkers.push({ y: dayY + s * slotHeight, label: `${String(h).padStart(2, "0")}:${m}`, isFullHour: m === "00", isLabel: s % labelStep === 0 });
+      halfHourMarkers.push({ y: dayY + s * slotHeight, label: `${String(h).padStart(2, "0")}:${m}`, isFullHour: m === "00", isLabel: s % labelStep === 0, key: `${di}-${s}` });
     }
   }
 
@@ -2010,12 +2378,16 @@ export default function TimelineGrid({
               const height = clampedBottom - clampedTop;
               if (height <= 0) return null;
               return (
-                <div key={`ct-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
+                <div key={`ct-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", overflow: "hidden" }}>
+                  {cd.label && height >= 18 && (
+                    <div title={cd.label} style={COMPANY_DAY_CHIP_STYLE}>{cd.label}</div>
+                  )}
+                </div>
               );
             })}
             {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
               <div
-                key={m.y}
+                key={m.key}
                 style={{
                   position: "absolute",
                   top: m.y,
@@ -2037,7 +2409,7 @@ export default function TimelineGrid({
 
           {/* ── Strojové sloupce ──────────────────────────────────────────── */}
           {visibleMachines.map((machine, colIdx) => {
-            const machineBlocks = blocks.filter((b) => b.machine === machine);
+            const machineBlocks = visibleBlocksByMachine.get(machine) ?? [];
 
             return (
               <Fragment key={machine}>
@@ -2053,7 +2425,7 @@ export default function TimelineGrid({
                   >
                     {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
                       <div
-                        key={m.y}
+                        key={m.key}
                         style={{
                           position: "absolute",
                           top: m.y,
@@ -2085,6 +2457,7 @@ export default function TimelineGrid({
                 } : undefined}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("[data-block]")) return;
+                  onGridClickEmpty?.();
                   const el = scrollRef.current;
                   const vs = viewStartRef.current;
                   if (!el || !vs || !onGridClick) return;
@@ -2099,10 +2472,13 @@ export default function TimelineGrid({
                   const isEven = di % 2 === 0;
                   const hpx = slotHeight * 2; // px na hodinu
                   const dow = d.date.getDay();
-                  // Dynamické hranice ze schedule (union přes oba stroje)
-                  const activeMachines = machineWorkHours?.filter((r) => r.dayOfWeek === dow && r.isActive) ?? [];
-                  const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => r.startHour)) : WORK_START_H;
-                  const nightStart = activeMachines.length > 0 ? Math.max(...activeMachines.map((r) => r.endHour))   : WORK_END_H;
+                  // Dynamické hranice ze schedule (union přes oba stroje) — per-datum resolve
+                  const allResolvedRows = machineWorkHours
+                    ? visibleMachines.flatMap((m) => resolveScheduleRows(m, d.date, machineWorkHours))
+                    : [];
+                  const activeMachines = allResolvedRows.filter((r) => r.dayOfWeek === dow && r.isActive);
+                  const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => slotToHour(getSlotRange(r).startSlot))) : WORK_START_H;
+                  const nightStart = activeMachines.length > 0 ? Math.max(...activeMachines.map((r) => slotToHour(getSlotRange(r).endSlot)))   : WORK_END_H;
                   const midpoint   = Math.round((nightEnd + nightStart) / 2); // střed pracovního okna (pro ranní/odpolední split)
                   return (
                     <Fragment key={`dayshade-${d.y}`}>
@@ -2138,42 +2514,46 @@ export default function TimelineGrid({
                   const height = clampedBottom - clampedTop;
                   if (height <= 0) return null;
                   return (
-                    <div key={`c-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none" }} />
+                    <div key={`c-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", overflow: "hidden" }}>
+                      {cd.label && height >= 18 && (
+                        <div title={cd.label} style={{ position: "absolute", top: 4, left: 8, height: 14, padding: "0 5px", borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "calc(100% - 16px)", display: "flex", alignItems: "center", lineHeight: 1 }}>
+                          {cd.label}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
 
                 {/* Blokované časy — víkendy + noční XL_105 (červená, interaktivní) */}
                 {blockedOverlays[machine]?.map((n) => {
-                  const isHovered = hoveredOverlayKey === n.key;
-                  const showUI = canEdit && isHovered;
                   const borderStyle = n.isException ? "2px dashed rgba(56,189,248,0.7)" : "none";
                   // Live drag preview — pokud táhneme hranu tohoto overlaye
                   const isBeingDragged = overlayDragPreview?.overlayKey === n.key;
                   let renderTop = n.top;
                   let renderHeight = n.height;
                   if (isBeingDragged && overlayDragPreview) {
-                    const dayYforOverlay = n.top - n.effectiveStartHour * 2 * slotHeight;
+                    const dayYforOverlay = n.top - n.effectiveStartSlot * slotHeight;
                     if (overlayDragPreview.edge === "start") {
-                      // spodní handle: blok 0..dragHour
+                      // spodní handle: blok 0..dragSlot
                       renderTop = dayYforOverlay;
-                      renderHeight = overlayDragPreview.hour * 2 * slotHeight;
+                      renderHeight = overlayDragPreview.slot * slotHeight;
                     } else {
-                      // horní handle: blok dragHour..24
-                      renderTop = dayYforOverlay + overlayDragPreview.hour * 2 * slotHeight;
-                      renderHeight = (24 - overlayDragPreview.hour) * 2 * slotHeight;
+                      // horní handle: blok dragSlot..24h
+                      renderTop = dayYforOverlay + overlayDragPreview.slot * slotHeight;
+                      renderHeight = (DAY_SLOT_COUNT - overlayDragPreview.slot) * slotHeight;
                     }
                   }
                   return (
                     <div
                       key={n.key}
-                      style={{ position: "absolute", top: renderTop, height: renderHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: canEdit ? "auto" : "none", border: borderStyle, boxSizing: "border-box", transition: isBeingDragged ? "none" : "opacity 100ms", zIndex: 2 }}
-                      onMouseEnter={() => canEdit && setHoveredOverlayKey(n.key)}
-                      onMouseLeave={() => setHoveredOverlayKey(null)}
+                      style={{ position: "absolute", top: renderTop, height: renderHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", border: borderStyle, boxSizing: "border-box", transition: isBeingDragged ? "none" : "opacity 100ms", zIndex: 2 }}
                     >
                       {/* × tlačítko */}
-                      {showUI && (
+                      {canEdit && (
                         <button
-                          style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(239,68,68,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1, zIndex: 10 }}
+                          style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(239,68,68,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1, zIndex: 10, pointerEvents: "auto" }}
+                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
+                          onMouseLeave={() => setHoveredOverlayKey(null)}
                           onMouseDown={(e) => e.stopPropagation()}
                           onClick={async (e) => {
                             e.stopPropagation();
@@ -2182,42 +2562,53 @@ export default function TimelineGrid({
                             } else {
                               if (n.overlayType === "full-block") {
                                 // Celý den byl blokovaný — výjimka: celý den provoz
-                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, 24, true);
+                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, DAY_SLOT_COUNT, true);
                               } else if (n.overlayType === "start-block") {
-                                // Odstraň ranní blokaci: work starts at 0, endHour = z end-block (nebo 24)
+                                // Odstraň ranní blokaci: work starts at 0, endSlot = z end-block (nebo konec dne)
                                 const endPartner = blockedOverlays[machine].find(x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString());
-                                const endH = endPartner?.effectiveStartHour ?? 24;
-                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, endH, true);
+                                const endSlot = endPartner?.effectiveStartSlot ?? DAY_SLOT_COUNT;
+                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, endSlot, true);
                               } else {
-                                // Odstraň noční blokaci: work ends at 24, startHour = ze start-block (nebo 0)
+                                // Odstraň noční blokaci: work ends at konec dne, startSlot = ze start-block (nebo 0)
                                 const startPartner = blockedOverlays[machine].find(x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString());
-                                const startH = startPartner?.effectiveEndHour ?? 0;
-                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, startH, 24, true);
+                                const startSlot = startPartner?.effectiveEndSlot ?? 0;
+                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, startSlot, DAY_SLOT_COUNT, true);
                               }
                             }
                           }}
                         >×</button>
                       )}
-                      {/* Drag handles — horní (zkrátit odshora) + spodní (zkrátit odspodu) pro všechny typy */}
-                      {showUI && (
-                        <>
-                          <div
-                            style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
-                            onMouseDown={(e) => {
-                              e.preventDefault(); e.stopPropagation();
-                              dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundaryHour: n.effectiveStartHour, otherBoundaryHour: n.effectiveStartHour, startClientY: e.clientY, overlayKey: n.key };
-                              dragDidMove.current = false;
-                            }}
-                          />
-                          <div
-                            style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10 }}
-                            onMouseDown={(e) => {
-                              e.preventDefault(); e.stopPropagation();
-                              dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundaryHour: n.effectiveEndHour, otherBoundaryHour: n.effectiveEndHour, startClientY: e.clientY, overlayKey: n.key };
-                              dragDidMove.current = false;
-                            }}
-                          />
-                        </>
+                      {/* Horní handle — jen pro end-block (táhne workEnd nahoru/dolů) */}
+                      {canEdit && n.overlayType === "end-block" && (
+                        <div
+                          style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10, pointerEvents: "auto" }}
+                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
+                          onMouseLeave={() => setHoveredOverlayKey(null)}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); e.stopPropagation();
+                            const workStart = blockedOverlays[machine].find(
+                              x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString()
+                            )?.effectiveEndSlot ?? 0;
+                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundarySlot: n.effectiveStartSlot, otherBoundarySlot: workStart, startClientY: e.clientY, overlayKey: n.key };
+                            dragDidMove.current = false;
+                          }}
+                        />
+                      )}
+                      {/* Spodní handle — jen pro start-block (táhne workStart nahoru/dolů) */}
+                      {canEdit && n.overlayType === "start-block" && (
+                        <div
+                          style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10, pointerEvents: "auto" }}
+                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
+                          onMouseLeave={() => setHoveredOverlayKey(null)}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); e.stopPropagation();
+                            const workEnd = blockedOverlays[machine].find(
+                              x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString()
+                            )?.effectiveStartSlot ?? DAY_SLOT_COUNT;
+                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundarySlot: n.effectiveEndSlot, otherBoundarySlot: workEnd, startClientY: e.clientY, overlayKey: n.key };
+                            dragDidMove.current = false;
+                          }}
+                        />
                       )}
                     </div>
                   );
@@ -2233,12 +2624,12 @@ export default function TimelineGrid({
 
                 {/* Hodinové čáry */}
                 {halfHourMarkers.filter((m) => m.isLabel && m.isFullHour).map((m) => (
-                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 70%, transparent)" }} />
+                  <div key={m.key} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 70%, transparent)" }} />
                 ))}
 
                 {/* Půlhodinové čáry */}
                 {halfHourMarkers.filter((m) => m.isLabel && !m.isFullHour).map((m) => (
-                  <div key={m.y} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 45%, transparent)" }} />
+                  <div key={m.key} style={{ position: "absolute", top: m.y, left: 0, right: 0, height: 1, backgroundColor: "color-mix(in oklab, var(--border) 45%, transparent)" }} />
                 ))}
 
                 {/* Aktuální čas */}
@@ -2258,14 +2649,20 @@ export default function TimelineGrid({
                   // Vždy renderujeme na původní pozici; při tažení blok zešedne (ghost at origin)
                   const top    = dateToY(new Date(block.startTime), viewStart, slotHeight);
                   const height = dateToY(new Date(block.endTime), viewStart, slotHeight) - top;
-                  const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace].some(f => f?.toLowerCase().includes(filter));
+                  const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace, block.jobPresetLabel].some(f => f?.toLowerCase().includes(filter));
                   const dimmed   = (!blockMatchesFilter) || !!isThisBlockDragging;
                   const selected = !isThisBlockDragging && block.id === selectedBlockId;
+                  // Split skupina — O(1) lookup z předpočítané mapy
+                  const splitSiblings = block.splitGroupId != null ? (splitGroupMap.get(block.splitGroupId) ?? []) : [];
+                  const splitTotal = splitSiblings.length > 1 ? splitSiblings.length : 0;
+                  const splitPart  = splitTotal > 0 ? splitSiblings.findIndex(b => b.id === block.id) + 1 : 0;
 
                   return (
                     <BlockCard
                       key={block.id}
                       block={block}
+                      splitPart={splitPart}
+                      splitTotal={splitTotal}
                       top={top}
                       height={height}
                       dimmed={dimmed}
@@ -2303,6 +2700,8 @@ export default function TimelineGrid({
                       badgeColorMap={badgeColorMap}
                       isTiskar={isTiskar}
                       onPrintComplete={onPrintComplete}
+                      onNotify={onNotify}
+                      onBlockVariantChange={onBlockVariantChange}
                     />
                   );
                 })}
@@ -2394,12 +2793,13 @@ export default function TimelineGrid({
             setInlinePicker(null);
             const block = blocks.find((b) => b.id === inlinePicker.blockId);
             if (!block) return;
-            const field = inlinePicker.field === "data" ? "dataRequiredDate" : "materialRequiredDate";
+            const f = inlinePicker.field;
+            const field = f === "material" ? "materialRequiredDate" : f === "pantone" ? "pantoneRequiredDate" : "dataRequiredDate";
             try {
               const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ [field]: dateStr }),
+                body: JSON.stringify(f === "material" ? { [field]: dateStr, materialInStock: false } : { [field]: dateStr }),
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
@@ -2409,6 +2809,22 @@ export default function TimelineGrid({
               callbacksRef.current.onError?.("Nepodařilo se uložit datum.");
             }
           }}
+          onPickSkladem={inlinePicker.field === "material" ? async () => {
+            setInlinePicker(null);
+            try {
+              const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ materialInStock: true }),
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const updated = await res.json();
+              callbacksRef.current.onBlockUpdate(updated);
+            } catch (err) {
+              console.error("Inline skladem failed", err);
+              callbacksRef.current.onError?.("Nepodařilo se uložit.");
+            }
+          } : undefined}
         />
       )}
 

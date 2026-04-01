@@ -35,15 +35,54 @@ model Block {
   materialNoteByUsername String?
   recurrenceType           String    @default("NONE")
   recurrenceParentId       Int?
+  splitGroupId             Int?
+  pantoneRequiredDate      DateTime?
+  pantoneOk                Boolean   @default(false)
+  materialInStock          Boolean   @default(false)
   printCompletedAt         DateTime?
   printCompletedByUserId   Int?
   printCompletedByUsername String?
+  jobPresetId              Int?
+  jobPresetLabel           String?
+  reservationId            Int?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @default(now()) @updatedAt
-  recurrenceParent     Block?    @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
-  recurrenceChildren   Block[]   @relation("RecurrenceChildren")
+  recurrenceParent     Block?       @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
+  recurrenceChildren   Block[]      @relation("RecurrenceChildren")
+  splitSiblings        Block[]      @relation("SplitGroup")
+  splitRoot            Block?       @relation("SplitGroup", fields: [splitGroupId], references: [id], onDelete: SetNull)
+  reservation          Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
 
   @@index([recurrenceParentId])
+  @@index([splitGroupId])
+  @@index([jobPresetId])
+  @@index([reservationId])
+}
+
+model JobPreset {
+  id                             Int      @id @default(autoincrement())
+  name                           String
+  isSystemPreset                 Boolean  @default(false)
+  isActive                       Boolean  @default(true)
+  sortOrder                      Int      @default(0)
+  appliesToZakazka               Boolean  @default(true)
+  appliesToRezervace             Boolean  @default(true)
+  machineConstraint              String?
+  blockVariant                   String?
+  specifikace                    String?  @db.Text
+  dataStatusId                   Int?
+  dataRequiredDateOffsetDays     Int?
+  materialStatusId               Int?
+  materialRequiredDateOffsetDays Int?
+  materialInStock                Boolean?
+  pantoneRequiredDateOffsetDays  Int?
+  barvyStatusId                  Int?
+  lakStatusId                    Int?
+  deadlineExpediceOffsetDays     Int?
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @default(now()) @updatedAt
+
+  @@index([isActive, sortOrder])
 }
 
 model CodebookOption {
@@ -70,7 +109,7 @@ model User {
   id              Int      @id @default(autoincrement())
   username        String   @unique
   passwordHash    String
-  role            String   @default("VIEWER")
+  role            String   @default("VIEWER") // ADMIN|PLANOVAT|MTZ|DTP|VIEWER|TISKAR|OBCHODNIK
   assignedMachine String?
   createdAt       DateTime @default(now())
 }
@@ -87,8 +126,8 @@ model AuditLog {
   newValue    String?
   createdAt   DateTime @default(now())
 
-  @@index([blockId, createdAt])  // GET /api/blocks/[id]/audit: WHERE blockId = ? ORDER BY createdAt DESC
-  @@index([createdAt])           // GET /api/audit: ORDER BY createdAt DESC + GET /api/audit/today: date range filter
+  @@index([blockId, createdAt])
+  @@index([createdAt])
 }
 
 model MachineWorkHours {
@@ -103,16 +142,113 @@ model MachineWorkHours {
   @@index([machine])
 }
 
+model Notification {
+  id                Int      @id @default(autoincrement())
+  type              String   @default("BLOCK_NOTIFY") // BLOCK_NOTIFY|RESERVATION_SCHEDULED|RESERVATION_REJECTED|RESERVATION_MANUAL
+  message           String   @default("")
+  blockId           Int?
+  blockOrderNumber  String?
+  targetRole        String?  // "MTZ" | "DTP" — pro role-based notifikace
+  targetUserId      Int?     // pro přímé notifikace konkrétnímu uživateli (OBCHODNIK)
+  reservationId     Int?
+  createdByUserId   Int
+  createdByUsername String
+  isRead            Boolean  @default(false)
+  readAt            DateTime?
+  createdAt         DateTime @default(now())
+
+  @@index([targetRole, isRead, createdAt])
+  @@index([targetUserId, isRead, createdAt])
+  @@index([blockId, createdAt])
+  @@index([reservationId, createdAt])
+}
+
+model MachineWorkHoursTemplate {
+  id        Int      @id @default(autoincrement())
+  machine   String   // "XL_105" | "XL_106"
+  label     String?
+  validFrom DateTime
+  validTo   DateTime?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  days      MachineWorkHoursTemplateDay[]
+
+  @@index([machine, validFrom])
+}
+
+model MachineWorkHoursTemplateDay {
+  id         Int     @id @default(autoincrement())
+  templateId Int
+  dayOfWeek  Int     // 0=neděle, 1=pondělí, ..., 6=sobota
+  startHour  Int     // 0–23
+  endHour    Int     // 1–24
+  startSlot  Int?    // 0–47 (30min sloty, end exclusive)
+  endSlot    Int?    // 1–48
+  isActive   Boolean @default(true)
+  template   MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, dayOfWeek])
+}
+
 model MachineScheduleException {
   id        Int      @id @default(autoincrement())
   machine   String   // "XL_105" | "XL_106"
   date      DateTime // konkrétní datum (uloženo jako 00:00:00 UTC)
   startHour Int      // 0–23
   endHour   Int      // 1–24
+  startSlot Int?     // 0–47 (30min sloty, end exclusive)
+  endSlot   Int?     // 1–48
   isActive  Boolean  @default(true)
   label     String?  // nepovinný popis
   createdAt DateTime @default(now())
 
   @@unique([machine, date])
   @@index([date])
+}
+
+model Reservation {
+  id                      Int      @id @default(autoincrement())
+  code                    String   @unique @default("")
+  status                  String   // SUBMITTED|ACCEPTED|QUEUE_READY|SCHEDULED|REJECTED
+  companyName             String
+  erpOfferNumber          String
+  requestedExpeditionDate DateTime
+  requestedDataDate       DateTime
+  requestText             String?  @db.Text
+  requestedByUserId       Int
+  requestedByUsername     String
+  plannerUserId           Int?
+  plannerUsername         String?
+  plannerDecisionReason   String?  @db.Text
+  planningPayload         Json?
+  preparedAt              DateTime?
+  scheduledBlockId        Int?
+  scheduledMachine        String?
+  scheduledStartTime      DateTime?
+  scheduledEndTime        DateTime?
+  scheduledAt             DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @default(now()) @updatedAt
+  attachments             ReservationAttachment[]
+  blocks                  Block[]
+
+  @@index([status, createdAt])
+  @@index([requestedByUserId, status, createdAt])
+  @@index([erpOfferNumber])
+}
+
+model ReservationAttachment {
+  id                 Int      @id @default(autoincrement())
+  reservationId      Int
+  originalName       String
+  storageKey         String   @unique
+  mimeType           String
+  sizeBytes          Int
+  uploadedByUserId   Int
+  uploadedByUsername String
+  createdAt          DateTime @default(now())
+  reservation        Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  @@index([reservationId, createdAt])
 }

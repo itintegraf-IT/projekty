@@ -3,15 +3,31 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PlannerPage from "./_components/PlannerPage";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { serializeTemplates } from "@/lib/scheduleValidation";
+import { getSlotRange, slotToHour } from "@/lib/timeSlots";
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ highlight?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login");
   const isTiskar = session.role === "TISKAR";
+  const isPlanner = ["ADMIN", "PLANOVAT"].includes(session.role);
+
   const blocks = await prisma.block.findMany({
     where: isTiskar && session.assignedMachine ? { machine: session.assignedMachine } : undefined,
     orderBy: { startTime: "asc" },
   });
+
+  // QUEUE_READY rezervace — jen pro PLANOVAT/ADMIN (OBCHODNIK na plánovači nemá přístup k drag&drop)
+  const queueReadyReservations = isPlanner
+    ? await prisma.reservation.findMany({
+        where: { status: "QUEUE_READY" },
+        orderBy: { preparedAt: "asc" },
+      })
+    : [];
 
   // Serialize Date objects to ISO strings for client component
   const serialized = blocks.map((b) => ({
@@ -22,14 +38,18 @@ export default async function HomePage() {
     deadlineExpedice: b.deadlineExpedice?.toISOString() ?? null,
     dataRequiredDate: b.dataRequiredDate?.toISOString() ?? null,
     materialRequiredDate: b.materialRequiredDate?.toISOString() ?? null,
+    pantoneRequiredDate: b.pantoneRequiredDate?.toISOString() ?? null,
     printCompletedAt: b.printCompletedAt?.toISOString() ?? null,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   }));
 
-  const [companyDays, machineWorkHours, machineExceptions] = await Promise.all([
+  const [companyDays, rawMachineWorkHoursTemplates, machineExceptions] = await Promise.all([
     prisma.companyDay.findMany({ orderBy: { startDate: "asc" } }),
-    prisma.machineWorkHours.findMany({ orderBy: [{ machine: "asc" }, { dayOfWeek: "asc" }] }),
+    prisma.machineWorkHoursTemplate.findMany({
+      include: { days: { orderBy: { dayOfWeek: "asc" } } },
+      orderBy: [{ machine: "asc" }, { isDefault: "desc" }, { validFrom: "asc" }],
+    }),
     prisma.machineScheduleException.findMany({ orderBy: [{ date: "asc" }, { machine: "asc" }] }),
   ]);
   const serializedCompanyDays = companyDays.map((d) => ({
@@ -41,9 +61,35 @@ export default async function HomePage() {
 
   const serializedMachineExceptions = machineExceptions.map((e) => ({
     ...e,
+    startHour: slotToHour(getSlotRange(e).startSlot),
+    endHour: slotToHour(getSlotRange(e).endSlot),
+    startSlot: getSlotRange(e).startSlot,
+    endSlot: getSlotRange(e).endSlot,
     date: e.date.toISOString(),
     createdAt: e.createdAt.toISOString(),
   }));
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHours={machineWorkHours} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} />;
+  const initialMachineWorkHoursTemplates = serializeTemplates(rawMachineWorkHoursTemplates);
+
+  const params = await searchParams;
+  const highlightBlockId = params.highlight ? parseInt(params.highlight, 10) : undefined;
+  // Pokud ?highlight=X odkazuje na konkrétní blok, najít jeho orderNumber pro filterText
+  const highlightOrderNumber = highlightBlockId && !isNaN(highlightBlockId)
+    ? (serialized.find((b) => b.id === highlightBlockId)?.orderNumber ?? undefined)
+    : undefined;
+
+  const serializedQueueReservations = queueReadyReservations.map((r) => ({
+    ...r,
+    requestedExpeditionDate: r.requestedExpeditionDate.toISOString(),
+    requestedDataDate: r.requestedDataDate.toISOString(),
+    preparedAt: r.preparedAt?.toISOString() ?? null,
+    scheduledStartTime: r.scheduledStartTime?.toISOString() ?? null,
+    scheduledEndTime: r.scheduledEndTime?.toISOString() ?? null,
+    scheduledAt: r.scheduledAt?.toISOString() ?? null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+    planningPayload: r.planningPayload as Record<string, unknown> | null,
+  }));
+
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHoursTemplates={initialMachineWorkHoursTemplates} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} initialQueueReservations={serializedQueueReservations} initialFilterText={highlightOrderNumber} />;
 }

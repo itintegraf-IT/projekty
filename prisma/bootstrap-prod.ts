@@ -55,6 +55,12 @@ const LAK_OPTIONS = [
   { label: "vysoce lesklá disperse", sortOrder: 9 },
 ];
 
+const SYSTEM_JOB_PRESETS = [
+  { name: "XL 105", sortOrder: 0, machineConstraint: "XL_105" },
+  { name: "XL 106 LED", sortOrder: 1, machineConstraint: "XL_106" },
+  { name: "XL 106 IML", sortOrder: 2, machineConstraint: "XL_106" },
+];
+
 async function main() {
   console.log("🚀 Integraf produkční bootstrap...");
 
@@ -120,6 +126,87 @@ async function main() {
 
   // Poznámka: účty tiskařů (role TISKAR) zakládej ručně přes Admin dashboard.
   // Bootstrap záměrně nevytváří žádné testovací účty.
+
+  // 4. Default templates z MachineWorkHours — vytvořit pokud neexistují
+  //    Pro fresh install bez MachineWorkHours dat použije hardcoded defaults (Po–Pá 6–22).
+  const HARDCODED_DEFAULT_DAYS_105 = [
+    { dayOfWeek: 0, startHour: 0,  endHour: 24, isActive: false }, // neděle
+    { dayOfWeek: 1, startHour: 6,  endHour: 22, isActive: true  }, // pondělí
+    { dayOfWeek: 2, startHour: 6,  endHour: 22, isActive: true  }, // úterý
+    { dayOfWeek: 3, startHour: 6,  endHour: 22, isActive: true  }, // středa
+    { dayOfWeek: 4, startHour: 6,  endHour: 22, isActive: true  }, // čtvrtek
+    { dayOfWeek: 5, startHour: 6,  endHour: 22, isActive: true  }, // pátek
+    { dayOfWeek: 6, startHour: 0,  endHour: 24, isActive: false }, // sobota
+  ];
+  const HARDCODED_DEFAULT_DAYS_106 = [
+    { dayOfWeek: 0, startHour: 22, endHour: 24, isActive: true  }, // neděle
+    { dayOfWeek: 1, startHour: 0,  endHour: 24, isActive: true  }, // pondělí
+    { dayOfWeek: 2, startHour: 0,  endHour: 24, isActive: true  }, // úterý
+    { dayOfWeek: 3, startHour: 0,  endHour: 24, isActive: true  }, // středa
+    { dayOfWeek: 4, startHour: 0,  endHour: 24, isActive: true  }, // čtvrtek
+    { dayOfWeek: 5, startHour: 0,  endHour: 22, isActive: true  }, // pátek
+    { dayOfWeek: 6, startHour: 0,  endHour: 24, isActive: false }, // sobota
+  ];
+  const hardcodedDefaults: Record<string, typeof HARDCODED_DEFAULT_DAYS_105> = {
+    XL_105: HARDCODED_DEFAULT_DAYS_105,
+    XL_106: HARDCODED_DEFAULT_DAYS_106,
+  };
+
+  for (const machine of ["XL_105", "XL_106"]) {
+    const exists = await prisma.machineWorkHoursTemplate.findFirst({
+      where: { machine, isDefault: true },
+    });
+    if (!exists) {
+      const flat = await prisma.machineWorkHours.findMany({ where: { machine } });
+      const days = flat.length > 0
+        ? flat.map((r) => ({ dayOfWeek: r.dayOfWeek, startHour: r.startHour, endHour: r.endHour, isActive: r.isActive }))
+        : hardcodedDefaults[machine];
+      await prisma.machineWorkHoursTemplate.create({
+        data: {
+          machine,
+          label: null,
+          validFrom: new Date("1970-01-01T00:00:00.000Z"),
+          validTo: null,
+          isDefault: true,
+          days: {
+            create: days.map((d) => ({
+              ...d,
+              startSlot: d.startHour * 2,
+              endSlot: d.endHour * 2,
+            })),
+          },
+        },
+      });
+      const src = flat.length > 0 ? "MachineWorkHours" : "hardcoded defaults";
+      console.log(`✅ Default template vytvořena pro ${machine} (${days.length} dnů, zdroj: ${src})`);
+    } else {
+      console.log(`ℹ️  Template pro ${machine}: výchozí šablona již existuje — přeskočeno.`);
+    }
+  }
+
+  // 5. Systémové presety job builderu — vytvořit pouze pokud chybí
+  for (const preset of SYSTEM_JOB_PRESETS) {
+    const exists = await prisma.jobPreset.findFirst({
+      where: { isSystemPreset: true, name: preset.name },
+      select: { id: true },
+    });
+    if (!exists) {
+      await prisma.jobPreset.create({
+        data: {
+          name: preset.name,
+          isSystemPreset: true,
+          isActive: true,
+          sortOrder: preset.sortOrder,
+          appliesToZakazka: true,
+          appliesToRezervace: true,
+          machineConstraint: preset.machineConstraint,
+        },
+      });
+      console.log(`✅ Job preset vytvořen: ${preset.name}`);
+    } else {
+      console.log(`ℹ️  Job preset '${preset.name}' již existuje — přeskočeno.`);
+    }
+  }
 
   console.log("✅ Bootstrap dokončen.");
 }

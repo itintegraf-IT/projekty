@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { resolvePresetForBlock } from "@/lib/jobPresetServer";
+import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -30,6 +32,17 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
+
+const SPLIT_SHARED_FIELDS = [
+  "orderNumber", "description", "specifikace", "deadlineExpedice",
+  "jobPresetId", "jobPresetLabel",
+  "type", "blockVariant",
+  "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
+  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
+  "pantoneRequiredDate", "pantoneOk",
+  "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
+] as const;
+type SplitSharedField = typeof SPLIT_SHARED_FIELDS[number];
 
 export async function PUT(request: NextRequest, { params }: RouteContext) {
   const session = await getSession();
@@ -62,10 +75,17 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         materialRequiredDate: body.materialRequiredDate,
         materialOk: body.materialOk,
         materialNote: body.materialNote,
+        pantoneRequiredDate: body.pantoneRequiredDate,
+        pantoneOk: body.pantoneOk,
+        materialInStock: body.materialInStock,
       };
     } else {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
+    const bypassScheduleValidation = (body as Record<string, unknown>).bypassScheduleValidation === true;
+    // Explicitně smazat příznak z allowed — nesmí jít do prisma.block.update
+    delete (allowed as Record<string, unknown>).bypassScheduleValidation;
     // Remove undefined values
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
 
@@ -85,8 +105,34 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           const checkMachine = (allowed.machine as string | undefined) ?? existing.machine;
           const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : existing.startTime;
           const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : existing.endTime;
-          const violation = await checkScheduleViolation(checkMachine, checkStart, checkEnd);
-          if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+          const [rawTemplates, exceptions, companyDays] = await Promise.all([
+            prisma.machineWorkHoursTemplate.findMany({
+              where: { machine: checkMachine },
+              include: { days: true },
+            }),
+            prisma.machineScheduleException.findMany({
+              where: {
+                machine: checkMachine,
+                date: {
+                  gte: new Date(checkStart.getTime() - 24 * 60 * 60 * 1000),
+                  lte: new Date(checkEnd.getTime()   + 24 * 60 * 60 * 1000),
+                },
+              },
+            }),
+            prisma.companyDay.findMany({
+              where: { startDate: { lt: checkEnd }, endDate: { gt: checkStart } },
+            }),
+          ]);
+          if (!bypassScheduleValidation) {
+            const templates = serializeTemplates(rawTemplates);
+            const violation = checkScheduleViolationWithTemplates(checkMachine, checkStart, checkEnd, templates, exceptions);
+            if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+          }
+          // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
+          const cdConflict = companyDays.find(
+            (cd) => cd.machine === null || cd.machine === checkMachine
+          );
+          if (cdConflict) return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
         }
       }
     }
@@ -94,13 +140,18 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const AUDITED_FIELDS = [
       "dataStatusLabel", "dataRequiredDate", "dataOk",
       "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
+      "pantoneRequiredDate", "pantoneOk", "materialInStock",
       "deadlineExpedice",
       "blockVariant",
+      "jobPresetLabel",
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
 
     const block = await prisma.$transaction(async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });
+      if (!oldBlock) {
+        throw new Error("NOT_FOUND");
+      }
 
       // Normalizace blockVariant — platí na výsledný type, ne jen na vstup
       // Fallback na existující hodnotu z DB pokud blockVariant není v requestu (předchází tiché přepísání na STANDARD)
@@ -109,17 +160,39 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         (allowed.blockVariant as string | undefined) ?? oldBlock?.blockVariant,
         resultingType
       );
+      const presetExplicitlyChanged = allowed.jobPresetId !== undefined;
+      let presetUpdate:
+        | { jobPresetId: number | null; jobPresetLabel: string | null }
+        | null = null;
 
-      // PRINT_RESET: pokud ADMIN/PLANOVAT skutečně mění startTime/endTime/machine a blok je potvrzený
-      const timingActuallyChanged = oldBlock != null && (
-        (allowed.startTime !== undefined && new Date(allowed.startTime as string).getTime() !== oldBlock.startTime.getTime()) ||
-        (allowed.endTime !== undefined && new Date(allowed.endTime as string).getTime() !== oldBlock.endTime.getTime()) ||
-        (allowed.machine !== undefined && allowed.machine !== oldBlock.machine)
-      );
-      const needsPrintReset =
-        timingActuallyChanged &&
-        oldBlock?.printCompletedAt != null &&
-        ["ADMIN", "PLANOVAT"].includes(session.role);
+      if (resultingType === "UDRZBA") {
+        presetUpdate = { jobPresetId: null, jobPresetLabel: null };
+      } else if (presetExplicitlyChanged) {
+        const presetResult = await resolvePresetForBlock(allowed.jobPresetId, resultingType);
+        if ("error" in presetResult) {
+          throw new Error(`PRESET:${presetResult.error}`);
+        }
+        presetUpdate = presetResult;
+      } else if (allowed.type !== undefined && oldBlock.jobPresetId) {
+        const existingPreset = await prisma.jobPreset.findUnique({
+          where: { id: oldBlock.jobPresetId },
+          select: { appliesToZakazka: true, appliesToRezervace: true },
+        });
+        if (existingPreset) {
+          if (resultingType === "ZAKAZKA" && !existingPreset.appliesToZakazka) {
+            throw new Error("PRESET:Vybraný preset není povolen pro zakázku.");
+          }
+          if (resultingType === "REZERVACE" && !existingPreset.appliesToRezervace) {
+            throw new Error("PRESET:Vybraný preset není povolen pro rezervaci.");
+          }
+        }
+      }
+
+      // Pokud se type mění z ZAKAZKA na jiný typ, vyčistit printCompleted jako konzistenční cleanup
+      const typeChangingAwayFromZakazka =
+        oldBlock?.type === "ZAKAZKA" &&
+        (allowed.type as string | undefined) !== undefined &&
+        (allowed.type as string | undefined) !== "ZAKAZKA";
 
       const updated = await tx.block.update({
         where: { id },
@@ -128,15 +201,19 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.machine !== undefined && { machine: allowed.machine as string }),
           ...(allowed.startTime !== undefined && { startTime: new Date(allowed.startTime as string) }),
           ...(allowed.endTime !== undefined && { endTime: new Date(allowed.endTime as string) }),
-          // PRINT_RESET — vyčistit potvrzení při přeplánování
-          ...(needsPrintReset && {
+          ...(allowed.type !== undefined && { type: allowed.type as string }),
+          // Pokud se type mění pryč od ZAKAZKA, vyčistit printCompleted
+          ...(typeChangingAwayFromZakazka && {
             printCompletedAt: null,
             printCompletedByUserId: null,
             printCompletedByUsername: null,
           }),
-          ...(allowed.type !== undefined && { type: allowed.type as string }),
           // Aplikovat blockVariant pokud byl explicitně zadán, nebo pokud se mění type (invariant: non-ZAKAZKA → STANDARD)
           ...((allowed.blockVariant !== undefined || allowed.type !== undefined) && { blockVariant }),
+          ...(presetUpdate && {
+            jobPresetId: presetUpdate.jobPresetId,
+            jobPresetLabel: presetUpdate.jobPresetLabel,
+          }),
           ...(allowed.description !== undefined && { description: allowed.description as string }),
           ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
           ...(allowed.deadlineExpedice !== undefined && {
@@ -160,6 +237,14 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             materialNote: allowed.materialNote as string | null,
             materialNoteByUsername: allowed.materialNote ? session.username : null,
           }),
+          // PANTONE
+          ...(allowed.pantoneRequiredDate !== undefined && {
+            pantoneRequiredDate: allowed.pantoneRequiredDate ? new Date(allowed.pantoneRequiredDate as string) : null,
+          }),
+          ...(allowed.pantoneOk !== undefined && { pantoneOk: allowed.pantoneOk as boolean }),
+          // MATERIAL IN STOCK (pokud materialInStock=true, vynulovat materialRequiredDate)
+          ...(allowed.materialInStock !== undefined && { materialInStock: allowed.materialInStock as boolean }),
+          ...(allowed.materialInStock === true && { materialRequiredDate: null }),
           // BARVY
           ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
           ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),
@@ -170,6 +255,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.specifikace !== undefined && { specifikace: allowed.specifikace as string }),
           // OPAKOVÁNÍ
           ...(allowed.recurrenceType !== undefined && { recurrenceType: allowed.recurrenceType as string }),
+          // SPLIT SKUPINA
+          ...(allowed.splitGroupId !== undefined && { splitGroupId: allowed.splitGroupId as number | null }),
         },
       });
 
@@ -196,21 +283,33 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             newValue: String(updated[field as AuditedField] ?? ""),
           }));
 
-        if (needsPrintReset) {
-          changes.push({
-            blockId: id,
-            orderNumber: oldBlock?.orderNumber ?? null,
-            userId: session.id,
-            username: session.username,
-            action: "PRINT_RESET",
-            field: "printCompletedAt",
-            oldValue: String(oldBlock?.printCompletedByUsername ?? ""),
-            newValue: "",
-          });
-        }
-
         if (changes.length > 0) {
           await tx.auditLog.createMany({ data: changes });
+        }
+      }
+
+      // Propagace shared fields do split skupiny
+      const groupId = updated.splitGroupId;
+      if (groupId != null) {
+        const sharedUpdate: Record<string, unknown> = {};
+        for (const field of SPLIT_SHARED_FIELDS) {
+          if ((allowed as Record<string, unknown>)[field] !== undefined) {
+            sharedUpdate[field] = (updated as Record<string, unknown>)[field];
+          }
+        }
+        if (presetExplicitlyChanged || resultingType === "UDRZBA") {
+          sharedUpdate.jobPresetId = updated.jobPresetId;
+          sharedUpdate.jobPresetLabel = updated.jobPresetLabel;
+        }
+        if (Object.keys(sharedUpdate).length > 0) {
+          // Pokud se type mění na non-ZAKAZKA, normalizovat blockVariant na STANDARD
+          if (sharedUpdate.type && sharedUpdate.type !== "ZAKAZKA") {
+            sharedUpdate.blockVariant = "STANDARD";
+          }
+          await tx.block.updateMany({
+            where: { splitGroupId: groupId, id: { not: id } },
+            data: sharedUpdate,
+          });
         }
       }
 
@@ -219,6 +318,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(block);
   } catch (error: unknown) {
+    if (error instanceof Error && error.message.startsWith("PRESET:")) {
+      return NextResponse.json({ error: error.message.slice("PRESET:".length) }, { status: 400 });
+    }
+    if (error instanceof Error && error.message === "NOT_FOUND") {
+      return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
+    }
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
     }
@@ -242,7 +347,10 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      const blockToDelete = await tx.block.findUnique({ where: { id }, select: { orderNumber: true } });
+      const blockToDelete = await tx.block.findUnique({
+        where: { id },
+        select: { orderNumber: true, reservationId: true },
+      });
 
       await tx.auditLog.create({
         data: {
@@ -255,6 +363,21 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
       });
 
       await tx.block.delete({ where: { id } });
+
+      // Pokud byl blok spojen s rezervací ve stavu SCHEDULED → revert na QUEUE_READY
+      if (blockToDelete?.reservationId) {
+        await tx.reservation.updateMany({
+          where: { id: blockToDelete.reservationId, status: "SCHEDULED" },
+          data: {
+            status: "QUEUE_READY",
+            scheduledBlockId: null,
+            scheduledMachine: null,
+            scheduledStartTime: null,
+            scheduledEndTime: null,
+            scheduledAt: null,
+          },
+        });
+      }
     });
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
@@ -264,54 +387,6 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
     console.error(`[DELETE /api/blocks/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
-}
-
-// Business-time helper — hodiny a den týdne vždy v Europe/Prague, bez ohledu na
-// timezone procesu. Výjimky jsou uloženy jako UTC midnight daného pražského kalendářního
-// dne, takže porovnání excDate.toISOString().slice(0,10) === pragueDate funguje správně.
-const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const PRAGUE_FORMATTER = new Intl.DateTimeFormat("en", {
-  timeZone: "Europe/Prague",
-  year: "numeric", month: "2-digit", day: "2-digit",
-  weekday: "short", hour: "2-digit", hour12: false,
-});
-function pragueOf(d: Date): { hour: number; dayOfWeek: number; dateStr: string } {
-  const parts = PRAGUE_FORMATTER.formatToParts(d);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return {
-    hour: parseInt(get("hour"), 10),
-    dayOfWeek: DOW_SHORT.indexOf(get("weekday") as typeof DOW_SHORT[number]),
-    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
-  };
-}
-
-async function checkScheduleViolation(machine: string, startTime: Date, endTime: Date): Promise<string | null> {
-  const [schedule, exceptions] = await Promise.all([
-    prisma.machineWorkHours.findMany({ where: { machine } }),
-    // Lehce rozšířený rozsah (o den na každou stranu) kvůli UTC vs Prague posunu kolem půlnoci
-    prisma.machineScheduleException.findMany({
-      where: {
-        machine,
-        date: {
-          gte: new Date(new Date(startTime).getTime() - 24 * 60 * 60 * 1000),
-          lte: new Date(new Date(endTime).getTime()   + 24 * 60 * 60 * 1000),
-        },
-      },
-    }),
-  ]);
-  if (schedule.length === 0 && exceptions.length === 0) return null;
-  const SLOT_MS = 30 * 60 * 1000;
-  let cur = new Date(startTime);
-  while (cur < endTime) {
-    const { hour, dayOfWeek, dateStr } = pragueOf(cur);
-    const exc = exceptions.find((e) => new Date(e.date).toISOString().slice(0, 10) === dateStr);
-    const row = exc ?? schedule.find((r) => r.dayOfWeek === dayOfWeek);
-    if (row && (!row.isActive || hour < row.startHour || hour >= row.endHour)) {
-      return "Blok zasahuje do doby mimo provoz stroje.";
-    }
-    cur = new Date(cur.getTime() + SLOT_MS);
-  }
-  return null;
 }
 
 function isPrismaNotFound(error: unknown): boolean {

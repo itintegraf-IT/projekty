@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { resolvePresetForBlock } from "@/lib/jobPresetServer";
+import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -57,21 +59,82 @@ export async function POST(request: NextRequest) {
     // Server-side validace pracovní doby (jen pro ZAKAZKA)
     const blockType = body.type ?? "ZAKAZKA";
     const blockVariant = normalizeBlockVariant(body.blockVariant, blockType);
+    // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
+    const bypassScheduleValidation = body.bypassScheduleValidation === true;
     if (blockType === "ZAKAZKA") {
-      const violation = await checkScheduleViolation(body.machine, new Date(body.startTime), new Date(body.endTime));
-      if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+      const machine = body.machine as string;
+      const startTime = new Date(body.startTime);
+      const endTime = new Date(body.endTime);
+      const [rawTemplates, exceptions, companyDays] = await Promise.all([
+        prisma.machineWorkHoursTemplate.findMany({
+          where: { machine },
+          include: { days: true },
+        }),
+        prisma.machineScheduleException.findMany({
+          where: {
+            machine,
+            date: {
+              gte: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
+              lte: new Date(endTime.getTime()   + 24 * 60 * 60 * 1000),
+            },
+          },
+        }),
+        prisma.companyDay.findMany({
+          where: { startDate: { lt: endTime }, endDate: { gt: startTime } },
+        }),
+      ]);
+      if (!bypassScheduleValidation) {
+        const templates = serializeTemplates(rawTemplates);
+        const violation = checkScheduleViolationWithTemplates(machine, startTime, endTime, templates, exceptions);
+        if (violation) return NextResponse.json({ error: violation }, { status: 422 });
+      }
+      // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
+      const cdConflict = companyDays.find((cd) => cd.machine === null || cd.machine === machine);
+      if (cdConflict) return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
     }
 
-    // Atomická transakce: block.create + auditLog.create buď oba projdou, nebo oba selžou
+    // Pokud je přítomno reservationId — ověřit existenci (mimo transakci)
+    const reservationId: number | undefined = body.reservationId ? Number(body.reservationId) : undefined;
+    let reservationPreview: { id: number; code: string; requestedByUserId: number } | null = null;
+    if (reservationId !== undefined) {
+      const found = await prisma.reservation.findUnique({
+        where: { id: reservationId },
+        select: { id: true, code: true, requestedByUserId: true, status: true },
+      });
+      if (!found) {
+        return NextResponse.json({ error: "Rezervace nenalezena" }, { status: 404 });
+      }
+      if (found.status !== "QUEUE_READY") {
+        return NextResponse.json(
+          { error: "Rezervace není ve stavu QUEUE_READY — nelze naplánovat" },
+          { status: 409 }
+        );
+      }
+      reservationPreview = { id: found.id, code: found.code, requestedByUserId: found.requestedByUserId };
+    }
+
+    const finalOrderNumberPreview = reservationPreview ? reservationPreview.code : String(body.orderNumber);
+    const finalTypePreview = reservationPreview ? "REZERVACE" : blockType;
+    const presetResult = await resolvePresetForBlock(body.jobPresetId, finalTypePreview);
+    if ("error" in presetResult) {
+      return NextResponse.json({ error: presetResult.error }, { status: 400 });
+    }
+
+    // Atomická transakce: block.create + auditLog.create + rezervace SCHEDULED update
     const block = await prisma.$transaction(async (tx) => {
+      const finalOrderNumber = finalOrderNumberPreview;
+      const finalType = finalTypePreview;
+      const finalVariant = reservationPreview ? "STANDARD" : blockVariant;
+      const finalRecurrence = reservationPreview ? "NONE" : (body.recurrenceType ?? "NONE");
+
       const newBlock = await tx.block.create({
         data: {
-          orderNumber: String(body.orderNumber),
+          orderNumber: finalOrderNumber,
           machine: body.machine,
           startTime: new Date(body.startTime),
           endTime: new Date(body.endTime),
-          type: blockType,
-          blockVariant,
+          type: finalType,
+          blockVariant: finalVariant,
           description: body.description ?? null,
           locked: body.locked ?? false,
           deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
@@ -95,9 +158,20 @@ export async function POST(request: NextRequest) {
           specifikace: body.specifikace ?? null,
           // MATERIÁL POZNÁMKA (jen obsah — autor se nepřenáší, je server-owned)
           materialNote: body.materialNote ?? null,
+          // PANTONE + MATERIAL IN STOCK
+          pantoneRequiredDate: body.pantoneRequiredDate ? new Date(body.pantoneRequiredDate) : null,
+          pantoneOk: body.pantoneOk ?? false,
+          materialInStock: body.materialInStock ?? false,
           // OPAKOVÁNÍ
-          recurrenceType: body.recurrenceType ?? "NONE",
+          recurrenceType: finalRecurrence,
           recurrenceParentId: body.recurrenceParentId ?? null,
+          // SPLIT SKUPINA
+          splitGroupId: body.splitGroupId ?? null,
+          // JOB PRESET
+          jobPresetId: presetResult.jobPresetId,
+          jobPresetLabel: presetResult.jobPresetLabel,
+          // REZERVACE
+          reservationId: reservationId ?? null,
         },
       });
 
@@ -111,65 +185,51 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Pokud jde o rezervaci — atomicky ověřit stav QUEUE_READY a přepnout na SCHEDULED
+      if (reservationPreview) {
+        const startTime = new Date(body.startTime);
+        const endTime = new Date(body.endTime);
+        const startCZ = startTime.toLocaleString("cs-CZ", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" });
+        // updateMany s WHERE status=QUEUE_READY — pokud jiný plánovač mezitím rezervaci zabrал,
+        // count=0 a transakce se rollbackuje (eliminuje TOCTOU race condition)
+        const updateResult = await tx.reservation.updateMany({
+          where: { id: reservationPreview.id, status: "QUEUE_READY" },
+          data: {
+            status: "SCHEDULED",
+            scheduledBlockId: newBlock.id,
+            scheduledMachine: body.machine,
+            scheduledStartTime: startTime,
+            scheduledEndTime: endTime,
+            scheduledAt: new Date(),
+          },
+        });
+        if (updateResult.count === 0) {
+          throw new Error("RESERVATION_NOT_AVAILABLE");
+        }
+        await tx.notification.create({
+          data: {
+            type: "RESERVATION_SCHEDULED",
+            message: `Rezervace ${reservationPreview.code} byla zařazena na ${body.machine.replace("_", " ")} dne ${startCZ}`,
+            reservationId: reservationPreview.id,
+            targetUserId: reservationPreview.requestedByUserId,
+            createdByUserId: session.id,
+            createdByUsername: session.username,
+          },
+        });
+      }
+
       return newBlock;
     });
 
     return NextResponse.json(block, { status: 201 });
-  } catch (error) {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === "RESERVATION_NOT_AVAILABLE") {
+      return NextResponse.json(
+        { error: "Rezervace již není dostupná — jiný plánovač ji mezitím přiřadil" },
+        { status: 409 }
+      );
+    }
     console.error("[POST /api/blocks]", error);
     return NextResponse.json({ error: "Chyba při vytváření bloku" }, { status: 500 });
   }
-}
-
-// Business-time helper — hodiny a den týdne vždy v Europe/Prague, bez ohledu na
-// timezone procesu. Výjimky jsou uloženy jako UTC midnight daného pražského kalendářního
-// dne, takže porovnání excDate.toISOString().slice(0,10) === pragueDate funguje správně.
-const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const PRAGUE_FORMATTER = new Intl.DateTimeFormat("en", {
-  timeZone: "Europe/Prague",
-  year: "numeric", month: "2-digit", day: "2-digit",
-  weekday: "short", hour: "2-digit", hour12: false,
-});
-function pragueOf(d: Date): { hour: number; dayOfWeek: number; dateStr: string } {
-  const parts = PRAGUE_FORMATTER.formatToParts(d);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return {
-    hour: parseInt(get("hour"), 10),
-    dayOfWeek: DOW_SHORT.indexOf(get("weekday") as typeof DOW_SHORT[number]),
-    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
-  };
-}
-
-// Ohraničení pro DB dotaz: vrací UTC midnight dne (exc jsou uloženy jako UTC midnight pražského dne)
-function startOfDayUTC(d: Date): Date {
-  return new Date(d.toISOString().slice(0, 10) + "T00:00:00.000Z");
-}
-
-async function checkScheduleViolation(machine: string, startTime: Date, endTime: Date): Promise<string | null> {
-  const [schedule, exceptions] = await Promise.all([
-    prisma.machineWorkHours.findMany({ where: { machine } }),
-    // Lehce rozšířený rozsah (o den na každou stranu) kvůli UTC vs Prague posunu kolem půlnoci
-    prisma.machineScheduleException.findMany({
-      where: {
-        machine,
-        date: {
-          gte: new Date(new Date(startTime).getTime() - 24 * 60 * 60 * 1000),
-          lte: new Date(new Date(endTime).getTime()   + 24 * 60 * 60 * 1000),
-        },
-      },
-    }),
-  ]);
-  if (schedule.length === 0 && exceptions.length === 0) return null;
-  const SLOT_MS = 30 * 60 * 1000;
-  let cur = new Date(startTime);
-  while (cur < endTime) {
-    const { hour, dayOfWeek, dateStr } = pragueOf(cur);
-    const exc = exceptions.find((e) => new Date(e.date).toISOString().slice(0, 10) === dateStr);
-    const row = exc ?? schedule.find((r) => r.dayOfWeek === dayOfWeek);
-    if (row && (!row.isActive || hour < row.startHour || hour >= row.endHour)) {
-      return "Blok zasahuje do doby mimo provoz stroje.";
-    }
-    cur = new Date(cur.getTime() + SLOT_MS);
-  }
-  return null;
 }

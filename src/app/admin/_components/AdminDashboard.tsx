@@ -3,8 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
 import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
-import type { MachineWorkHours } from "@/lib/machineWorkHours";
+import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
+import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { summarizeJobPreset, type JobPreset } from "@/lib/jobPresets";
+import { durationHoursFromSlots, formatSlot, getSlotRange } from "@/lib/timeSlots";
+import { pragueOf } from "@/lib/dateUtils";
 
 // ─── Typy ────────────────────────────────────────────────────────────────────
 
@@ -29,7 +33,7 @@ interface CodebookItem {
 
 // ─── Konstanty ───────────────────────────────────────────────────────────────
 
-const ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "VIEWER"] as const;
+const ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "OBCHODNIK", "VIEWER"] as const;
 type Role = typeof ROLES[number];
 
 const ROLE_COLORS: Record<string, string> = {
@@ -38,6 +42,7 @@ const ROLE_COLORS: Record<string, string> = {
   MTZ: "#30d158",
   DTP: "#ff9f0a",
   TISKAR: "#ac8cff",
+  OBCHODNIK: "#0ea5e9",
   VIEWER: "#636366",
 };
 const ROLE_BG: Record<string, string> = {
@@ -46,6 +51,7 @@ const ROLE_BG: Record<string, string> = {
   MTZ: "rgba(48,209,88,0.15)",
   DTP: "rgba(255,159,10,0.15)",
   TISKAR: "rgba(172,140,255,0.15)",
+  OBCHODNIK: "rgba(14,165,233,0.15)",
   VIEWER: "rgba(99,99,102,0.15)",
 };
 const ROLE_LABELS: Record<string, string> = {
@@ -54,6 +60,7 @@ const ROLE_LABELS: Record<string, string> = {
   MTZ: "MTZ",
   DTP: "DTP",
   TISKAR: "Tiskař",
+  OBCHODNIK: "Obchodník",
   VIEWER: "Prohlížeč",
 };
 const MACHINE_LABELS: Record<string, string> = {
@@ -135,10 +142,28 @@ const btnDanger: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
+const btnAddAccent: React.CSSProperties = {
+  ...btnSecondary,
+  display: "flex",
+  alignItems: "center",
+  gap: 7,
+  background: "rgba(59,130,246,0.12)",
+  color: "#3b82f6",
+  border: "1px solid rgba(59,130,246,0.3)",
+  fontWeight: 600,
+};
+
 // ─── Komponenta ──────────────────────────────────────────────────────────────
 
 export default function AdminDashboard({ currentUser }: { currentUser: SessionUser }) {
-  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "audit" | "shifts">("users");
+  const isPlanovat = currentUser.role === "PLANOVAT";
+  const visibleTabs = (["users", "codebook", "presets", "audit", "shifts"] as const).filter((tab) => {
+    if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts";
+    return true;
+  });
+  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "shifts">(
+    isPlanovat ? "presets" : "users"
+  );
 
   return (
     <div style={{
@@ -190,7 +215,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           padding: 3,
           gap: 3,
         }}>
-          {(["users", "codebook", "audit", "shifts"] as const).map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -207,7 +232,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
                 color: activeTab === tab ? TEXT_PRIMARY : TEXT_SECONDARY,
               }}
             >
-              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "audit" ? "Audit log" : "Pracovní doba"}
+              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "presets" ? "Presety" : tab === "audit" ? "Audit log" : "Pracovní doba"}
             </button>
           ))}
         </div>
@@ -215,15 +240,17 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
 
       {/* Content */}
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "20px" }}>
-        {activeTab === "users" ? (
+        {activeTab === "users" && !isPlanovat ? (
           <UsersSection currentUserId={currentUser.id} />
         ) : activeTab === "codebook" ? (
           <CodebookSection />
-        ) : activeTab === "audit" ? (
+        ) : activeTab === "presets" ? (
+          <PresetSection />
+        ) : activeTab === "audit" && !isPlanovat ? (
           <AuditLogSection />
-        ) : (
+        ) : activeTab === "shifts" ? (
           <WorkShiftsSection />
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -285,18 +312,12 @@ function UsersSection({ currentUserId }: { currentUserId: number }) {
         </span>
         <button
           onClick={() => { setShowAddForm(!showAddForm); setAddError(""); }}
-          style={{
-            display: "flex", alignItems: "center", gap: 5,
-            background: "transparent", border: "none",
-            color: "var(--accent)", fontSize: 13, fontWeight: 500,
-            cursor: "pointer", padding: "4px 8px",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-          }}
+          style={btnAddAccent}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.25" stroke="var(--accent)" strokeWidth="1.5"/>
-            <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
+            <circle cx="7" cy="7" r="6.25" stroke="currentColor" strokeWidth="1.5"/>
+            <line x1="7" y1="4" x2="7" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="4" y1="7" x2="10" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
           Přidat
         </button>
@@ -822,18 +843,12 @@ function CodebookSection() {
         </span>
         <button
           onClick={() => { setShowAddForm(!showAddForm); setAddLabel(""); setAddIsWarning(false); setAddBadgeColor(null); }}
-          style={{
-            display: "flex", alignItems: "center", gap: 5,
-            background: "transparent", border: "none",
-            color: "var(--accent)", fontSize: 13, fontWeight: 500,
-            cursor: "pointer", padding: "4px 8px",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-          }}
+          style={btnAddAccent}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="7" cy="7" r="6.25" stroke="var(--accent)" strokeWidth="1.5"/>
-            <line x1="7" y1="4" x2="7" y2="10" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="7" x2="10" y2="7" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round"/>
+            <circle cx="7" cy="7" r="6.25" stroke="currentColor" strokeWidth="1.5"/>
+            <line x1="7" y1="4" x2="7" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="4" y1="7" x2="10" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
           Přidat
         </button>
@@ -1223,6 +1238,204 @@ function WarningToggle({ value, onChange, compact }: {
   );
 }
 
+// ─── Tab: Presety ────────────────────────────────────────────────────────────
+
+function PresetSection() {
+  const [presets, setPresets] = useState<JobPreset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorTitle, setEditorTitle] = useState("Nový preset");
+  const [editorSeed, setEditorSeed] = useState<Partial<JobPreset> & { id?: number; isSystemPreset?: boolean; sortOrder?: number }>({
+    isActive: true,
+    appliesToZakazka: true,
+    appliesToRezervace: true,
+  });
+
+  async function loadPresets() {
+    setLoading(true);
+    setError("");
+    const res = await fetch("/api/job-presets?includeInactive=true");
+    if (!res.ok) {
+      setError("Nepodařilo se načíst presety.");
+      setLoading(false);
+      return;
+    }
+    const data = await res.json();
+    setPresets(Array.isArray(data) ? data : []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    void loadPresets();
+  }, []);
+
+  async function handleMove(index: number, direction: -1 | 1) {
+    const swapIndex = index + direction;
+    if (swapIndex < 0 || swapIndex >= presets.length) return;
+    const current = presets[index];
+    const swapWith = presets[swapIndex];
+    await Promise.all([
+      fetch(`/api/job-presets/${current.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sortOrder: swapWith.sortOrder }),
+      }),
+      fetch(`/api/job-presets/${swapWith.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sortOrder: current.sortOrder }),
+      }),
+    ]);
+    await loadPresets();
+  }
+
+  async function handleToggleActive(preset: JobPreset) {
+    const res = await fetch(`/api/job-presets/${preset.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive: !preset.isActive }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error ?? "Nepodařilo se změnit stav presetu.");
+      return;
+    }
+    await loadPresets();
+  }
+
+  async function handleDelete(preset: JobPreset) {
+    if (!window.confirm(`Opravdu smazat preset '${preset.name}'?`)) return;
+    const res = await fetch(`/api/job-presets/${preset.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error ?? "Preset se nepodařilo smazat.");
+      return;
+    }
+    await loadPresets();
+  }
+
+  function openCreate() {
+    setEditorTitle("Nový preset");
+    setEditorSeed({
+      isActive: true,
+      appliesToZakazka: true,
+      appliesToRezervace: true,
+    });
+    setEditorOpen(true);
+  }
+
+  function openEdit(preset: JobPreset) {
+    setEditorTitle(`Upravit preset: ${preset.name}`);
+    setEditorSeed(preset);
+    setEditorOpen(true);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          Presety Job Builderu
+        </span>
+        <button
+          onClick={openCreate}
+          type="button"
+          style={btnAddAccent}
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <line x1="6" y1="2.25" x2="6" y2="9.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+            <line x1="2.25" y1="6" x2="9.75" y2="6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+          Přidat preset
+        </button>
+      </div>
+
+      {error && (
+        <div style={{ marginBottom: 12, borderRadius: 8, padding: "10px 12px", background: "color-mix(in oklab, var(--danger) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 25%, transparent)", color: "var(--danger)", fontSize: 12 }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ background: SECTION_BG, borderRadius: 12, overflow: "hidden", border: `1px solid ${BORDER_SUBTLE}` }}>
+        {loading ? (
+          <div style={{ padding: 24, textAlign: "center", color: TEXT_SECONDARY, fontSize: 13 }}>Načítám...</div>
+        ) : presets.length === 0 ? (
+          <div style={{ padding: 24, textAlign: "center", color: TEXT_SECONDARY, fontSize: 13 }}>Žádné presety</div>
+        ) : (
+          presets.map((preset, index) => {
+            const usage = [preset.appliesToZakazka ? "Zakázka" : null, preset.appliesToRezervace ? "Rezervace" : null].filter(Boolean).join(" + ");
+            return (
+              <div
+                key={preset.id}
+                style={{
+                  borderBottom: index === presets.length - 1 ? "none" : `1px solid ${SEPARATOR}`,
+                  background: preset.isActive ? "transparent" : "color-mix(in oklab, var(--surface-2) 60%, transparent)",
+                }}
+              >
+                <div style={{ display: "flex", gap: 10, padding: "12px 12px 12px 8px", alignItems: "stretch" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, flexShrink: 0, justifyContent: "center" }}>
+                    <button onClick={() => handleMove(index, -1)} disabled={index === 0} style={{ ...btnSecondary, padding: "3px 7px", fontSize: 10, opacity: index === 0 ? 0.4 : 1 }}>↑</button>
+                    <button onClick={() => handleMove(index, 1)} disabled={index === presets.length - 1} style={{ ...btnSecondary, padding: "3px 7px", fontSize: 10, opacity: index === presets.length - 1 ? 0.4 : 1 }}>↓</button>
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: TEXT_PRIMARY }}>{preset.name}</div>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, borderRadius: 999, padding: "2px 8px",
+                        background: preset.isSystemPreset ? "rgba(59,130,246,0.12)" : "rgba(16,185,129,0.12)",
+                        color: preset.isSystemPreset ? "#60a5fa" : "#34d399",
+                        border: `1px solid ${preset.isSystemPreset ? "rgba(59,130,246,0.25)" : "rgba(16,185,129,0.25)"}`,
+                      }}>
+                        {preset.isSystemPreset ? "Systémový" : "Vlastní"}
+                      </span>
+                      {!preset.isActive && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, borderRadius: 999, padding: "2px 8px",
+                          background: "rgba(148,163,184,0.12)", color: "#94a3b8", border: "1px solid rgba(148,163,184,0.2)",
+                        }}>
+                          Neaktivní
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginTop: 4, lineHeight: 1.45 }}>
+                      {summarizeJobPreset(preset)}
+                    </div>
+                    <div style={{ fontSize: 10, color: TEXT_SECONDARY, marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <span>{usage || "Bez použití"}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0, alignItems: "stretch", minWidth: 108 }}>
+                    <button style={btnSecondary} onClick={() => openEdit(preset)}>Upravit</button>
+                    <button style={btnSecondary} onClick={() => handleToggleActive(preset)}>
+                      {preset.isActive ? "Deaktivovat" : "Aktivovat"}
+                    </button>
+                    {!preset.isSystemPreset && (
+                      <button style={btnDanger} onClick={() => handleDelete(preset)}>Smazat</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <JobPresetEditor
+        open={editorOpen}
+        title={editorTitle}
+        initialValue={editorSeed}
+        onClose={() => setEditorOpen(false)}
+        onSaved={() => {
+          setEditorOpen(false);
+          void loadPresets();
+        }}
+      />
+    </div>
+  );
+}
+
 // ─── Tab: Audit log ───────────────────────────────────────────────────────────
 
 interface AuditLogEntry {
@@ -1238,6 +1451,7 @@ interface AuditLogEntry {
 }
 
 const AUDIT_FIELD_LABELS: Record<string, string> = {
+  jobPresetLabel: "Preset",
   dataStatusLabel: "DATA stav",
   dataRequiredDate: "DATA datum",
   dataOk: "DATA OK",
@@ -1251,211 +1465,808 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
 
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
 const DAY_LABELS_CS = ["Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle"];
-const HOUR_OPTIONS = Array.from({ length: 25 }, (_, i) => i); // 0–24
+const SLOT_OPTIONS = Array.from({ length: 49 }, (_, i) => i); // 0–48
 
-function fmtHour(h: number) {
-  return `${String(h).padStart(2, "0")}:00`;
+type WorkHoursDay = {
+  id?: number;
+  dayOfWeek: number;
+  startSlot?: number | null;
+  endSlot?: number | null;
+  startHour?: number;
+  endHour?: number;
+  isActive: boolean;
+};
+
+type DayDraft = { dayOfWeek: number; startSlot: number; endSlot: number; isActive: boolean };
+
+function fmtSlot(slot: number) {
+  return formatSlot(slot);
+}
+
+function fmtDateRange(validFrom: string, validTo: string | null): string {
+  const fmt = (s: string) => {
+    const [y, m, d] = s.slice(0, 10).split("-");
+    return `${Number(d)}.\u00a0${Number(m)}.`;
+  };
+  return validTo ? `${fmt(validFrom)}\u00a0–\u00a0${fmt(validTo)}` : `${fmt(validFrom)}\u00a0→`;
+}
+
+// Sdílená mřížka hodin — použita jak pro default šablonu, tak pro formulář dočasné šablony
+function WorkHoursGrid({
+  days,
+  machines,
+  onUpdate,
+}: {
+  days: WorkHoursDay[];
+  machines: string[];
+  onUpdate: (dayOfWeek: number, machine: string, patch: Partial<DayDraft>) => void;
+}) {
+  return (
+    <div style={{
+      background: "var(--surface-2)",
+      borderRadius: 12,
+      overflow: "hidden",
+      border: `1px solid ${BORDER_SUBTLE}`,
+      width: "fit-content",
+    }}>
+      {/* Hlavička */}
+      <div style={{ display: "grid", gridTemplateColumns: `120px ${machines.map(() => "260px").join(" ")}`, gap: 1, background: BORDER_SUBTLE }}>
+        <div style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase" as const, letterSpacing: "0.05em" }}>Den</div>
+        {machines.map((m) => (
+          <div key={m} style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase" as const, letterSpacing: "0.05em", textAlign: "center" as const }}>{m.replace("_", " ")}</div>
+        ))}
+      </div>
+      {DAY_ORDER.map((dow, di) => (
+        <div key={dow} style={{ display: "grid", gridTemplateColumns: `120px ${machines.map(() => "260px").join(" ")}`, gap: 1, background: BORDER_SUBTLE }}>
+          <div style={{ background: "var(--surface-2)", padding: "12px 12px", fontSize: 13, fontWeight: 500, color: dow === 0 || dow === 6 ? "var(--danger)" : TEXT_PRIMARY, display: "flex", alignItems: "center" }}>
+            {DAY_LABELS_CS[di]}
+          </div>
+          {machines.map((machine) => {
+            const row = days.find((d) => d.dayOfWeek === dow);
+            if (!row) return <div key={machine} style={{ background: "var(--surface-2)" }} />;
+            return (
+              <div key={machine} style={{ background: "var(--surface-2)", padding: "10px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" as const }}>
+                <button
+                  onClick={() => onUpdate(dow, machine, { isActive: !row.isActive })}
+                  title={row.isActive ? "Provoz" : "Mimo provoz"}
+                  style={{ width: 32, height: 18, borderRadius: 9, flexShrink: 0, background: row.isActive ? "var(--success)" : "var(--surface-3)", border: "none", cursor: "pointer", position: "relative" as const, transition: "background 0.15s ease-out" }}
+                >
+                  <span style={{ position: "absolute" as const, width: 14, height: 14, borderRadius: "50%", background: "var(--text)", top: 2, left: row.isActive ? 16 : 2, transition: "left 0.15s ease-out" }} />
+                </button>
+                {row.isActive ? (
+                  <>
+                    <select
+                      value={getSlotRange(row).startSlot}
+                      onChange={(e) => onUpdate(dow, machine, { startSlot: Number(e.target.value) })}
+                      style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}
+                    >
+                      {SLOT_OPTIONS.filter((slot) => slot < getSlotRange(row).endSlot).map((slot) => <option key={slot} value={slot}>{fmtSlot(slot)}</option>)}
+                    </select>
+                    <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>–</span>
+                    <select
+                      value={getSlotRange(row).endSlot}
+                      onChange={(e) => onUpdate(dow, machine, { endSlot: Number(e.target.value) })}
+                      style={{ ...inputStyle, width: 74, padding: "3px 6px", fontSize: 12, height: 28 }}
+                    >
+                      {SLOT_OPTIONS.filter((slot) => slot > getSlotRange(row).startSlot).map((slot) => <option key={slot} value={slot}>{fmtSlot(slot)}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontStyle: "italic" }}>Celý den mimo provoz</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Týdenní přehled — zobrazuje se vedle WorkHoursGrid
+function WeekSummary({ days }: { days: { dayOfWeek: number; startSlot?: number | null; endSlot?: number | null; startHour?: number; endHour?: number; isActive: boolean }[] }) {
+  const DAY_SHORT = ["Ne", "Po", "Út", "St", "Čt", "Pá", "So"];
+  const activeDays = days.filter((d) => d.isActive);
+  const totalHours = activeDays.reduce((sum, d) => {
+    const { startSlot, endSlot } = getSlotRange(d);
+    return sum + durationHoursFromSlots(startSlot, endSlot);
+  }, 0);
+  const MAX_H = 18; // reference max pro vizuální bar
+
+  return (
+    <div style={{
+      background: "var(--surface-2)", borderRadius: 12,
+      border: `1px solid ${BORDER_SUBTLE}`, padding: "12px 14px",
+      display: "flex", flexDirection: "column", gap: 10, minWidth: 160,
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+    }}>
+      {/* Header */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 4 }}>Přehled</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: TEXT_PRIMARY, letterSpacing: "-0.02em", lineHeight: 1 }}>{totalHours}<span style={{ fontSize: 12, fontWeight: 400, color: TEXT_SECONDARY, marginLeft: 3 }}>h / týden</span></div>
+        <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginTop: 2 }}>{activeDays.length} aktivních dnů</div>
+      </div>
+      {/* Bars */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {[1, 2, 3, 4, 5, 6, 0].map((dow) => {
+          const d = days.find((x) => x.dayOfWeek === dow);
+          const hours = d?.isActive ? durationHoursFromSlots(getSlotRange(d).startSlot, getSlotRange(d).endSlot) : 0;
+          const pct = Math.min(hours / MAX_H, 1);
+          return (
+            <div key={dow} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 500, color: TEXT_SECONDARY, width: 16, textAlign: "right" as const }}>{DAY_SHORT[dow]}</span>
+              <div style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--surface-3)", overflow: "hidden" }}>
+                <div style={{ width: `${pct * 100}%`, height: "100%", borderRadius: 3, background: d?.isActive ? "#3b82f6" : "transparent", transition: "width 0.3s ease-out" }} />
+              </div>
+              <span style={{ fontSize: 10, color: d?.isActive ? TEXT_PRIMARY : TEXT_SECONDARY, width: 24, textAlign: "right" as const }}>{d?.isActive ? `${hours}h` : "—"}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── DatePickerField ─────────────────────────────────────────────────────────
+const MONTH_NAMES_CS = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
+const DAY_NAMES_CS   = ["Po","Út","St","Čt","Pá","So","Ne"];
+const navBtnStyle: React.CSSProperties = {
+  width: 28, height: 28, borderRadius: 8, border: "none",
+  background: "var(--surface-2)", color: "var(--text-muted)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  cursor: "pointer", transition: "background 100ms ease-out",
+};
+
+function DatePickerField({ value, onChange, placeholder = "Vyberte datum…" }: {
+  value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const today = new Date();
+  const selected = value ? new Date(value + "T00:00:00") : undefined;
+  const [viewYear,  setViewYear]  = useState(() => selected?.getFullYear()  ?? today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(() => selected?.getMonth()     ?? today.getMonth());
+
+  function toStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  }
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  }
+
+  const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const displayLabel = selected
+    ? selected.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" })
+    : placeholder;
+
+  const CELL = 36; const GAP = 3;
+
+  const trigger = (
+    <button style={{
+      height: 32, borderRadius: 6,
+      border: "1px solid var(--border)", background: "var(--surface-2)",
+      color: selected ? "var(--text)" : "var(--text-muted)",
+      fontSize: 12, padding: "0 10px",
+      display: "flex", alignItems: "center", gap: 6,
+      cursor: "pointer", outline: "none", boxSizing: "border-box",
+      fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
+      transition: "border-color 120ms ease-out", whiteSpace: "nowrap",
+    } as React.CSSProperties}>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.4, flexShrink: 0 }}>
+        <rect x="3" y="4" width="18" height="18" rx="2"/>
+        <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <span>{displayLabel}</span>
+    </button>
+  );
+
+  if (!mounted) return trigger;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent align="start" side="bottom" className="w-auto p-0 border-0" style={{ background: "var(--surface)", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.35)" }}>
+        <div style={{ width: 7 * CELL + 6 * GAP + 32, padding: "16px 16px 12px", fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <button onClick={prevMonth} style={navBtnStyle}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em" }}>
+              {MONTH_NAMES_CS[viewMonth]} {viewYear}
+            </span>
+            <button onClick={nextMonth} style={navBtnStyle}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP, marginBottom: 4 }}>
+            {DAY_NAMES_CS.map(d => (
+              <div key={d} style={{ textAlign: "center", fontSize: 11, fontWeight: 500, color: "var(--text-muted)", paddingBottom: 4 }}>{d}</div>
+            ))}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
+            {cells.map((day, i) => {
+              if (!day) return <div key={i} style={{ width: CELL, height: CELL }} />;
+              const isSelected = !!selected && selected.getDate() === day && selected.getMonth() === viewMonth && selected.getFullYear() === viewYear;
+              const isToday    = today.getDate() === day && today.getMonth() === viewMonth && today.getFullYear() === viewYear;
+              return (
+                <button key={i}
+                  onClick={() => { onChange(toStr(new Date(viewYear, viewMonth, day))); setOpen(false); }}
+                  style={{
+                    width: CELL, height: CELL, borderRadius: "50%",
+                    background: isSelected ? "#3b82f6" : isToday && !isSelected ? "rgba(59,130,246,0.15)" : "transparent",
+                    color: isSelected ? "#fff" : isToday ? "#3b82f6" : "var(--text)",
+                    border: isToday ? "1.5px solid #3b82f6" : "1.5px solid transparent",
+                    fontSize: 13, fontWeight: isSelected || isToday ? 700 : 400,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "background 100ms ease-out",
+                  }}
+                >{day}</button>
+              );
+            })}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function defaultDays(): DayDraft[] {
+  return [
+    { dayOfWeek: 1, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 2, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 3, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 4, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 5, startSlot: 12, endSlot: 44, isActive: true },
+    { dayOfWeek: 6, startSlot: 12, endSlot: 44, isActive: false },
+    { dayOfWeek: 0, startSlot: 12, endSlot: 44, isActive: false },
+  ];
 }
 
 function WorkShiftsSection() {
-  const [rows, setRows] = useState<MachineWorkHours[]>([]);
+  const [templates, setTemplates] = useState<MachineWorkHoursTemplate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+
+  // Default template edit state
+  const [defaultDirty, setDefaultDirty] = useState(false);
+  const [defaultSaving, setDefaultSaving] = useState(false);
+  const [defaultError, setDefaultError] = useState("");
+
+  // Add form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addMachine, setAddMachine] = useState<"XL_105" | "XL_106" | "OBA">("OBA");
+  const [addValidFrom, setAddValidFrom] = useState("");
+  const [addValidTo, setAddValidTo] = useState("");
+  const [addLabel, setAddLabel] = useState("");
+  const [addDays, setAddDays] = useState<DayDraft[]>(defaultDays());
+  const [addError, setAddError] = useState("");
+  const [addSaving, setAddSaving] = useState(false);
+  const [expandedTemplateId, setExpandedTemplateId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  // Edit state pro dočasné šablony
+  const [editingDays, setEditingDays] = useState<Record<number, DayDraft[]>>({});
+  const [editingSaving, setEditingSaving] = useState<number | null>(null);
+  const [editingError, setEditingError] = useState<Record<number, string>>({});
+
+  // Edit state pro metadata dočasných šablon (label, validFrom, validTo)
+  const [editingMeta, setEditingMeta] = useState<Record<number, { label: string; validFrom: string; validTo: string }>>({});
+
+  // Varování o kolizích bloků
+  const [conflictWarning, setConflictWarning] = useState<{
+    machine: string; validFrom: string; validTo: string | null;
+    blocks: Array<{ id: number; orderNumber: string; startTime: string }>;
+  } | null>(null);
 
   useEffect(() => {
     fetch("/api/machine-shifts")
       .then((r) => r.ok ? r.json() : [])
-      .then((data) => { setRows(data); setLoading(false); })
-      .catch(() => { setRows([]); setLoading(false); });
+      .then((data: MachineWorkHoursTemplate[]) => { setTemplates(data); setLoading(false); })
+      .catch(() => { setTemplates([]); setLoading(false); });
   }, []);
 
-  function updateRow(id: number, patch: Partial<MachineWorkHours>) {
-    setRows((prev) => prev.map((r) => r.id === id ? { ...r, ...patch } : r));
-    setDirty(true);
-    setError("");
+  function updateDefaultDay(machine: string, dayOfWeek: number, patch: Partial<DayDraft>) {
+    setTemplates((prev) => prev.map((t) => {
+      if (t.machine !== machine || !t.isDefault) return t;
+      return { ...t, days: t.days.map((d) => d.dayOfWeek === dayOfWeek ? { ...d, ...patch } : d) };
+    }));
+    setDefaultDirty(true);
+    setDefaultError("");
   }
 
-  async function handleSave() {
-    setSaving(true);
-    setError("");
+  async function handleSaveDefault(machine: string) {
+    const tmpl = templates.find((t) => t.machine === machine && t.isDefault);
+    if (!tmpl) return;
+    setDefaultSaving(true);
+    setDefaultError("");
     try {
       const res = await fetch("/api/machine-shifts", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rows.map((r) => ({ id: r.id, startHour: r.startHour, endHour: r.endHour, isActive: r.isActive }))),
+        body: JSON.stringify({
+          machine,
+          days: tmpl.days.map((d) => {
+            const { startSlot, endSlot } = getSlotRange(d);
+            return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+          }),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.error ?? "Chyba při ukládání.");
+        setDefaultError(body.error ?? "Chyba při ukládání.");
       } else {
-        setDirty(false);
+        setDefaultDirty(false);
+        window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
       }
     } catch {
-      setError("Síťová chyba.");
+      setDefaultError("Síťová chyba.");
     } finally {
-      setSaving(false);
+      setDefaultSaving(false);
     }
+  }
+
+  async function handleAddTemplate() {
+    setAddError("");
+    if (!addValidFrom) { setAddError("Zadej datum platnosti Od."); return; }
+    if (addValidTo && addValidTo <= addValidFrom) { setAddError("Datum Do musí být po datu Od."); return; }
+
+    const machines: string[] = addMachine === "OBA" ? ["XL_105", "XL_106"] : [addMachine];
+    setAddSaving(true);
+    try {
+      for (const machine of machines) {
+        const res = await fetch("/api/machine-shifts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            machine,
+            label: addLabel || null,
+            validFrom: addValidFrom,
+            validTo: addValidTo || null,
+            days: addDays,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          setAddError(body.error ?? `Chyba při ukládání (${machine}).`);
+          setAddSaving(false);
+          return;
+        }
+        const created: MachineWorkHoursTemplate = await res.json();
+        setTemplates((prev) => [...prev, created]);
+        window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
+        await checkAndShowConflicts(machine, addValidFrom, addValidTo || null, addDays);
+      }
+      // Reset form
+      setShowAddForm(false);
+      setAddValidFrom("");
+      setAddValidTo("");
+      setAddLabel("");
+      setAddDays(defaultDays());
+    } catch {
+      setAddError("Síťová chyba.");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
+  async function handleDeleteTemplate(id: number) {
+    setDeletingId(id);
+    try {
+      const res = await fetch(`/api/machine-shifts/${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setTemplates((prev) => prev.filter((t) => t.id !== id));
+        window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
+      }
+    } catch {
+      // tiché selhání
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  function updateTempDay(templateId: number, baseDays: DayDraft[], dow: number, patch: Partial<DayDraft>) {
+    setEditingDays((prev) => ({
+      ...prev,
+      [templateId]: (prev[templateId] ?? baseDays).map((d) => d.dayOfWeek === dow ? { ...d, ...patch } : d),
+    }));
+    setEditingError((prev) => ({ ...prev, [templateId]: "" }));
+  }
+
+  async function handleSaveTemplate(tmpl: MachineWorkHoursTemplate) {
+    const days = editingDays[tmpl.id];
+    const meta = editingMeta[tmpl.id];
+    if (!days && !meta) return;
+    if (meta && meta.validTo && meta.validTo <= meta.validFrom) {
+      setEditingError((prev) => ({ ...prev, [tmpl.id]: "Datum Do musí být po datu Od." }));
+      return;
+    }
+    setEditingSaving(tmpl.id);
+    setEditingError((prev) => ({ ...prev, [tmpl.id]: "" }));
+    try {
+      const body: Record<string, unknown> = {};
+      if (days) body.days = days;
+      if (meta) {
+        body.label = meta.label || null;
+        body.validFrom = meta.validFrom;
+        body.validTo = meta.validTo || null;
+      }
+      const res = await fetch(`/api/machine-shifts/${tmpl.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const bd = await res.json().catch(() => ({}));
+        setEditingError((prev) => ({ ...prev, [tmpl.id]: bd.error ?? "Chyba při ukládání." }));
+        return;
+      }
+      const updated: MachineWorkHoursTemplate = await res.json();
+      setTemplates((prev) => prev.map((t) => t.id === updated.id ? updated : t));
+      setEditingDays((prev) => { const n = { ...prev }; delete n[tmpl.id]; return n; });
+      setEditingMeta((prev) => { const n = { ...prev }; delete n[tmpl.id]; return n; });
+      window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
+      const newFrom = meta?.validFrom ?? String(tmpl.validFrom).slice(0, 10);
+      const newTo = meta?.validTo || (tmpl.validTo ? String(tmpl.validTo).slice(0, 10) : null);
+      await checkAndShowConflicts(
+        tmpl.machine,
+        newFrom,
+        newTo,
+        days ?? tmpl.days.map((d) => {
+          const { startSlot, endSlot } = getSlotRange(d);
+          return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+        })
+      );
+    } catch {
+      setEditingError((prev) => ({ ...prev, [tmpl.id]: "Síťová chyba." }));
+    } finally {
+      setEditingSaving(null);
+    }
+  }
+
+  async function checkAndShowConflicts(
+    machine: string, validFrom: string, validTo: string | null, days: DayDraft[]
+  ) {
+    try {
+      const res = await fetch("/api/blocks");
+      if (!res.ok) return;
+      const all: Array<{
+        id: number; machine: string; type: string;
+        orderNumber: string; startTime: string; endTime: string;
+      }> = await res.json();
+
+      const fromTs = new Date(validFrom + "T00:00:00").getTime();
+      const toTs = validTo ? new Date(validTo + "T23:59:59").getTime() : Infinity;
+
+      const conflicts = all.filter((b) => {
+        if (b.machine !== machine || b.type !== "ZAKAZKA") return false;
+        const startTs = new Date(b.startTime).getTime();
+        if (startTs < fromTs || startTs > toTs) return false;
+        const start = new Date(b.startTime);
+        const end = new Date(b.endTime);
+        const dow = pragueOf(start).dayOfWeek;
+        const tmplDay = days.find((d) => d.dayOfWeek === dow);
+        if (!tmplDay || !tmplDay.isActive) return true;
+        const blockStartSlot = pragueOf(start).slot;
+        const blockEndSlot = pragueOf(new Date(Math.max(start.getTime(), end.getTime() - 1))).slot + 1;
+        return blockStartSlot < tmplDay.startSlot || blockEndSlot > tmplDay.endSlot;
+      });
+
+      if (conflicts.length > 0) {
+        setConflictWarning({
+          machine, validFrom, validTo,
+          blocks: conflicts.map((b) => ({ id: b.id, orderNumber: b.orderNumber, startTime: b.startTime })),
+        });
+      }
+    } catch { /* silent */ }
   }
 
   if (loading) return <div style={{ color: TEXT_SECONDARY, fontSize: 13, padding: 20, textAlign: "center" }}>Načítám…</div>;
 
   const machines = ["XL_105", "XL_106"] as const;
+  const temporaryTemplates = templates.filter((t) => !t.isDefault);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Popis */}
-      <div style={{
-        background: "var(--surface-2)",
-        borderRadius: 12,
-        padding: "12px 16px",
-        fontSize: 12,
-        color: TEXT_SECONDARY,
-        lineHeight: 1.5,
-      }}>
-        Týdenní šablona pracovní doby. Nastavení se opakuje každý týden a ovlivňuje vizualizaci na časové ose i automatické přeskakování bloků mimo provozní dobu.
+      <div style={{ background: "var(--surface-2)", borderRadius: 12, padding: "12px 16px", fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.5 }}>
+        Výchozí týdenní šablona pracovní doby. Dočasné šablony přebíjí výchozí v daném časovém období.
       </div>
 
-      {/* Tabulka: den × stroj */}
-      <div style={{
-        background: "var(--surface-2)",
-        borderRadius: 12,
-        overflow: "hidden",
-        border: `1px solid ${BORDER_SUBTLE}`,
-      }}>
-        {/* Hlavička */}
+      {/* Varování o kolizích bloků */}
+      {conflictWarning && (
         <div style={{
-          display: "grid",
-          gridTemplateColumns: "100px 1fr 1fr",
-          gap: 1,
-          background: BORDER_SUBTLE,
+          background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.35)",
+          borderRadius: 12, padding: "14px 16px",
         }}>
-          <div style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.05em" }}>Den</div>
-          {machines.map((m) => (
-            <div key={m} style={{ background: "var(--surface-2)", padding: "10px 12px", fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{m.replace("_", " ")}</div>
-          ))}
-        </div>
-
-        {/* Řádky */}
-        {DAY_ORDER.map((dow, di) => (
-          <div
-            key={dow}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "100px 1fr 1fr",
-              gap: 1,
-              background: BORDER_SUBTLE,
-            }}
-          >
-            {/* Název dne */}
-            <div style={{
-              background: "var(--surface-2)",
-              padding: "12px 12px",
-              fontSize: 13,
-              fontWeight: 500,
-              color: dow === 0 || dow === 6 ? "var(--danger)" : TEXT_PRIMARY,
-              display: "flex",
-              alignItems: "center",
-            }}>
-              {DAY_LABELS_CS[di]}
-            </div>
-
-            {/* Buňky pro každý stroj */}
-            {machines.map((machine) => {
-              const row = rows.find((r) => r.machine === machine && r.dayOfWeek === dow);
-              if (!row) return <div key={machine} style={{ background: "var(--surface-2)" }} />;
-              return (
-                <div key={machine} style={{
-                  background: "var(--surface-2)",
-                  padding: "10px 12px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}>
-                  {/* Toggle isActive */}
-                  <button
-                    onClick={() => updateRow(row.id, { isActive: !row.isActive })}
-                    title={row.isActive ? "Provoz (kliknutím vypnout)" : "Mimo provoz (kliknutím zapnout)"}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#ca8a04", marginBottom: 6 }}>
+                ⚠ {conflictWarning.blocks.length} {conflictWarning.blocks.length === 1 ? "zakázka mimo" : conflictWarning.blocks.length < 5 ? "zakázky mimo" : "zakázek mimo"} nové směny — {conflictWarning.machine.replace("_", " ")}
+              </div>
+              <div style={{ fontSize: 12, color: TEXT_SECONDARY, marginBottom: 8 }}>
+                Tyto zakázky jsou naplánované mimo provozní hodiny nové šablony. Klikni na zakázku pro otevření v plánovači.
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {conflictWarning.blocks.map((b) => (
+                  <a
+                    key={b.id}
+                    href={`/?q=${encodeURIComponent(b.orderNumber)}`}
                     style={{
-                      width: 32, height: 18, borderRadius: 9, flexShrink: 0,
-                      background: row.isActive ? "var(--success)" : "var(--surface-3)",
-                      border: "none", cursor: "pointer", position: "relative",
-                      transition: "background 0.15s ease-out",
+                      background: "rgba(234,179,8,0.15)", border: "1px solid rgba(234,179,8,0.3)",
+                      borderRadius: 6, padding: "3px 8px", fontSize: 12, fontWeight: 500, color: "#ca8a04",
+                      textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer",
                     }}
                   >
-                    <span style={{
-                      position: "absolute",
-                      width: 14, height: 14, borderRadius: "50%",
-                      background: "var(--text)",
-                      top: 2,
-                      left: row.isActive ? 16 : 2,
-                      transition: "left 0.15s ease-out",
-                    }} />
-                  </button>
-
-                  {row.isActive ? (
-                    <>
-                      {/* startHour */}
-                      <select
-                        value={row.startHour}
-                        onChange={(e) => updateRow(row.id, { startHour: Number(e.target.value) })}
-                        style={{
-                          ...inputStyle,
-                          width: 74,
-                          padding: "3px 6px",
-                          fontSize: 12,
-                          height: 28,
-                        }}
-                      >
-                        {HOUR_OPTIONS.filter((h) => h < row.endHour).map((h) => (
-                          <option key={h} value={h}>{fmtHour(h)}</option>
-                        ))}
-                      </select>
-                      <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>–</span>
-                      {/* endHour */}
-                      <select
-                        value={row.endHour}
-                        onChange={(e) => updateRow(row.id, { endHour: Number(e.target.value) })}
-                        style={{
-                          ...inputStyle,
-                          width: 74,
-                          padding: "3px 6px",
-                          fontSize: 12,
-                          height: 28,
-                        }}
-                      >
-                        {HOUR_OPTIONS.filter((h) => h > row.startHour && h <= 24).map((h) => (
-                          <option key={h} value={h}>{fmtHour(h)}</option>
-                        ))}
-                      </select>
-                    </>
-                  ) : (
-                    <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontStyle: "italic" }}>Celý den mimo provoz</span>
-                  )}
-                </div>
-              );
-            })}
+                    {b.orderNumber} · {new Date(b.startTime).toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" })}
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                  </a>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={() => setConflictWarning(null)}
+              style={{ background: "none", border: "none", cursor: "pointer", color: TEXT_SECONDARY, fontSize: 18, padding: "0 4px", flexShrink: 0 }}
+            >
+              ×
+            </button>
           </div>
-        ))}
-      </div>
-
-      {/* Chyba */}
-      {error && <span style={{ fontSize: 12, color: "var(--danger)" }}>{error}</span>}
-
-      {/* Uložit tlačítko */}
-      {dirty && (
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button
-            style={btnPrimary}
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? "Ukládám…" : "Uložit změny"}
-          </button>
         </div>
       )}
+
+      {/* ── A) Default šablony ──────────────────────────────────────── */}
+      {machines.map((machine) => {
+        const tmpl = templates.find((t) => t.machine === machine && t.isDefault);
+        if (!tmpl) return (
+          <div key={machine} style={{ color: TEXT_SECONDARY, fontSize: 13, padding: 12 }}>
+            ⚠ Výchozí šablona pro {machine} nenalezena. Spusťte <code>npm run prisma:bootstrap</code>.
+          </div>
+        );
+        return (
+          <div key={machine} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, paddingLeft: 2 }}>{machine.replace("_", " ")} — výchozí šablona</div>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" as const }}>
+              <WorkHoursGrid
+                days={tmpl.days}
+                machines={[machine]}
+                onUpdate={(dow, _m, patch) => updateDefaultDay(machine, dow, patch)}
+              />
+              <WeekSummary days={tmpl.days} />
+            </div>
+            {defaultError && <span style={{ fontSize: 12, color: "var(--danger)" }}>{defaultError}</span>}
+            {defaultDirty && (
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button style={btnPrimary} disabled={defaultSaving} onClick={() => handleSaveDefault(machine)}>
+                  {defaultSaving ? "Ukládám…" : "Uložit změny"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* ── B) Dočasné šablony ──────────────────────────────────────── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, paddingLeft: 2 }}>Dočasné šablony</div>
+
+        {temporaryTemplates.length === 0 && !showAddForm && (
+          <div style={{ color: TEXT_SECONDARY, fontSize: 13, padding: "12px 0", fontStyle: "italic" }}>Žádné dočasné šablony</div>
+        )}
+
+        {temporaryTemplates.map((tmpl) => {
+          const isExpanded = expandedTemplateId === tmpl.id;
+          const isDeleting = deletingId === tmpl.id;
+          const meta = editingMeta[tmpl.id];
+          const origFrom = String(tmpl.validFrom).slice(0, 10);
+          const origTo = tmpl.validTo ? String(tmpl.validTo).slice(0, 10) : "";
+          const metaDirty = meta && (meta.label !== (tmpl.label ?? "") || meta.validFrom !== origFrom || meta.validTo !== origTo);
+          const isDirty = !!editingDays[tmpl.id] || !!metaDirty;
+          return (
+            <div key={tmpl.id} style={{ background: "var(--surface-2)", borderRadius: 12, border: `1px solid ${BORDER_SUBTLE}`, overflow: "hidden" }}>
+              {/* Řádek — celý klikatelný */}
+              <div
+                onClick={() => {
+                  const next = isExpanded ? null : tmpl.id;
+                  setExpandedTemplateId(next);
+                  if (next !== null && !editingMeta[tmpl.id]) {
+                    setEditingMeta((prev) => ({ ...prev, [tmpl.id]: { label: tmpl.label ?? "", validFrom: origFrom, validTo: origTo } }));
+                  }
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", cursor: "pointer", userSelect: "none" as const }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                  style={{ color: TEXT_SECONDARY, flexShrink: 0, transition: "transform 0.2s ease-out", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: TEXT_PRIMARY }}>{tmpl.label || "Bez názvu"}</div>
+                  <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginTop: 2 }}>
+                    {tmpl.machine.replace("_", " ")} · {fmtDateRange(tmpl.validFrom, tmpl.validTo)}
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(tmpl.id); }}
+                  disabled={isDeleting}
+                  title="Smazat šablonu"
+                  style={{
+                    background: "none", border: "none", cursor: isDeleting ? "not-allowed" : "pointer",
+                    color: TEXT_SECONDARY, fontSize: 18, padding: "4px 6px", borderRadius: 6,
+                    opacity: isDeleting ? 0.5 : 1, lineHeight: 1, flexShrink: 0,
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.color = "var(--danger)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.color = TEXT_SECONDARY)}
+                >
+                  {isDeleting ? "…" : "×"}
+                </button>
+              </div>
+              {/* Rozbalená editace — iOS styl */}
+              {isExpanded && meta && (
+                <div style={{ borderTop: `1px solid ${BORDER_SUBTLE}`, padding: "16px" }}>
+                  {/* iOS form rows */}
+                  <div style={{ background: "var(--surface-3)", borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
+                    <div style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 12, borderBottom: `1px solid ${BORDER_SUBTLE}` }}>
+                      <span style={{ fontSize: 13, color: TEXT_SECONDARY, width: 72, flexShrink: 0 }}>Název</span>
+                      <input
+                        type="text"
+                        value={meta.label}
+                        onChange={(e) => setEditingMeta((prev) => ({ ...prev, [tmpl.id]: { ...prev[tmpl.id], label: e.target.value } }))}
+                        placeholder="Volitelný popis"
+                        style={{ flex: 1, background: "transparent", border: "none", outline: "none", fontSize: 13, color: TEXT_PRIMARY, fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif", textAlign: "right" as const }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 12, borderBottom: `1px solid ${BORDER_SUBTLE}`, justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 13, color: TEXT_SECONDARY, flexShrink: 0 }}>Platí od</span>
+                      <DatePickerField value={meta.validFrom} onChange={(v) => setEditingMeta((prev) => ({ ...prev, [tmpl.id]: { ...prev[tmpl.id], validFrom: v } }))} placeholder="Vybrat datum" />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", padding: "10px 14px", gap: 12, justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 13, color: TEXT_SECONDARY, flexShrink: 0 }}>Platí do</span>
+                      <DatePickerField value={meta.validTo} onChange={(v) => setEditingMeta((prev) => ({ ...prev, [tmpl.id]: { ...prev[tmpl.id], validTo: v } }))} placeholder="Bez omezení" />
+                    </div>
+                  </div>
+                  {/* Grid + WeekSummary */}
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" as const }}>
+                    <WorkHoursGrid
+                      days={(editingDays[tmpl.id] ?? tmpl.days).map((d, i) => ({ ...d, id: i }))}
+                      machines={[tmpl.machine]}
+                      onUpdate={(dow, _m, patch) => updateTempDay(tmpl.id, tmpl.days.map((d) => {
+                        const { startSlot, endSlot } = getSlotRange(d);
+                        return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+                      }), dow, patch)}
+                    />
+                    <WeekSummary days={editingDays[tmpl.id] ?? tmpl.days} />
+                  </div>
+                  {editingError[tmpl.id] && (
+                    <div style={{ fontSize: 12, color: "var(--danger)", marginTop: 10 }}>{editingError[tmpl.id]}</div>
+                  )}
+                  {isDirty && (
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+                      <button
+                        style={{ padding: "7px 16px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer", background: "var(--surface-3)", color: TEXT_PRIMARY, border: `1px solid ${BORDER_SUBTLE}`, fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif" }}
+                        onClick={() => {
+                          setEditingDays((prev) => { const n = { ...prev }; delete n[tmpl.id]; return n; });
+                          setEditingMeta((prev) => ({ ...prev, [tmpl.id]: { label: tmpl.label ?? "", validFrom: origFrom, validTo: origTo } }));
+                        }}
+                      >
+                        Zrušit
+                      </button>
+                      <button style={btnPrimary} disabled={editingSaving === tmpl.id} onClick={() => handleSaveTemplate(tmpl)}>
+                        {editingSaving === tmpl.id ? "Ukládám…" : "Uložit změny"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Formulář pro přidání nové šablony */}
+        {showAddForm && (
+          <div style={{ background: "var(--surface-2)", borderRadius: 12, border: `1px solid ${BORDER_SUBTLE}`, padding: "16px" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 12 }}>Nová dočasná šablona</div>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+              {/* Stroj */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Stroj</label>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {(["OBA", "XL_105", "XL_106"] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setAddMachine(m)}
+                      style={{
+                        padding: "4px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                        background: addMachine === m ? "#3b82f6" : "transparent",
+                        color: addMachine === m ? "#fff" : TEXT_SECONDARY,
+                        border: `1px solid ${addMachine === m ? "#3b82f6" : BORDER_SUBTLE}`,
+                        fontWeight: addMachine === m ? 600 : 400,
+                        transition: "all 0.15s ease-out",
+                      }}
+                    >
+                      {m === "OBA" ? "Oba" : m.replace("_", " ")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Label */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Název (nepovinný)</label>
+                <input
+                  type="text"
+                  value={addLabel}
+                  onChange={(e) => setAddLabel(e.target.value)}
+                  placeholder="např. Letní provoz"
+                  style={{ ...inputStyle, width: 180, padding: "4px 8px", fontSize: 12, height: 28 }}
+                />
+              </div>
+
+              {/* Platí od */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Platí od</label>
+                <DatePickerField value={addValidFrom} onChange={setAddValidFrom} placeholder="Platí od…" />
+              </div>
+
+              {/* Platí do */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <label style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Platí do</label>
+                <DatePickerField value={addValidTo} onChange={setAddValidTo} placeholder="Platí do…" />
+                {addValidTo && addValidFrom && addValidTo <= addValidFrom && (
+                  <span style={{ fontSize: 11, color: "var(--danger)" }}>Do musí být po Od</span>
+                )}
+              </div>
+            </div>
+
+            <WorkHoursGrid
+              days={addDays.map((d, i) => ({ ...d, id: i }))}
+              machines={addMachine === "OBA" ? ["XL_105", "XL_106"] : [addMachine]}
+              onUpdate={(dow, _m, patch) => setAddDays((prev) => prev.map((d) => d.dayOfWeek === dow ? { ...d, ...patch } : d))}
+            />
+
+            {addError && <div style={{ fontSize: 12, color: "var(--danger)", marginTop: 8 }}>{addError}</div>}
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+              <button
+                style={{ ...btnPrimary, background: "var(--surface-3)", color: TEXT_PRIMARY }}
+                onClick={() => { setShowAddForm(false); setAddError(""); }}
+              >
+                Zrušit
+              </button>
+              <button style={btnPrimary} disabled={addSaving} onClick={handleAddTemplate}>
+                {addSaving ? "Ukládám…" : "Uložit šablonu"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!showAddForm && (
+          <button
+            onClick={() => {
+              // Předvyplnit addDays z aktuální default šablony (první nalezená)
+              const defTmpl = templates.find((t) => t.isDefault);
+              if (defTmpl) setAddDays(defTmpl.days.map((d) => {
+                const { startSlot, endSlot } = getSlotRange(d);
+                return { dayOfWeek: d.dayOfWeek, startSlot, endSlot, isActive: d.isActive };
+              }));
+              setShowAddForm(true);
+            }}
+            style={{ ...btnAddAccent, alignSelf: "flex-start" }}
+          >
+            + Přidat šablonu
+          </button>
+        )}
+      </div>
     </div>
   );
 }

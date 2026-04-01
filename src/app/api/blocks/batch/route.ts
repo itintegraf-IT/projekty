@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
 type BatchUpdate = {
   id: number;
@@ -17,12 +18,15 @@ export async function POST(request: NextRequest) {
   }
 
   let updates: BatchUpdate[];
+  let bypassScheduleValidation = false;
   try {
     const body = await request.json();
     if (!Array.isArray(body.updates) || body.updates.length === 0) {
       return NextResponse.json({ error: "updates musí být neprázdné pole" }, { status: 400 });
     }
     updates = body.updates;
+    // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
+    bypassScheduleValidation = body.bypassScheduleValidation === true;
   } catch {
     return NextResponse.json({ error: "Neplatný JSON" }, { status: 400 });
   }
@@ -36,8 +40,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fetch existing blocks — needed for type check (only ZAKAZKA validated), PRINT_RESET check,
-  // and orderNumber for audit.
+  // Fetch existing blocks — needed for type check (only ZAKAZKA validated) and orderNumber for audit.
   const existingBlocks = await prisma.block.findMany({
     where: { id: { in: updates.map((u) => u.id) } },
     select: {
@@ -46,9 +49,6 @@ export async function POST(request: NextRequest) {
       machine: true,
       startTime: true,
       endTime: true,
-      printCompletedAt: true,
-      printCompletedByUserId: true,
-      printCompletedByUsername: true,
       orderNumber: true,
     },
   });
@@ -60,30 +60,42 @@ export async function POST(request: NextRequest) {
   });
 
   if (zakazkaUpdates.length > 0) {
-    const [schedule, allExceptions] = await Promise.all([
-      prisma.machineWorkHours.findMany(),
+    const machines = [...new Set(zakazkaUpdates.map((u) => u.machine))];
+    const allStartMs = zakazkaUpdates.map((u) => new Date(u.startTime).getTime());
+    const allEndMs   = zakazkaUpdates.map((u) => new Date(u.endTime).getTime());
+    const rangeStart = new Date(Math.min(...allStartMs) - 24 * 60 * 60 * 1000);
+    const rangeEnd   = new Date(Math.max(...allEndMs)   + 24 * 60 * 60 * 1000);
+
+    const [rawTemplates, allExceptions, companyDays] = await Promise.all([
+      prisma.machineWorkHoursTemplate.findMany({
+        where: { machine: { in: machines } },
+        include: { days: true },
+      }),
       prisma.machineScheduleException.findMany({
-        where: {
-          date: {
-            gte: new Date(
-              Math.min(...zakazkaUpdates.map((u) => new Date(u.startTime).getTime())) - 24 * 60 * 60 * 1000
-            ),
-            lte: new Date(
-              Math.max(...zakazkaUpdates.map((u) => new Date(u.endTime).getTime())) + 24 * 60 * 60 * 1000
-            ),
-          },
-        },
+        where: { date: { gte: rangeStart, lte: rangeEnd } },
+      }),
+      prisma.companyDay.findMany({
+        where: { startDate: { lt: new Date(Math.max(...allEndMs)) }, endDate: { gt: new Date(Math.min(...allStartMs)) } },
       }),
     ]);
+    const templates = serializeTemplates(rawTemplates);
 
     for (const u of zakazkaUpdates) {
       const start = new Date(u.startTime);
       const end = new Date(u.endTime);
-      const machineSchedule = schedule.filter((r) => r.machine === u.machine);
-      const machineExceptions = allExceptions.filter((e) => e.machine === u.machine);
-      const violation = checkScheduleViolation(start, end, machineSchedule, machineExceptions);
-      if (violation) {
-        return NextResponse.json({ error: violation }, { status: 422 });
+      if (!bypassScheduleValidation) {
+        const machineExceptions = allExceptions.filter((e) => e.machine === u.machine);
+        const violation = checkScheduleViolationWithTemplates(u.machine, start, end, templates, machineExceptions);
+        if (violation) {
+          return NextResponse.json({ error: violation }, { status: 422 });
+        }
+      }
+      // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
+      const cdConflict = companyDays.find(
+        (cd) => (cd.machine === null || cd.machine === u.machine) && cd.startDate < end && cd.endDate > start
+      );
+      if (cdConflict) {
+        return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
       }
     }
   }
@@ -91,29 +103,16 @@ export async function POST(request: NextRequest) {
   try {
     const results = await prisma.$transaction(async (tx) => {
       const updated = await Promise.all(
-        updates.map((u) => {
-          const old = existingBlocks.find((b) => b.id === u.id);
-          const timingActuallyChanged =
-            old != null &&
-            (new Date(u.startTime).getTime() !== old.startTime.getTime() ||
-              new Date(u.endTime).getTime() !== old.endTime.getTime() ||
-              u.machine !== old.machine);
-          const needsPrintReset = timingActuallyChanged && old?.printCompletedAt != null;
-
-          return tx.block.update({
+        updates.map((u) =>
+          tx.block.update({
             where: { id: u.id },
             data: {
               startTime: new Date(u.startTime),
               endTime: new Date(u.endTime),
               machine: u.machine,
-              ...(needsPrintReset && {
-                printCompletedAt: null,
-                printCompletedByUserId: null,
-                printCompletedByUsername: null,
-              }),
             },
-          });
-        })
+          })
+        )
       );
 
       const auditRows: {
@@ -142,26 +141,6 @@ export async function POST(request: NextRequest) {
           oldValue: undefined,
           newValue: `${u.machine} ${u.startTime}–${u.endTime}`,
         });
-
-        const needsPrintReset =
-          old != null &&
-          old.printCompletedAt != null &&
-          (new Date(u.startTime).getTime() !== old.startTime.getTime() ||
-            new Date(u.endTime).getTime() !== old.endTime.getTime() ||
-            u.machine !== old.machine);
-
-        if (needsPrintReset) {
-          auditRows.push({
-            blockId: u.id,
-            orderNumber,
-            userId: session.id,
-            username: session.username,
-            action: "PRINT_RESET",
-            field: "printCompletedAt",
-            oldValue: String(old?.printCompletedByUsername ?? ""),
-            newValue: "",
-          });
-        }
       }
 
       await tx.auditLog.createMany({ data: auditRows });
@@ -177,44 +156,6 @@ export async function POST(request: NextRequest) {
     console.error("[POST /api/blocks/batch]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
-}
-
-// Business-time helper — hodiny a den týdne vždy v Europe/Prague
-const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const PRAGUE_FORMATTER = new Intl.DateTimeFormat("en", {
-  timeZone: "Europe/Prague",
-  year: "numeric", month: "2-digit", day: "2-digit",
-  weekday: "short", hour: "2-digit", hour12: false,
-});
-function pragueOf(d: Date): { hour: number; dayOfWeek: number; dateStr: string } {
-  const parts = PRAGUE_FORMATTER.formatToParts(d);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return {
-    hour: parseInt(get("hour"), 10),
-    dayOfWeek: DOW_SHORT.indexOf(get("weekday") as typeof DOW_SHORT[number]),
-    dateStr: `${get("year")}-${get("month")}-${get("day")}`,
-  };
-}
-
-function checkScheduleViolation(
-  startTime: Date,
-  endTime: Date,
-  schedule: { dayOfWeek: number; startHour: number; endHour: number; isActive: boolean }[],
-  exceptions: { date: Date; startHour: number; endHour: number; isActive: boolean }[]
-): string | null {
-  if (schedule.length === 0 && exceptions.length === 0) return null;
-  const SLOT_MS = 30 * 60 * 1000;
-  let cur = new Date(startTime);
-  while (cur < endTime) {
-    const { hour, dayOfWeek, dateStr } = pragueOf(cur);
-    const exc = exceptions.find((e) => new Date(e.date).toISOString().slice(0, 10) === dateStr);
-    const row = exc ?? schedule.find((r) => r.dayOfWeek === dayOfWeek);
-    if (row && (!row.isActive || hour < row.startHour || hour >= row.endHour)) {
-      return "Blok zasahuje do doby mimo provoz stroje.";
-    }
-    cur = new Date(cur.getTime() + SLOT_MS);
-  }
-  return null;
 }
 
 function isPrismaNotFound(error: unknown): boolean {
