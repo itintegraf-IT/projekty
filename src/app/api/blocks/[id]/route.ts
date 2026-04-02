@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from "@/lib/blockSerialization";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
@@ -26,7 +27,7 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     if (session.role === "TISKAR" && block.machine !== session.assignedMachine) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    return NextResponse.json(block);
+    return NextResponse.json(serializeBlock(block));
   } catch (error) {
     console.error(`[GET /api/blocks/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
@@ -217,20 +218,20 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.description !== undefined && { description: allowed.description as string }),
           ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
           ...(allowed.deadlineExpedice !== undefined && {
-            deadlineExpedice: allowed.deadlineExpedice ? new Date(allowed.deadlineExpedice as string) : null,
+            deadlineExpedice: parseNullableCivilDateForDb(allowed.deadlineExpedice),
           }),
           // DATA
           ...(allowed.dataStatusId !== undefined && { dataStatusId: allowed.dataStatusId as number }),
           ...(allowed.dataStatusLabel !== undefined && { dataStatusLabel: allowed.dataStatusLabel as string }),
           ...(allowed.dataRequiredDate !== undefined && {
-            dataRequiredDate: allowed.dataRequiredDate ? new Date(allowed.dataRequiredDate as string) : null,
+            dataRequiredDate: parseNullableCivilDateForDb(allowed.dataRequiredDate),
           }),
           ...(allowed.dataOk !== undefined && { dataOk: allowed.dataOk as boolean }),
           // MATERIÁL
           ...(allowed.materialStatusId !== undefined && { materialStatusId: allowed.materialStatusId as number }),
           ...(allowed.materialStatusLabel !== undefined && { materialStatusLabel: allowed.materialStatusLabel as string }),
           ...(allowed.materialRequiredDate !== undefined && {
-            materialRequiredDate: allowed.materialRequiredDate ? new Date(allowed.materialRequiredDate as string) : null,
+            materialRequiredDate: parseNullableCivilDateForDb(allowed.materialRequiredDate),
           }),
           ...(allowed.materialOk !== undefined && { materialOk: allowed.materialOk as boolean }),
           ...(allowed.materialNote !== undefined && {
@@ -239,7 +240,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           }),
           // PANTONE
           ...(allowed.pantoneRequiredDate !== undefined && {
-            pantoneRequiredDate: allowed.pantoneRequiredDate ? new Date(allowed.pantoneRequiredDate as string) : null,
+            pantoneRequiredDate: parseNullableCivilDateForDb(allowed.pantoneRequiredDate),
           }),
           ...(allowed.pantoneOk !== undefined && { pantoneOk: allowed.pantoneOk as boolean }),
           // MATERIAL IN STOCK (pokud materialInStock=true, vynulovat materialRequiredDate)
@@ -271,7 +272,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           oldValue?: string;
           newValue?: string;
         }[] = AUDITED_FIELDS
-          .filter((field) => String(oldBlock[field as AuditedField] ?? "") !== String(updated[field as AuditedField] ?? ""))
+          .filter((field) => serializeAuditValue(field, oldBlock[field as AuditedField]) !== serializeAuditValue(field, updated[field as AuditedField]))
           .map((field) => ({
             blockId: id,
             orderNumber: oldBlock.orderNumber,
@@ -279,8 +280,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             username: session.username,
             action: "UPDATE",
             field,
-            oldValue: String(oldBlock[field as AuditedField] ?? ""),
-            newValue: String(updated[field as AuditedField] ?? ""),
+            oldValue: serializeAuditValue(field, oldBlock[field as AuditedField]),
+            newValue: serializeAuditValue(field, updated[field as AuditedField]),
           }));
 
         if (changes.length > 0) {
@@ -316,7 +317,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       return updated;
     });
 
-    return NextResponse.json(block);
+    return NextResponse.json(serializeBlock(block));
   } catch (error: unknown) {
     if (error instanceof Error && error.message.startsWith("PRESET:")) {
       return NextResponse.json({ error: error.message.slice("PRESET:".length) }, { status: 400 });

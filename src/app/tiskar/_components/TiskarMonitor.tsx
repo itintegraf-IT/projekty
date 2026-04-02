@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { startOfDay, addMinutes, format, isSameDay } from "date-fns";
-import { cs } from "date-fns/locale";
+import { addDaysToCivilDate, diffCivilDateDays, pragueOf, pragueToUTC, utcToPragueDateStr } from "@/lib/dateUtils";
 
 // ─── Typy ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +45,26 @@ const MACHINE_LABELS: Record<string, string> = {
   XL_105: "XL 105",
   XL_106: "XL 106",
 };
+
+const PRAGUE_TZ = "Europe/Prague";
+const PRAGUE_TIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: PRAGUE_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const PRAGUE_DATE_TIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: PRAGUE_TZ,
+  day: "numeric",
+  month: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const PRAGUE_DAY_LABEL_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: PRAGUE_TZ,
+  weekday: "short",
+  day: "numeric",
+  month: "numeric",
+});
 
 // ─── Vizuální styly bloků (shodné s TimelineGrid) ────────────────────────────
 
@@ -146,19 +165,27 @@ function MiniChip({ label, accent }: { label: string; accent: string }) {
 // ─── Helper funkce ────────────────────────────────────────────────────────────
 
 function dateToY(date: Date, viewStart: Date): number {
-  return ((date.getTime() - viewStart.getTime()) / (30 * 60 * 1000)) * SLOT_HEIGHT;
+  const viewStartDateStr = utcToPragueDateStr(viewStart);
+  const target = pragueOf(date);
+  const dayOffset = diffCivilDateDays(viewStartDateStr, target.dateStr);
+  const totalSlots = dayOffset * 48 + target.hour * 2 + target.minute / 30;
+  return totalSlots * SLOT_HEIGHT;
 }
 
 function fmtTime(iso: string): string {
-  return format(new Date(iso), "HH:mm");
+  return PRAGUE_TIME_FMT.format(new Date(iso));
 }
 
 function fmtDateTime(iso: string): string {
-  return format(new Date(iso), "d. M. HH:mm", { locale: cs });
+  return PRAGUE_DATE_TIME_FMT.format(new Date(iso));
 }
 
 function getDayLabel(date: Date): string {
-  return format(date, "EEE d. M.", { locale: cs });
+  return PRAGUE_DAY_LABEL_FMT.format(date);
+}
+
+function isSamePragueDay(a: Date, b: Date): boolean {
+  return utcToPragueDateStr(a) === utcToPragueDateStr(b);
 }
 
 // ─── Hlavní komponenta ────────────────────────────────────────────────────────
@@ -170,7 +197,8 @@ export default function TiskarMonitor({ initialBlocks, machine, username }: Prop
   const scrollRef               = useRef<HTMLDivElement>(null);
   const hasScrolled             = useRef(false);
 
-  const viewStart   = startOfDay(now);
+  const viewStartDate = utcToPragueDateStr(now);
+  const viewStart   = pragueToUTC(viewStartDate, 0, 0);
   const totalSlots  = DAYS_AHEAD * 48;
   const totalHeight = totalSlots * SLOT_HEIGHT;
 
@@ -241,12 +269,16 @@ export default function TiskarMonitor({ initialBlocks, machine, username }: Prop
   // Časové štítky
   const timeLabels: { y: number; label: string; isFullHour: boolean; isNewDay: boolean; date: Date }[] = [];
   for (let i = 0; i < totalSlots; i++) {
-    const slotDate = addMinutes(viewStart, i * 30);
+    const dayOffset = Math.floor(i / 48);
+    const slotWithinDay = i % 48;
+    const hour = Math.floor(slotWithinDay / 2);
+    const minute = slotWithinDay % 2 === 0 ? 0 : 30;
+    const slotDate = pragueToUTC(addDaysToCivilDate(viewStartDate, dayOffset), hour, minute);
     timeLabels.push({
       y: i * SLOT_HEIGHT,
-      label: format(slotDate, "HH:mm"),
-      isFullHour: slotDate.getMinutes() === 0,
-      isNewDay: slotDate.getHours() === 0 && slotDate.getMinutes() === 0 && i > 0,
+      label: PRAGUE_TIME_FMT.format(slotDate),
+      isFullHour: minute === 0,
+      isNewDay: slotWithinDay === 0 && i > 0,
       date: slotDate,
     });
   }
@@ -295,7 +327,7 @@ export default function TiskarMonitor({ initialBlocks, machine, username }: Prop
         <div style={{ flex: 1 }} />
 
         <div style={{ fontSize: 12, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
-          {format(now, "HH:mm")}
+          {PRAGUE_TIME_FMT.format(now)}
         </div>
 
         <button
@@ -337,7 +369,7 @@ export default function TiskarMonitor({ initialBlocks, machine, username }: Prop
                   display: "flex", alignItems: "center",
                   paddingLeft: TIME_COL_W + 12,
                   fontSize: 11, fontWeight: 600,
-                  color: isSameDay(date, new Date()) ? "#3b82f6" : "var(--text-muted)",
+                  color: isSamePragueDay(date, new Date()) ? "#3b82f6" : "var(--text-muted)",
                   letterSpacing: "0.04em",
                   textTransform: "uppercase",
                   zIndex: 5,

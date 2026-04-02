@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { parseCompanyDayDateTimeInput, serializeCompanyDay } from "@/lib/companyDaySerialization";
 
 const VALID_MACHINES = ["XL_105", "XL_106"] as const;
 
 export async function GET() {
   const days = await prisma.companyDay.findMany({ orderBy: { startDate: "asc" } });
-  return NextResponse.json(days);
+  return NextResponse.json(days.map(serializeCompanyDay));
 }
 
 export async function POST(req: Request) {
@@ -24,14 +25,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Neplatná hodnota stroje" }, { status: 400 });
   }
 
-  const parsedStart = new Date(startDate);
-  const parsedEnd   = new Date(endDate);
-  if (isNaN(parsedStart.getTime()) || isNaN(parsedEnd.getTime())) {
-    return NextResponse.json({ error: "Neplatný formát datumu" }, { status: 400 });
+  const parsedStart = parseCompanyDayDateTimeInput(startDate);
+  const parsedEnd = parseCompanyDayDateTimeInput(endDate);
+  if (!parsedStart || !parsedEnd) {
+    return NextResponse.json({ error: "Neplatný formát datumu a času" }, { status: 400 });
   }
 
   const day = await prisma.companyDay.create({
     data: { startDate: parsedStart, endDate: parsedEnd, label, machine: machine ?? null },
   });
-  return NextResponse.json(day, { status: 201 });
+  return NextResponse.json(serializeCompanyDay(day), { status: 201 });
 }

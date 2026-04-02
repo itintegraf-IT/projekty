@@ -2,15 +2,39 @@
 
 import { useEffect, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { utcToPragueDateStr } from "@/lib/dateUtils";
 
 const MONTH_NAMES_CS = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
 const DAY_NAMES_CS   = ["Po","Út","St","Čt","Pá","So","Ne"];
+const PRAGUE_DATE_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: "Europe/Prague",
+  day: "numeric",
+  month: "numeric",
+});
 const navBtnStyle: React.CSSProperties = {
   width: 28, height: 28, borderRadius: 8, border: "none",
   background: "var(--surface-2)", color: "var(--text-muted)",
   display: "flex", alignItems: "center", justifyContent: "center",
   cursor: "pointer", transition: "background 100ms ease-out",
 };
+
+function parseCivilDate(value: string): { year: number; month: number; day: number } | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const [year, month, day] = utcToPragueDateStr(parsed).split("-").map(Number);
+  return { year, month, day };
+}
+
+function formatCivilDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return PRAGUE_DATE_FMT.format(parsed);
+}
+
+function datePartsToString(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 
 export default function DatePickerField({
   value,
@@ -26,14 +50,19 @@ export default function DatePickerField({
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  const today = new Date();
-  const selected = value ? new Date(value + "T00:00:00") : undefined;
-  const [viewYear,  setViewYear]  = useState(() => selected?.getFullYear()  ?? today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(() => selected?.getMonth()     ?? today.getMonth());
+  const todayParts = parseCivilDate(utcToPragueDateStr(new Date())) ?? { year: 1970, month: 1, day: 1 };
+  const selected = parseCivilDate(value);
+  const [viewYear,  setViewYear]  = useState(() => selected?.year  ?? todayParts.year);
+  const [viewMonth, setViewMonth] = useState(() => (selected?.month ?? todayParts.month) - 1);
 
-  function toStr(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  }
+  useEffect(() => {
+    const parts = parseCivilDate(value);
+    if (parts) {
+      setViewYear(parts.year);
+      setViewMonth(parts.month - 1);
+    }
+  }, [value]);
+
   function prevMonth() {
     if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
     else setViewMonth(m => m - 1);
@@ -44,8 +73,8 @@ export default function DatePickerField({
   }
 
   // Grid Po=0 … Ne=6
-  const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDow = (new Date(Date.UTC(viewYear, viewMonth, 1)).getUTCDay() + 6) % 7;
+  const daysInMonth = new Date(Date.UTC(viewYear, viewMonth + 1, 0)).getUTCDate();
   const cells: (number | null)[] = [
     ...Array(firstDow).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -53,7 +82,7 @@ export default function DatePickerField({
   while (cells.length % 7 !== 0) cells.push(null);
 
   const displayLabel = selected
-    ? selected.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" })
+    ? formatCivilDate(value)
     : placeholder;
 
   const CELL = 36;
@@ -118,11 +147,11 @@ export default function DatePickerField({
           <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
             {cells.map((day, i) => {
               if (!day) return <div key={i} style={{ width: CELL, height: CELL }} />;
-              const isSelected = !!selected && selected.getDate() === day && selected.getMonth() === viewMonth && selected.getFullYear() === viewYear;
-              const isToday    = today.getDate() === day && today.getMonth() === viewMonth && today.getFullYear() === viewYear;
+              const isSelected = !!selected && selected.day === day && selected.month - 1 === viewMonth && selected.year === viewYear;
+              const isToday    = todayParts.day === day && todayParts.month - 1 === viewMonth && todayParts.year === viewYear;
               return (
                 <button key={i}
-                  onClick={() => { onChange(toStr(new Date(viewYear, viewMonth, day))); setOpen(false); }}
+                  onClick={() => { onChange(datePartsToString(viewYear, viewMonth + 1, day)); setOpen(false); }}
                   style={{
                     width: CELL, height: CELL, borderRadius: "50%",
                     background: isSelected ? "#3b82f6" : isToday && !isSelected ? "rgba(59,130,246,0.15)" : "transparent",

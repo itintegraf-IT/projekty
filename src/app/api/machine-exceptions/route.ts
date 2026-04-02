@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { civilDateToUTCMidnight, normalizeCivilDateInput, parseCivilDateWriteInput } from "@/lib/dateUtils";
 import {
   getSlotRange,
   isValidSlotWindow,
@@ -27,7 +28,7 @@ function serializeException(e: {
     endHour: slotToHour(endSlot),
     startSlot,
     endSlot,
-    date: e.date.toISOString(),
+    date: normalizeCivilDateInput(e.date)!,
     createdAt: e.createdAt.toISOString(),
   };
 }
@@ -71,14 +72,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Neplatný rozsah startSlot/endSlot" }, { status: 400 });
   }
 
-  // Datum jako YYYY-MM-DD string (klient posílá lokální datum) → UTC midnight.
-  // Záměrně nepoužíváme getFullYear/getMonth/getDate — ty by na UTC serveru
-  // převedly CZ půlnoc (= "předchozí UTC den T23:00Z") na špatný den.
-  const datePart = String(date).slice(0, 10); // "YYYY-MM-DD"
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+  const datePart = parseCivilDateWriteInput(date);
+  if (!datePart) {
     return NextResponse.json({ error: "date musí být ve formátu YYYY-MM-DD" }, { status: 400 });
   }
-  const utcMidnight = new Date(datePart + "T00:00:00.000Z");
+  const utcMidnight = civilDateToUTCMidnight(datePart);
   const legacyHours = legacyHoursFromSlots(startSlot, endSlot);
 
   const exception = await prisma.machineScheduleException.upsert({

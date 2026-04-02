@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { parseNullableCivilDateForDb, serializeBlock } from "@/lib/blockSerialization";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
       where: machineFilter ? { machine: machineFilter } : undefined,
       orderBy: { startTime: "asc" },
     });
-    return NextResponse.json(blocks);
+    return NextResponse.json(blocks.map(serializeBlock));
   } catch (error) {
     console.error("[GET /api/blocks]", error);
     return NextResponse.json({ error: "Chyba při načítání bloků" }, { status: 500 });
@@ -137,16 +138,16 @@ export async function POST(request: NextRequest) {
           blockVariant: finalVariant,
           description: body.description ?? null,
           locked: body.locked ?? false,
-          deadlineExpedice: body.deadlineExpedice ? new Date(body.deadlineExpedice) : null,
+          deadlineExpedice: parseNullableCivilDateForDb(body.deadlineExpedice),
           // DATA
           dataStatusId: body.dataStatusId ?? null,
           dataStatusLabel: body.dataStatusLabel ?? null,
-          dataRequiredDate: body.dataRequiredDate ? new Date(body.dataRequiredDate) : null,
+          dataRequiredDate: parseNullableCivilDateForDb(body.dataRequiredDate),
           dataOk: body.dataOk ?? false,
           // MATERIÁL
           materialStatusId: body.materialStatusId ?? null,
           materialStatusLabel: body.materialStatusLabel ?? null,
-          materialRequiredDate: body.materialRequiredDate ? new Date(body.materialRequiredDate) : null,
+          materialRequiredDate: parseNullableCivilDateForDb(body.materialRequiredDate),
           materialOk: body.materialOk ?? false,
           // BARVY
           barvyStatusId: body.barvyStatusId ?? null,
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
           // MATERIÁL POZNÁMKA (jen obsah — autor se nepřenáší, je server-owned)
           materialNote: body.materialNote ?? null,
           // PANTONE + MATERIAL IN STOCK
-          pantoneRequiredDate: body.pantoneRequiredDate ? new Date(body.pantoneRequiredDate) : null,
+          pantoneRequiredDate: parseNullableCivilDateForDb(body.pantoneRequiredDate),
           pantoneOk: body.pantoneOk ?? false,
           materialInStock: body.materialInStock ?? false,
           // OPAKOVÁNÍ
@@ -221,7 +222,7 @@ export async function POST(request: NextRequest) {
       return newBlock;
     });
 
-    return NextResponse.json(block, { status: 201 });
+    return NextResponse.json(serializeBlock(block), { status: 201 });
   } catch (error: unknown) {
     if (error instanceof Error && error.message === "RESERVATION_NOT_AVAILABLE") {
       return NextResponse.json(

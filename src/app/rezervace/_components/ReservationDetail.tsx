@@ -4,6 +4,13 @@ import { useState } from "react";
 import { Reservation } from "./RezervacePage";
 import PlanningForm from "./PlanningForm";
 
+const DATE_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: "Europe/Prague",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+
 interface Props {
   reservation: Reservation;
   currentUser: { id: number; username: string; role: string };
@@ -13,7 +20,7 @@ interface Props {
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   try {
-    return new Date(iso).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" });
+    return DATE_FMT.format(new Date(iso));
   } catch { return iso; }
 }
 

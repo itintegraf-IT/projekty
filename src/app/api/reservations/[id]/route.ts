@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { serializeReservation } from "@/lib/reservationSerialization";
 
 const ALLOWED_ROLES = ["ADMIN", "PLANOVAT", "OBCHODNIK"];
 const PLANNER_ROLES = ["ADMIN", "PLANOVAT"];
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    return NextResponse.json(reservation);
+    return NextResponse.json(serializeReservation(reservation));
   } catch (error) {
     console.error(`[GET /api/reservations/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
@@ -87,7 +88,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           plannerUsername: session.username,
         },
       });
-      return NextResponse.json(updated);
+      return NextResponse.json(serializeReservation(updated));
     }
 
     // ── reject: SUBMITTED|ACCEPTED|QUEUE_READY → REJECTED ─────────────────────
@@ -125,7 +126,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         });
         return r;
       });
-      return NextResponse.json(updated);
+      return NextResponse.json(serializeReservation(updated));
     }
 
     // ── prepare: ACCEPTED → QUEUE_READY ───────────────────────────────────────
@@ -150,7 +151,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           plannerUsername: session.username,
         },
       });
-      return NextResponse.json(updated);
+      return NextResponse.json(serializeReservation(updated));
     }
 
     // ── notify: manuální upozornění obchodníka ─────────────────────────────────

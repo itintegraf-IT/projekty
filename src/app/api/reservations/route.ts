@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { parseCivilDateForDb } from "@/lib/dateUtils";
+import { serializeReservation } from "@/lib/reservationSerialization";
 
 const ALLOWED_ROLES = ["ADMIN", "PLANOVAT", "OBCHODNIK"];
+
+function parseCivilDateInput(value: unknown): Date | null {
+  return parseCivilDateForDb(value);
+}
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -67,7 +73,7 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return NextResponse.json(reservations);
+    return NextResponse.json(reservations.map(serializeReservation));
   } catch (error) {
     console.error("[GET /api/reservations]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
@@ -93,12 +99,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Validace datumů — odmítnout nevalidní hodnoty před zápisem do DB
-    const expDate = new Date(requestedExpeditionDate);
-    const dataDate = new Date(requestedDataDate);
-    if (isNaN(expDate.getTime())) {
+    const expDate = parseCivilDateInput(requestedExpeditionDate);
+    const dataDate = parseCivilDateInput(requestedDataDate);
+    if (!expDate) {
       return NextResponse.json({ error: "Neplatný formát requestedExpeditionDate" }, { status: 400 });
     }
-    if (isNaN(dataDate.getTime())) {
+    if (!dataDate) {
       return NextResponse.json({ error: "Neplatný formát requestedDataDate" }, { status: 400 });
     }
 
@@ -116,13 +122,28 @@ export async function POST(request: NextRequest) {
           requestedByUsername: session.username,
         },
       });
-      return tx.reservation.update({
+      const created = await tx.reservation.update({
         where: { id: r.id },
         data: { code: `R${r.id}` },
       });
+      return tx.reservation.findUniqueOrThrow({
+        where: { id: created.id },
+        include: {
+          attachments: {
+            select: {
+              id: true,
+              originalName: true,
+              mimeType: true,
+              sizeBytes: true,
+              createdAt: true,
+            },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
     });
 
-    return NextResponse.json(reservation, { status: 201 });
+    return NextResponse.json(serializeReservation(reservation), { status: 201 });
   } catch (error) {
     console.error("[POST /api/reservations]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });

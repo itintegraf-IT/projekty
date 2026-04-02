@@ -3,7 +3,21 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
-import { utcToPragueDateStr } from "@/lib/dateUtils";
+import {
+  addDaysToCivilDate,
+  civilDateDayOfWeek,
+  civilDateFromParts,
+  civilDateParts,
+  civilDateToUTCMidnight,
+  daysInCivilMonth,
+  diffCivilDateDays,
+  formatPragueDateShort,
+  normalizeCivilDateInput,
+  pragueOf,
+  pragueToUTC,
+  todayPragueDateStr,
+  utcToPragueDateStr,
+} from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
@@ -220,7 +234,7 @@ export type CompanyDay = {
 };
 
 // ─── České státní svátky ──────────────────────────────────────────────────────
-function easterDate(year: number): Date {
+function easterDateStr(year: number): string {
   const a = year % 19, b = Math.floor(year / 100), c = year % 100;
   const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
   const g = Math.floor((b - f + 1) / 3);
@@ -230,14 +244,7 @@ function easterDate(year: number): Date {
   const m = Math.floor((a + 11 * h + 22 * l) / 451);
   const month = Math.floor((h + l - 7 * m + 114) / 31);
   const day = ((h + l - 7 * m + 114) % 31) + 1;
-  return new Date(year, month - 1, day);
-}
-
-function localDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return civilDateFromParts(year, month, day);
 }
 
 function czechHolidaySet(year: number): Set<string> {
@@ -247,11 +254,9 @@ function czechHolidaySet(year: number): Set<string> {
     `${year}-10-28`, `${year}-11-17`,
     `${year}-12-24`, `${year}-12-25`, `${year}-12-26`,
   ]);
-  const easter = easterDate(year);
-  const goodFriday = new Date(easter); goodFriday.setDate(easter.getDate() - 2);
-  const easterMon  = new Date(easter); easterMon.setDate(easter.getDate() + 1);
-  s.add(localDateStr(goodFriday));
-  s.add(localDateStr(easterMon));
+  const easter = easterDateStr(year);
+  s.add(addDaysToCivilDate(easter, -2));
+  s.add(addDaysToCivilDate(easter, 1));
   return s;
 }
 
@@ -259,39 +264,35 @@ function czechHolidaySet(year: number): Set<string> {
 // XL_106: 3 směny = 24h provoz → weekend Pá 22:00–Ne 22:00
 
 // ─── Pomocné funkce ────────────────────────────────────────────────────────────
-function startOfDay(d: Date): Date {
-  const r = new Date(d);
-  r.setHours(0, 0, 0, 0);
-  return r;
-}
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
-
 export function dateToY(date: Date, viewStart: Date, slotHeight = SLOT_HEIGHT): number {
-  const diffMs = date.getTime() - viewStart.getTime();
-  return (diffMs / 60000 / 30) * slotHeight;
+  const viewStartDateStr = utcToPragueDateStr(viewStart);
+  const target = pragueOf(date);
+  const dayOffset = diffCivilDateDays(viewStartDateStr, target.dateStr);
+  const totalSlots = dayOffset * DAY_SLOT_COUNT + target.hour * 2 + target.minute / 30;
+  return totalSlots * slotHeight;
 }
 
 function yToDate(y: number, viewStart: Date, slotHeight = SLOT_HEIGHT): Date {
-  const minutes = (y / slotHeight) * 30;
-  return new Date(viewStart.getTime() + minutes * 60000);
+  const viewStartDateStr = utcToPragueDateStr(viewStart);
+  const totalMinutes = Math.round((y / slotHeight) * 30);
+  const dayOffset = Math.floor(totalMinutes / (DAY_SLOT_COUNT * 30));
+  const minuteOfDay = totalMinutes - dayOffset * DAY_SLOT_COUNT * 30;
+  const dateStr = addDaysToCivilDate(viewStartDateStr, dayOffset);
+  const hour = Math.floor(minuteOfDay / 60);
+  const minute = minuteOfDay % 60;
+  return pragueToUTC(dateStr, hour, minute);
 }
 
 function snapToSlot(date: Date): Date {
-  const ms = date.getTime();
-  return new Date(Math.round(ms / SLOT_MS) * SLOT_MS);
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+  const { dateStr, hour, minute } = pragueOf(date);
+  const totalMinutes = hour * 60 + minute;
+  const snappedMinutes = Math.round(totalMinutes / 30) * 30;
+  const dayOffset = Math.floor(snappedMinutes / (DAY_SLOT_COUNT * 30));
+  const minuteOfDay = snappedMinutes - dayOffset * DAY_SLOT_COUNT * 30;
+  const targetDateStr = addDaysToCivilDate(dateStr, dayOffset);
+  const targetHour = Math.floor(minuteOfDay / 60);
+  const targetMinute = minuteOfDay % 60;
+  return pragueToUTC(targetDateStr, targetHour, targetMinute);
 }
 
 const MONTH_ABBR = ["Led","Úno","Bře","Dub","Kvě","Čvn","Čvc","Srp","Zář","Říj","Lis","Pro"];
@@ -395,32 +396,35 @@ function getBlockStyleKey(type: string, variant?: BlockVariant | null): string {
 
 // ─── Pomocná funkce — bezpečný parse data z DB (ISO timestamp i date string) ──
 function fmtDate(s: string | null | undefined): string {
-  if (!s) return "–";
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return "–";
-  return d.toLocaleDateString("cs-CZ", { day: "2-digit", month: "2-digit", year: "2-digit", timeZone: "Europe/Prague" });
+  const normalized = normalizeCivilDateInput(s);
+  if (!normalized) return "–";
+  return new Intl.DateTimeFormat("cs-CZ", {
+    timeZone: "Europe/Prague",
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  }).format(civilDateToUTCMidnight(normalized));
 }
 
 // Zkrácený formát bez roku: "5.1."
 function fmtDateShort(s: string | null | undefined): string {
-  if (!s) return "–";
-  const d = new Date(s);
-  if (isNaN(d.getTime())) return "–";
-  return d.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric", timeZone: "Europe/Prague" });
+  const normalized = normalizeCivilDateInput(s);
+  if (!normalized) return "–";
+  return formatPragueDateShort(civilDateToUTCMidnight(normalized));
 }
 
 function deadlineState(requiredDate: string | null | undefined, ok: boolean, now: Date, blockStartTime?: string | Date): "none" | "ok" | "warning" | "danger" | "earlyStart" {
-  if (!requiredDate) return "none";
+  const dueDateStr = normalizeCivilDateInput(requiredDate);
+  if (!dueDateStr) return "none";
   if (ok) return "ok";
-  const due = new Date(requiredDate);
-  if (isNaN(due.getTime())) return "none";
+  const todayDateStr = utcToPragueDateStr(now);
   // Blok startuje dříve než dorazí materiál/data
   if (blockStartTime) {
     const start = new Date(blockStartTime);
-    if (!isNaN(start.getTime()) && startOfDay(start).getTime() < startOfDay(due).getTime()) return "earlyStart";
+    if (!isNaN(start.getTime()) && utcToPragueDateStr(start) < dueDateStr) return "earlyStart";
   }
-  if (isSameDay(due, now)) return "warning";
-  if (startOfDay(now).getTime() > startOfDay(due).getTime()) return "danger";
+  if (todayDateStr === dueDateStr) return "warning";
+  if (todayDateStr > dueDateStr) return "danger";
   return "none";
 }
 
@@ -484,12 +488,12 @@ function InlineDatePicker({
 }: {
   x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void; onPickSkladem?: () => void;
 }) {
-  const today = new Date();
-  const safeDate = currentValue ? currentValue.slice(0, 10) : "";
-  const initial = safeDate ? new Date(safeDate + "T00:00:00") : today;
-  const [viewYear,  setViewYear]  = useState(initial.getFullYear());
-  const [viewMonth, setViewMonth] = useState(initial.getMonth());
-  const selected = safeDate ? new Date(safeDate + "T00:00:00") : null;
+  const today = todayPragueDateStr();
+  const safeDate = normalizeCivilDateInput(currentValue) ?? "";
+  const initial = civilDateParts(safeDate || today);
+  const [viewYear,  setViewYear]  = useState(initial.year);
+  const [viewMonth, setViewMonth] = useState(initial.monthIndex);
+  const selected = safeDate || null;
 
   function prevMonth() {
     if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); } else setViewMonth(m => m - 1);
@@ -497,12 +501,8 @@ function InlineDatePicker({
   function nextMonth() {
     if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); } else setViewMonth(m => m + 1);
   }
-  function toStr(d: Date) {
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  }
-
-  const firstDow = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7;
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDow = (civilDateDayOfWeek(civilDateFromParts(viewYear, viewMonth + 1, 1)) + 6) % 7;
+  const daysInMonth = daysInCivilMonth(viewYear, viewMonth);
   const cells: (number | null)[] = [...Array(firstDow).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
   while (cells.length % 7 !== 0) cells.push(null);
 
@@ -547,11 +547,12 @@ function InlineDatePicker({
         <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${CELL}px)`, gap: GAP }}>
           {cells.map((day, i) => {
             if (!day) return <div key={i} style={{ width: CELL, height: CELL }} />;
-            const isSelected = !!selected && selected.getDate() === day && selected.getMonth() === viewMonth && selected.getFullYear() === viewYear;
-            const isToday    = today.getDate() === day && today.getMonth() === viewMonth && today.getFullYear() === viewYear;
+            const dateStr = civilDateFromParts(viewYear, viewMonth + 1, day);
+            const isSelected = selected === dateStr;
+            const isToday = today === dateStr;
             return (
               <button key={i}
-                onClick={() => { onPick(toStr(new Date(viewYear, viewMonth, day))); }}
+                onClick={() => { onPick(dateStr); }}
                 style={{
                   width: CELL, height: CELL, borderRadius: "50%",
                   background: isSelected ? "#3b82f6" : isToday && !isSelected ? "rgba(59,130,246,0.15)" : "transparent",
@@ -819,6 +820,9 @@ function BlockCard({
   const clampedHeight = Math.max(height, 20);
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
+  const dataDisplayLabel = block.dataStatusLabel?.trim() || "OK";
+  const dataCanToggle = block.dataOk || !!block.dataRequiredDate;
+  const dataCanOpenCalendar = !block.dataOk && canEditData && !!onInlineDatePick;
   // materialInStock potlačuje warning logiku materiálu
   const effectiveMaterialDate = block.materialInStock ? null : block.materialRequiredDate;
   const effectiveMaterialOk   = block.materialInStock ? true : block.materialOk;
@@ -981,7 +985,7 @@ function BlockCard({
 
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
-        const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dStateKey = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
@@ -1002,10 +1006,10 @@ function BlockCard({
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
-                <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-                  onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
+                <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                  {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
@@ -1049,7 +1053,7 @@ function BlockCard({
             {/* Pravá část: status chips + série */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+                {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1072,7 +1076,7 @@ function BlockCard({
 
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
-        const dStateKey = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dStateKey = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const chipStyle = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
@@ -1092,10 +1096,10 @@ function BlockCard({
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
-                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, !!block.dataRequiredDate)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-                  onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                  D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
+                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                  {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
@@ -1140,7 +1144,7 @@ function BlockCard({
             {/* Pravá část: status chips + série + split */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+                {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1195,7 +1199,7 @@ function BlockCard({
           {/* Pravá část: status chips + série + split */}
           {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-              {block.dataStatusLabel     && <MiniChip label={block.dataStatusLabel}     accent={dataAccent}  textColor={dataText  ?? undefined} />}
+              {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
               {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
               {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1218,11 +1222,12 @@ function BlockCard({
           onMouseLeave={() => setBadgeHovered(false)}
         >
           <DateBadge
-            label="DATA" dateStr={block.dataRequiredDate}
+            label="DATA" dateStr={block.dataOk ? null : block.dataRequiredDate}
+            overrideText={block.dataOk ? dataDisplayLabel : undefined}
             ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
             onToggle={() => toggleField("dataOk", block.dataOk)}
-            onDoubleClick={canEditData ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
+            onDoubleClick={dataCanOpenCalendar ? (rect) => onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect) : undefined}
             statusLabel={block.dataStatusLabel}
           />
           <MaterialNoteAffordance block={block}>
@@ -1255,7 +1260,7 @@ function BlockCard({
 
       {/* ── Řádek 2b: Kompaktní datum chipy (MODE_FULL, 48–59px — plný DateBadge se nevejde) ── */}
       {showDatesCompact && (() => {
-        const dSK = !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dSK = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mSK = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eSK = !block.deadlineExpedice ? "empty" : "neutral";
         const pSK = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
@@ -1273,10 +1278,10 @@ function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden", alignItems: "center" }}>
-            <span style={cs(dSK, FIELD_ACCENT.DATA, !!block.dataRequiredDate)}
-              onClick={block.dataRequiredDate ? (e) => { e.stopPropagation(); if (canEditData && onInlineDatePick) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-              onDoubleClick={canEditData && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-              D&nbsp;{block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}
+            <span style={cs(dSK, FIELD_ACCENT.DATA, dataCanToggle)}
+              onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+              onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+              {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
             </span>
             <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
               <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)}
@@ -1730,7 +1735,7 @@ export default function TimelineGrid({
   }, []);
 
   useEffect(() => {
-    const start = startOfDay(addDays(new Date(), -effectiveDaysBack));
+    const start = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -effectiveDaysBack), 0, 0);
     setViewStart(start);
     viewStartRef.current = start;
   }, [effectiveDaysBack]);
@@ -2170,7 +2175,8 @@ export default function TimelineGrid({
     );
   }
 
-  const viewEnd = addDays(viewStart, totalDays);
+  const viewStartDateStr = utcToPragueDateStr(viewStart);
+  const viewEnd = pragueToUTC(addDaysToCivilDate(viewStartDateStr, totalDays), 0, 0);
   const viewStartMs = viewStart.getTime();
   const viewEndMs = viewEnd.getTime();
   const visibleBlocksByMachine = new Map<string, Block[]>(visibleMachines.map((machine) => [machine, []]));
@@ -2201,15 +2207,28 @@ export default function TimelineGrid({
   })();
 
   // ── Precompute markers ─────────────────────────────────────────────────────
-  const todayDate = new Date();
+  const todayDateStr = todayPragueDateStr();
 
-  type DayInfo = { date: Date; y: number; isWeekend: boolean; isToday: boolean; isHoliday: boolean; isCompanyDay: boolean; companyDayLabel?: string };
+  type DayInfo = {
+    date: Date;
+    dateStr: string;
+    dayOfWeek: number;
+    dayOfMonth: number;
+    monthIndex: number;
+    year: number;
+    y: number;
+    isWeekend: boolean;
+    isToday: boolean;
+    isHoliday: boolean;
+    isCompanyDay: boolean;
+    companyDayLabel?: string;
+  };
   const days: DayInfo[] = [];
 
   // Výpočet svátkové sady pro všechny roky v zobrazovaném rozsahu
   const holidays = (() => {
     const years = new Set<number>();
-    for (let i = 0; i < totalDays; i++) years.add(addDays(viewStart, i).getFullYear());
+    for (let i = 0; i < totalDays; i++) years.add(civilDateParts(addDaysToCivilDate(viewStartDateStr, i)).year);
     const s = new Set<string>();
     years.forEach((y) => czechHolidaySet(y).forEach((d) => s.add(d)));
     return s;
@@ -2230,19 +2249,33 @@ export default function TimelineGrid({
   })) ?? [];
 
   for (let di = 0; di < totalDays; di++) {
-    const day      = addDays(viewStart, di);
-    const dayY     = dateToY(day, viewStart, slotHeight);
-    const dow      = day.getDay();
+    const dateStr = addDaysToCivilDate(viewStartDateStr, di);
+    const day = pragueToUTC(dateStr, 0, 0);
+    const dayY = di * dayHeight;
+    const dow = civilDateDayOfWeek(dateStr);
+    const parts = civilDateParts(dateStr);
     const isWeekend = dow === 0 || dow === 6;
-    const isToday  = isSameDay(day, todayDate);
-    const dateStr  = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const isToday  = dateStr === todayDateStr;
     const isHoliday = holidays.has(dateStr);
     const companyDayMatch = companyDayPragueRanges.find(({ startPrague, endPrague }) => dateStr >= startPrague && dateStr <= endPrague)?.cd;
-    days.push({ date: day, y: dayY, isWeekend, isToday, isHoliday, isCompanyDay: !!companyDayMatch, companyDayLabel: companyDayMatch?.label });
+    days.push({
+      date: day,
+      dateStr,
+      dayOfWeek: dow,
+      dayOfMonth: parts.day,
+      monthIndex: parts.monthIndex,
+      year: parts.year,
+      y: dayY,
+      isWeekend,
+      isToday,
+      isHoliday,
+      isCompanyDay: !!companyDayMatch,
+      companyDayLabel: companyDayMatch?.label,
+    });
     // Blocked overlays — výjimka přebíjí šablonu, fallback na hardcoded
     for (const machine of visibleMachines) {
       const exc = machineExceptions?.find(
-        (e) => e.machine === machine && e.date.slice(0, 10) === dateStr
+        (e) => e.machine === machine && normalizeCivilDateInput(e.date) === dateStr
       );
       const resolvedRows = machineWorkHours ? resolveScheduleRows(machine, day, machineWorkHours) : [];
       const row = exc ?? resolvedRows.find((r) => r.dayOfWeek === dow);
@@ -2344,13 +2377,13 @@ export default function TimelineGrid({
                   gap: 2,
                 }}>
                   <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "var(--text-muted)" }}>
-                    {DAY_ABBR[d.date.getDay()]}
+                    {DAY_ABBR[d.dayOfWeek]}
                   </span>
                   <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1, color: d.isToday ? "#38bdf8" : d.isHoliday ? "#f87171" : d.isCompanyDay ? "#f87171" : d.isWeekend ? "#f87171" : "var(--text)" }}>
-                    {d.date.getDate()}
+                    {d.dayOfMonth}
                   </span>
                   <span style={{ fontSize: 8, fontWeight: 600, lineHeight: 1, color: d.isToday ? "#7dd3fc" : d.isHoliday ? "#fca5a5" : d.isCompanyDay ? "#fca5a5" : d.isWeekend ? "#fca5a5" : "var(--text-muted)" }}>
-                    {MONTH_ABBR[d.date.getMonth()]}
+                    {MONTH_ABBR[d.monthIndex]}
                   </span>
                 </div>
               </div>
@@ -2471,7 +2504,7 @@ export default function TimelineGrid({
                 {days.map((d, di) => {
                   const isEven = di % 2 === 0;
                   const hpx = slotHeight * 2; // px na hodinu
-                  const dow = d.date.getDay();
+                  const dow = d.dayOfWeek;
                   // Dynamické hranice ze schedule (union přes oba stroje) — per-datum resolve
                   const allResolvedRows = machineWorkHours
                     ? visibleMachines.flatMap((m) => resolveScheduleRows(m, d.date, machineWorkHours))

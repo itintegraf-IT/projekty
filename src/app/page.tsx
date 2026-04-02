@@ -2,7 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PlannerPage from "./_components/PlannerPage";
-import { normalizeBlockVariant } from "@/lib/blockVariants";
+import { normalizeCivilDateInput } from "@/lib/dateUtils";
+import { serializeBlock } from "@/lib/blockSerialization";
+import { serializeCompanyDay } from "@/lib/companyDaySerialization";
+import { serializeReservation } from "@/lib/reservationSerialization";
 import { serializeTemplates } from "@/lib/scheduleValidation";
 import { getSlotRange, slotToHour } from "@/lib/timeSlots";
 
@@ -29,20 +32,7 @@ export default async function HomePage({
       })
     : [];
 
-  // Serialize Date objects to ISO strings for client component
-  const serialized = blocks.map((b) => ({
-    ...b,
-    blockVariant: normalizeBlockVariant(b.blockVariant, b.type),
-    startTime: b.startTime.toISOString(),
-    endTime: b.endTime.toISOString(),
-    deadlineExpedice: b.deadlineExpedice?.toISOString() ?? null,
-    dataRequiredDate: b.dataRequiredDate?.toISOString() ?? null,
-    materialRequiredDate: b.materialRequiredDate?.toISOString() ?? null,
-    pantoneRequiredDate: b.pantoneRequiredDate?.toISOString() ?? null,
-    printCompletedAt: b.printCompletedAt?.toISOString() ?? null,
-    createdAt: b.createdAt.toISOString(),
-    updatedAt: b.updatedAt.toISOString(),
-  }));
+  const serialized = blocks.map(serializeBlock);
 
   const [companyDays, rawMachineWorkHoursTemplates, machineExceptions] = await Promise.all([
     prisma.companyDay.findMany({ orderBy: { startDate: "asc" } }),
@@ -52,12 +42,7 @@ export default async function HomePage({
     }),
     prisma.machineScheduleException.findMany({ orderBy: [{ date: "asc" }, { machine: "asc" }] }),
   ]);
-  const serializedCompanyDays = companyDays.map((d) => ({
-    ...d,
-    startDate: d.startDate.toISOString(),
-    endDate: d.endDate.toISOString(),
-    createdAt: d.createdAt.toISOString(),
-  }));
+  const serializedCompanyDays = companyDays.map(serializeCompanyDay);
 
   const serializedMachineExceptions = machineExceptions.map((e) => ({
     ...e,
@@ -65,7 +50,7 @@ export default async function HomePage({
     endHour: slotToHour(getSlotRange(e).endSlot),
     startSlot: getSlotRange(e).startSlot,
     endSlot: getSlotRange(e).endSlot,
-    date: e.date.toISOString(),
+    date: normalizeCivilDateInput(e.date)!,
     createdAt: e.createdAt.toISOString(),
   }));
 
@@ -79,15 +64,7 @@ export default async function HomePage({
     : undefined;
 
   const serializedQueueReservations = queueReadyReservations.map((r) => ({
-    ...r,
-    requestedExpeditionDate: r.requestedExpeditionDate.toISOString(),
-    requestedDataDate: r.requestedDataDate.toISOString(),
-    preparedAt: r.preparedAt?.toISOString() ?? null,
-    scheduledStartTime: r.scheduledStartTime?.toISOString() ?? null,
-    scheduledEndTime: r.scheduledEndTime?.toISOString() ?? null,
-    scheduledAt: r.scheduledAt?.toISOString() ?? null,
-    createdAt: r.createdAt.toISOString(),
-    updatedAt: r.updatedAt.toISOString(),
+    ...serializeReservation(r),
     planningPayload: r.planningPayload as Record<string, unknown> | null,
   }));
 

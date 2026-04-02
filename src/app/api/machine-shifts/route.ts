@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { civilDateToUTCMidnight, normalizeCivilDateInput, parseCivilDateWriteInput } from "@/lib/dateUtils";
 import {
   getSlotRange,
   isValidSlotWindow,
@@ -19,8 +20,8 @@ function serializeTemplate(t: {
 }) {
   return {
     ...t,
-    validFrom: t.validFrom.toISOString().slice(0, 10),
-    validTo: t.validTo ? t.validTo.toISOString().slice(0, 10) : null,
+    validFrom: normalizeCivilDateInput(t.validFrom)!,
+    validTo: normalizeCivilDateInput(t.validTo),
     days: t.days.map((d) => {
       const { startSlot, endSlot } = getSlotRange(d);
       return {
@@ -133,13 +134,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "label musí být nejvýše 255 znaků" }, { status: 400 });
 
   // Validace dat
-  const newFrom = new Date(body.validFrom + "T00:00:00.000Z");
-  const newTo = body.validTo ? new Date(body.validTo + "T00:00:00.000Z") : null;
+  const validFromStr = parseCivilDateWriteInput(body.validFrom);
+  const validToStr = body.validTo ? parseCivilDateWriteInput(body.validTo) : null;
 
-  if (isNaN(newFrom.getTime()))
+  if (!validFromStr)
     return NextResponse.json({ error: "Neplatné datum validFrom" }, { status: 400 });
-  if (newTo && isNaN(newTo.getTime()))
+  if (body.validTo && !validToStr)
     return NextResponse.json({ error: "Neplatné datum validTo" }, { status: 400 });
+  const newFrom = civilDateToUTCMidnight(validFromStr);
+  const newTo = validToStr ? civilDateToUTCMidnight(validToStr) : null;
   if (newTo && newFrom >= newTo)
     return NextResponse.json({ error: "validFrom musí být před validTo" }, { status: 400 });
 

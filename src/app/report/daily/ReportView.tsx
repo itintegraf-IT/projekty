@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { addDaysToCivilDate, pragueToUTC } from "@/lib/dateUtils";
 
 // ─── typy ───────────────────────────────────────────────────────────────────
 
@@ -20,11 +21,27 @@ interface Block {
 
 // ─── konstanty ───────────────────────────────────────────────────────────────
 
-const DAY_NAMES = ["neděle", "pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota"];
-const MONTH_NAMES_GEN = [
-  "ledna", "února", "března", "dubna", "května", "června",
-  "července", "srpna", "září", "října", "listopadu", "prosince",
-];
+const PRAGUE_TZ = "Europe/Prague";
+const PRAGUE_TIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: PRAGUE_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const PRAGUE_REPORT_DATE_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: PRAGUE_TZ,
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+});
+const PRAGUE_PRINTED_AT_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: PRAGUE_TZ,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 const TYPE_LABELS: Record<string, string> = {
   ZAKAZKA:  "zakázka",
@@ -59,8 +76,7 @@ const SHIFTS_106: Shift[] = [
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function fmtTime(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit" });
+  return PRAGUE_TIME_FMT.format(new Date(iso));
 }
 
 function fmtDuration(startIso: string, endIso: string): string {
@@ -80,12 +96,10 @@ function blockOverlapsShift(block: Block, shiftStart: Date, shiftEnd: Date): boo
 }
 
 function getShiftBounds(dateStr: string, shift: Shift): { start: Date; end: Date } {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const start = new Date(y, m - 1, d, shift.startH, 0, 0, 0);
+  const start = pragueToUTC(dateStr, shift.startH, 0);
   const endH = shift.nextDay ? shift.endH - 24 : shift.endH;
-  const end = shift.nextDay
-    ? new Date(y, m - 1, d + 1, endH, 0, 0, 0)
-    : new Date(y, m - 1, d, endH, 0, 0, 0);
+  const endDateStr = shift.nextDay ? addDaysToCivilDate(dateStr, 1) : dateStr;
+  const end = pragueToUTC(endDateStr, endH, 0);
   return { start, end };
 }
 
@@ -145,13 +159,10 @@ export default function ReportView() {
   }
 
   // ── hlavička ──
-  const date = new Date(dateParam + "T12:00:00");
-  const dayName  = DAY_NAMES[date.getDay()];
-  const dateLabel = `${dayName.charAt(0).toUpperCase() + dayName.slice(1)} ${date.getDate()}. ${MONTH_NAMES_GEN[date.getMonth()]} ${date.getFullYear()}`;
-  const printedAt = new Date().toLocaleString("cs-CZ", {
-    day: "2-digit", month: "numeric", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  });
+  const reportDate = pragueToUTC(dateParam, 12, 0);
+  const dateLabelRaw = PRAGUE_REPORT_DATE_FMT.format(reportDate);
+  const dateLabel = dateLabelRaw.charAt(0).toUpperCase() + dateLabelRaw.slice(1);
+  const printedAt = PRAGUE_PRINTED_AT_FMT.format(new Date());
 
   const xl105 = blocks.filter((b) => b.machine === "XL_105");
   const xl106 = blocks.filter((b) => b.machine === "XL_106");
