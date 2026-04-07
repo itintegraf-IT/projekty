@@ -2412,8 +2412,17 @@ export default function TimelineGrid({
               if (height <= 0) return null;
               return (
                 <div key={`ct-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", overflow: "hidden" }}>
-                  {cd.label && height >= 18 && (
-                    <div title={cd.label} style={COMPANY_DAY_CHIP_STYLE}>{cd.label}</div>
+                  {height >= 18 && (
+                    <div style={{ position: "absolute", top: 4, left: 8, display: "flex", alignItems: "center", gap: 4, maxWidth: "calc(100% - 16px)" }}>
+                      {cd.label && (
+                        <div title={cd.label} style={{ height: 14, padding: "0 5px", borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", lineHeight: 1 }}>
+                          {cd.label}
+                        </div>
+                      )}
+                      <div style={{ height: 14, padding: "0 5px", borderRadius: 3, flexShrink: 0, background: !cd.machine ? "rgba(139,92,246,0.5)" : cd.machine === "XL_105" ? "rgba(59,130,246,0.4)" : "rgba(34,197,94,0.4)", color: !cd.machine ? "#c4b5fd" : cd.machine === "XL_105" ? "#93c5fd" : "#86efac", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", whiteSpace: "nowrap", display: "flex", alignItems: "center", lineHeight: 1 }}>
+                        {!cd.machine ? "OBA" : cd.machine === "XL_105" ? "XL 105" : "XL 106"}
+                      </div>
+                    </div>
                   )}
                 </div>
               );
@@ -2548,9 +2557,18 @@ export default function TimelineGrid({
                   if (height <= 0) return null;
                   return (
                     <div key={`c-${cd.id}`} style={{ position: "absolute", top: clampedTop, height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.22)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.45) 0px, rgba(185,28,28,0.45) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", overflow: "hidden" }}>
-                      {cd.label && height >= 18 && (
-                        <div title={cd.label} style={{ position: "absolute", top: 4, left: 8, height: 14, padding: "0 5px", borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "calc(100% - 16px)", display: "flex", alignItems: "center", lineHeight: 1 }}>
-                          {cd.label}
+                      {height >= 18 && (
+                        <div style={{ position: "absolute", top: 4, left: 8, display: "flex", alignItems: "center", gap: 4, maxWidth: "calc(100% - 16px)" }}>
+                          {cd.label && (
+                            <div title={cd.label} style={{ height: 14, padding: "0 5px", borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca", fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", lineHeight: 1 }}>
+                              {cd.label}
+                            </div>
+                          )}
+                          {cd.machine && (
+                            <div style={{ height: 14, padding: "0 5px", borderRadius: 3, flexShrink: 0, background: cd.machine === "XL_105" ? "rgba(59,130,246,0.4)" : "rgba(34,197,94,0.4)", color: cd.machine === "XL_105" ? "#93c5fd" : "#86efac", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", whiteSpace: "nowrap", display: "flex", alignItems: "center", lineHeight: 1 }}>
+                              {cd.machine === "XL_105" ? "XL 105" : "XL 106"}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
