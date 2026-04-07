@@ -36,9 +36,14 @@ export function isCivilDateString(value: string): boolean {
 const PRAGUE_PARTS_FMT = new Intl.DateTimeFormat("en", {
   timeZone: BUSINESS_TIME_ZONE,
   year: "numeric", month: "2-digit", day: "2-digit",
-  weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
 });
 const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function parsePragueHour(value: string): number {
+  const hour = parseInt(value, 10);
+  return hour === 24 ? 0 : hour;
+}
 
 /**
  * UTC Date → { hour, minute, slot, dayOfWeek, dateStr } v Europe/Prague timezone.
@@ -47,7 +52,7 @@ const DOW_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 export function pragueOf(d: Date): { hour: number; minute: number; slot: number; dayOfWeek: number; dateStr: string } {
   const parts = PRAGUE_PARTS_FMT.formatToParts(d);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const hour = parseInt(get("hour"), 10);
+  const hour = parsePragueHour(get("hour"));
   const minute = parseInt(get("minute"), 10);
   return {
     hour,
@@ -61,7 +66,7 @@ export function pragueOf(d: Date): { hour: number; minute: number; slot: number;
 const PRAGUE_HOUR_FMT = new Intl.DateTimeFormat("en-US", {
   timeZone: BUSINESS_TIME_ZONE,
   hour: "2-digit",
-  hour12: false,
+  hourCycle: "h23",
 });
 
 const PRAGUE_DATE_FMT = new Intl.DateTimeFormat("en-CA", {
@@ -101,7 +106,7 @@ const PRAGUE_DATETIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
 
 /** UTC Date → Praha hodina (0–23), pro předvyplnění editačních formulářů */
 export function utcToPragueHour(date: Date): number {
-  return parseInt(PRAGUE_HOUR_FMT.format(date), 10);
+  return parsePragueHour(PRAGUE_HOUR_FMT.format(date));
 }
 
 /** UTC Date → Praha datum ve formátu YYYY-MM-DD, pro předvyplnění DatePickerField */

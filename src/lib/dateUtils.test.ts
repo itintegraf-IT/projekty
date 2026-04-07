@@ -6,6 +6,7 @@ import {
   parseCivilDateWriteInput,
   pragueOf,
   pragueToUTC,
+  utcToPragueHour,
 } from "./dateUtils";
 import {
   parseCompanyDayDateTimeInput,
@@ -26,6 +27,26 @@ test("roundtrips late-night Prague times without crossing into the wrong day", (
     assert.equal(actual.hour, hour);
     assert.equal(actual.minute, minute);
   }
+});
+
+test("normalizes Prague midnight hours from Linux h24 Intl output", () => {
+  const midnight = pragueOf(new Date("2026-04-06T22:00:00.000Z"));
+  assert.equal(midnight.dateStr, "2026-04-07");
+  assert.equal(midnight.hour, 0);
+  assert.equal(midnight.minute, 0);
+  assert.equal(midnight.slot, 0);
+
+  const halfPastMidnight = pragueOf(new Date("2026-04-06T22:30:00.000Z"));
+  assert.equal(halfPastMidnight.dateStr, "2026-04-07");
+  assert.equal(halfPastMidnight.hour, 0);
+  assert.equal(halfPastMidnight.minute, 30);
+  assert.equal(halfPastMidnight.slot, 1);
+
+  assert.equal(utcToPragueHour(new Date("2026-04-06T22:00:00.000Z")), 0);
+});
+
+test("converts Prague midnight to the correct UTC instant", () => {
+  assert.equal(pragueToUTC("2026-04-07", 0, 0).toISOString(), "2026-04-06T22:00:00.000Z");
 });
 
 test("normalizes spring-forward gap to the first valid Prague instant", () => {
