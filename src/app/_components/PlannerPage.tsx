@@ -1646,9 +1646,9 @@ type EditState = { label: string; startDate: string; endDate: string; startHour:
 function machineBadgeStyle(m?: string | null): React.CSSProperties {
   return {
     flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", borderRadius: 4, padding: "1px 5px",
-    background: !m ? "rgba(139,92,246,0.2)" : m === "XL_105" ? "rgba(59,130,246,0.2)" : "rgba(34,197,94,0.2)",
-    color: !m ? "#c4b5fd" : m === "XL_105" ? "#93c5fd" : "#86efac",
-    border: `1px solid ${!m ? "rgba(139,92,246,0.3)" : m === "XL_105" ? "rgba(59,130,246,0.3)" : "rgba(34,197,94,0.3)"}`,
+    background: !m ? "rgba(139,92,246,0.55)" : m === "XL_105" ? "rgba(37,99,235,0.65)" : "rgba(22,163,74,0.65)",
+    color: !m ? "#f3e8ff" : m === "XL_105" ? "#dbeafe" : "#dcfce7",
+    border: `1px solid ${!m ? "rgba(167,139,250,0.5)" : m === "XL_105" ? "rgba(96,165,250,0.5)" : "rgba(74,222,128,0.5)"}`,
   };
 }
 
@@ -3509,7 +3509,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
       removeFromQueue();
       setDraggingQueueItem(null);
-      const y = dateToY(startTime, viewStart);
+      const y = dateToY(startTime, viewStart, slotHeight);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     } catch (error) {
       console.error("Queue drop block creation failed", error);
@@ -3983,9 +3983,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               style={{
                 height: 28, padding: "0 10px", borderRadius: 8,
                 display: "flex", alignItems: "center", gap: 5,
-                background: showShutdowns ? "color-mix(in oklab, var(--brand) 12%, var(--surface-2))" : "var(--surface-2)",
-                border: `1px solid ${showShutdowns ? "color-mix(in oklab, var(--brand) 35%, var(--border))" : "var(--border)"}`,
-                color: showShutdowns ? "var(--brand)" : "var(--text-muted)",
+                background: showShutdowns ? "var(--brand)" : "var(--surface-2)",
+                border: `1px solid ${showShutdowns ? "var(--brand)" : "var(--border)"}`,
+                color: showShutdowns ? "var(--brand-contrast)" : "var(--text-muted)",
                 fontSize: 12, cursor: "pointer", transition: "all 120ms ease-out", whiteSpace: "nowrap",
               }}
             >

@@ -821,14 +821,16 @@ function CodebookSection() {
             style={{
               padding: "6px 16px",
               borderRadius: 20,
-              border: `1px solid ${category === cat ? "var(--accent)" : BORDER_SUBTLE}`,
-              background: category === cat ? "color-mix(in oklab, var(--accent) 15%, transparent)" : "transparent",
-              color: category === cat ? "var(--accent)" : TEXT_SECONDARY,
+              border: `1px solid ${category === cat ? "#3b82f6" : BORDER_SUBTLE}`,
+              background: category === cat ? "rgba(59,130,246,0.12)" : "var(--surface-2, var(--surface))",
+              color: category === cat ? "#3b82f6" : TEXT_PRIMARY,
               fontSize: 13,
-              fontWeight: category === cat ? 600 : 400,
+              fontWeight: category === cat ? 600 : 500,
               cursor: "pointer",
               fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
               transition: "all 0.1s ease-out",
+              outline: "none",
+              opacity: category === cat ? 1 : 0.75,
             }}
           >
             {CATEGORY_LABELS[cat]}
