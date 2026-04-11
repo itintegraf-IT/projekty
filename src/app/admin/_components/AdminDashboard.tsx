@@ -1443,6 +1443,7 @@ function PresetSection() {
 interface AuditLogEntry {
   id: number;
   blockId: number;
+  orderNumber: string | null;
   userId: number;
   username: string;
   action: string;
@@ -2350,7 +2351,7 @@ function AuditLogSection() {
               key={log.id}
               style={{
                 display: "grid",
-                gridTemplateColumns: "100px 80px 70px 1fr",
+                gridTemplateColumns: "100px 80px 120px 1fr",
                 gap: 8,
                 padding: "10px 14px",
                 borderTop: i > 0 ? `1px solid ${SEPARATOR}` : undefined,
@@ -2361,7 +2362,7 @@ function AuditLogSection() {
             >
               <span style={{ color: TEXT_SECONDARY }}>{fmtDatetime(log.createdAt)}</span>
               <span style={{ fontWeight: 600, color: TEXT_PRIMARY }}>{log.username}</span>
-              <span style={{ color: TEXT_SECONDARY }}>#{log.blockId}</span>
+              <span style={{ color: TEXT_PRIMARY }}>{log.orderNumber ?? `#${log.blockId}`}</span>
               <span style={{ color: TEXT_PRIMARY }}>
                 {log.action === "UPDATE" && log.field ? (
                   <>
