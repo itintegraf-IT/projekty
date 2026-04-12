@@ -66,11 +66,19 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
 
   const [dragOverDate,    setDragOverDate   ] = useState<string | null>(null);
   const [insertBeforeKey, setInsertBeforeKey] = useState<string | null>(null);
+  // Ref pro čtení v event handlerech — vždy aktuální, bez stale closure
+  const insertBeforeKeyRef = useRef<string | null>(null);
+
+  function setInsert(key: string | null) {
+    if (key === insertBeforeKeyRef.current) return; // žádná změna → žádný re-render
+    insertBeforeKeyRef.current = key;
+    setInsertBeforeKey(key);
+  }
 
   useEffect(() => {
     if (!draggedItem) {
       setDragOverDate(null);
-      setInsertBeforeKey(null);
+      setInsert(null);
     }
   }, [draggedItem]);
 
@@ -132,11 +140,18 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
               if (isToday) (todayRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
             }}
             style={{
-              marginBottom: 20,
-              borderRadius: isWeekend ? 8 : isDragOver ? 10 : undefined,
-              background: isWeekend ? "rgba(251,146,60,0.11)" : undefined,
-              outline: isDragOver ? "2px solid rgba(59,130,246,0.5)" : undefined,
-              transition: "outline 80ms ease-out",
+              marginBottom: 8,
+              borderRadius: 8,
+              background: isToday
+                ? "rgba(59,130,246,0.05)"
+                : isWeekend ? "rgba(239,68,68,0.09)" : "rgba(255,255,255,0.02)",
+              border: isDragOver
+                ? "1px solid rgba(59,130,246,0.5)"
+                : isToday ? "1px solid rgba(59,130,246,0.25)"
+                : isWeekend ? "1px solid rgba(239,68,68,0.22)"
+                : "1px solid rgba(255,255,255,0.06)",
+              padding: "0 10px 10px",
+              transition: "border-color 80ms ease-out",
             }}
             // ── Jeden onDragOver na celý den ──────────────────────────────────
             // Žádné stopPropagation v children — všechny dragover eventy
@@ -144,10 +159,7 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
             onDragOver={canDrop ? (e) => {
               e.preventDefault();
               setDragOverDate(day.date);
-              const newKey = computeInsertKey(e.clientY, day.items);
-              if (newKey !== insertBeforeKey) {
-                setInsertBeforeKey(newKey);
-              }
+              setInsert(computeInsertKey(e.clientY, day.items));
             } : undefined}
             onDragEnter={canDrop ? (e) => {
               e.preventDefault();
@@ -156,15 +168,16 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
             onDragLeave={canDrop ? (e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                 setDragOverDate(null);
-                setInsertBeforeKey(null);
+                setInsert(null);
               }
             } : undefined}
             onDrop={canDrop ? (e) => {
               e.preventDefault();
               e.stopPropagation();
-              const before = dragOverDate === day.date ? insertBeforeKey : null;
+              // Čteme z refu — vždy aktuální i kdyby onDrop přišel těsně po onDragOver
+              const before = dragOverDate === day.date ? insertBeforeKeyRef.current : null;
               setDragOverDate(null);
-              setInsertBeforeKey(null);
+              setInsert(null);
               onDropOnDay(day.date, before);
             } : undefined}
             onClick={(e) => { if (e.target === e.currentTarget) onClickEmpty(); }}
@@ -174,8 +187,10 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
               position: "sticky", top: 0, zIndex: 10,
               display: "flex", alignItems: "center", gap: 8,
               padding: "8px 0 6px",
-              background: isWeekend ? "rgba(251,146,60,0.11)" : "var(--bg)",
-              borderBottom: `1px solid ${isToday ? "rgba(59,130,246,0.35)" : isWeekend ? "rgba(251,146,60,0.55)" : "var(--border)"}`,
+              background: isToday
+                ? "rgba(59,130,246,0.05)"
+                : isWeekend ? "rgba(239,68,68,0.09)" : "rgba(255,255,255,0.02)",
+              borderBottom: `1px solid ${isToday ? "rgba(59,130,246,0.35)" : isWeekend ? "rgba(239,68,68,0.45)" : "var(--border)"}`,
               marginBottom: 8,
             }}>
               <span style={{

@@ -3,9 +3,9 @@ import React from "react";
 import type { ExpediceItem } from "@/lib/expediceTypes";
 
 const BADGE_CONFIG = {
-  PLANNED_JOB:       { label: "TISK",    bg: "rgba(59,130,246,0.15)",  color: "#3b82f6" },
-  MANUAL_JOB:        { label: "RUČNÍ",   bg: "rgba(34,197,94,0.15)",   color: "#22c55e" },
-  INTERNAL_TRANSFER: { label: "INTERNÍ", bg: "rgba(249,115,22,0.15)",  color: "#f97316" },
+  PLANNED_JOB:       { label: "TISK",    bg: "rgba(59,130,246,0.15)",  color: "#3b82f6",  borderColor: "rgba(59,130,246,0.6)",  tint: "rgba(59,130,246,0.05)"  },
+  MANUAL_JOB:        { label: "RUČNÍ",   bg: "rgba(34,197,94,0.15)",   color: "#22c55e",  borderColor: "rgba(34,197,94,0.6)",   tint: "rgba(34,197,94,0.05)"   },
+  INTERNAL_TRANSFER: { label: "INTERNÍ", bg: "rgba(249,115,22,0.15)",  color: "#f97316",  borderColor: "rgba(249,115,22,0.7)",  tint: "rgba(249,115,22,0.06)"  },
 } as const;
 
 interface ExpediceCardProps {
@@ -55,8 +55,11 @@ export function ExpediceCard({
           display: "flex", flexDirection: "column", gap: 3,
           padding: `${vPad}px 10px`,
           borderRadius: 8,
-          background: selected ? "rgba(59,130,246,0.1)" : "var(--surface-2)",
-          border: `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
+          background: selected ? "rgba(59,130,246,0.1)" : badge.tint,
+          borderTop:    `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
+          borderRight:  `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
+          borderBottom: `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
+          borderLeft:   selected ? `3px solid rgba(59,130,246,0.7)` : `3px solid ${badge.borderColor}`,
           boxShadow: hovered && !selected ? "0 0 0 1px rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.3)" : "none",
           cursor: isDraggable
             ? (isDragging ? "grabbing" : "grab")
