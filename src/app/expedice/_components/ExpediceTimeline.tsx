@@ -1,5 +1,5 @@
 "use client";
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import type { ExpediceDay, ExpediceItem } from "@/lib/expediceTypes";
 import { ExpediceCard } from "./ExpediceCard";
 
@@ -16,31 +16,63 @@ function utcMonthNum(dateKey: string): number {
   return new Date(`${dateKey}T00:00:00.000Z`).getUTCMonth();
 }
 
-// Dnešní datum jako YYYY-MM-DD v UTC — konzistentní s tím jak jsou data uložena
 function getTodayKey(): string {
   const n = new Date();
   return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, "0")}-${String(n.getUTCDate()).padStart(2, "0")}`;
 }
 
-interface ExpediceTimelineProps {
-  days: ExpediceDay[];
-  selectedItemKey: string | null;   // formát: "{sourceType}-{id}"
-  onSelectItem: (item: ExpediceItem) => void;
-  onClickEmpty: () => void;          // klik na prázdný prostor → deselect
-  density: "detail" | "standard" | "compact";
+export interface ExpediceTimelineHandle {
+  scrollToToday: () => void;
 }
 
-export function ExpediceTimeline({
-  days, selectedItemKey, onSelectItem, onClickEmpty, density,
-}: ExpediceTimelineProps) {
+interface ExpediceTimelineProps {
+  days: ExpediceDay[];
+  selectedItemKey: string | null;
+  onSelectItem: (item: ExpediceItem) => void;
+  onDoubleClickItem?: (item: ExpediceItem) => void;
+  onClickEmpty: () => void;
+  density: "detail" | "standard" | "compact";
+  // Drag & drop
+  isEditor?: boolean;
+  draggedItem?: ExpediceItem | null;
+  onDragStartItem?: (item: ExpediceItem) => void;
+  onDragEndItem?: () => void;
+  onDropOnDay?: (targetDate: string, beforeItemKey: string | null) => void;
+}
+
+export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimelineProps>(
+  function ExpediceTimeline({
+    days, selectedItemKey, onSelectItem, onDoubleClickItem, onClickEmpty, density,
+    isEditor, draggedItem, onDragStartItem, onDragEndItem, onDropOnDay,
+  }: ExpediceTimelineProps, ref) {
   const todayRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    scrollToToday: () => {
+      todayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+  }));
   const today    = getTodayKey();
-  const gap = density === "compact" ? 3 : 5;
+  const gap      = density === "compact" ? 3 : 5;
+
+  // Drag state — který den je highlighted + před jakou kartou se bude vložit
+  const [dragOverDate,     setDragOverDate    ] = useState<string | null>(null);
+  const [insertBeforeKey,  setInsertBeforeKey ] = useState<string | null>(null);
+
+  // Reset drag stavu když draggedItem zmizí (dragEnd nebo optimistický update)
+  useEffect(() => {
+    if (!draggedItem) {
+      setDragOverDate(null);
+      setInsertBeforeKey(null);
+    }
+  }, [draggedItem]);
 
   // Scroll na dnešní den při prvním renderu
   useEffect(() => {
     todayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
+
+  const canDrop = isEditor && !!onDropOnDay && !!draggedItem;
 
   return (
     <div
@@ -57,13 +89,49 @@ export function ExpediceTimeline({
       )}
 
       {days.map((day) => {
-        const isToday = day.date === today;
-        const dow     = CS_DAYS[utcDayOfWeek(day.date)];
-        const dayNum  = utcDayNum(day.date);
-        const month   = CS_MONTHS[utcMonthNum(day.date)];
+        const isToday    = day.date === today;
+        const isDragOver = dragOverDate === day.date;
+        const dow        = CS_DAYS[utcDayOfWeek(day.date)];
+        const dayNum     = utcDayNum(day.date);
+        const month      = CS_MONTHS[utcMonthNum(day.date)];
 
         return (
-          <div key={day.date} ref={isToday ? todayRef : undefined} style={{ marginBottom: 20 }} onClick={(e) => { if (e.target === e.currentTarget) onClickEmpty(); }}>
+          <div
+            key={day.date}
+            ref={isToday ? todayRef : undefined}
+            style={{
+              marginBottom: 20,
+              borderRadius: isDragOver ? 10 : undefined,
+              outline: isDragOver ? "2px solid rgba(59,130,246,0.5)" : undefined,
+              transition: "outline 80ms ease-out",
+            }}
+            // Drop zone — celý den
+            onDragOver={canDrop ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOverDate(day.date);
+            } : undefined}
+            onDragEnter={canDrop ? (e) => {
+              e.preventDefault();
+              setDragOverDate(day.date);
+            } : undefined}
+            onDragLeave={canDrop ? (e) => {
+              // Vyčistit jen pokud opouštíme celý den (ne přechod mezi dětmi)
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDragOverDate(null);
+                setInsertBeforeKey(null);
+              }
+            } : undefined}
+            onDrop={canDrop ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const before = dragOverDate === day.date ? insertBeforeKey : null;
+              setDragOverDate(null);
+              setInsertBeforeKey(null);
+              onDropOnDay(day.date, before);
+            } : undefined}
+            onClick={(e) => { if (e.target === e.currentTarget) onClickEmpty(); }}
+          >
             {/* Sticky denní header */}
             <div style={{
               position: "sticky", top: 0, zIndex: 10,
@@ -111,14 +179,32 @@ export function ExpediceTimeline({
                     item={item}
                     selected={selectedItemKey === key}
                     onClick={() => onSelectItem(item)}
+                    onDoubleClick={onDoubleClickItem ? () => onDoubleClickItem(item) : undefined}
                     density={density}
+                    // Drag & drop
+                    draggable={isEditor}
+                    isDragging={draggedItem?.id === item.id && draggedItem?.sourceType === item.sourceType}
+                    insertIndicator={isDragOver && insertBeforeKey === key}
+                    onDragStartCard={onDragStartItem ? () => onDragStartItem(item) : undefined}
+                    onDragEndCard={onDragEndItem}
+                    onDragEnterCard={canDrop ? () => setInsertBeforeKey(key) : undefined}
                   />
                 );
               })}
+
+              {/* Drop indikátor na konci dne */}
+              {isDragOver && insertBeforeKey === null && (
+                <div style={{
+                  height: 2, borderRadius: 1,
+                  background: "rgba(59,130,246,0.6)",
+                  margin: "2px 0",
+                }} />
+              )}
             </div>
           </div>
         );
       })}
     </div>
   );
-}
+});
+

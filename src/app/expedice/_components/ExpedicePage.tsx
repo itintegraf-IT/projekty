@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ExpediceData, ExpediceItem, ExpediceManualItem } from "@/lib/expediceTypes";
-import { ExpediceTimeline } from "./ExpediceTimeline";
+import { ExpediceTimeline, type ExpediceTimelineHandle } from "./ExpediceTimeline";
 import { ExpediceAside, type AsidePanelMode } from "./ExpediceAside";
 
 type Density  = "detail" | "standard" | "compact";
@@ -169,6 +169,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
 
   // ─── Helpers pro refetch po akci ───────────────────────────────────────────
   const pendingSelectedIdRef = useRef<{ sourceType: string; id: number } | null>(null);
+  const timelineRef = useRef<ExpediceTimelineHandle>(null);
 
   async function refreshAndSelect(sourceType?: string, id?: number) {
     if (sourceType && id) {
@@ -450,6 +451,16 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
 
         <div style={{ flex: 1 }} />
 
+        {/* Navigace */}
+        <button
+          onClick={() => timelineRef.current?.scrollToToday()}
+          style={navBtnStyle(false)}
+        >
+          Dnes
+        </button>
+
+        <div style={divider} />
+
         {/* Filtry */}
         {(["all", "block", "manual", "internal"] as Filter[]).map((f) => {
           const labels: Record<Filter, string> = {
@@ -510,6 +521,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
         ) : (
           <>
             <ExpediceTimeline
+              ref={timelineRef}
               days={filteredDays}
               selectedItemKey={selectedKeyFor(selectedItem)}
               onSelectItem={handleSelectItem}
