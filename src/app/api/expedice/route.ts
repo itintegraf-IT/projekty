@@ -24,10 +24,13 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const daysBack = Math.max(0, parseInt(searchParams.get("daysBack") ?? "3", 10) || 3);
-    const daysAhead = Math.max(1, parseInt(searchParams.get("daysAhead") ?? "14", 10) || 14);
+    const daysBack  = Math.min(90,  Math.max(0,  parseInt(searchParams.get("daysBack")  ?? "3",  10) || 3));
+    const daysAhead = Math.min(365, Math.max(1,  parseInt(searchParams.get("daysAhead") ?? "14", 10) || 14));
 
-    const todayKey = getExpeditionDayKey(new Date())!;
+    const todayKey = getExpeditionDayKey(new Date());
+    if (!todayKey) {
+      return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    }
     const rangeStart = civilDateToUTCMidnight(addDays(todayKey, -daysBack));
     const rangeEnd = civilDateToUTCMidnight(addDays(todayKey, daysAhead));
 
@@ -56,10 +59,11 @@ export async function GET(req: NextRequest) {
           },
           orderBy: [{ date: "asc" }, { expeditionSortOrder: "asc" }],
         }),
+        // Nepublikované ZAKAZKA bloky s termínem expedice >= rangeStart, čekající na zařazení do plánu
         prisma.block.findMany({
           where: {
             type: "ZAKAZKA",
-            deadlineExpedice: { not: null },
+            deadlineExpedice: { not: null, gte: rangeStart },
             expeditionPublishedAt: null,
           },
           select: {
@@ -112,7 +116,7 @@ export async function GET(req: NextRequest) {
       }
       const item: ExpediceManualItem = {
         sourceType: "manual",
-        itemKind: manual.kind as "MANUAL_JOB" | "INTERNAL_TRANSFER",
+        itemKind: manual.kind,
         id: manual.id,
         orderNumber: manual.orderNumber,
         description: manual.description,
@@ -134,23 +138,26 @@ export async function GET(req: NextRequest) {
         ),
       }));
 
-    // Candidates: published blocks without expeditionPublishedAt
-    const candidates: ExpediceCandidate[] = candidateBlocks
-      .filter((b) => b.deadlineExpedice !== null)
-      .map((b) => ({
+    // Candidates: nepublikované ZAKAZKA bloky s termínem expedice, čekající na zařazení do plánu
+    const candidates: ExpediceCandidate[] = [];
+    for (const b of candidateBlocks) {
+      const dayKey = getExpeditionDayKey(b.deadlineExpedice);
+      if (!dayKey) continue;
+      candidates.push({
         id: b.id,
         orderNumber: b.orderNumber,
         description: b.description,
         expediceNote: b.expediceNote,
         doprava: b.doprava,
-        deadlineExpedice: getExpeditionDayKey(b.deadlineExpedice)!,
+        deadlineExpedice: dayKey,
         machine: b.machine,
-      }));
+      });
+    }
 
     // Queue items: manual items with date = null
     const queueItems: ExpediceManualItem[] = queueManual.map((m) => ({
       sourceType: "manual" as const,
-      itemKind: m.kind as "MANUAL_JOB" | "INTERNAL_TRANSFER",
+      itemKind: m.kind,
       id: m.id,
       orderNumber: m.orderNumber,
       description: m.description,
