@@ -256,8 +256,8 @@ model Reservation {
   scheduledAt             DateTime?
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @default(now())
-  Block                   Block[]
-  ReservationAttachment   ReservationAttachment[]
+  blocks                  Block[]
+  attachments             ReservationAttachment[]
 
   @@index([erpOfferNumber])
   @@index([requestedByUserId, status, createdAt])
@@ -274,7 +274,7 @@ model ReservationAttachment {
   uploadedByUserId   Int
   uploadedByUsername String
   createdAt          DateTime    @default(now())
-  Reservation        Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  reservation        Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
 
   @@index([reservationId, createdAt])
 }
