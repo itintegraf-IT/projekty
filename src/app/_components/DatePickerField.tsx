@@ -89,7 +89,12 @@ export default function DatePickerField({
   const GAP  = 3;
 
   const triggerBtn = (onClick?: () => void) => (
-    <button onClick={onClick} style={asButton ? {
+    <button
+      type="button"
+      onClick={onClick}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      style={asButton ? {
       height: 32, borderRadius: 6,
       border: "1px solid var(--border)", background: "transparent",
       color: "var(--text)", fontSize: 11, padding: "0 10px",
@@ -104,7 +109,8 @@ export default function DatePickerField({
       display: "flex", alignItems: "center", gap: 6,
       cursor: "pointer", outline: "none", boxSizing: "border-box",
       transition: "border-color 120ms ease-out",
-    } as React.CSSProperties}>
+    } as React.CSSProperties}
+    >
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: asButton ? 0.6 : 0.4, flexShrink: 0 }}>
         <rect x="3" y="4" width="18" height="18" rx="2"/>
         <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
@@ -125,13 +131,13 @@ export default function DatePickerField({
 
           {/* Hlavička */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <button onClick={prevMonth} style={navBtnStyle}>
+            <button type="button" aria-label="Předchozí měsíc" onClick={prevMonth} style={navBtnStyle}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
             <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", letterSpacing: "-0.01em" }}>
               {MONTH_NAMES_CS[viewMonth]} {viewYear}
             </span>
-            <button onClick={nextMonth} style={navBtnStyle}>
+            <button type="button" aria-label="Další měsíc" onClick={nextMonth} style={navBtnStyle}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
             </button>
           </div>
@@ -151,6 +157,8 @@ export default function DatePickerField({
               const isToday    = todayParts.day === day && todayParts.month - 1 === viewMonth && todayParts.year === viewYear;
               return (
                 <button key={i}
+                  type="button"
+                  aria-label={`${day}. ${MONTH_NAMES_CS[viewMonth]} ${viewYear}${isToday ? ", dnes" : ""}`}
                   onClick={() => { onChange(datePartsToString(viewYear, viewMonth + 1, day)); setOpen(false); }}
                   style={{
                     width: CELL, height: CELL, borderRadius: "50%",

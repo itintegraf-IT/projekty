@@ -1,0 +1,2154 @@
+<!DOCTYPE html>
+<html lang="cs">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Expediční plán — Mockup</title>
+    <style>
+      :root {
+        --background: oklch(0.985 0.003 247.86);
+        --foreground: oklch(0.2 0.015 248.39);
+        --surface: oklch(0.97 0.006 247.9);
+        --surface-2: oklch(0.94 0.008 248);
+        --surface-3: oklch(0.9 0.01 249);
+        --border: oklch(0.86 0.01 252);
+        --input: oklch(0.86 0.01 252);
+        --ring: oklch(0.62 0.2 262);
+        --text: var(--foreground);
+        --text-muted: oklch(0.48 0.02 250);
+        --timeline-bg: oklch(0.94 0.01 250);
+        --brand: oklch(0.9 0.19 102);
+        --brand-contrast: oklch(0.2 0.015 248.39);
+        --success: oklch(0.62 0.18 152);
+        --danger: oklch(0.62 0.23 25);
+        --blue: #3b82f6;
+        --blue-soft: rgba(59, 130, 246, 0.12);
+        --teal: #0f9f86;
+        --teal-soft: rgba(15, 159, 134, 0.12);
+        --violet: #7c3aed;
+        --violet-soft: rgba(124, 58, 237, 0.12);
+        --shadow-1: 0 10px 40px rgba(15, 23, 42, 0.08);
+        --shadow-2: 0 18px 50px rgba(15, 23, 42, 0.12);
+        --radius: 18px;
+        --lane-min-height: 320px;
+        --card-gap: 10px;
+        --card-padding-y: 12px;
+        --card-padding-x: 14px;
+        --card-min-height: 76px;
+        --aside-width: 360px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(123, 97, 255, 0.08), transparent 28%),
+          radial-gradient(circle at bottom left, rgba(57, 196, 255, 0.08), transparent 24%),
+          var(--background);
+        color: var(--text);
+      }
+
+      body {
+        overflow: hidden;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        transition: transform 120ms ease-out, background-color 140ms ease-out, border-color 140ms ease-out, color 140ms ease-out, box-shadow 140ms ease-out;
+      }
+
+      button:active {
+        transform: scale(0.98);
+      }
+
+      .app-shell {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 12px 18px;
+        border-bottom: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+        background: color-mix(in oklab, var(--surface) 80%, white 20%);
+        backdrop-filter: blur(24px) saturate(180%);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+      }
+
+      .brand-mark {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #111827 0%, #374151 100%);
+        color: white;
+        font-size: 14px;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      }
+
+      .brand-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .brand-title {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .brand-subtitle {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--text-muted);
+      }
+
+      .nav-pills,
+      .toolbar-row,
+      .toolbar-group,
+      .segmented {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .nav-pill,
+      .chip,
+      .icon-button,
+      .segment-button {
+        height: 30px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--text-muted);
+        padding: 0 12px;
+        cursor: pointer;
+      }
+
+      .nav-pill.active {
+        background: color-mix(in oklab, var(--brand) 84%, white 16%);
+        border-color: color-mix(in oklab, var(--brand) 88%, var(--text) 12%);
+        color: var(--brand-contrast);
+        font-weight: 700;
+        box-shadow: 0 4px 16px rgba(157, 200, 0, 0.18);
+      }
+
+      .topbar-spacer {
+        flex: 1;
+      }
+
+      .workspace {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        overflow: hidden;
+      }
+
+      .timeline-pane {
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--border);
+      }
+
+      .timeline-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, color-mix(in oklab, var(--surface) 92%, white 8%) 0%, var(--surface) 100%);
+      }
+
+      .toolbar-row {
+        flex-wrap: wrap;
+      }
+
+      .toolbar-meta {
+        font-size: 11px;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
+      }
+
+      .chip.active,
+      .segment-button.active {
+        background: var(--surface);
+        color: var(--text);
+        border-color: color-mix(in oklab, var(--ring) 36%, var(--border));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      }
+
+      .chip.brandish {
+        background: color-mix(in oklab, var(--brand) 18%, white 82%);
+        color: color-mix(in oklab, var(--brand-contrast) 72%, var(--text));
+        border-color: color-mix(in oklab, var(--brand) 42%, var(--border));
+        font-weight: 700;
+      }
+
+      .icon-button {
+        width: 30px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .toolbar-input {
+        height: 32px;
+        min-width: 160px;
+        border-radius: 10px;
+        border: 1px solid var(--input);
+        background: var(--surface-2);
+        color: var(--text);
+        padding: 0 12px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52);
+      }
+
+      .toolbar-input::placeholder {
+        color: var(--text-muted);
+      }
+
+      .timeline-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        background:
+          linear-gradient(180deg, color-mix(in oklab, var(--timeline-bg) 95%, white 5%) 0%, var(--timeline-bg) 100%);
+        padding: 18px;
+      }
+
+      .timeline-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-width: 760px;
+      }
+
+      .day-lane {
+        display: grid;
+        grid-template-columns: 94px minmax(0, 1fr);
+        gap: 0;
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        background: color-mix(in oklab, var(--surface) 86%, white 14%);
+        box-shadow: var(--shadow-1);
+        overflow: clip;
+      }
+
+      .day-lane.today .day-rail {
+        background: linear-gradient(180deg, rgba(59, 130, 246, 0.13) 0%, rgba(59, 130, 246, 0.06) 100%);
+      }
+
+      .day-rail {
+        position: relative;
+        padding: 18px 12px;
+        border-right: 1px solid var(--border);
+        background: linear-gradient(180deg, color-mix(in oklab, var(--surface-2) 88%, white 12%) 0%, var(--surface) 100%);
+      }
+
+      .day-rail-sticky {
+        position: sticky;
+        top: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .day-dow {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .day-date {
+        font-size: 28px;
+        line-height: 1;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+      }
+
+      .day-month {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .today-pill {
+        margin-top: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .day-stage {
+        min-height: var(--lane-min-height);
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0.1) 100%);
+      }
+
+      .stage-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .stage-header strong {
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .cards {
+        display: flex;
+        flex-direction: column;
+        gap: var(--card-gap);
+      }
+
+      .expedition-card {
+        min-height: var(--card-min-height);
+        display: grid;
+        grid-template-columns: 5px minmax(0, 1fr);
+        border-radius: 18px;
+        overflow: hidden;
+        background: color-mix(in oklab, var(--surface) 92%, white 8%);
+        border: 1px solid rgba(255, 255, 255, 0.65);
+        box-shadow: 0 1px 0 rgba(255,255,255,0.9), 0 10px 20px rgba(15, 23, 42, 0.05);
+        cursor: pointer;
+        transition: transform 140ms ease-out, box-shadow 140ms ease-out, border-color 140ms ease-out;
+      }
+
+      .expedition-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 1px 0 rgba(255,255,255,0.95), 0 14px 26px rgba(15, 23, 42, 0.08);
+      }
+
+      .expedition-card.selected {
+        border-color: rgba(59, 130, 246, 0.45);
+        box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.2), 0 16px 32px rgba(59, 130, 246, 0.14);
+      }
+
+      .card-accent {
+        background: var(--blue);
+      }
+
+      .expedition-card.manual .card-accent {
+        background: var(--teal);
+      }
+
+      .expedition-card.internal .card-accent {
+        background: var(--violet);
+      }
+
+      .card-body {
+        min-width: 0;
+        padding: var(--card-padding-y) var(--card-padding-x);
+        display: flex;
+        flex-direction: column;
+        gap: 9px;
+      }
+
+      .card-topline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .card-badge {
+        flex-shrink: 0;
+        height: 22px;
+        padding: 0 10px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .card-badge.tisk {
+        color: var(--blue);
+        background: var(--blue-soft);
+      }
+
+      .card-badge.rucni {
+        color: var(--teal);
+        background: var(--teal-soft);
+      }
+
+      .card-badge.interni {
+        color: var(--violet);
+        background: var(--violet-soft);
+      }
+
+      .card-order {
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        flex-shrink: 0;
+      }
+
+      .card-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
+        color: color-mix(in oklab, var(--text) 90%, var(--text-muted));
+      }
+
+      .card-details {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .card-note {
+        min-width: 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: color-mix(in oklab, #d97706 82%, var(--text) 18%);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .card-note.empty {
+        font-weight: 500;
+        color: var(--text-muted);
+      }
+
+      .card-chip {
+        max-width: 220px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: color-mix(in oklab, var(--surface-2) 88%, white 12%);
+        border: 1px solid var(--border);
+        font-size: 11px;
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .drop-tail {
+        flex: 1;
+        min-height: 76px;
+        border-radius: 18px;
+        border: 1px dashed color-mix(in oklab, var(--border) 88%, var(--ring) 12%);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.14) 100%);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 16px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .drop-tail strong {
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .day-stage.drag-target,
+      .drop-tail.drag-target {
+        border-radius: 22px;
+        box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.24), 0 0 0 4px rgba(59, 130, 246, 0.08);
+      }
+
+      .aside {
+        width: min(var(--aside-width), 38vw);
+        min-width: 320px;
+        max-width: 420px;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(180deg, color-mix(in oklab, var(--surface) 92%, white 8%) 0%, var(--surface) 100%);
+      }
+
+      .aside-header {
+        padding: 16px 18px 14px;
+        border-bottom: 1px solid var(--border);
+        background:
+          linear-gradient(135deg, color-mix(in oklab, var(--surface-2) 92%, white 8%) 0%, var(--surface) 100%);
+      }
+
+      .aside-kicker {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+      }
+
+      .aside-title-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .aside-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #2563eb 0%, #14b8a6 100%);
+        color: white;
+        font-weight: 800;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .aside-title {
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      .aside-subtitle {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      .aside-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 0 18px 18px;
+      }
+
+      .panel-section {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .section-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        color: var(--text-muted);
+        font-weight: 700;
+        margin-bottom: 10px;
+      }
+
+      .field-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .field.compact-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .field label,
+      .field-title {
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .field-value {
+        font-size: 13px;
+        color: var(--text);
+        line-height: 1.45;
+      }
+
+      .text-input,
+      .text-area,
+      .fake-picker {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid var(--input);
+        background: var(--surface-2);
+        color: var(--text);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
+      }
+
+      .text-input,
+      .fake-picker {
+        height: 38px;
+        padding: 0 12px;
+      }
+
+      .fake-picker {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--text);
+      }
+
+      .text-area {
+        min-height: 86px;
+        resize: vertical;
+        padding: 12px;
+        line-height: 1.4;
+      }
+
+      .segmented {
+        padding: 3px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+      }
+
+      .segment-button {
+        border: none;
+        background: transparent;
+      }
+
+      .detail-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .detail-row {
+        display: grid;
+        grid-template-columns: 84px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+      }
+
+      .detail-row span:first-child {
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .detail-row span:last-child {
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .helper-box {
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: linear-gradient(180deg, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.04) 100%);
+        border: 1px solid rgba(59, 130, 246, 0.16);
+        color: color-mix(in oklab, var(--blue) 64%, var(--text));
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .aside-footer {
+        position: sticky;
+        bottom: 0;
+        padding: 14px 18px 18px;
+        background: linear-gradient(180deg, rgba(255,255,255,0) 0%, color-mix(in oklab, var(--surface) 96%, white 4%) 26%);
+        backdrop-filter: blur(16px);
+      }
+
+      .footer-actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      .primary-button,
+      .secondary-button,
+      .ghost-button,
+      .danger-button {
+        height: 40px;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .primary-button {
+        flex: 1;
+        background: color-mix(in oklab, var(--brand) 84%, white 16%);
+        color: var(--brand-contrast);
+        border-color: color-mix(in oklab, var(--brand) 84%, var(--text) 16%);
+      }
+
+      .secondary-button {
+        min-width: 108px;
+        background: var(--surface-2);
+        border-color: var(--border);
+        color: var(--text-muted);
+      }
+
+      .ghost-button {
+        width: 100%;
+        background: transparent;
+        border-color: var(--border);
+        color: var(--text-muted);
+      }
+
+      .danger-button {
+        width: 100%;
+        background: color-mix(in oklab, var(--danger) 8%, white 92%);
+        border-color: color-mix(in oklab, var(--danger) 24%, var(--border));
+        color: color-mix(in oklab, var(--danger) 72%, var(--text));
+      }
+
+      .preview-note {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--success);
+      }
+
+      .meta-card {
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: color-mix(in oklab, var(--surface-2) 84%, white 16%);
+        padding: 12px 14px;
+      }
+
+      .meta-card strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+      }
+
+      .meta-card p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .queue-dropzone {
+        min-height: 74px;
+        border-radius: 16px;
+        border: 1px dashed color-mix(in oklab, var(--border) 82%, var(--ring) 18%);
+        background: linear-gradient(180deg, rgba(255,255,255,0.56) 0%, rgba(255,255,255,0.18) 100%);
+        padding: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .queue-dropzone strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      .queue-dropzone.drag-target {
+        border-color: rgba(20, 184, 166, 0.34);
+        box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.24), 0 0 0 4px rgba(20, 184, 166, 0.08);
+      }
+
+      .queue-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .queue-card {
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        background: color-mix(in oklab, var(--surface-2) 82%, white 18%);
+        box-shadow: 0 1px 0 rgba(255,255,255,0.9), 0 8px 20px rgba(15, 23, 42, 0.05);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+        cursor: pointer;
+        transition: transform 140ms ease-out, box-shadow 140ms ease-out, border-color 140ms ease-out;
+      }
+
+      .queue-card:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 1px 0 rgba(255,255,255,0.95), 0 12px 24px rgba(15, 23, 42, 0.08);
+      }
+
+      .queue-card.selected {
+        border-color: rgba(59, 130, 246, 0.4);
+        box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.16), 0 14px 28px rgba(59, 130, 246, 0.12);
+      }
+
+      .queue-card.manual {
+        background: linear-gradient(180deg, rgba(20,184,166,0.08) 0%, rgba(255,255,255,0.86) 100%);
+      }
+
+      .queue-card.block {
+        background: linear-gradient(180deg, rgba(37,99,235,0.08) 0%, rgba(255,255,255,0.86) 100%);
+      }
+
+      .queue-card.internal {
+        background: linear-gradient(180deg, rgba(124,58,237,0.08) 0%, rgba(255,255,255,0.86) 100%);
+      }
+
+      .queue-card-main {
+        min-width: 0;
+      }
+
+      .queue-card-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        margin-bottom: 6px;
+      }
+
+      .queue-card-title {
+        min-width: 0;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+
+      .queue-card-meta {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .queue-card-action {
+        padding: 8px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.65);
+        border: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .queue-empty {
+        border-radius: 16px;
+        border: 1px dashed var(--border);
+        background: color-mix(in oklab, var(--surface-2) 84%, white 16%);
+        padding: 14px;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .queue-empty strong {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--text);
+      }
+
+      .dragging {
+        opacity: 0.54;
+      }
+
+      .confirm-backdrop {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(15, 23, 42, 0.42);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .confirm-dialog {
+        width: min(320px, calc(100vw - 40px));
+        border-radius: 22px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: linear-gradient(180deg, rgba(28,28,30,0.96) 0%, rgba(18,18,20,0.98) 100%);
+        box-shadow: 0 24px 60px rgba(15, 23, 42, 0.48);
+        padding: 20px 20px 18px;
+        color: rgba(255,255,255,0.92);
+      }
+
+      .confirm-title {
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        text-align: center;
+        margin-bottom: 6px;
+      }
+
+      .confirm-body {
+        font-size: 12px;
+        line-height: 1.5;
+        color: rgba(255,255,255,0.64);
+        text-align: center;
+        margin-bottom: 16px;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      @media (max-width: 1200px) {
+        .workspace {
+          flex-direction: column;
+        }
+
+        .timeline-pane {
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+          min-height: 54vh;
+        }
+
+        .aside {
+          width: 100%;
+          max-width: none;
+          min-width: 0;
+          max-height: 46vh;
+        }
+      }
+
+      .density-detail {
+        --lane-min-height: 360px;
+        --card-gap: 12px;
+        --card-padding-y: 14px;
+        --card-padding-x: 16px;
+        --card-min-height: 82px;
+      }
+
+      .density-standard {
+        --lane-min-height: 320px;
+        --card-gap: 10px;
+        --card-padding-y: 12px;
+        --card-padding-x: 14px;
+        --card-min-height: 76px;
+      }
+
+      .density-compact {
+        --lane-min-height: 260px;
+        --card-gap: 8px;
+        --card-padding-y: 10px;
+        --card-padding-x: 12px;
+        --card-min-height: 66px;
+      }
+    </style>
+  </head>
+  <body class="density-standard">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">IG</div>
+          <div class="brand-copy">
+            <div class="brand-title">Integraf</div>
+            <div class="brand-subtitle">Expediční mockup</div>
+          </div>
+        </div>
+
+        <nav class="nav-pills">
+          <button class="nav-pill">Správa</button>
+          <button class="nav-pill">Rezervace</button>
+          <button class="nav-pill active">Expedice</button>
+        </nav>
+
+        <div class="topbar-spacer"></div>
+
+        <div class="toolbar-meta">
+          <span>Mockup preview</span>
+          <span>•</span>
+          <span>Klik = detail, dvojklik = edit, drag = plán, publish = z tisku</span>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="timeline-pane">
+          <div class="timeline-toolbar">
+            <div class="toolbar-row">
+              <button class="chip brandish" id="today-button">Dnes</button>
+              <div class="fake-picker toolbar-input" style="display:flex;align-items:center;justify-content:space-between;">
+                <span>14. 4. 2026</span>
+                <span style="color: var(--text-muted);">⌄</span>
+              </div>
+            </div>
+
+            <div class="toolbar-group segmented" id="filter-group">
+              <button class="segment-button active" data-filter="all">Vše</button>
+              <button class="segment-button" data-filter="block">Tiskový plán</button>
+              <button class="segment-button" data-filter="manual">Ruční</button>
+              <button class="segment-button" data-filter="internal">Interní</button>
+            </div>
+
+            <div class="toolbar-group segmented" id="range-group">
+              <button class="segment-button" data-range="7">7 dní</button>
+              <button class="segment-button active" data-range="14">14 dní</button>
+              <button class="segment-button" data-range="30">30 dní</button>
+            </div>
+
+            <div class="toolbar-group segmented" id="density-group">
+              <button class="segment-button" data-density="detail">Detail</button>
+              <button class="segment-button active" data-density="standard">Standard</button>
+              <button class="segment-button" data-density="compact">Kompaktní</button>
+            </div>
+
+            <div class="toolbar-meta">
+              <span id="toolbar-summary">Hybridní den: min výška + auto expand</span>
+            </div>
+          </div>
+
+          <div class="timeline-scroll" id="timeline-scroll">
+            <div class="timeline-stack" id="timeline-stack"></div>
+          </div>
+        </section>
+
+        <aside class="aside">
+          <div class="aside-header">
+            <div class="aside-kicker" id="aside-kicker">Builder</div>
+            <div class="aside-title-row">
+              <div class="aside-mark" id="aside-mark">E</div>
+              <div>
+                <div class="aside-title" id="aside-title">Expedice Builder</div>
+                <div class="aside-subtitle" id="aside-subtitle">Když není nic vybrané, vpravo vzniká ruční položka.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="aside-scroll">
+            <div id="panel-builder">
+              <section class="panel-section">
+                <div class="section-label">Typ položky</div>
+                <div class="segmented">
+                  <button class="segment-button active" type="button" data-builder-type="MANUAL_JOB">Ruční zakázka</button>
+                  <button class="segment-button" type="button" data-builder-type="INTERNAL_TRANSFER">Interní závoz</button>
+                </div>
+              </section>
+
+              <section class="panel-section">
+                <div class="section-label">Základ</div>
+                <div class="field-grid">
+                  <div class="field">
+                    <label>Číslo zakázky</label>
+                    <input class="text-input" id="builder-order-number" value="17513" />
+                  </div>
+                  <div class="field">
+                    <label>Popis</label>
+                    <textarea class="text-area" id="builder-title">ASTRATEX – vložka SKY</textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel-section">
+                <div class="section-label">Expedice</div>
+                <div class="field-grid">
+                  <div class="field">
+                    <label>Poznámka</label>
+                    <textarea class="text-area" id="builder-note">15 000 ks podle rozdělovníku</textarea>
+                  </div>
+                  <div class="field">
+                    <label>Doprava</label>
+                    <input class="text-input" id="builder-transport" value="na SHV" />
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel-section">
+                <div class="meta-card">
+                  <strong>Publish + queue-first logika</strong>
+                  <p>
+                    Tisková zakázka se do expedice dostane až po explicitním publishi z hlavní timeline. Ruční položka
+                    zatím nedostává datum expedice a konkrétní den vznikne až přetažením do timeline.
+                  </p>
+                </div>
+              </section>
+
+              <section class="panel-section">
+                <div class="section-label">Kandidáti z tiskového plánu</div>
+                <div class="queue-list" id="planner-candidate-list"></div>
+              </section>
+
+              <section class="panel-section">
+                <div class="section-label">Fronta k naplánování</div>
+                <div class="queue-dropzone" id="queue-dropzone">
+                  <div>
+                    <strong>Fronta expedice</strong>
+                    <div>Drop sem vrátí ruční položku zpět bez data expedice.</div>
+                  </div>
+                  <div class="queue-card-action">Drop do fronty</div>
+                </div>
+              </section>
+
+              <section class="panel-section" style="border-bottom:none;">
+                <div class="queue-list" id="queue-list"></div>
+              </section>
+            </div>
+
+            <div id="panel-detail" class="hidden"></div>
+            <div id="panel-edit" class="hidden"></div>
+          </div>
+
+          <div class="aside-footer" id="aside-footer">
+            <div class="footer-actions" id="builder-actions">
+              <button class="primary-button" id="builder-submit-button">Přidat do fronty</button>
+              <button class="secondary-button" id="builder-clear-button">Vyčistit</button>
+            </div>
+
+            <div class="footer-actions hidden" id="detail-actions">
+              <button class="primary-button" id="detail-edit-button">Upravit</button>
+              <button class="secondary-button" id="detail-close-button">Zavřít</button>
+            </div>
+            <div class="hidden" id="detail-destructive-wrap" style="margin-top: 10px;">
+              <button class="danger-button" id="detail-destructive-button">Odebrat z Expedice</button>
+            </div>
+
+            <div class="hidden" id="edit-actions">
+              <div class="footer-actions">
+                <button class="primary-button" id="edit-save-button">Uložit</button>
+                <button class="secondary-button" id="edit-cancel-button">Zrušit</button>
+              </div>
+              <div style="margin-top: 10px;" id="edit-destructive-wrap">
+                <button class="danger-button" id="edit-destructive-button">Smazat položku</button>
+              </div>
+            </div>
+
+            <div class="preview-note">
+              <span class="dot"></span>
+              <span>Samostatný mockup mimo hlavní appku</span>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="confirm-backdrop hidden" id="confirm-backdrop">
+      <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" tabindex="-1">
+        <div class="confirm-title" id="confirm-title">Potvrdit akci</div>
+        <div class="confirm-body" id="confirm-body">Tato akce změní jen expediční plán.</div>
+        <div class="footer-actions">
+          <button class="danger-button" type="button" id="confirm-accept-button">Potvrdit</button>
+          <button class="secondary-button" type="button" id="confirm-cancel-button">Zrušit</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const days = [
+        {
+          date: "2026-04-14",
+          dow: "Po",
+          day: "14",
+          month: "Dub",
+          today: true,
+          items: [
+            {
+              id: "b17521",
+              sourceType: "block",
+              itemKind: "PLANNED_JOB",
+              orderNumber: "17521",
+              title: "Colognia – Leaflet – 4 000 ks",
+              expediceNote: "4 000 ks dle rozdělovníku",
+              doprava: "na mailing",
+              machine: "XL 105"
+            },
+            {
+              id: "b17470",
+              sourceType: "block",
+              itemKind: "PLANNED_JOB",
+              orderNumber: "17470",
+              title: "Rokrodruck – Mapa – 1 000 ks",
+              expediceNote: "",
+              doprava: "",
+              machine: "XL 106"
+            }
+          ]
+        },
+        {
+          date: "2026-04-15",
+          dow: "Út",
+          day: "15",
+          month: "Dub",
+          today: false,
+          items: [
+            {
+              id: "b17532",
+              sourceType: "block",
+              itemKind: "PLANNED_JOB",
+              orderNumber: "17532/1",
+              title: "mBank – Kartičky – Retail / Business",
+              expediceNote: "Retail 2 000 ks + Business 1 150 ks",
+              doprava: "osobní odběr",
+              machine: "XL 105"
+            }
+          ]
+        },
+        {
+          date: "2026-04-16",
+          dow: "St",
+          day: "16",
+          month: "Dub",
+          today: false,
+          items: [
+            {
+              id: "b17541",
+              sourceType: "block",
+              itemKind: "PLANNED_JOB",
+              orderNumber: "17541",
+              title: "Nestlé – promo insert",
+              expediceNote: "rozdělit na 2 adresy",
+              doprava: "TopTrans",
+              machine: "XL 105"
+            },
+            {
+              id: "b17544",
+              sourceType: "block",
+              itemKind: "PLANNED_JOB",
+              orderNumber: "17544",
+              title: "Farmet – katalog A4",
+              expediceNote: "kontrola paletizace",
+              doprava: "PPL Sprint",
+              machine: "XL 106"
+            }
+          ]
+        },
+        {
+          date: "2026-04-17",
+          dow: "Čt",
+          day: "17",
+          month: "Dub",
+          today: false,
+          items: []
+        },
+        {
+          date: "2026-04-18",
+          dow: "Pá",
+          day: "18",
+          month: "Dub",
+          today: false,
+          items: [
+            {
+              id: "b17560",
+              sourceType: "block",
+              itemKind: "PLANNED_JOB",
+              orderNumber: "17560",
+              title: "DM drogerie – příbalové letáky",
+              expediceNote: "nejpozději do 10:00",
+              doprava: "DHL",
+              machine: "XL 105"
+            }
+          ]
+        }
+      ];
+
+      const queueItems = [
+        {
+          id: "m17513",
+          sourceType: "manual",
+          itemKind: "MANUAL_JOB",
+          orderNumber: "17513",
+          title: "ASTRATEX – vložka SKY",
+          expediceNote: "15 000 ks podle rozdělovníku",
+          doprava: "na SHV"
+        },
+        {
+          id: "i001",
+          sourceType: "manual",
+          itemKind: "INTERNAL_TRANSFER",
+          orderNumber: "",
+          title: "Přesun palet na provoz Brno",
+          expediceNote: "3 europalety",
+          doprava: "Brno"
+        },
+        {
+          id: "m19110",
+          sourceType: "manual",
+          itemKind: "MANUAL_JOB",
+          orderNumber: "19110",
+          title: "Ruční kompletace letáku mimo tiskový plán",
+          expediceNote: "připravit k odpolední expedici",
+          doprava: "na firmu"
+        },
+        {
+          id: "i002",
+          sourceType: "manual",
+          itemKind: "INTERNAL_TRANSFER",
+          orderNumber: "",
+          title: "Závoz kartonů mezi sklady",
+          expediceNote: "",
+          doprava: "Sklad B"
+        }
+      ];
+
+      const plannerCandidates = [
+        {
+          id: "b17604",
+          sourceType: "block",
+          itemKind: "PLANNED_JOB",
+          orderNumber: "17604",
+          title: "Lidl – akční leták bez mailing výdeje",
+          expediceNote: "16 palet dle rozdělovníku",
+          doprava: "TopTrans",
+          machine: "XL 105",
+          deadlineExpedice: "2026-04-17"
+        },
+        {
+          id: "b17611",
+          sourceType: "block",
+          itemKind: "PLANNED_JOB",
+          orderNumber: "17611/2",
+          title: "Alza – promo leaflet retail mix",
+          expediceNote: "",
+          doprava: "na firmu",
+          machine: "XL 106",
+          deadlineExpedice: "2026-04-18"
+        }
+      ];
+
+      let filter = "all";
+      let density = "standard";
+      let selectedId = null;
+      let mode = "builder";
+      let builderType = "MANUAL_JOB";
+      let draggedId = null;
+      let confirmAction = null;
+
+      const timelineStack = document.getElementById("timeline-stack");
+      const bodyEl = document.body;
+      const panelBuilder = document.getElementById("panel-builder");
+      const panelDetail = document.getElementById("panel-detail");
+      const panelEdit = document.getElementById("panel-edit");
+      const plannerCandidateList = document.getElementById("planner-candidate-list");
+      const queueList = document.getElementById("queue-list");
+      const queueDropzone = document.getElementById("queue-dropzone");
+      const asideKicker = document.getElementById("aside-kicker");
+      const asideTitle = document.getElementById("aside-title");
+      const asideSubtitle = document.getElementById("aside-subtitle");
+      const asideMark = document.getElementById("aside-mark");
+      const builderActions = document.getElementById("builder-actions");
+      const detailActions = document.getElementById("detail-actions");
+      const detailDestructiveWrap = document.getElementById("detail-destructive-wrap");
+      const detailDestructiveButton = document.getElementById("detail-destructive-button");
+      const editActions = document.getElementById("edit-actions");
+      const editDestructiveWrap = document.getElementById("edit-destructive-wrap");
+      const editDestructiveButton = document.getElementById("edit-destructive-button");
+      const toolbarSummary = document.getElementById("toolbar-summary");
+      const builderOrderNumber = document.getElementById("builder-order-number");
+      const builderTitle = document.getElementById("builder-title");
+      const builderNote = document.getElementById("builder-note");
+      const builderTransport = document.getElementById("builder-transport");
+      const builderTypeButtons = Array.from(document.querySelectorAll("#panel-builder [data-builder-type]"));
+      const confirmBackdrop = document.getElementById("confirm-backdrop");
+      const confirmTitle = document.getElementById("confirm-title");
+      const confirmBody = document.getElementById("confirm-body");
+      const confirmAcceptButton = document.getElementById("confirm-accept-button");
+      const confirmCancelButton = document.getElementById("confirm-cancel-button");
+
+      const dateLabels = Object.fromEntries(
+        days.map((day) => [day.date, `${day.day}. ${day.month} 2026`])
+      );
+
+      function pluralizeItems(count) {
+        if (count === 1) return "položka";
+        if (count >= 2 && count <= 4) return "položky";
+        return "položek";
+      }
+
+      function getVisibleItems(items) {
+        return items.filter((item) => {
+          if (filter === "all") return true;
+          if (filter === "block") return item.sourceType === "block";
+          if (filter === "manual") return item.sourceType === "manual" && item.itemKind === "MANUAL_JOB";
+          if (filter === "internal") return item.itemKind === "INTERNAL_TRANSFER";
+          return true;
+        });
+      }
+
+      function formatDateLabel(date) {
+        return date ? (dateLabels[date] || date) : "Nenaplánováno";
+      }
+
+      function nextSortOrderForDay(day) {
+        return (day.items.length + 1) * 100;
+      }
+
+      function findItemRecord(id) {
+        for (const day of days) {
+          const index = day.items.findIndex((item) => item.id === id);
+          if (index !== -1) {
+            return {
+              item: day.items[index],
+              location: "timeline",
+              index,
+              day
+            };
+          }
+        }
+
+        const queueIndex = queueItems.findIndex((item) => item.id === id);
+        if (queueIndex !== -1) {
+          return {
+            item: queueItems[queueIndex],
+            location: "queue",
+            index: queueIndex
+          };
+        }
+
+        return null;
+      }
+
+      function findPlannerCandidate(id) {
+        return plannerCandidates.find((item) => item.id === id) || null;
+      }
+
+      function getSelectedItem() {
+        const record = findItemRecord(selectedId);
+        if (!record) return null;
+        return {
+          ...record.item,
+          date: record.location === "timeline" ? record.day.date : null,
+          location: record.location
+        };
+      }
+
+      function badgeFor(item) {
+        if (item.sourceType === "block") return { label: "TISK", cls: "tisk" };
+        if (item.itemKind === "INTERNAL_TRANSFER") return { label: "INTERNÍ", cls: "interni" };
+        return { label: "RUČNÍ", cls: "rucni" };
+      }
+
+      function sourceClass(item) {
+        if (item.sourceType === "block") return "block";
+        if (item.itemKind === "INTERNAL_TRANSFER") return "internal";
+        return "manual";
+      }
+
+      function syncBuilderTypeButtons() {
+        for (const button of builderTypeButtons) {
+          button.classList.toggle("active", button.dataset.builderType === builderType);
+        }
+      }
+
+      function clearDragTargets() {
+        document.querySelectorAll(".drag-target").forEach((el) => el.classList.remove("drag-target"));
+      }
+
+      function clearBuilderForm() {
+        builderType = "MANUAL_JOB";
+        builderOrderNumber.value = "";
+        builderTitle.value = "";
+        builderNote.value = "";
+        builderTransport.value = "";
+        syncBuilderTypeButtons();
+      }
+
+      function removeItemRecord(record) {
+        if (!record) return null;
+        if (record.location === "timeline") {
+          return record.day.items.splice(record.index, 1)[0];
+        }
+        return queueItems.splice(record.index, 1)[0];
+      }
+
+      function pushItemToDayEnd(item, dayDate) {
+        const targetDay = days.find((day) => day.date === dayDate);
+        if (!targetDay) return;
+        item.expeditionSortOrder = nextSortOrderForDay(targetDay);
+        targetDay.items.push(item);
+      }
+
+      function moveItemToDay(id, dayDate) {
+        const record = findItemRecord(id);
+        if (!record) return;
+
+        const item = removeItemRecord(record);
+        pushItemToDayEnd(item, dayDate);
+        selectedId = id;
+        mode = "detail";
+        renderAll();
+      }
+
+      function moveItemToQueue(id) {
+        const record = findItemRecord(id);
+        if (!record || record.item.sourceType === "block") return;
+
+        const item = removeItemRecord(record);
+        queueItems.unshift(item);
+        selectedId = id;
+        mode = "builder";
+        renderAll();
+      }
+
+      function publishCandidate(id) {
+        const index = plannerCandidates.findIndex((item) => item.id === id);
+        if (index === -1) return;
+        const item = plannerCandidates.splice(index, 1)[0];
+        pushItemToDayEnd(item, item.deadlineExpedice);
+        selectedId = item.id;
+        mode = "detail";
+        renderAll();
+      }
+
+      function unpublishBlock(id) {
+        const record = findItemRecord(id);
+        if (!record || record.location !== "timeline" || record.item.sourceType !== "block") return;
+
+        const item = removeItemRecord(record);
+        plannerCandidates.unshift({
+          ...item,
+          deadlineExpedice: record.day.date
+        });
+        selectedId = null;
+        mode = "builder";
+        renderAll();
+      }
+
+      function openConfirm(options) {
+        confirmAction = options.onConfirm;
+        confirmTitle.textContent = options.title;
+        confirmBody.textContent = options.body;
+        confirmAcceptButton.textContent = options.confirmLabel || "Potvrdit";
+        confirmBackdrop.classList.remove("hidden");
+        window.setTimeout(() => confirmAcceptButton.focus(), 0);
+      }
+
+      function closeConfirm() {
+        confirmAction = null;
+        confirmBackdrop.classList.add("hidden");
+      }
+
+      function acceptConfirm() {
+        const action = confirmAction;
+        closeConfirm();
+        action?.();
+      }
+
+      function attachCardInteractions(element, itemId) {
+        element.addEventListener("click", (event) => {
+          event.stopPropagation();
+          selectedId = itemId;
+          mode = "detail";
+          renderAll();
+        });
+
+        element.addEventListener("dblclick", (event) => {
+          event.stopPropagation();
+          selectedId = itemId;
+          mode = "edit";
+          renderAll();
+        });
+
+        element.addEventListener("dragstart", (event) => {
+          draggedId = itemId;
+          element.classList.add("dragging");
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", itemId);
+        });
+
+        element.addEventListener("dragend", () => {
+          draggedId = null;
+          element.classList.remove("dragging");
+          clearDragTargets();
+        });
+      }
+
+      function renderQueuePanel() {
+        const visibleQueue = getVisibleItems(queueItems);
+        queueList.innerHTML = "";
+
+        if (!visibleQueue.length) {
+          queueList.innerHTML = `
+            <div class="queue-empty">
+              Aktivní filtr teď nic ve frontě neukazuje. V plné verzi by se tady držely všechny ruční položky čekající na
+              naplánování.
+            </div>
+          `;
+          return;
+        }
+
+        visibleQueue.forEach((item) => {
+          const badge = badgeFor(item);
+          const card = document.createElement("button");
+          card.type = "button";
+          card.draggable = true;
+          card.className = `queue-card ${sourceClass(item)}${selectedId === item.id ? " selected" : ""}`;
+          card.dataset.id = item.id;
+          card.innerHTML = `
+            <div class="queue-card-main">
+              <div class="queue-card-top">
+                <span class="card-badge ${badge.cls}">${badge.label}</span>
+                ${item.orderNumber ? `<span class="card-order">${item.orderNumber}</span>` : ""}
+              </div>
+              <div class="queue-card-title">${item.title}</div>
+              <div class="queue-card-meta">
+                <span>Ve frontě</span>
+                <span>•</span>
+                <span>${item.expediceNote || "Bez poznámky"}</span>
+              </div>
+            </div>
+            <div class="queue-card-action">Přetáhni na den</div>
+          `;
+
+          attachCardInteractions(card, item.id);
+          queueList.appendChild(card);
+        });
+      }
+
+      function renderPlannerCandidates() {
+        plannerCandidateList.innerHTML = "";
+
+        if (!plannerCandidates.length) {
+          plannerCandidateList.innerHTML = `
+            <div class="queue-empty">
+              <strong>Všechny tiskové kandidáty už jsou publishnuté.</strong>
+              Další bloky se sem v reálu dostanou až po pravém kliku v hlavní timeline.
+            </div>
+          `;
+          return;
+        }
+
+        plannerCandidates.forEach((item) => {
+          const card = document.createElement("div");
+          card.className = "queue-card block";
+          card.innerHTML = `
+            <div class="queue-card-main">
+              <div class="queue-card-top">
+                <span class="card-badge tisk">TISK</span>
+                ${item.orderNumber ? `<span class="card-order">${item.orderNumber}</span>` : ""}
+              </div>
+              <div class="queue-card-title">${item.title}</div>
+              <div class="queue-card-meta">
+                <span>Mimo expedici</span>
+                <span>•</span>
+                <span>${formatDateLabel(item.deadlineExpedice)}</span>
+              </div>
+            </div>
+            <button class="queue-card-action" type="button" data-publish-candidate="${item.id}">Zaplánovat do Expedice</button>
+          `;
+          plannerCandidateList.appendChild(card);
+        });
+      }
+
+      function renderTimeline() {
+        timelineStack.innerHTML = "";
+
+        days.forEach((day) => {
+          const visibleItems = getVisibleItems(day.items);
+          const lane = document.createElement("article");
+          lane.className = "day-lane" + (day.today ? " today" : "");
+
+          lane.innerHTML = `
+            <div class="day-rail">
+              <div class="day-rail-sticky">
+                <div class="day-dow">${day.dow}</div>
+                <div class="day-date">${day.day}</div>
+                <div class="day-month">${day.month}</div>
+                ${day.today ? '<div class="today-pill">Dnes</div>' : ""}
+              </div>
+            </div>
+            <div class="day-stage" data-day="${day.date}">
+              <div class="stage-header">
+                <strong>${visibleItems.length} ${pluralizeItems(visibleItems.length)}</strong>
+                <span>•</span>
+                <span>jen publishnuté bloky z tisku + ruční položky s datem</span>
+              </div>
+              <div class="cards"></div>
+              <div class="drop-tail">
+                <div>
+                  <strong>Volný prostor pro další expedici</strong>
+                  <div>V hybridním návrhu tu zůstává vždy čitelný „konec dne“ pro řazení a drop.</div>
+                </div>
+                <div style="font-weight:700;">Drop na konec dne</div>
+              </div>
+            </div>
+          `;
+
+          const cardsEl = lane.querySelector(".cards");
+          const stageEl = lane.querySelector(".day-stage");
+          const dropTailEl = lane.querySelector(".drop-tail");
+
+          visibleItems.forEach((item) => {
+            const badge = badgeFor(item);
+            const card = document.createElement("button");
+            card.type = "button";
+            card.draggable = true;
+            card.className = `expedition-card ${sourceClass(item)}${selectedId === item.id ? " selected" : ""}`;
+            card.dataset.id = item.id;
+            card.innerHTML = `
+              <div class="card-accent"></div>
+              <div class="card-body">
+                <div class="card-topline">
+                  <span class="card-badge ${badge.cls}">${badge.label}</span>
+                  ${item.orderNumber ? `<span class="card-order">${item.orderNumber}</span>` : ""}
+                  <span class="card-title">${item.title}</span>
+                </div>
+                <div class="card-details">
+                  <div class="card-note ${item.expediceNote ? "" : "empty"}">${item.expediceNote || "—"}</div>
+                  <div class="card-chip">${item.doprava || "—"}</div>
+                </div>
+              </div>
+            `;
+
+            attachCardInteractions(card, item.id);
+            cardsEl.appendChild(card);
+          });
+
+          [stageEl, dropTailEl].forEach((dropTarget) => {
+            dropTarget.addEventListener("dragover", (event) => {
+              if (!draggedId) return;
+              event.preventDefault();
+              clearDragTargets();
+              stageEl.classList.add("drag-target");
+              dropTailEl.classList.add("drag-target");
+            });
+
+            dropTarget.addEventListener("drop", (event) => {
+              const id = draggedId || event.dataTransfer.getData("text/plain");
+              if (!id) return;
+              event.preventDefault();
+              clearDragTargets();
+              moveItemToDay(id, day.date);
+            });
+          });
+
+          stageEl.addEventListener("click", () => {
+            selectedId = null;
+            mode = "builder";
+            renderAll();
+          });
+
+          timelineStack.appendChild(lane);
+        });
+      }
+
+      function renderDetail(item) {
+        const badge = badgeFor(item);
+        const isQueued = item.location === "queue";
+        return `
+          <section class="panel-section">
+            <div class="section-label">Zdroj</div>
+            <div class="detail-list">
+              <div class="detail-row"><span>Typ</span><span><span class="card-badge ${badge.cls}" style="height:24px;">${badge.label}</span></span></div>
+              <div class="detail-row"><span>Stav</span><span>${isQueued ? "Ve frontě" : "Naplánováno"}</span></div>
+              <div class="detail-row"><span>Datum</span><span>${formatDateLabel(item.date)}</span></div>
+              ${item.machine ? `<div class="detail-row"><span>Stroj</span><span>${item.machine}</span></div>` : ""}
+            </div>
+          </section>
+          <section class="panel-section">
+            <div class="section-label">Zakázka</div>
+            <div class="detail-list">
+              <div class="detail-row"><span>Číslo</span><span>${item.orderNumber || "—"}</span></div>
+              <div class="detail-row"><span>Popis</span><span>${item.title}</span></div>
+            </div>
+          </section>
+          <section class="panel-section">
+            <div class="section-label">Expedice</div>
+            <div class="detail-list">
+              <div class="detail-row"><span>Poznámka</span><span>${item.expediceNote || "—"}</span></div>
+              <div class="detail-row"><span>Doprava</span><span>${item.doprava || "—"}</span></div>
+            </div>
+          </section>
+          <section class="panel-section">
+            <div class="helper-box">
+              ${isQueued
+                ? "Tahle položka ještě není naplánovaná na konkrétní den. Přetažením z fronty do timeline jí vznikne datum expedice."
+                : item.sourceType === "block"
+                  ? "Blok je v expedici jen díky explicitnímu publishi z hlavní timeline. Změna dne se propisuje zpět do tiskového plánu a `Odebrat z Expedice` ho z timeline jen skryje."
+                  : "Ruční položka už je v timeline. Přetažením na jiný den změníš datum, dropem do fronty ho zase smažeš."}
+            </div>
+          </section>
+        `;
+      }
+
+      function renderEdit(item) {
+        const isBlock = item.sourceType === "block";
+        const isQueued = item.location === "queue";
+        return `
+          <section class="panel-section">
+            <div class="section-label">Zakázka</div>
+            <div class="field-grid">
+              ${!isBlock ? `
+                <div class="field">
+                  <label>Typ položky</label>
+                  <div class="segmented">
+                    <button class="segment-button ${item.itemKind === "MANUAL_JOB" ? "active" : ""}" data-edit-kind="MANUAL_JOB">Ruční zakázka</button>
+                    <button class="segment-button ${item.itemKind === "INTERNAL_TRANSFER" ? "active" : ""}" data-edit-kind="INTERNAL_TRANSFER">Interní závoz</button>
+                  </div>
+                </div>
+              ` : ""}
+              ${!isBlock ? `
+                <div class="field">
+                  <label>Číslo zakázky</label>
+                  <input class="text-input" id="edit-order-number" value="${item.orderNumber || ""}" />
+                </div>
+              ` : `
+                <div class="field">
+                  <label>Číslo zakázky</label>
+                  <div class="field-value">${item.orderNumber}</div>
+                </div>
+              `}
+              <div class="field">
+                <label>Popis</label>
+                ${isBlock
+                  ? `<div class="field-value">${item.title}</div>`
+                  : `<textarea class="text-area" id="edit-title">${item.title}</textarea>`}
+              </div>
+            </div>
+          </section>
+          <section class="panel-section">
+            <div class="section-label">Expedice</div>
+            <div class="field-grid">
+              <div class="field">
+                <label>Poznámka</label>
+                <textarea class="text-area" id="edit-note">${item.expediceNote || ""}</textarea>
+              </div>
+              <div class="field">
+                <label>Doprava</label>
+                <input class="text-input" id="edit-transport" value="${item.doprava || ""}" />
+              </div>
+            </div>
+          </section>
+          <section class="panel-section" style="border-bottom:none;">
+            <div class="helper-box">
+              ${isBlock
+                ? "Datum expedice je zde jen informativní. Reálná změna dne se dělá přetažením karty v timeline a `Odebrat z Expedice` blok jen odpublikuje, nemaže ho z tiskového plánu."
+                : isQueued
+                  ? "Ruční položka po uložení zůstává ve frontě. Datum expedice vznikne teprve přetažením do některého dne."
+                  : "Ruční položka už je naplánovaná. Přetažením mezi dny měníš datum, dropem do fronty ji vrátíš do stavu bez data."}
+            </div>
+          </section>
+        `;
+      }
+
+      function bindEditForm() {
+        panelEdit.querySelectorAll("[data-edit-kind]").forEach((button) => {
+          button.addEventListener("click", () => {
+            panelEdit.querySelectorAll("[data-edit-kind]").forEach((el) => {
+              el.classList.toggle("active", el === button);
+            });
+          });
+        });
+      }
+
+      function renderAside() {
+        const item = getSelectedItem();
+
+        panelBuilder.classList.toggle("hidden", mode !== "builder");
+        panelDetail.classList.toggle("hidden", mode !== "detail");
+        panelEdit.classList.toggle("hidden", mode !== "edit");
+
+        builderActions.classList.toggle("hidden", mode !== "builder");
+        detailActions.classList.toggle("hidden", mode !== "detail");
+        editActions.classList.toggle("hidden", mode !== "edit");
+
+        if (mode === "builder") {
+          asideKicker.textContent = "Builder";
+          asideMark.textContent = "E";
+          asideTitle.textContent = "Expedice Builder";
+          asideSubtitle.textContent = `${plannerCandidates.length} tiskové kandidáty čekají na publish a ${queueItems.length} ruční položky na naplánování.`;
+          toolbarSummary.textContent = "Blok z tisku se sem dostane až po publishi, ruční položky vznikají ve frontě.";
+          detailDestructiveWrap.classList.add("hidden");
+          editDestructiveWrap.classList.add("hidden");
+          renderPlannerCandidates();
+          renderQueuePanel();
+          return;
+        }
+
+        if (!item) {
+          mode = "builder";
+          renderAside();
+          return;
+        }
+
+        const badge = badgeFor(item);
+
+        if (mode === "detail") {
+          asideKicker.textContent = "Detail";
+          asideMark.textContent = badge.label.slice(0, 1);
+          asideTitle.textContent = item.orderNumber ? `${item.orderNumber}` : badge.label;
+          asideSubtitle.textContent = item.title;
+          toolbarSummary.textContent = item.location === "queue"
+            ? "Detail fronty: datum zatím neexistuje, vznikne až přetažením do timeline."
+            : item.sourceType === "block"
+              ? "Publishnutý blok je v expedici synchronní s tiskovým plánem a jde odtud zase odpublikovat."
+              : "Kliknutí otevírá lehký detail, bez zahlcení výrobní administrativou.";
+          panelDetail.innerHTML = renderDetail(item);
+          if (item.sourceType === "block") {
+            detailDestructiveWrap.classList.remove("hidden");
+            detailDestructiveButton.textContent = "Odebrat z Expedice";
+          } else {
+            detailDestructiveWrap.classList.add("hidden");
+          }
+        }
+
+        if (mode === "edit") {
+          asideKicker.textContent = "Editace";
+          asideMark.textContent = "✎";
+          asideTitle.textContent = item.orderNumber ? `Upravit ${item.orderNumber}` : "Upravit položku";
+          asideSubtitle.textContent = item.sourceType === "block"
+            ? "Blok z tiskového plánu"
+            : item.location === "queue"
+              ? "Ruční položka ve frontě"
+              : "Ruční položka v timeline";
+          toolbarSummary.textContent = "Editace zůstává vpravo, timeline vlevo se nemění a zůstává čitelná.";
+          panelEdit.innerHTML = renderEdit(item);
+          bindEditForm();
+          detailDestructiveWrap.classList.add("hidden");
+          editDestructiveWrap.classList.remove("hidden");
+          editDestructiveButton.textContent = item.sourceType === "block" ? "Odebrat z Expedice" : "Smazat položku";
+        }
+      }
+
+      function renderAll() {
+        renderTimeline();
+        renderAside();
+      }
+
+      document.getElementById("filter-group").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-filter]");
+        if (!button) return;
+        filter = button.dataset.filter;
+        for (const el of document.querySelectorAll("#filter-group .segment-button")) {
+          el.classList.toggle("active", el === button);
+        }
+        renderAll();
+      });
+
+      document.getElementById("density-group").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-density]");
+        if (!button) return;
+        density = button.dataset.density;
+        bodyEl.classList.remove("density-detail", "density-standard", "density-compact");
+        bodyEl.classList.add(`density-${density}`);
+        for (const el of document.querySelectorAll("#density-group .segment-button")) {
+          el.classList.toggle("active", el === button);
+        }
+      });
+
+      document.getElementById("range-group").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-range]");
+        if (!button) return;
+        for (const el of document.querySelectorAll("#range-group .segment-button")) {
+          el.classList.toggle("active", el === button);
+        }
+      });
+
+      document.getElementById("panel-builder").addEventListener("click", (event) => {
+        const button = event.target.closest("[data-builder-type]");
+        if (button) {
+          builderType = button.dataset.builderType;
+          syncBuilderTypeButtons();
+          return;
+        }
+
+        const publishButton = event.target.closest("[data-publish-candidate]");
+        if (!publishButton) return;
+        publishCandidate(publishButton.dataset.publishCandidate);
+      });
+
+      document.getElementById("detail-edit-button").addEventListener("click", () => {
+        if (!selectedId) return;
+        mode = "edit";
+        renderAside();
+      });
+
+      document.getElementById("detail-close-button").addEventListener("click", () => {
+        selectedId = null;
+        mode = "builder";
+        renderTimeline();
+        renderAside();
+      });
+
+      document.getElementById("edit-cancel-button").addEventListener("click", () => {
+        mode = "detail";
+        renderAside();
+      });
+
+      document.getElementById("builder-submit-button").addEventListener("click", () => {
+        const title = builderTitle.value.trim() || (builderType === "INTERNAL_TRANSFER" ? "Interní závoz" : "Ruční zakázka mimo tiskový plán");
+        const newItem = {
+          id: `${builderType === "INTERNAL_TRANSFER" ? "i" : "m"}${Date.now().toString().slice(-5)}`,
+          sourceType: "manual",
+          itemKind: builderType,
+          orderNumber: builderOrderNumber.value.trim(),
+          title,
+          expediceNote: builderNote.value.trim(),
+          doprava: builderTransport.value.trim()
+        };
+
+        queueItems.unshift(newItem);
+        selectedId = newItem.id;
+        mode = "builder";
+        clearBuilderForm();
+        renderAll();
+        queueList.querySelector(`[data-id="${newItem.id}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+
+      document.getElementById("builder-clear-button").addEventListener("click", () => {
+        clearBuilderForm();
+        selectedId = null;
+        mode = "builder";
+        renderAll();
+      });
+
+      document.getElementById("edit-save-button").addEventListener("click", () => {
+        const record = findItemRecord(selectedId);
+        if (!record) return;
+
+        if (record.item.sourceType !== "block") {
+          const activeKind = panelEdit.querySelector("[data-edit-kind].active");
+          record.item.itemKind = activeKind ? activeKind.dataset.editKind : record.item.itemKind;
+          record.item.orderNumber = panelEdit.querySelector("#edit-order-number")?.value.trim() || "";
+          record.item.title = panelEdit.querySelector("#edit-title")?.value.trim() || record.item.title;
+        }
+
+        record.item.expediceNote = panelEdit.querySelector("#edit-note")?.value.trim() || "";
+        record.item.doprava = panelEdit.querySelector("#edit-transport")?.value.trim() || "";
+
+        mode = "detail";
+        renderAll();
+      });
+
+      detailDestructiveButton.addEventListener("click", () => {
+        const item = getSelectedItem();
+        if (!item || item.sourceType !== "block") return;
+        openConfirm({
+          title: "Odebrat z Expedice?",
+          body: `${item.orderNumber || "Zakázka"} zůstane v tiskovém plánu, jen se přestane zobrazovat v expedici.`,
+          confirmLabel: "Odebrat",
+          onConfirm: () => unpublishBlock(item.id)
+        });
+      });
+
+      editDestructiveButton.addEventListener("click", () => {
+        const record = findItemRecord(selectedId);
+        if (!record) return;
+
+        if (record.item.sourceType === "block") {
+          openConfirm({
+            title: "Odebrat z Expedice?",
+            body: `${record.item.orderNumber || "Zakázka"} zůstane v tiskovém plánu, jen se přestane zobrazovat v expedici.`,
+            confirmLabel: "Odebrat",
+            onConfirm: () => unpublishBlock(record.item.id)
+          });
+          return;
+        }
+
+        openConfirm({
+          title: "Smazat položku?",
+          body: "Ruční položka existuje jen v expedici, takže se po potvrzení odstraní úplně.",
+          confirmLabel: "Smazat",
+          onConfirm: () => {
+            removeItemRecord(record);
+            selectedId = null;
+            mode = "builder";
+            renderAll();
+          }
+        });
+      });
+
+      document.getElementById("today-button").addEventListener("click", () => {
+        const todayLane = document.querySelector(".day-lane.today");
+        if (todayLane) {
+          todayLane.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+
+      queueDropzone.addEventListener("dragover", (event) => {
+        if (!draggedId) return;
+        event.preventDefault();
+        clearDragTargets();
+        queueDropzone.classList.add("drag-target");
+      });
+
+      queueDropzone.addEventListener("drop", (event) => {
+        const id = draggedId || event.dataTransfer.getData("text/plain");
+        if (!id) return;
+        event.preventDefault();
+        clearDragTargets();
+        moveItemToQueue(id);
+      });
+
+      confirmBackdrop.addEventListener("click", (event) => {
+        if (event.target === confirmBackdrop) {
+          closeConfirm();
+        }
+      });
+
+      confirmAcceptButton.addEventListener("click", () => {
+        acceptConfirm();
+      });
+
+      confirmCancelButton.addEventListener("click", () => {
+        closeConfirm();
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (confirmBackdrop.classList.contains("hidden")) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeConfirm();
+        }
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          acceptConfirm();
+        }
+      });
+
+      syncBuilderTypeButtons();
+      renderAll();
+    </script>
+  </body>
+</html>

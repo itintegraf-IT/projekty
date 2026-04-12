@@ -1968,9 +1968,13 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   if (toasts.length === 0) return null;
   const borderColor = { success: "var(--success)", error: "var(--danger)", info: "var(--info)" };
   return (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+    <div
+      aria-live="polite"
+      aria-atomic="true"
+      style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}
+    >
       {toasts.map((t) => (
-        <div key={t.id} style={{
+        <div key={t.id} role="status" style={{
           display: "flex", alignItems: "center", gap: 10,
           background: "color-mix(in oklab, var(--surface) 92%, transparent)", backdropFilter: "blur(12px)",
           borderTop: "1px solid var(--border)",
@@ -1986,7 +1990,14 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
           animation: "toast-in 0.15s ease-out",
         }}>
           <span style={{ flex: 1, lineHeight: 1.4 }}>{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+          <button
+            type="button"
+            aria-label="Zavřít oznámení"
+            onClick={() => onDismiss(t.id)}
+            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}
+          >
+            ×
+          </button>
         </div>
       ))}
     </div>
