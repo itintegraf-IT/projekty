@@ -169,7 +169,7 @@ async function main() {
           validFrom: new Date("1970-01-01T00:00:00.000Z"),
           validTo: null,
           isDefault: true,
-          MachineWorkHoursTemplateDay: {
+          days: {
             create: days.map((d) => ({
               ...d,
               startSlot: d.startHour * 2,

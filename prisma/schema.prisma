@@ -193,7 +193,7 @@ model MachineWorkHoursTemplate {
   isDefault                   Boolean                       @default(false)
   createdAt                   DateTime                      @default(now())
   updatedAt                   DateTime                      @default(now())
-  MachineWorkHoursTemplateDay MachineWorkHoursTemplateDay[]
+  days                        MachineWorkHoursTemplateDay[]
 
   @@index([machine, validFrom])
 }
@@ -207,7 +207,7 @@ model MachineWorkHoursTemplateDay {
   isActive                 Boolean                  @default(true)
   startSlot                Int?
   endSlot                  Int?
-  MachineWorkHoursTemplate MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  template                 MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@unique([templateId, dayOfWeek])
 }
