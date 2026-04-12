@@ -51,6 +51,7 @@ export function ExpediceCard({ item, selected, onClick, density = "standard" }: 
           <span style={{
             fontSize: 11, fontWeight: 600, color: "var(--text)",
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            flex: 1, minWidth: 0,
           }}>
             {item.orderNumber}
           </span>

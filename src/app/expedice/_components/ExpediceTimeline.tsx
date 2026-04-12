@@ -63,7 +63,7 @@ export function ExpediceTimeline({
         const month   = CS_MONTHS[utcMonthNum(day.date)];
 
         return (
-          <div key={day.date} ref={isToday ? todayRef : undefined} style={{ marginBottom: 20 }}>
+          <div key={day.date} ref={isToday ? todayRef : undefined} style={{ marginBottom: 20 }} onClick={(e) => { if (e.target === e.currentTarget) onClickEmpty(); }}>
             {/* Sticky denní header */}
             <div style={{
               position: "sticky", top: 0, zIndex: 10,
