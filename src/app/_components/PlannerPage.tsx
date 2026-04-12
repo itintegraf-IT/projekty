@@ -1267,10 +1267,14 @@ function BlockDetail({
   block,
   onClose,
   onDelete,
+  canEdit,
+  onBlockUpdate,
 }: {
   block: Block;
   onClose: () => void;
   onDelete: (id: number) => void;
+  canEdit?: boolean;
+  onBlockUpdate?: (updated: Block) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [blockHistory, setBlockHistory] = useState<AuditLogEntry[]>([]);
@@ -1372,6 +1376,62 @@ function BlockDetail({
             </div>
           </>
         )}
+
+        {/* Expedice shortcut — jen pro ADMIN/PLANOVAT */}
+        {canEdit && block.type === "ZAKAZKA" && (
+          <div style={{ margin: "0 16px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Expediční plán</span>
+            {!block.deadlineExpedice ? (
+              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", fontStyle: "italic" }}>
+                Nejdřív vyplň termín expedice
+              </span>
+            ) : block.expeditionPublishedAt ? (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/blocks/${block.id}/expedition`, {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "unpublish" }),
+                    });
+                    if (res.ok) {
+                      const updated = await res.json();
+                      onBlockUpdate?.(updated);
+                    }
+                  } catch { /* noop */ }
+                }}
+                style={{
+                  fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6,
+                  background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)",
+                  color: "#ef4444", cursor: "pointer", transition: "all 120ms ease-out",
+                }}
+              >
+                Odebrat z Expedice
+              </button>
+            ) : (
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/blocks/${block.id}/expedition`, {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: "publish" }),
+                    });
+                    if (res.ok) {
+                      const updated = await res.json();
+                      onBlockUpdate?.(updated);
+                    }
+                  } catch { /* noop */ }
+                }}
+                style={{
+                  fontSize: 10, fontWeight: 600, padding: "3px 10px", borderRadius: 6,
+                  background: "rgba(59,130,246,0.14)", border: "1px solid rgba(59,130,246,0.28)",
+                  color: "#3b82f6", cursor: "pointer", transition: "all 120ms ease-out",
+                }}
+              >
+                Zaplánovat do Expedice
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tisk dokončen */}
@@ -1406,6 +1466,8 @@ function BlockDetail({
                   )}
                   {log.action === "CREATE" && <span style={{ color: "#22c55e" }}> · Přidána</span>}
                   {log.action === "DELETE" && <span style={{ color: "#ef4444" }}> · Smazána</span>}
+                  {log.action === "EXPEDITION_PUBLISH" && <span style={{ color: "#22c55e" }}> · Zařazena do expedice</span>}
+                  {log.action === "EXPEDITION_UNPUBLISH" && <span style={{ color: "#f59e0b" }}> · Odebrána z expedice</span>}
                 </div>
               </div>
             ))}
@@ -1486,6 +1548,8 @@ const FIELD_LABELS: Record<string, string> = {
   materialNote: "Poznámka MTZ",
   materialInStock: "Materiál skladem",
   deadlineExpedice: "Expedice termín",
+  expediceNote: "Poznámka expedice",
+  doprava: "Doprava",
   pantoneRequiredDate: "Pantone datum",
   pantoneOk: "Pantone OK",
   blockVariant: "Stav zakázky",
@@ -1553,6 +1617,8 @@ function InfoPanel({ logs, onClose, onJumpToBlock }: { logs: AuditLogEntry[]; on
                   {log.action === "PRINT_COMPLETE" && <span style={{ color: "#22c55e" }}> · ✓ Tisk dokončen</span>}
                   {log.action === "PRINT_UNDO" && <span style={{ color: "#f59e0b" }}> · Vráceno hotovo</span>}
                   {log.action === "PRINT_RESET" && <span style={{ color: "#64748b" }}> · Reset potvrzení (přeplánováno)</span>}
+                  {log.action === "EXPEDITION_PUBLISH" && <span style={{ color: "#22c55e" }}> · Zařazena do expedice</span>}
+                  {log.action === "EXPEDITION_UNPUBLISH" && <span style={{ color: "#f59e0b" }}> · Odebrána z expedice</span>}
                 </div>
               </div>
             ))}
@@ -1968,9 +2034,13 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
   if (toasts.length === 0) return null;
   const borderColor = { success: "var(--success)", error: "var(--danger)", info: "var(--info)" };
   return (
-    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}>
+    <div
+      aria-live="polite"
+      aria-atomic="true"
+      style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}
+    >
       {toasts.map((t) => (
-        <div key={t.id} style={{
+        <div key={t.id} role="status" style={{
           display: "flex", alignItems: "center", gap: 10,
           background: "color-mix(in oklab, var(--surface) 92%, transparent)", backdropFilter: "blur(12px)",
           borderTop: "1px solid var(--border)",
@@ -1986,7 +2056,14 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
           animation: "toast-in 0.15s ease-out",
         }}>
           <span style={{ flex: 1, lineHeight: 1.4 }}>{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}>×</button>
+          <button
+            type="button"
+            aria-label="Zavřít oznámení"
+            onClick={() => onDismiss(t.id)}
+            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}
+          >
+            ×
+          </button>
         </div>
       ))}
     </div>
@@ -3396,6 +3473,32 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
+  async function handleExpeditionPublish(blockId: number) {
+    try {
+      const res = await fetch(`/api/blocks/${blockId}/expedition`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "publish" }),
+      });
+      if (res.ok) {
+        const updated: Block = await res.json();
+        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...updated } : b));
+      }
+    } catch { /* noop */ }
+  }
+
+  async function handleExpeditionUnpublish(blockId: number) {
+    try {
+      const res = await fetch(`/api/blocks/${blockId}/expedition`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unpublish" }),
+      });
+      if (res.ok) {
+        const updated: Block = await res.json();
+        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...updated } : b));
+      }
+    } catch { /* noop */ }
+  }
+
   async function handleQueueDrop(itemId: number | string, machine: string, rawStartTime: Date) {
     const item = queue.find((q) => q.id === itemId) ?? reservationQueue.find((r) => r.id === itemId);
     if (!item) return;
@@ -4017,6 +4120,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             >Rezervace</a>
           )}
 
+          {/* Expedice — přístupné všem přihlášeným rolím */}
+          <a
+            href="/expedice"
+            style={{
+              height: 28, padding: "0 10px", borderRadius: 8,
+              display: "flex", alignItems: "center",
+              background: "var(--surface-2)", border: "1px solid var(--border)",
+              color: "#f97316", fontSize: 12, cursor: "pointer",
+              textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
+            }}
+          >Expedice</a>
+
           <ThemeToggle />
 
           {/* Bell — audit (ADMIN/PLANOVAT) */}
@@ -4160,6 +4275,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}
             onNotify={canEdit ? handleNotify : undefined}
             onBlockVariantChange={canEdit ? handleBlockVariantChange : undefined}
+            onExpeditionPublish={canEdit ? handleExpeditionPublish : undefined}
+            onExpeditionUnpublish={canEdit ? handleExpeditionUnpublish : undefined}
           />
         </div>
 
@@ -4220,7 +4337,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             />
           ) : selectedBlock ? (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} />
+              <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} canEdit={canEdit} onBlockUpdate={handleBlockUpdate} />
               {/* "Upozornit obchod" — jen pokud blok má reservationId a canEdit */}
               {canEdit && selectedBlock.reservationId && (
                 <div style={{ padding: "8px 16px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>

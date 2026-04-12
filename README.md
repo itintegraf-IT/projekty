@@ -94,6 +94,7 @@ Aplikace poběží na `http://localhost:3000`.
 - `DOKUMENTACE.md` – lidský přehled funkcí, rolí a workflow
 - `CLAUDE.md` – stručný repo-truth a provozní poznámky pro AI asistenty
 - `DATABAZE_DOKUMENTACE.md` – MySQL a databázový model
+- `docs/DEPLOY_WORKFLOW.md` – postup nasazení `Vojta -> michal -> server`
 - `HINTY.md` – otevřený technický backlog a zlepšení
 - `PLAN.md` – aktuální plánovací snapshot, ne historická implementační specifikace
 - `SPECIFIKACE_DALSI_VLNY_ZMEN.md` – historická specifikace vlny rezervací a obchodníka

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from "@/lib/blockSerialization";
+import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
 
@@ -36,6 +37,8 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
 
 const SPLIT_SHARED_FIELDS = [
   "orderNumber", "description", "specifikace", "deadlineExpedice",
+  "expediceNote", "doprava",
+  "expeditionPublishedAt", "expeditionSortOrder",
   "jobPresetId", "jobPresetLabel",
   "type", "blockVariant",
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
@@ -87,6 +90,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const bypassScheduleValidation = (body as Record<string, unknown>).bypassScheduleValidation === true;
     // Explicitně smazat příznak z allowed — nesmí jít do prisma.block.update
     delete (allowed as Record<string, unknown>).bypassScheduleValidation;
+    delete (allowed as Record<string, unknown>).expeditionPublishedAt;
+    delete (allowed as Record<string, unknown>).expeditionSortOrder;
     // Remove undefined values
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
 
@@ -143,6 +148,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
       "pantoneRequiredDate", "pantoneOk", "materialInStock",
       "deadlineExpedice",
+      "expediceNote", "doprava",
       "blockVariant",
       "jobPresetLabel",
     ] as const;
@@ -161,6 +167,28 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         (allowed.blockVariant as string | undefined) ?? oldBlock?.blockVariant,
         resultingType
       );
+      const nextDeadlineExpedice =
+        allowed.deadlineExpedice !== undefined
+          ? parseNullableCivilDateForDb(allowed.deadlineExpedice)
+          : oldBlock.deadlineExpedice;
+      const oldExpeditionDayKey = getExpeditionDayKey(oldBlock.deadlineExpedice);
+      const nextExpeditionDayKey = getExpeditionDayKey(nextDeadlineExpedice);
+      const mustClearExpeditionState =
+        resultingType !== "ZAKAZKA" || nextDeadlineExpedice == null;
+      let nextExpeditionPublishedAt = oldBlock.expeditionPublishedAt;
+      let nextExpeditionSortOrder = oldBlock.expeditionSortOrder;
+
+      if (mustClearExpeditionState) {
+        nextExpeditionPublishedAt = null;
+        nextExpeditionSortOrder = null;
+      } else if (oldBlock.expeditionPublishedAt != null) {
+        if (oldExpeditionDayKey !== nextExpeditionDayKey || oldBlock.expeditionSortOrder == null) {
+          nextExpeditionSortOrder = await getNextExpeditionSortOrder(tx, nextDeadlineExpedice);
+        }
+      } else {
+        nextExpeditionSortOrder = null;
+      }
+
       const presetExplicitlyChanged = allowed.jobPresetId !== undefined;
       let presetUpdate:
         | { jobPresetId: number | null; jobPresetLabel: string | null }
@@ -218,7 +246,19 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.description !== undefined && { description: allowed.description as string }),
           ...(allowed.locked !== undefined && { locked: allowed.locked as boolean }),
           ...(allowed.deadlineExpedice !== undefined && {
-            deadlineExpedice: parseNullableCivilDateForDb(allowed.deadlineExpedice),
+            deadlineExpedice: nextDeadlineExpedice,
+          }),
+          ...(allowed.expediceNote !== undefined && {
+            expediceNote: normalizeNullableText(allowed.expediceNote),
+          }),
+          ...(allowed.doprava !== undefined && {
+            doprava: normalizeNullableText(allowed.doprava),
+          }),
+          ...(!isSameNullableDate(oldBlock.expeditionPublishedAt, nextExpeditionPublishedAt) && {
+            expeditionPublishedAt: nextExpeditionPublishedAt,
+          }),
+          ...((oldBlock.expeditionSortOrder ?? null) !== (nextExpeditionSortOrder ?? null) && {
+            expeditionSortOrder: nextExpeditionSortOrder,
           }),
           // DATA
           ...(allowed.dataStatusId !== undefined && { dataStatusId: allowed.dataStatusId as number }),
@@ -284,6 +324,17 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             newValue: serializeAuditValue(field, updated[field as AuditedField]),
           }));
 
+        // Pokud auto-unpublish (mustClearExpeditionState), přidat EXPEDITION_UNPUBLISH záznam
+        if (mustClearExpeditionState && oldBlock.expeditionPublishedAt != null) {
+          changes.push({
+            blockId: id,
+            orderNumber: oldBlock.orderNumber,
+            userId: session.id,
+            username: session.username,
+            action: "EXPEDITION_UNPUBLISH",
+          });
+        }
+
         if (changes.length > 0) {
           await tx.auditLog.createMany({ data: changes });
         }
@@ -301,6 +352,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         if (presetExplicitlyChanged || resultingType === "UDRZBA") {
           sharedUpdate.jobPresetId = updated.jobPresetId;
           sharedUpdate.jobPresetLabel = updated.jobPresetLabel;
+        }
+        if (!isSameNullableDate(oldBlock.expeditionPublishedAt, updated.expeditionPublishedAt)) {
+          sharedUpdate.expeditionPublishedAt = updated.expeditionPublishedAt;
+        }
+        if ((oldBlock.expeditionSortOrder ?? null) !== (updated.expeditionSortOrder ?? null)) {
+          sharedUpdate.expeditionSortOrder = updated.expeditionSortOrder;
         }
         if (Object.keys(sharedUpdate).length > 0) {
           // Pokud se type mění na non-ZAKAZKA, normalizovat blockVariant na STANDARD
@@ -397,4 +454,16 @@ function isPrismaNotFound(error: unknown): boolean {
     "code" in error &&
     (error as { code: string }).code === "P2025"
   );
+}
+
+function normalizeNullableText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  return text.length > 0 ? text : null;
+}
+
+function isSameNullableDate(a: Date | null | undefined, b: Date | null | undefined): boolean {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  return a.getTime() === b.getTime();
 }

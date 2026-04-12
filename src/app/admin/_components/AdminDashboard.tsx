@@ -1443,6 +1443,7 @@ function PresetSection() {
 interface AuditLogEntry {
   id: number;
   blockId: number;
+  orderNumber: string | null;
   userId: number;
   username: string;
   action: string;
@@ -1461,6 +1462,8 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   materialRequiredDate: "Materiál datum",
   materialOk: "Materiál OK",
   deadlineExpedice: "Expedice termín",
+  expediceNote: "Poznámka expedice",
+  doprava: "Doprava",
 };
 
 // ─── Tab: Pracovní doba ───────────────────────────────────────────────────────
@@ -2350,7 +2353,7 @@ function AuditLogSection() {
               key={log.id}
               style={{
                 display: "grid",
-                gridTemplateColumns: "100px 80px 70px 1fr",
+                gridTemplateColumns: "100px 80px 120px 1fr",
                 gap: 8,
                 padding: "10px 14px",
                 borderTop: i > 0 ? `1px solid ${SEPARATOR}` : undefined,
@@ -2361,7 +2364,7 @@ function AuditLogSection() {
             >
               <span style={{ color: TEXT_SECONDARY }}>{fmtDatetime(log.createdAt)}</span>
               <span style={{ fontWeight: 600, color: TEXT_PRIMARY }}>{log.username}</span>
-              <span style={{ color: TEXT_SECONDARY }}>#{log.blockId}</span>
+              <span style={{ color: TEXT_PRIMARY }}>{log.orderNumber ?? `#${log.blockId}`}</span>
               <span style={{ color: TEXT_PRIMARY }}>
                 {log.action === "UPDATE" && log.field ? (
                   <>
@@ -2374,6 +2377,10 @@ function AuditLogSection() {
                   <span style={{ color: "#30d158" }}>Přidána</span>
                 ) : log.action === "DELETE" ? (
                   <span style={{ color: "#ff453a" }}>Smazána</span>
+                ) : log.action === "EXPEDITION_PUBLISH" ? (
+                  <span style={{ color: "#30d158" }}>Zařazena do expedice</span>
+                ) : log.action === "EXPEDITION_UNPUBLISH" ? (
+                  <span style={{ color: "#ff9f0a" }}>Odebrána z expedice</span>
                 ) : log.action}
               </span>
             </div>

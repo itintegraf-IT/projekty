@@ -81,6 +81,11 @@ export type Block = {
   description: string | null;
   locked: boolean;
   deadlineExpedice: string | null;
+  // Expediční plán
+  expediceNote: string | null;
+  doprava: string | null;
+  expeditionPublishedAt: string | null;
+  expeditionSortOrder: number | null;
   // Výrobní sloupečky — DATA
   dataStatusId: number | null;
   dataStatusLabel: string | null;
@@ -213,6 +218,8 @@ interface TimelineGridProps {
   assignedMachine?: string | null;
   onNotify?: (blockId: number, orderNumber: string) => void;
   onBlockVariantChange?: (blockId: number, variant: BlockVariant) => void;
+  onExpeditionPublish?:   (blockId: number) => Promise<void>;
+  onExpeditionUnpublish?: (blockId: number) => Promise<void>;
 }
 
 type QueueDropPreview = {
@@ -766,6 +773,7 @@ function BlockCard({
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
   canEdit, canEditData, canEditMat, onInlineDatePick, badgeColorMap,
   onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
+  onExpeditionPublish, onExpeditionUnpublish,
   splitPart, splitTotal,
 }: {
   block: Block;
@@ -797,6 +805,8 @@ function BlockCard({
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
   onNotify?: (blockId: number, orderNumber: string) => void;
   onBlockVariantChange?: (blockId: number, variant: BlockVariant) => void;
+  onExpeditionPublish?:   (blockId: number) => Promise<void>;
+  onExpeditionUnpublish?: (blockId: number) => Promise<void>;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
@@ -1644,6 +1654,31 @@ function BlockCard({
             </ContextMenuItem>
           </>
         )}
+        {/* Expedice akce — jen pro ZAKAZKA blok, jen pro editory */}
+        {canEdit && block.type === "ZAKAZKA" && (
+          <>
+            <ContextMenuSeparator />
+            {!block.deadlineExpedice ? (
+              <ContextMenuItem disabled style={{ ...menuItemStyle, color: "rgba(255,255,255,0.3)" }}>
+                🚚 Nejdřív vyplň termín expedice
+              </ContextMenuItem>
+            ) : block.expeditionPublishedAt ? (
+              <ContextMenuItem
+                onClick={() => onExpeditionUnpublish?.(block.id)}
+                style={{ ...menuItemStyle, color: "rgba(239,68,68,0.9)" }}
+              >
+                🚚 Odebrat z Expedice
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuItem
+                onClick={() => onExpeditionPublish?.(block.id)}
+                style={menuItemStyle}
+              >
+                🚚 Zaplánovat do Expedice
+              </ContextMenuItem>
+            )}
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -1681,6 +1716,8 @@ export default function TimelineGrid({
   assignedMachine,
   onNotify,
   onBlockVariantChange,
+  onExpeditionPublish,
+  onExpeditionUnpublish,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -2753,6 +2790,8 @@ export default function TimelineGrid({
                       onPrintComplete={onPrintComplete}
                       onNotify={onNotify}
                       onBlockVariantChange={onBlockVariantChange}
+                      onExpeditionPublish={onExpeditionPublish}
+                      onExpeditionUnpublish={onExpeditionUnpublish}
                     />
                   );
                 })}
