@@ -18,6 +18,7 @@ type SerializableBlock = {
   materialRequiredDate: Date | null;
   pantoneRequiredDate: Date | null;
   printCompletedAt: Date | null;
+  expeditionPublishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   [key: string]: unknown;
@@ -34,6 +35,7 @@ export function serializeBlock<T extends SerializableBlock>(block: T) {
     materialRequiredDate: normalizeCivilDateInput(block.materialRequiredDate),
     pantoneRequiredDate: normalizeCivilDateInput(block.pantoneRequiredDate),
     printCompletedAt: block.printCompletedAt?.toISOString() ?? null,
+    expeditionPublishedAt: block.expeditionPublishedAt?.toISOString() ?? null,
     createdAt: block.createdAt.toISOString(),
     updatedAt: block.updatedAt.toISOString(),
   };

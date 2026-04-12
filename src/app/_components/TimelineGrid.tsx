@@ -81,6 +81,11 @@ export type Block = {
   description: string | null;
   locked: boolean;
   deadlineExpedice: string | null;
+  // Expediční plán
+  expediceNote: string | null;
+  doprava: string | null;
+  expeditionPublishedAt: string | null;
+  expeditionSortOrder: number | null;
   // Výrobní sloupečky — DATA
   dataStatusId: number | null;
   dataStatusLabel: string | null;
