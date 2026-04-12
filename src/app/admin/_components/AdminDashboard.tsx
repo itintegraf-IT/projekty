@@ -1462,6 +1462,8 @@ const AUDIT_FIELD_LABELS: Record<string, string> = {
   materialRequiredDate: "Materiál datum",
   materialOk: "Materiál OK",
   deadlineExpedice: "Expedice termín",
+  expediceNote: "Poznámka expedice",
+  doprava: "Doprava",
 };
 
 // ─── Tab: Pracovní doba ───────────────────────────────────────────────────────
@@ -2375,6 +2377,10 @@ function AuditLogSection() {
                   <span style={{ color: "#30d158" }}>Přidána</span>
                 ) : log.action === "DELETE" ? (
                   <span style={{ color: "#ff453a" }}>Smazána</span>
+                ) : log.action === "EXPEDITION_PUBLISH" ? (
+                  <span style={{ color: "#30d158" }}>Zařazena do expedice</span>
+                ) : log.action === "EXPEDITION_UNPUBLISH" ? (
+                  <span style={{ color: "#ff9f0a" }}>Odebrána z expedice</span>
                 ) : log.action}
               </span>
             </div>

@@ -18,6 +18,10 @@ model Block {
   description          String?
   locked               Boolean   @default(false)
   deadlineExpedice     DateTime?
+  expediceNote         String?   @db.Text
+  doprava              String?   @db.Text
+  expeditionPublishedAt DateTime?
+  expeditionSortOrder  Int?
   dataStatusId         Int?
   dataStatusLabel      String?
   dataRequiredDate     DateTime?
@@ -57,6 +61,29 @@ model Block {
   @@index([splitGroupId])
   @@index([jobPresetId])
   @@index([reservationId])
+  @@index([deadlineExpedice, expeditionPublishedAt, expeditionSortOrder], map: "Block_expedition_idx")
+}
+
+enum ExpeditionManualItemKind {
+  MANUAL_JOB
+  INTERNAL_TRANSFER
+}
+
+model ExpeditionManualItem {
+  id                  Int                       @id @default(autoincrement())
+  date                DateTime?
+  expeditionSortOrder Int?
+  kind                ExpeditionManualItemKind
+  orderNumber         String?
+  description         String?                   @db.Text
+  expediceNote        String?                   @db.Text
+  doprava             String?                   @db.Text
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @default(now()) @updatedAt
+
+  @@index([date, expeditionSortOrder])
+  @@index([kind, date])
+  @@index([createdAt])
 }
 
 model JobPreset {

@@ -6,6 +6,59 @@ Status: V revizi — upravený interaction model před implementací
 
 ---
 
+## Stav implementace
+
+Poslední aktualizace: 2026-04-12
+
+Aktuální stav:
+- finální produktový a UX/UI návrh pro v1 je uzavřený
+- implementační checklist je připravený
+- lokální mockup byl použit pro ověření layoutu a interaction modelu
+- Etapa A je backendově rozpracovaná a zapsaná v kódu
+
+Hotovo:
+- potvrzený model `deadlineExpedice` + `expeditionPublishedAt` + `expeditionSortOrder`
+- potvrzený pattern `timeline vlevo + pravý aside vpravo`
+- potvrzený `queue-first` flow pro ruční položky
+- potvrzená sekce kandidátů z tiskového plánu přímo v expedici
+- potvrzený obousměrný sync data mezi tiskovým a expedičním plánem
+- potvrzený `publish / unpublish` model bez mazání bloku z výroby
+- potvrzené persistentní pořadí položek uvnitř dne
+- připravený implementační checklist po etapách A-D
+- v `prisma/schema.prisma` doplněná pole `expediceNote`, `doprava`, `expeditionPublishedAt`, `expeditionSortOrder`
+- přidaný model `ExpeditionManualItem` + enum `ExpeditionManualItemKind`
+- připravená migrace `20260412083000_add_expedition_core`
+- přidaný helper `src/lib/expedition.ts` pro day key a přidělování `expeditionSortOrder`
+- `PUT /api/blocks/[id]` nově drží expediční invarianty:
+  - generic update route neumí přímo nastavovat publish stav
+  - změna `deadlineExpedice` u publishnutého bloku drží publish a při změně dne přidělí nové pořadí
+  - smazání `deadlineExpedice` nebo změna typu mimo `ZAKAZKA` blok automaticky odpublikuje
+  - split propagace nově zahrnuje `expediceNote`, `doprava`, `expeditionPublishedAt`, `expeditionSortOrder`
+- přidaná route `POST /api/blocks/[id]/expedition` pro explicitní `publish` / `unpublish`
+- audit UI v planneru a adminu zná nové field labely a akce `EXPEDITION_PUBLISH` / `EXPEDITION_UNPUBLISH`
+- middleware je explicitně zdokumentované tak, že `/expedice` zůstává dostupné všem přihlášeným rolím
+
+Ověření:
+- `npx prisma generate` proběhlo úspěšně
+- `npx eslint 'src/app/api/blocks/[id]/route.ts' 'src/app/api/blocks/[id]/expedition/route.ts' src/lib/expedition.ts src/middleware.ts src/app/_components/PlannerPage.tsx src/app/admin/_components/AdminDashboard.tsx` proběhl bez errorů
+- zůstaly jen staré nesouvisející warningy:
+  - 2x `@next/next/no-img-element` v `PlannerPage.tsx`
+  - 1x `@next/next/no-html-link-for-pages` v `AdminDashboard.tsx`
+- `git diff --check` je čistý
+
+Otevřené body / známé limity:
+- migrace je připravená v repu, ale ještě nebyla aplikovaná na databázi
+- plný `npx tsc --noEmit` je teď zablokovaný starými generovanými `.next` typy pro chybějící expediční routes z dřívějšího stavu, takže to není spolehlivý gate pro Etapu A
+- UI pro publish / unpublish a samotná stránka `/expedice` ještě neexistují, to je práce Etapy B+
+
+Další doporučený krok:
+- dokončit Etapu A aplikací migrace v běžícím prostředí a potom pokračovat `Etapou B — Kandidáti + publish v expedici + read-only expedice`
+
+Pravidlo pro navázání v dalším chatu:
+- po každé dokončené etapě aktualizovat tuto sekci o stav, ověření, otevřené problémy a další krok
+
+---
+
 ## Přehled
 
 Expediční plán je nový modul v aplikaci Integraf Výrobní plán. Řeší problém ručního přepisování zakázek z plánu tisku do separátního Excelu pro potřeby expedičního plánovače. Namísto automatického zobrazování všech zakázek s vyplněným datem expedice se do nového pohledu `/expedice` dostanou jen ty, které někdo s rolí `ADMIN` nebo `PLANOVAT` explicitně publikuje do expedice.
@@ -952,6 +1005,156 @@ Auth: `ADMIN` / `PLANOVAT` only.
 **Výsledek:**
 - rychlé přeplánování bez klikání
 - pořadí v rámci dne je stabilní i po reloadu a pro ostatní uživatele
+
+---
+
+## Implementační checklist
+
+### 0. Před startem implementace
+
+- založit samostatnou branch pro expedici
+- před první změnou zkontrolovat současné reusable primitivy:
+  - pravý aside a jeho header / footer pattern v `PlannerPage`
+  - `Button`, `Input`, `Textarea`, `HoverCard`, shared date utils
+  - existující confirm pattern pro smazání bloku
+- potvrdit, že expedice nebude zavádět nový design systém ani nové vlastní formulářové primitivy bez důvodu
+- projít `Block` update flow, split propagaci, copy / paste a undo logiku, protože právě tam je největší riziko vedlejších efektů
+
+### 1. Etapa A checklist
+
+#### Implementace
+
+- rozšířit `prisma/schema.prisma` o:
+  - `Block.expediceNote`
+  - `Block.doprava`
+  - `Block.expeditionPublishedAt`
+  - `Block.expeditionSortOrder`
+  - model `ExpeditionManualItem`
+  - enum `ExpeditionManualItemKind`
+- vytvořit migraci a zkontrolovat SQL diff
+- doplnit `src/app/api/blocks/[id]/expedition/route.ts`
+- doplnit invarianty do `src/app/api/blocks/[id]/route.ts`
+- doplnit audit log eventy pro publish / unpublish bloků
+- upravit middleware tak, aby `/expedice` bylo dostupné všem rolím v read-only režimu
+
+#### Ověření
+
+- publish bez `deadlineExpedice` vrátí validní chybu
+- publish s `deadlineExpedice` nastaví `expeditionPublishedAt` a `expeditionSortOrder`
+- unpublish smaže jen publish stav, ne `deadlineExpedice`
+- změna `deadlineExpedice` u publishnutého bloku zachová publish stav
+- smazání `deadlineExpedice` publishnutý blok automaticky odpublikuje
+- split skupina propaguje `deadlineExpedice`, `expediceNote`, `doprava`, `expeditionPublishedAt`, `expeditionSortOrder`
+- copy / paste bloků nepřenese publish stav na novou kopii
+
+### 2. Etapa B checklist
+
+#### Implementace
+
+- vytvořit `src/app/expedice/page.tsx`
+- navrhnout `GET /api/expedice` tak, aby vracel:
+  - `days`
+  - `candidates`
+  - `queueItems`
+- postavit read-only shell expedice po vzoru hlavní timeline
+- doplnit header vstup `Expedice` do hlavního planneru
+- zobrazit kandidáty z tiskového plánu v aside pro editory
+- přidat publish kandidáta přímo z expedice
+- přidat shortcut akce `Zaplánovat do Expedice` / `Odebrat z Expedice` do context menu v hlavní timeline
+- přidat fallback stejné akce do detailu bloku
+
+#### Ověření
+
+- read-only role otevřou `/expedice` bez aside a bez chyb
+- `ADMIN` / `PLANOVAT` vidí `Builder + Kandidáti + Fronta`
+- kandidát s datem a bez publish se ukáže v kandidátech
+- klik na `Zaplánovat do Expedice` kandidáta přesune do timeline správného dne
+- po refreshi zůstane publishnutý blok v timeline
+- unpublish vrátí blok zpět mezi kandidáty
+- změna `deadlineExpedice` v hlavním planneru se po refreshi projeví i u kandidáta nebo publishnutého bloku v expedici
+
+### 3. Etapa C checklist
+
+#### Implementace
+
+- postavit aside stavy:
+  - `builder + candidates + queue`
+  - `detail`
+  - `edit`
+- vytvořit builder pro `MANUAL_JOB` a `INTERNAL_TRANSFER`
+- implementovat `POST /api/expedice/manual-items`
+- implementovat `PUT /api/expedice/manual-items/[id]`
+- implementovat `DELETE /api/expedice/manual-items/[id]`
+- přidat detail a editor pro blok i ruční položku
+- přidat sticky footer akce `Uložit / Zrušit / Smazat`
+- přidat confirm pattern pro `Odebrat z Expedice` a `Smazat položku`
+- přidat dirty-state guard při opuštění rozeditovaného aside
+
+#### Ověření
+
+- builder vytváří ruční položku jen do fronty, ne rovnou do timeline
+- editace bloku dovolí změnit jen `expediceNote` a `doprava`
+- editace ruční položky dovolí změnit obsah bez ruční editace `date`
+- `Odebrat z Expedice` neodstraní blok z tiskového plánu
+- `Smazat položku` skutečně smaže jen ruční položku
+- `Enter` potvrdí destruktivní dialog, `Esc` ho zavře
+- přepnutí na jinou kartu při dirty stavu neodhodí změny bez varování
+
+### 4. Etapa D checklist
+
+#### Implementace
+
+- doplnit drag & drop pro publishnuté bloky mezi dny
+- doplnit reorder publishnutých bloků uvnitř dne
+- doplnit drag & drop ručních položek:
+  - fronta -> den
+  - den -> jiný den
+  - den -> fronta
+  - reorder uvnitř dne
+- navrhnout stabilní přidělování `expeditionSortOrder`
+- zajistit, že změna dne v expedici zapisuje zpět `deadlineExpedice`
+- zajistit, že změna dne z hlavního planneru publishnutému bloku přidělí nový sort order na konci cílového dne
+
+#### Ověření
+
+- blok přetažený na jiný den změní datum v expedici i v hlavním planneru
+- reorder bloků uvnitř dne přežije refresh
+- ruční položka z fronty po dropu dostane datum a sort order
+- ruční položka vrácená do fronty přijde o `date` i `expeditionSortOrder`
+- přetažení mezi dny nepřepisuje jiné položky ani nevytváří duplicitní pořadí
+- read-only role drag & drop vůbec nemají aktivní
+
+### 5. Finální hardening před nasazením
+
+- projít hlavní planner a ověřit, že se nerozbily:
+  - detail bloku
+  - editace bloku
+  - context menu
+  - split bloky
+  - copy / paste
+  - undo po delete
+  - background refresh / polling
+- ověřit, že expedice reuseuje existující komponenty a netahá nový styl bokem
+- ověřit truncation a hover preview u dlouhých textů
+- ověřit empty, loading a error states
+- zkontrolovat mobile / menší desktop šířky bez horizontálního scrollu
+- spustit lint a relevantní testy
+- ručně projet hlavní workflow:
+  - kandidát vznikne po vyplnění `deadlineExpedice`
+  - publish v expedici
+  - přesun publishnutého bloku na jiný den
+  - unpublish
+  - ruční položka do fronty
+  - ruční položka z fronty na den
+  - ruční položka zpět do fronty
+
+### Doporučené pořadí PR
+
+1. Datový model + API invarianty bez UI.
+2. Read-only expedice + kandidáti + publish / unpublish.
+3. Aside pro editory + ruční builder a fronta.
+4. Drag & drop + persistentní pořadí.
+5. Hardening, regressions, polish.
 
 ---
 

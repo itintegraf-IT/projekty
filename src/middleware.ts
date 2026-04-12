@@ -55,6 +55,9 @@ export async function middleware(req: NextRequest) {
       }
     }
 
+    // /expedice je dostupné všem přihlášeným rolím v read-only režimu,
+    // proto tu záměrně nemá další role gate.
+
     return NextResponse.next();
   } catch {
     return NextResponse.redirect(new URL("/login", req.url));
