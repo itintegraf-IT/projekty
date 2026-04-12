@@ -347,6 +347,15 @@ function CandidateCard({
         </div>
       </div>
 
+      {(candidate.expediceNote || candidate.doprava) && (
+        <div style={{
+          fontSize: 10, color: "rgba(255,255,255,0.38)",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {[candidate.expediceNote, candidate.doprava].filter(Boolean).join(" · ")}
+        </div>
+      )}
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ fontSize: 10, color: "rgba(249,115,22,0.85)", fontWeight: 500 }}>
           {formatDateCs(candidate.deadlineExpedice)}

@@ -434,7 +434,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   });
 
   const divider: React.CSSProperties = {
-    width: 1, height: 16, background: "var(--border)", flexShrink: 0,
+    width: 1, height: 16, background: "rgba(255,255,255,0.12)", flexShrink: 0,
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -507,34 +507,52 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
         <div style={divider} />
 
         {/* Filtry */}
-        {(["all", "block", "manual", "internal"] as Filter[]).map((f) => {
-          const labels: Record<Filter, string> = {
-            all: "Vše", block: "Tiskový plán", manual: "Ruční", internal: "Interní",
-          };
-          return (
-            <button key={f} onClick={() => setFilter(f)} style={navBtnStyle(filter === f)}>
-              {labels[f]}
-            </button>
-          );
-        })}
+        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <span style={{
+            fontSize: 9, color: "rgba(255,255,255,0.25)", marginRight: 4,
+            letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>Typ</span>
+          {(["all", "block", "manual", "internal"] as Filter[]).map((f) => {
+            const labels: Record<Filter, string> = {
+              all: "Vše", block: "Tiskový plán", manual: "Ruční", internal: "Interní",
+            };
+            return (
+              <button key={f} onClick={() => setFilter(f)} style={navBtnStyle(filter === f)}>
+                {labels[f]}
+              </button>
+            );
+          })}
+        </div>
 
         <div style={divider} />
 
         {/* Rozsah dnů */}
-        {([7, 14, 30] as DaysRange[]).map((d) => (
-          <button key={d} onClick={() => setDaysAhead(d)} style={navBtnStyle(daysAhead === d)}>
-            {d} dní
-          </button>
-        ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <span style={{
+            fontSize: 9, color: "rgba(255,255,255,0.25)", marginRight: 4,
+            letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>Rozsah</span>
+          {([7, 14, 30] as DaysRange[]).map((d) => (
+            <button key={d} onClick={() => setDaysAhead(d)} style={navBtnStyle(daysAhead === d)}>
+              {d} dní
+            </button>
+          ))}
+        </div>
 
         <div style={divider} />
 
         {/* Hustota */}
-        {([["detail", "Detail"], ["standard", "Standard"], ["compact", "Kompaktní"]] as [Density, string][]).map(([d, label]) => (
-          <button key={d} onClick={() => handleChangeDensity(d)} style={navBtnStyle(density === d)}>
-            {label}
-          </button>
-        ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <span style={{
+            fontSize: 9, color: "rgba(255,255,255,0.25)", marginRight: 4,
+            letterSpacing: "0.05em", textTransform: "uppercase",
+          }}>Hustota</span>
+          {([["detail", "Detail"], ["standard", "Standard"], ["compact", "Kompaktní"]] as [Density, string][]).map(([d, label]) => (
+            <button key={d} onClick={() => handleChangeDensity(d)} style={navBtnStyle(density === d)}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ── Tělo ── */}
