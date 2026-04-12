@@ -84,8 +84,12 @@ export async function GET(req: NextRequest) {
         }),
       ]);
 
-    // Build dayMap from published blocks and scheduled manual items
+    // Pre-populate dayMap se všemi dny v rozsahu — prázdné dny jsou záměrně viditelné
     const dayMap = new Map<string, ExpediceDay>();
+    for (let i = -daysBack; i <= daysAhead; i++) {
+      const key = addDays(todayKey, i);
+      dayMap.set(key, { date: key, items: [] });
+    }
 
     for (const block of publishedBlocks) {
       const dayKey = getExpeditionDayKey(block.deadlineExpedice);

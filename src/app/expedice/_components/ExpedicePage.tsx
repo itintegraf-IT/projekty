@@ -77,6 +77,8 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   }
 
   // Aplikovat filtr na dny
+  // Při filtru "all" zobrazovat i prázdné dny (vidíš kdy nic neexpeduje)
+  // U specifických filtrů skrýt dny bez odpovídajících položek
   const filteredDays = (data?.days ?? []).map((day) => ({
     ...day,
     items: day.items.filter((item) => {
@@ -86,7 +88,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
       if (filter === "internal") return item.sourceType === "manual" && item.itemKind === "INTERNAL_TRANSFER";
       return true;
     }),
-  })).filter((day) => day.items.length > 0);
+  })).filter((day) => filter === "all" || day.items.length > 0);
 
   // ─── Styly ────────────────────────────────────────────────────────────────
 
