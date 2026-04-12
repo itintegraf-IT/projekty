@@ -569,7 +569,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
               ref={timelineRef}
               days={filteredDays}
               selectedItemKey={selectedKeyFor(selectedItem)}
-              onSelectItem={handleSelectItem}
+              onSelectItem={isEditor ? handleSelectItem : undefined}
               onDoubleClickItem={isEditor ? handleDoubleClickItem : undefined}
               onClickEmpty={handleClickEmpty}
               density={density}

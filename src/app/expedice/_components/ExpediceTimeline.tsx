@@ -29,7 +29,7 @@ export interface ExpediceTimelineHandle {
 interface ExpediceTimelineProps {
   days: ExpediceDay[];
   selectedItemKey: string | null;
-  onSelectItem: (item: ExpediceItem) => void;
+  onSelectItem?: (item: ExpediceItem) => void;
   onDoubleClickItem?: (item: ExpediceItem) => void;
   onClickEmpty: () => void;
   density: "detail" | "standard" | "compact";
@@ -189,7 +189,7 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
                     key={key}
                     item={item}
                     selected={selectedItemKey === key}
-                    onClick={() => onSelectItem(item)}
+                    onClick={onSelectItem ? () => onSelectItem(item) : undefined}
                     onDoubleClick={onDoubleClickItem ? () => onDoubleClickItem(item) : undefined}
                     density={density}
                     // Drag & drop
