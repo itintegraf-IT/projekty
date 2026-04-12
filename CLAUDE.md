@@ -1,6 +1,6 @@
 # CLAUDE.md — Repo Truth
 
-Aktualizováno podle stavu repozitáře k 4. 4. 2026.
+Aktualizováno podle stavu repozitáře k 12. 4. 2026.
 
 Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asistenty. Pokud se aplikace změní, aktualizuj nejdřív tento soubor a až potom navazující dokumentaci.
 
@@ -8,9 +8,10 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 
 - `git status --short` je čistý
 - `npm run build` prošel
-- `npm run lint` vrací 9 warningů, ale 0 chyb
+- `npm run lint` vrací warningy, ale 0 chyb
 - `node --test --import tsx src/lib/dateUtils.test.ts` prošel 6/6 testů
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
+- modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 
 ## Co aplikace dnes umí
 
@@ -122,6 +123,24 @@ npm run prisma:seed
 ```
 
 `prisma:seed` maže vývojová data a znovu je naplní. Nepoužívat na produkci.
+
+## Prisma — konvence relací (KRITICKÉ)
+
+Prisma při `prisma db pull` nebo `prisma format` přejmenuje relační pole podle názvu modelu (velká písmena). Tím rozbije celý kód. **Nikdy nespouštět `prisma db pull` ani `prisma format` bez kontroly.**
+
+Kanonické názvy relací v tomto projektu (kód je na nich závislý):
+
+| Model | Pole | Typ |
+| --- | --- | --- |
+| `MachineWorkHoursTemplate` | `days` | `MachineWorkHoursTemplateDay[]` |
+| `MachineWorkHoursTemplateDay` | `template` | `MachineWorkHoursTemplate` |
+| `Reservation` | `blocks` | `Block[]` |
+| `Reservation` | `attachments` | `ReservationAttachment[]` |
+| `ReservationAttachment` | `reservation` | `Reservation` |
+
+Pokud Prisma VS Code extension po uložení přepíše tato pole na `Block`, `ReservationAttachment`, `Reservation`, `MachineWorkHoursTemplateDay` — je to chyba formátovače. Vrátit zpět na výše uvedené názvy.
+
+Po každé změně schématu spustit `npm run build` lokálně před pushem — build zachytí TypeScript chyby dřív než server.
 
 ## Aktuální technické poznámky
 
