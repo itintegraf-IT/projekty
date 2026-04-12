@@ -3473,6 +3473,32 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
+  async function handleExpeditionPublish(blockId: number) {
+    try {
+      const res = await fetch(`/api/blocks/${blockId}/expedition`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "publish" }),
+      });
+      if (res.ok) {
+        const updated: Block = await res.json();
+        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...updated } : b));
+      }
+    } catch { /* noop */ }
+  }
+
+  async function handleExpeditionUnpublish(blockId: number) {
+    try {
+      const res = await fetch(`/api/blocks/${blockId}/expedition`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unpublish" }),
+      });
+      if (res.ok) {
+        const updated: Block = await res.json();
+        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...updated } : b));
+      }
+    } catch { /* noop */ }
+  }
+
   async function handleQueueDrop(itemId: number | string, machine: string, rawStartTime: Date) {
     const item = queue.find((q) => q.id === itemId) ?? reservationQueue.find((r) => r.id === itemId);
     if (!item) return;
@@ -4249,6 +4275,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}
             onNotify={canEdit ? handleNotify : undefined}
             onBlockVariantChange={canEdit ? handleBlockVariantChange : undefined}
+            onExpeditionPublish={canEdit ? handleExpeditionPublish : undefined}
+            onExpeditionUnpublish={canEdit ? handleExpeditionUnpublish : undefined}
           />
         </div>
 
