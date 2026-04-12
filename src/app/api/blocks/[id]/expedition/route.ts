@@ -21,8 +21,64 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
   const body = await request.json().catch(() => null);
   const action = body?.action;
-  if (action !== "publish" && action !== "unpublish") {
+  if (action !== "publish" && action !== "unpublish" && action !== "reorder") {
     return NextResponse.json({ error: "Neplatná akce" }, { status: 400 });
+  }
+
+  // ── Reorder: přímá aktualizace expeditionSortOrder publishnutého bloku ────────
+  if (action === "reorder") {
+    const newSortOrder = typeof body?.expeditionSortOrder === "number"
+      ? body.expeditionSortOrder
+      : undefined;
+    if (newSortOrder === undefined || !Number.isFinite(newSortOrder)) {
+      return NextResponse.json({ error: "Chybí platný expeditionSortOrder" }, { status: 400 });
+    }
+
+    try {
+      const updatedBlock = await prisma.$transaction(async (tx) => {
+        const currentBlock = await tx.block.findUnique({
+          where: { id },
+          select: { id: true, expeditionPublishedAt: true, splitGroupId: true },
+        });
+        if (!currentBlock) throw new Error("NOT_FOUND");
+        if (currentBlock.expeditionPublishedAt == null) throw new Error("NOT_PUBLISHED");
+
+        const targetIds =
+          currentBlock.splitGroupId != null
+            ? (await tx.block.findMany({
+                where: {
+                  OR: [
+                    { splitGroupId: currentBlock.splitGroupId },
+                    { id: currentBlock.splitGroupId },
+                  ],
+                },
+                select: { id: true },
+              })).map((b) => b.id)
+            : [currentBlock.id];
+
+        await tx.block.updateMany({
+          where: { id: { in: targetIds } },
+          data: { expeditionSortOrder: newSortOrder },
+        });
+
+        const updated = await tx.block.findUnique({ where: { id } });
+        if (!updated) throw new Error("NOT_FOUND");
+        return updated;
+      });
+
+      return NextResponse.json(serializeBlock(updatedBlock));
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        if (error.message === "NOT_FOUND") {
+          return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
+        }
+        if (error.message === "NOT_PUBLISHED") {
+          return NextResponse.json({ error: "Blok není zaplánován v expedici" }, { status: 400 });
+        }
+      }
+      console.error(`[POST /api/blocks/${id}/expedition reorder]`, error);
+      return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
+    }
   }
 
   try {

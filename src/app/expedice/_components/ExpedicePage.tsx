@@ -3,12 +3,11 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ExpediceData, ExpediceItem, ExpediceManualItem } from "@/lib/expediceTypes";
 import { ExpediceTimeline, type ExpediceTimelineHandle } from "./ExpediceTimeline";
 import { ExpediceAside, type AsidePanelMode } from "./ExpediceAside";
+import DatePickerField from "@/app/_components/DatePickerField";
 
-type Density  = "detail" | "standard" | "compact";
 type DaysRange = 7 | 14 | 30;
 type Filter   = "all" | "block" | "manual" | "internal";
 
-const DENSITY_LS_KEY = "expedice_density";
 const ASIDE_WIDTH_LS_KEY = "expedice_aside_width";
 const ASIDE_MIN = 260;
 const ASIDE_MAX = 500;
@@ -128,26 +127,14 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   const [loading,   setLoading  ] = useState(true);
   const [error,     setError    ] = useState<string | null>(null);
   const [daysAhead, setDaysAhead] = useState<DaysRange>(14);
-  const [density,   setDensity  ] = useState<Density>("standard");
   const [filter,    setFilter   ] = useState<Filter>("all");
+  const [jumpDate,  setJumpDate ] = useState("");
   const [asideWidth, setAsideWidth] = useState<number>(ASIDE_DEFAULT);
 
   // ─── Panel state ───────────────────────────────────────────────────────────
   const [panelMode,    setPanelMode   ] = useState<AsidePanelMode>("builder");
   const [selectedItem, setSelectedItem] = useState<ExpediceItem | null>(null);
   const [isDirty,      setIsDirty     ] = useState(false);
-
-  // ─── Date jump popup ───────────────────────────────────────────────────────
-  const [showDateJump, setShowDateJump] = useState(false);
-
-  useEffect(() => {
-    if (!showDateJump) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setShowDateJump(false);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [showDateJump]);
 
   // ─── Drag state ────────────────────────────────────────────────────────────
   const [draggedItem, setDraggedItem] = useState<ExpediceItem | null>(null);
@@ -156,12 +143,8 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   const selectedKeyFor = (item: ExpediceItem | null) =>
     item ? `${item.sourceType}-${item.id}` : null;
 
-  // ─── Načíst hustotu a šířku aside z localStorage ──────────────────────────
+  // ─── Načíst šířku aside z localStorage ────────────────────────────────────
   useEffect(() => {
-    const stored = localStorage.getItem(DENSITY_LS_KEY);
-    if (stored === "detail" || stored === "standard" || stored === "compact") {
-      setDensity(stored);
-    }
     const storedWidth = localStorage.getItem(ASIDE_WIDTH_LS_KEY);
     if (storedWidth) {
       const n = Number(storedWidth);
@@ -317,11 +300,6 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     await fetchData();
   }
 
-  function handleChangeDensity(d: Density) {
-    setDensity(d);
-    localStorage.setItem(DENSITY_LS_KEY, d);
-  }
-
   // ─── Resize aside ──────────────────────────────────────────────────────────
 
   function onResizeMouseDown(e: React.MouseEvent) {
@@ -471,13 +449,30 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
 
   // ─── Styly ─────────────────────────────────────────────────────────────────
 
-  const navBtnStyle = (active: boolean): React.CSSProperties => ({
-    height: 26, padding: "0 10px", borderRadius: 6, fontSize: 11,
-    fontWeight: 500, cursor: "pointer", border: "none", outline: "none",
-    background: active ? "rgba(59,130,246,0.18)" : "transparent",
-    color: active ? "#3b82f6" : "var(--text-muted)",
-    transition: "all 120ms ease-out",
+  const pillGroup: React.CSSProperties = {
+    display: "flex", gap: 2, padding: 2, borderRadius: 999,
+    background: "var(--surface-2)", border: "1px solid var(--border)",
+    boxShadow: "inset 0 1px 0 color-mix(in oklab, var(--text) 8%, transparent)",
+  };
+
+  const pillBtn = (active: boolean): React.CSSProperties => ({
+    height: 24, padding: "0 10px", fontSize: 11,
+    fontWeight: active ? 700 : 600, borderRadius: 999, cursor: "pointer",
+    background: active ? "var(--brand)" : "transparent",
+    border: active
+      ? "1px solid color-mix(in oklab, var(--brand) 75%, var(--text))"
+      : "1px solid transparent",
+    color: active ? "var(--brand-contrast)" : "var(--text-muted)",
+    lineHeight: 1, transition: "all 140ms ease-out",
+    boxShadow: active ? "0 2px 8px color-mix(in oklab, var(--text) 20%, transparent)" : "none",
   });
+
+  const outlineBtn: React.CSSProperties = {
+    height: 28, padding: "0 12px", borderRadius: 6, fontSize: 11,
+    fontWeight: 500, cursor: "pointer",
+    background: "var(--surface-2)", border: "1px solid var(--border)",
+    color: "var(--text-muted)", transition: "all 120ms ease-out",
+  };
 
   const divider: React.CSSProperties = {
     width: 1, height: 16, background: "rgba(255,255,255,0.12)", flexShrink: 0,
@@ -493,7 +488,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     }}>
       {/* ── Header ── */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", alignItems: "center", gap: 8,
         padding: "0 16px", height: 48, flexShrink: 0,
         borderBottom: "1px solid var(--border)",
       }}>
@@ -509,61 +504,30 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
 
         <div style={{ flex: 1 }} />
 
-        {/* Navigace */}
-        <button
-          onClick={() => timelineRef.current?.scrollToToday()}
-          style={navBtnStyle(false)}
-        >
+        {/* Dnes */}
+        <button onClick={() => timelineRef.current?.scrollToToday()} style={outlineBtn}>
           Dnes
         </button>
 
         {/* Přejít na datum */}
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={() => setShowDateJump((v) => !v)}
-            style={navBtnStyle(showDateJump)}
-          >
-            Přejít na...
-          </button>
-          {showDateJump && (
-            <div style={{
-              position: "absolute", top: "calc(100% + 6px)", left: 0,
-              background: "var(--surface-2)", border: "1px solid var(--border)",
-              borderRadius: 8, padding: "8px 10px", zIndex: 100,
-              boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-            }}>
-              <input
-                type="date"
-                autoFocus
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  timelineRef.current?.scrollToDate(e.target.value);
-                  setShowDateJump(false);
-                }}
-                style={{
-                  background: "var(--surface)", border: "1px solid rgba(255,255,255,0.12)",
-                  borderRadius: 6, color: "var(--text)", fontSize: 12, padding: "5px 8px",
-                  outline: "none", colorScheme: "dark",
-                }}
-              />
-            </div>
-          )}
+        <div style={{ width: 140 }}>
+          <DatePickerField
+            value={jumpDate}
+            onChange={(v) => { setJumpDate(v); if (v) timelineRef.current?.scrollToDate(v); }}
+            placeholder="Přejít na datum…"
+          />
         </div>
 
         <div style={divider} />
 
         {/* Filtry */}
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <span style={{
-            fontSize: 9, color: "rgba(255,255,255,0.25)", marginRight: 4,
-            letterSpacing: "0.05em", textTransform: "uppercase",
-          }}>Typ</span>
+        <div style={pillGroup}>
           {(["all", "block", "manual", "internal"] as Filter[]).map((f) => {
             const labels: Record<Filter, string> = {
-              all: "Vše", block: "Tiskový plán", manual: "Ruční", internal: "Interní",
+              all: "Vše", block: "Tiskový", manual: "Ruční", internal: "Interní",
             };
             return (
-              <button key={f} onClick={() => setFilter(f)} style={navBtnStyle(filter === f)}>
+              <button key={f} type="button" onClick={() => setFilter(f)} style={pillBtn(filter === f)}>
                 {labels[f]}
               </button>
             );
@@ -573,29 +537,10 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
         <div style={divider} />
 
         {/* Rozsah dnů */}
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <span style={{
-            fontSize: 9, color: "rgba(255,255,255,0.25)", marginRight: 4,
-            letterSpacing: "0.05em", textTransform: "uppercase",
-          }}>Rozsah</span>
+        <div style={pillGroup}>
           {([7, 14, 30] as DaysRange[]).map((d) => (
-            <button key={d} onClick={() => setDaysAhead(d)} style={navBtnStyle(daysAhead === d)}>
-              {d} dní
-            </button>
-          ))}
-        </div>
-
-        <div style={divider} />
-
-        {/* Hustota */}
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <span style={{
-            fontSize: 9, color: "rgba(255,255,255,0.25)", marginRight: 4,
-            letterSpacing: "0.05em", textTransform: "uppercase",
-          }}>Hustota</span>
-          {([["detail", "Detail"], ["standard", "Standard"], ["compact", "Kompaktní"]] as [Density, string][]).map(([d, label]) => (
-            <button key={d} onClick={() => handleChangeDensity(d)} style={navBtnStyle(density === d)}>
-              {label}
+            <button key={d} type="button" onClick={() => setDaysAhead(d)} style={pillBtn(daysAhead === d)}>
+              {d}d
             </button>
           ))}
         </div>
@@ -636,7 +581,6 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
               onSelectItem={isEditor ? handleSelectItem : undefined}
               onDoubleClickItem={isEditor ? handleDoubleClickItem : undefined}
               onClickEmpty={handleClickEmpty}
-              density={density}
               isEditor={isEditor}
               draggedItem={draggedItem}
               onDragStartItem={handleDragStart}

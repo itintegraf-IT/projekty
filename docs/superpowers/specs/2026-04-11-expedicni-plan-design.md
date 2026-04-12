@@ -12,9 +12,7 @@ Poslední aktualizace: 2026-04-12
 
 Aktuální stav:
 - finální produktový a UX/UI návrh pro v1 je uzavřený
-- implementační checklist je připravený
-- lokální mockup byl použit pro ověření layoutu a interaction modelu
-- Etapa A je backendově rozpracovaná a zapsaná v kódu
+- Etapy A, B, C, D jsou implementovány — v1 kompletní
 
 Hotovo:
 - potvrzený model `deadlineExpedice` + `expeditionPublishedAt` + `expeditionSortOrder`
@@ -24,35 +22,43 @@ Hotovo:
 - potvrzený obousměrný sync data mezi tiskovým a expedičním plánem
 - potvrzený `publish / unpublish` model bez mazání bloku z výroby
 - potvrzené persistentní pořadí položek uvnitř dne
-- připravený implementační checklist po etapách A-D
 - v `prisma/schema.prisma` doplněná pole `expediceNote`, `doprava`, `expeditionPublishedAt`, `expeditionSortOrder`
 - přidaný model `ExpeditionManualItem` + enum `ExpeditionManualItemKind`
-- připravená migrace `20260412083000_add_expedition_core`
+- migrace `20260412083000_add_expedition_core` aplikovaná
 - přidaný helper `src/lib/expedition.ts` pro day key a přidělování `expeditionSortOrder`
-- `PUT /api/blocks/[id]` nově drží expediční invarianty:
-  - generic update route neumí přímo nastavovat publish stav
-  - změna `deadlineExpedice` u publishnutého bloku drží publish a při změně dne přidělí nové pořadí
-  - smazání `deadlineExpedice` nebo změna typu mimo `ZAKAZKA` blok automaticky odpublikuje
-  - split propagace nově zahrnuje `expediceNote`, `doprava`, `expeditionPublishedAt`, `expeditionSortOrder`
-- přidaná route `POST /api/blocks/[id]/expedition` pro explicitní `publish` / `unpublish`
-- audit UI v planneru a adminu zná nové field labely a akce `EXPEDITION_PUBLISH` / `EXPEDITION_UNPUBLISH`
-- middleware je explicitně zdokumentované tak, že `/expedice` zůstává dostupné všem přihlášeným rolím
+- `PUT /api/blocks/[id]` drží expediční invarianty (publish stav, sort order, split propagace)
+- `POST /api/blocks/[id]/expedition` — explicitní publish / unpublish
+- `GET /api/expedice` — sloučená data: publishnuté bloky + ruční položky + kandidáti + fronta
+- `POST /api/expedice/manual-items` — tvorba ruční položky do fronty
+- `PUT /api/expedice/manual-items/[id]` — editace / přesun / vrácení do fronty
+- `DELETE /api/expedice/manual-items/[id]` — smazání
+- stránka `/expedice` s celým layout shellem
+- `ExpedicePage` — kompletní stavový stroj: `panelMode` (builder/detail/edit), `selectedItem`, dirty guard, double-click
+- `ExpediceTimeline` — sticky denní header, karty, scroll na dnes, prázdné dny
+- `ExpediceCard` — badge, click + double-click
+- `ExpediceAside` — dispatcher pro 3 stavy + dirty guard overlay
+- `ExpediceBuilderPanel` — formulář pro tvorbu ruční položky (segmented kind, pole, sticky footer)
+- `ExpediceQueuePanel` — seznam fronty s queue kartami
+- `ExpediceDetailPanel` — read-only detail bloku i ruční položky
+- `ExpediceEditorPanel` — editace bloku (expediceNote + doprava) i ruční položky (všechna pole); confirm pro delete/unpublish
+- context menu v hlavní timeline: `Zaplánovat do Expedice` / `Odebrat z Expedice`
+- fallback akce v detailu bloku v hlavním planneru
+- middleware: `/expedice` dostupné všem přihlášeným rolím
+- audit: `EXPEDITION_PUBLISH` / `EXPEDITION_UNPUBLISH` zaznamenáno v AuditLog
 
-Ověření:
-- `npx prisma generate` proběhlo úspěšně
-- `npx eslint 'src/app/api/blocks/[id]/route.ts' 'src/app/api/blocks/[id]/expedition/route.ts' src/lib/expedition.ts src/middleware.ts src/app/_components/PlannerPage.tsx src/app/admin/_components/AdminDashboard.tsx` proběhl bez errorů
-- zůstaly jen staré nesouvisející warningy:
-  - 2x `@next/next/no-img-element` v `PlannerPage.tsx`
-  - 1x `@next/next/no-html-link-for-pages` v `AdminDashboard.tsx`
-- `git diff --check` je čistý
+Ověření po Etapě C:
+- `npx eslint` na všech nových souborech Etapy C — 0 errorů, 1 warning (`@next/next/no-html-link-for-pages` — stejný pattern jako v ostatních komponentách)
+
+Ověření po Etapě D:
+- `npx eslint` na všech nových/změněných souborech Etapy D — 0 errorů, 1 warning (`@next/next/no-html-link-for-pages` — stejný pattern jako v ostatních komponentách)
+- `npx tsc --noEmit` — 0 chyb v nových souborech (2 stale chyby v `.next/types/validator.ts` z předchozích etap)
 
 Otevřené body / známé limity:
-- migrace je připravená v repu, ale ještě nebyla aplikovaná na databázi
-- plný `npx tsc --noEmit` je teď zablokovaný starými generovanými `.next` typy pro chybějící expediční routes z dřívějšího stavu, takže to není spolehlivý gate pro Etapu A
-- UI pro publish / unpublish a samotná stránka `/expedice` ještě neexistují, to je práce Etapy B+
+- vrácení do fronty přes `PUT /api/expedice/manual-items/[id]` s `date: null` funguje jak v editoru (tlačítko) tak drag & dropem
+- reorder generuje klientský midpoint sort order — po mnoha reorderech v rámci dne mohou hodnoty konvergovat; renumber operace není součástí v1
 
 Další doporučený krok:
-- dokončit Etapu A aplikací migrace v běžícím prostředí a potom pokračovat `Etapou B — Kandidáti + publish v expedici + read-only expedice`
+- Etapa finálního hardeningu (viz checklist v sekci „Implementační checklist")
 
 Pravidlo pro navázání v dalším chatu:
 - po každé dokončené etapě aktualizovat tuto sekci o stav, ověření, otevřené problémy a další krok

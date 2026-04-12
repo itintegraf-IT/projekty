@@ -13,23 +13,20 @@ interface ExpediceCardProps {
   selected?: boolean;
   onClick?: () => void;
   onDoubleClick?: () => void;
-  density?: "detail" | "standard" | "compact";
   // Drag & drop
   draggable?: boolean;
   isDragging?: boolean;
-  insertIndicator?: boolean;
   onDragStartCard?: () => void;
   onDragEndCard?: () => void;
-  onDragEnterCard?: () => void;
 }
 
 export function ExpediceCard({
-  item, selected, onClick, onDoubleClick, density = "standard",
-  draggable: isDraggable, isDragging, insertIndicator,
-  onDragStartCard, onDragEndCard, onDragEnterCard,
+  item, selected, onClick, onDoubleClick,
+  draggable: isDraggable, isDragging,
+  onDragStartCard, onDragEndCard,
 }: ExpediceCardProps) {
   const badge  = BADGE_CONFIG[item.itemKind];
-  const vPad   = density === "detail" ? 10 : density === "compact" ? 4 : 7;
+  const vPad   = 7;
   const [hovered, setHovered] = React.useState(false);
 
   const titleParts = [
@@ -41,19 +38,7 @@ export function ExpediceCard({
   const titleText = titleParts.join(" · ");
 
   return (
-    <div style={{ position: "relative" }}>
-      {/* Indikátor vložení před tuto kartu */}
-      {insertIndicator && (
-        <div style={{
-          position: "absolute", top: -3, left: 0, right: 0,
-          height: 2, borderRadius: 1,
-          background: "#3b82f6",
-          zIndex: 5,
-          pointerEvents: "none",
-        }} />
-      )}
-
-      <div
+    <div
         title={titleText || undefined}
         draggable={isDraggable}
         onClick={onClick}
@@ -66,19 +51,13 @@ export function ExpediceCard({
           onDragStartCard();
         } : undefined}
         onDragEnd={onDragEndCard}
-        onDragEnter={onDragEnterCard ? (e) => {
-          e.preventDefault();
-          onDragEnterCard();
-        } : undefined}
-        onDragOver={onDragEnterCard ? (e) => { e.preventDefault(); e.stopPropagation(); } : undefined}
         style={{
           display: "flex", flexDirection: "column", gap: 3,
           padding: `${vPad}px 10px`,
           borderRadius: 8,
-          background: selected
-            ? "rgba(59,130,246,0.1)"
-            : hovered ? "rgba(255,255,255,0.04)" : "var(--surface-2)",
-          border: `1px solid ${selected ? "rgba(59,130,246,0.4)" : "rgba(255,255,255,0.07)"}`,
+          background: selected ? "rgba(59,130,246,0.1)" : "var(--surface-2)",
+          border: `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
+          boxShadow: hovered && !selected ? "0 0 0 1px rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.3)" : "none",
           cursor: isDraggable
             ? (isDragging ? "grabbing" : "grab")
             : onClick ? "pointer" : "default",
@@ -127,27 +106,21 @@ export function ExpediceCard({
         {(item.description || item.expediceNote) && (
           <div style={{
             display: "flex", alignItems: "center", gap: 6, minWidth: 0,
+            overflow: "hidden",
           }}>
             {item.description && (
               <span style={{
                 fontSize: 11, color: "var(--text-muted)",
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                flex: 1, minWidth: 0,
+                minWidth: 0,
               }}>
                 {item.description}
               </span>
             )}
             {item.expediceNote && (
               <span style={{
-                fontSize: 10, fontWeight: 600,
-                color: "#a78bfa",
-                background: "rgba(167,139,250,0.1)",
-                border: "1px solid rgba(167,139,250,0.2)",
-                borderRadius: 5,
-                padding: "1px 6px",
-                flexShrink: 0,
-                maxWidth: 140,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                fontSize: 11, fontWeight: 700, color: "#f59e0b",
+                whiteSpace: "nowrap", flexShrink: 0,
               }}>
                 {item.expediceNote}
               </span>
@@ -155,6 +128,5 @@ export function ExpediceCard({
           </div>
         )}
       </div>
-    </div>
   );
 }

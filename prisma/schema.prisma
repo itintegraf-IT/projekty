@@ -7,83 +7,127 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Block {
-  id                   Int       @id @default(autoincrement())
-  orderNumber          String
-  machine              String
-  startTime            DateTime
-  endTime              DateTime
-  type                 String    @default("ZAKAZKA")
-  blockVariant         String    @default("STANDARD")
-  description          String?
-  locked               Boolean   @default(false)
-  deadlineExpedice     DateTime?
-  expediceNote         String?   @db.Text
-  doprava              String?   @db.Text
-  expeditionPublishedAt DateTime?
-  expeditionSortOrder  Int?
-  dataStatusId         Int?
-  dataStatusLabel      String?
-  dataRequiredDate     DateTime?
-  dataOk               Boolean   @default(false)
-  materialStatusId     Int?
-  materialStatusLabel  String?
-  materialRequiredDate DateTime?
-  materialOk           Boolean   @default(false)
-  barvyStatusId        Int?
-  barvyStatusLabel     String?
-  lakStatusId          Int?
-  lakStatusLabel       String?
-  specifikace          String?
-  materialNote           String?   @db.Text
-  materialNoteByUsername String?
-  recurrenceType           String    @default("NONE")
-  recurrenceParentId       Int?
-  splitGroupId             Int?
-  pantoneRequiredDate      DateTime?
-  pantoneOk                Boolean   @default(false)
-  materialInStock          Boolean   @default(false)
-  printCompletedAt         DateTime?
-  printCompletedByUserId   Int?
-  printCompletedByUsername String?
-  jobPresetId              Int?
-  jobPresetLabel           String?
-  reservationId            Int?
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @default(now()) @updatedAt
-  recurrenceParent     Block?       @relation("RecurrenceChildren", fields: [recurrenceParentId], references: [id])
-  recurrenceChildren   Block[]      @relation("RecurrenceChildren")
-  splitSiblings        Block[]      @relation("SplitGroup")
-  splitRoot            Block?       @relation("SplitGroup", fields: [splitGroupId], references: [id], onDelete: SetNull)
-  reservation          Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  blockId     Int
+  userId      Int
+  username    String
+  action      String
+  field       String?
+  oldValue    String?
+  newValue    String?
+  createdAt   DateTime @default(now())
+  orderNumber String?
 
-  @@index([recurrenceParentId])
-  @@index([splitGroupId])
-  @@index([jobPresetId])
-  @@index([reservationId])
-  @@index([deadlineExpedice, expeditionPublishedAt, expeditionSortOrder], map: "Block_expedition_idx")
+  @@index([blockId, createdAt])
+  @@index([createdAt])
 }
 
-enum ExpeditionManualItemKind {
-  MANUAL_JOB
-  INTERNAL_TRANSFER
+model Block {
+  id                                          Int          @id @default(autoincrement())
+  orderNumber                                 String
+  machine                                     String
+  startTime                                   DateTime
+  endTime                                     DateTime
+  type                                        String       @default("ZAKAZKA")
+  description                                 String?
+  locked                                      Boolean      @default(false)
+  deadlineExpedice                            DateTime?
+  dataStatusId                                Int?
+  dataStatusLabel                             String?
+  dataRequiredDate                            DateTime?
+  dataOk                                      Boolean      @default(false)
+  materialStatusId                            Int?
+  materialStatusLabel                         String?
+  materialRequiredDate                        DateTime?
+  materialOk                                  Boolean      @default(false)
+  barvyStatusId                               Int?
+  barvyStatusLabel                            String?
+  lakStatusId                                 Int?
+  lakStatusLabel                              String?
+  specifikace                                 String?
+  recurrenceType                              String       @default("NONE")
+  recurrenceParentId                          Int?
+  createdAt                                   DateTime     @default(now())
+  updatedAt                                   DateTime     @default(now())
+  printCompletedAt                            DateTime?
+  printCompletedByUserId                      Int?
+  printCompletedByUsername                    String?
+  materialNote                                String?      @db.Text
+  materialNoteByUsername                      String?
+  blockVariant                                String       @default("STANDARD")
+  splitGroupId                                Int?
+  materialInStock                             Boolean      @default(false)
+  pantoneOk                                   Boolean      @default(false)
+  pantoneRequiredDate                         DateTime?
+  reservationId                               Int?
+  jobPresetId                                 Int?
+  jobPresetLabel                              String?
+  doprava                                     String?
+  expediceNote                                String?
+  expeditionPublishedAt                       DateTime?
+  expeditionSortOrder                         Int?
+  Block_Block_recurrenceParentIdToBlock       Block?       @relation("Block_recurrenceParentIdToBlock", fields: [recurrenceParentId], references: [id])
+  other_Block_Block_recurrenceParentIdToBlock Block[]      @relation("Block_recurrenceParentIdToBlock")
+  Reservation                                 Reservation? @relation(fields: [reservationId], references: [id])
+  Block_Block_splitGroupIdToBlock             Block?       @relation("Block_splitGroupIdToBlock", fields: [splitGroupId], references: [id])
+  other_Block_Block_splitGroupIdToBlock       Block[]      @relation("Block_splitGroupIdToBlock")
+
+  @@index([deadlineExpedice, expeditionPublishedAt, expeditionSortOrder], map: "Block_expedition_idx")
+  @@index([jobPresetId])
+  @@index([recurrenceParentId])
+  @@index([reservationId])
+  @@index([splitGroupId])
+}
+
+model CodebookOption {
+  id         Int     @id @default(autoincrement())
+  category   String
+  label      String
+  sortOrder  Int     @default(0)
+  isActive   Boolean @default(true)
+  shortCode  String?
+  isWarning  Boolean @default(false)
+  badgeColor String?
+}
+
+model CompanyDay {
+  id        Int      @id @default(autoincrement())
+  startDate DateTime
+  endDate   DateTime
+  label     String
+  createdAt DateTime @default(now())
+  machine   String?
 }
 
 model ExpeditionManualItem {
   id                  Int                       @id @default(autoincrement())
   date                DateTime?
   expeditionSortOrder Int?
-  kind                ExpeditionManualItemKind
+  kind                ExpeditionManualItem_kind
   orderNumber         String?
   description         String?                   @db.Text
   expediceNote        String?                   @db.Text
   doprava             String?                   @db.Text
   createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @default(now()) @updatedAt
+  updatedAt           DateTime                  @default(now())
 
+  @@index([createdAt])
   @@index([date, expeditionSortOrder])
   @@index([kind, date])
-  @@index([createdAt])
+}
+
+model ExpeditionZavoz {
+  id           Int      @id @default(autoincrement())
+  date         DateTime
+  orderNumber  String?
+  description  String?
+  expediceNote String?
+  doprava      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+
+  @@index([date])
 }
 
 model JobPreset {
@@ -107,147 +151,102 @@ model JobPreset {
   lakStatusId                    Int?
   deadlineExpediceOffsetDays     Int?
   createdAt                      DateTime @default(now())
-  updatedAt                      DateTime @default(now()) @updatedAt
+  updatedAt                      DateTime @default(now())
 
   @@index([isActive, sortOrder])
 }
 
-model CodebookOption {
-  id         Int     @id @default(autoincrement())
-  category   String
-  label      String
-  sortOrder  Int     @default(0)
-  isActive   Boolean @default(true)
-  shortCode  String?
-  isWarning  Boolean @default(false)
-  badgeColor String?
-}
-
-model CompanyDay {
-  id        Int      @id @default(autoincrement())
-  startDate DateTime
-  endDate   DateTime
-  label     String
-  machine   String?
-  createdAt DateTime @default(now())
-}
-
-model User {
-  id              Int      @id @default(autoincrement())
-  username        String   @unique
-  passwordHash    String
-  role            String   @default("VIEWER") // ADMIN|PLANOVAT|MTZ|DTP|VIEWER|TISKAR|OBCHODNIK
-  assignedMachine String?
-  createdAt       DateTime @default(now())
-}
-
-model AuditLog {
-  id          Int      @id @default(autoincrement())
-  blockId     Int
-  orderNumber String?
-  userId      Int
-  username    String
-  action      String
-  field       String?
-  oldValue    String?
-  newValue    String?
-  createdAt   DateTime @default(now())
-
-  @@index([blockId, createdAt])
-  @@index([createdAt])
-}
-
-model MachineWorkHours {
-  id         Int     @id @default(autoincrement())
-  machine    String  // "XL_105" | "XL_106"
-  dayOfWeek  Int     // 0=neděle, 1=pondělí, ..., 6=sobota
-  startHour  Int     // 0–23
-  endHour    Int     // 1–24 (24 = konec dne)
-  isActive   Boolean @default(true)
-
-  @@unique([machine, dayOfWeek])
-  @@index([machine])
-}
-
-model Notification {
-  id                Int      @id @default(autoincrement())
-  type              String   @default("BLOCK_NOTIFY") // BLOCK_NOTIFY|RESERVATION_SCHEDULED|RESERVATION_REJECTED|RESERVATION_MANUAL
-  message           String   @default("")
-  blockId           Int?
-  blockOrderNumber  String?
-  targetRole        String?  // "MTZ" | "DTP" — pro role-based notifikace
-  targetUserId      Int?     // pro přímé notifikace konkrétnímu uživateli (OBCHODNIK)
-  reservationId     Int?
-  createdByUserId   Int
-  createdByUsername String
-  isRead            Boolean  @default(false)
-  readAt            DateTime?
-  createdAt         DateTime @default(now())
-
-  @@index([targetRole, isRead, createdAt])
-  @@index([targetUserId, isRead, createdAt])
-  @@index([blockId, createdAt])
-  @@index([reservationId, createdAt])
-}
-
-model MachineWorkHoursTemplate {
-  id        Int      @id @default(autoincrement())
-  machine   String   // "XL_105" | "XL_106"
-  label     String?
-  validFrom DateTime
-  validTo   DateTime?
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-  days      MachineWorkHoursTemplateDay[]
-
-  @@index([machine, validFrom])
-}
-
-model MachineWorkHoursTemplateDay {
-  id         Int     @id @default(autoincrement())
-  templateId Int
-  dayOfWeek  Int     // 0=neděle, 1=pondělí, ..., 6=sobota
-  startHour  Int     // 0–23
-  endHour    Int     // 1–24
-  startSlot  Int?    // 0–47 (30min sloty, end exclusive)
-  endSlot    Int?    // 1–48
-  isActive   Boolean @default(true)
-  template   MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  @@unique([templateId, dayOfWeek])
-}
-
 model MachineScheduleException {
   id        Int      @id @default(autoincrement())
-  machine   String   // "XL_105" | "XL_106"
-  date      DateTime // konkrétní datum (uloženo jako 00:00:00 UTC)
-  startHour Int      // 0–23
-  endHour   Int      // 1–24
-  startSlot Int?     // 0–47 (30min sloty, end exclusive)
-  endSlot   Int?     // 1–48
+  machine   String
+  date      DateTime
+  startHour Int
+  endHour   Int
   isActive  Boolean  @default(true)
-  label     String?  // nepovinný popis
+  label     String?
   createdAt DateTime @default(now())
+  startSlot Int?
+  endSlot   Int?
 
   @@unique([machine, date])
   @@index([date])
 }
 
+model MachineWorkHours {
+  id        Int     @id @default(autoincrement())
+  machine   String
+  dayOfWeek Int
+  startHour Int
+  endHour   Int
+  isActive  Boolean @default(true)
+
+  @@unique([machine, dayOfWeek])
+  @@index([machine])
+}
+
+model MachineWorkHoursTemplate {
+  id                          Int                           @id @default(autoincrement())
+  machine                     String
+  label                       String?
+  validFrom                   DateTime
+  validTo                     DateTime?
+  isDefault                   Boolean                       @default(false)
+  createdAt                   DateTime                      @default(now())
+  updatedAt                   DateTime                      @default(now())
+  MachineWorkHoursTemplateDay MachineWorkHoursTemplateDay[]
+
+  @@index([machine, validFrom])
+}
+
+model MachineWorkHoursTemplateDay {
+  id                       Int                      @id @default(autoincrement())
+  templateId               Int
+  dayOfWeek                Int
+  startHour                Int
+  endHour                  Int
+  isActive                 Boolean                  @default(true)
+  startSlot                Int?
+  endSlot                  Int?
+  MachineWorkHoursTemplate MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, dayOfWeek])
+}
+
+model Notification {
+  id                Int       @id @default(autoincrement())
+  blockId           Int?
+  blockOrderNumber  String?
+  targetRole        String?
+  createdByUserId   Int
+  createdByUsername String
+  isRead            Boolean   @default(false)
+  readAt            DateTime?
+  createdAt         DateTime  @default(now())
+  message           String    @default("")
+  reservationId     Int?
+  targetUserId      Int?
+  type              String    @default("BLOCK_NOTIFY")
+
+  @@index([blockId, createdAt])
+  @@index([reservationId, createdAt])
+  @@index([targetRole, isRead, createdAt])
+  @@index([targetUserId, isRead, createdAt])
+}
+
 model Reservation {
-  id                      Int      @id @default(autoincrement())
-  code                    String   @unique @default("")
-  status                  String   // SUBMITTED|ACCEPTED|QUEUE_READY|SCHEDULED|REJECTED
+  id                      Int                     @id @default(autoincrement())
+  code                    String                  @unique @default("")
+  status                  String
   companyName             String
   erpOfferNumber          String
   requestedExpeditionDate DateTime
   requestedDataDate       DateTime
-  requestText             String?  @db.Text
+  requestText             String?                 @db.Text
   requestedByUserId       Int
   requestedByUsername     String
   plannerUserId           Int?
   plannerUsername         String?
-  plannerDecisionReason   String?  @db.Text
+  plannerDecisionReason   String?                 @db.Text
   planningPayload         Json?
   preparedAt              DateTime?
   scheduledBlockId        Int?
@@ -255,27 +254,41 @@ model Reservation {
   scheduledStartTime      DateTime?
   scheduledEndTime        DateTime?
   scheduledAt             DateTime?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @default(now()) @updatedAt
-  attachments             ReservationAttachment[]
-  blocks                  Block[]
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @default(now())
+  Block                   Block[]
+  ReservationAttachment   ReservationAttachment[]
 
-  @@index([status, createdAt])
-  @@index([requestedByUserId, status, createdAt])
   @@index([erpOfferNumber])
+  @@index([requestedByUserId, status, createdAt])
+  @@index([status, createdAt])
 }
 
 model ReservationAttachment {
-  id                 Int      @id @default(autoincrement())
+  id                 Int         @id @default(autoincrement())
   reservationId      Int
   originalName       String
-  storageKey         String   @unique
+  storageKey         String      @unique
   mimeType           String
   sizeBytes          Int
   uploadedByUserId   Int
   uploadedByUsername String
-  createdAt          DateTime @default(now())
-  reservation        Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  createdAt          DateTime    @default(now())
+  Reservation        Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
 
   @@index([reservationId, createdAt])
+}
+
+model User {
+  id              Int      @id @default(autoincrement())
+  username        String   @unique
+  passwordHash    String
+  role            String   @default("VIEWER")
+  createdAt       DateTime @default(now())
+  assignedMachine String?
+}
+
+enum ExpeditionManualItem_kind {
+  MANUAL_JOB
+  INTERNAL_TRANSFER
 }
