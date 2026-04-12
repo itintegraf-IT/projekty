@@ -23,6 +23,7 @@ function getTodayKey(): string {
 
 export interface ExpediceTimelineHandle {
   scrollToToday: () => void;
+  scrollToDate: (dateKey: string) => void;
 }
 
 interface ExpediceTimelineProps {
@@ -46,10 +47,17 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
     isEditor, draggedItem, onDragStartItem, onDragEndItem, onDropOnDay,
   }: ExpediceTimelineProps, ref) {
   const todayRef = useRef<HTMLDivElement>(null);
+  const dateRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useImperativeHandle(ref, () => ({
     scrollToToday: () => {
       todayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    scrollToDate: (dateKey: string) => {
+      const el = dateRefs.current[dateKey];
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     },
   }));
   const today    = getTodayKey();
@@ -98,7 +106,10 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
         return (
           <div
             key={day.date}
-            ref={isToday ? todayRef : undefined}
+            ref={(el) => {
+              dateRefs.current[day.date] = el;
+              if (isToday) (todayRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+            }}
             style={{
               marginBottom: 20,
               borderRadius: isDragOver ? 10 : undefined,

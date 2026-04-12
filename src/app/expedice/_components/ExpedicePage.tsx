@@ -132,6 +132,18 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   const [selectedItem, setSelectedItem] = useState<ExpediceItem | null>(null);
   const [isDirty,      setIsDirty     ] = useState(false);
 
+  // ─── Date jump popup ───────────────────────────────────────────────────────
+  const [showDateJump, setShowDateJump] = useState(false);
+
+  useEffect(() => {
+    if (!showDateJump) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setShowDateJump(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showDateJump]);
+
   // ─── Drag state ────────────────────────────────────────────────────────────
   const [draggedItem, setDraggedItem] = useState<ExpediceItem | null>(null);
 
@@ -458,6 +470,39 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
         >
           Dnes
         </button>
+
+        {/* Přejít na datum */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowDateJump((v) => !v)}
+            style={navBtnStyle(showDateJump)}
+          >
+            Přejít na...
+          </button>
+          {showDateJump && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", left: 0,
+              background: "var(--surface-2)", border: "1px solid var(--border)",
+              borderRadius: 8, padding: "8px 10px", zIndex: 100,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            }}>
+              <input
+                type="date"
+                autoFocus
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  timelineRef.current?.scrollToDate(e.target.value);
+                  setShowDateJump(false);
+                }}
+                style={{
+                  background: "var(--surface)", border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 6, color: "var(--text)", fontSize: 12, padding: "5px 8px",
+                  outline: "none", colorScheme: "dark",
+                }}
+              />
+            </div>
+          )}
+        </div>
 
         <div style={divider} />
 
