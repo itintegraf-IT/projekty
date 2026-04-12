@@ -1,8 +1,8 @@
 "use client";
-import React, { useState, useEffect, useCallback } from "react";
-import type { ExpediceData, ExpediceItem } from "@/lib/expediceTypes";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import type { ExpediceData, ExpediceItem, ExpediceManualItem } from "@/lib/expediceTypes";
 import { ExpediceTimeline } from "./ExpediceTimeline";
-import { ExpediceAside } from "./ExpediceAside";
+import { ExpediceAside, type AsidePanelMode } from "./ExpediceAside";
 
 type Density  = "detail" | "standard" | "compact";
 type DaysRange = 7 | 14 | 30;
@@ -15,18 +15,131 @@ interface ExpedicePageProps {
   role: string;
 }
 
+// ─── Helpers pro sort order ───────────────────────────────────────────────────
+
+function computeInsertSortOrder(
+  items: ExpediceItem[],
+  excludeKey: string,
+  beforeItemKey: string | null
+): number {
+  const remaining = items.filter((i) => `${i.sourceType}-${i.id}` !== excludeKey);
+
+  if (beforeItemKey === null || remaining.length === 0) {
+    const last = remaining[remaining.length - 1];
+    return (last?.expeditionSortOrder ?? 0) + 1000;
+  }
+
+  const targetIdx = remaining.findIndex(
+    (i) => `${i.sourceType}-${i.id}` === beforeItemKey
+  );
+  if (targetIdx === -1) {
+    const last = remaining[remaining.length - 1];
+    return (last?.expeditionSortOrder ?? 0) + 1000;
+  }
+
+  if (targetIdx === 0) {
+    return (remaining[0].expeditionSortOrder ?? 1000) - 500;
+  }
+
+  const prev = remaining[targetIdx - 1];
+  const next = remaining[targetIdx];
+  return Math.round(((prev.expeditionSortOrder ?? 0) + (next.expeditionSortOrder ?? 0)) / 2);
+}
+
+// ─── Optimistická aktualizace dat ────────────────────────────────────────────
+
+function applyOptimisticMove(
+  data: ExpediceData,
+  draggedItem: ExpediceItem,
+  targetDate: string | null,
+  beforeItemKey: string | null,
+  newSortOrder: number
+): ExpediceData {
+  // Shallow-deep clone (dny a položky jsou nové pole, ostatní zůstávají)
+  const newData: ExpediceData = {
+    days: data.days.map((d) => ({ date: d.date, items: [...d.items] })),
+    candidates: data.candidates,
+    queueItems: [...data.queueItems],
+  };
+
+  // 1. Odebrat z aktuální pozice
+  for (const day of newData.days) {
+    day.items = day.items.filter(
+      (i) => !(i.id === draggedItem.id && i.sourceType === draggedItem.sourceType)
+    );
+  }
+  if (draggedItem.sourceType === "manual") {
+    newData.queueItems = newData.queueItems.filter((i) => i.id !== draggedItem.id);
+  }
+
+  // 2. Vytvořit aktualizovanou položku
+  let updatedItem: ExpediceItem;
+  if (draggedItem.sourceType === "block") {
+    updatedItem = {
+      ...draggedItem,
+      deadlineExpedice: targetDate!,
+      expeditionSortOrder: newSortOrder,
+    };
+  } else {
+    updatedItem = {
+      ...draggedItem,
+      date: targetDate,
+      expeditionSortOrder: targetDate ? newSortOrder : null,
+    };
+  }
+
+  // 3. Vložit na cílovou pozici
+  if (targetDate === null) {
+    newData.queueItems = [updatedItem as ExpediceManualItem, ...newData.queueItems];
+  } else {
+    let targetDay = newData.days.find((d) => d.date === targetDate);
+    if (!targetDay) {
+      targetDay = { date: targetDate, items: [] };
+      const insertIdx = newData.days.findIndex((d) => d.date > targetDate);
+      if (insertIdx === -1) newData.days.push(targetDay);
+      else newData.days.splice(insertIdx, 0, targetDay);
+    }
+
+    if (beforeItemKey === null) {
+      targetDay.items.push(updatedItem);
+    } else {
+      const targetIdx = targetDay.items.findIndex(
+        (i) => `${i.sourceType}-${i.id}` === beforeItemKey
+      );
+      if (targetIdx === -1) targetDay.items.push(updatedItem);
+      else targetDay.items.splice(targetIdx, 0, updatedItem);
+    }
+  }
+
+  return newData;
+}
+
+// ─── Komponenta ───────────────────────────────────────────────────────────────
+
 export function ExpedicePage({ role }: ExpedicePageProps) {
   const isEditor = ["ADMIN", "PLANOVAT"].includes(role);
 
-  const [data,     setData    ] = useState<ExpediceData | null>(null);
-  const [loading,  setLoading ] = useState(true);
-  const [error,    setError   ] = useState<string | null>(null);
+  // ─── Data ──────────────────────────────────────────────────────────────────
+  const [data,      setData     ] = useState<ExpediceData | null>(null);
+  const [loading,   setLoading  ] = useState(true);
+  const [error,     setError    ] = useState<string | null>(null);
   const [daysAhead, setDaysAhead] = useState<DaysRange>(14);
-  const [density,  setDensity ] = useState<Density>("standard");
-  const [filter,   setFilter  ] = useState<Filter>("all");
-  const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
+  const [density,   setDensity  ] = useState<Density>("standard");
+  const [filter,    setFilter   ] = useState<Filter>("all");
 
-  // Načíst hustotu z localStorage po hydrataci
+  // ─── Panel state ───────────────────────────────────────────────────────────
+  const [panelMode,    setPanelMode   ] = useState<AsidePanelMode>("builder");
+  const [selectedItem, setSelectedItem] = useState<ExpediceItem | null>(null);
+  const [isDirty,      setIsDirty     ] = useState(false);
+
+  // ─── Drag state ────────────────────────────────────────────────────────────
+  const [draggedItem, setDraggedItem] = useState<ExpediceItem | null>(null);
+
+  // Pending switch pro dirty guard řízený v ExpediceAside
+  const selectedKeyFor = (item: ExpediceItem | null) =>
+    item ? `${item.sourceType}-${item.id}` : null;
+
+  // ─── Načíst hustotu z localStorage ────────────────────────────────────────
   useEffect(() => {
     const stored = localStorage.getItem(DENSITY_LS_KEY);
     if (stored === "detail" || stored === "standard" || stored === "compact") {
@@ -34,6 +147,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     }
   }, []);
 
+  // ─── Fetch dat ─────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
     setError(null);
     try {
@@ -53,6 +167,48 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     fetchData();
   }, [fetchData]);
 
+  // ─── Helpers pro refetch po akci ───────────────────────────────────────────
+  const pendingSelectedIdRef = useRef<{ sourceType: string; id: number } | null>(null);
+
+  async function refreshAndSelect(sourceType?: string, id?: number) {
+    if (sourceType && id) {
+      pendingSelectedIdRef.current = { sourceType, id };
+    }
+    await fetchData();
+  }
+
+  // Po refetchi obnovit selectedItem z nových dat (aby odrážel aktuální stav)
+  const prevDataRef = useRef<ExpediceData | null>(null);
+  useEffect(() => {
+    if (!data || data === prevDataRef.current) return;
+    prevDataRef.current = data;
+
+    const pending = pendingSelectedIdRef.current;
+    if (!pending) return;
+    pendingSelectedIdRef.current = null;
+
+    let found: ExpediceItem | null = null;
+    if (pending.sourceType === "block") {
+      for (const day of data.days) {
+        const match = day.items.find((i) => i.sourceType === "block" && i.id === pending.id);
+        if (match) { found = match; break; }
+      }
+    } else {
+      for (const day of data.days) {
+        const match = day.items.find((i) => i.sourceType === "manual" && i.id === pending.id);
+        if (match) { found = match; break; }
+      }
+      if (!found) {
+        const match = data.queueItems.find((i) => i.id === pending.id);
+        if (match) found = match;
+      }
+    }
+
+    if (found) setSelectedItem(found);
+  }, [data]);
+
+  // ─── Panel akce ────────────────────────────────────────────────────────────
+
   async function handlePublish(blockId: number) {
     const res = await fetch(`/api/blocks/${blockId}/expedition`, {
       method: "POST",
@@ -60,15 +216,61 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
       body: JSON.stringify({ action: "publish" }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { error?: string }).error ?? "Chyba při zaplánování");
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(err.error ?? "Chyba při zaplánování");
     }
     await fetchData();
   }
 
   function handleSelectItem(item: ExpediceItem) {
-    const key = `${item.sourceType}-${item.id}`;
-    setSelectedItemKey((prev) => (prev === key ? null : key));
+    setSelectedItem(item);
+    setPanelMode("detail");
+    setIsDirty(false);
+  }
+
+  function handleDoubleClickItem(item: ExpediceItem) {
+    if (!isEditor) return;
+    setSelectedItem(item);
+    setPanelMode("edit");
+    setIsDirty(false);
+  }
+
+  function handleClickEmpty() {
+    if (!isEditor) return;
+    if (!isDirty) {
+      setSelectedItem(null);
+      setPanelMode("builder");
+    }
+  }
+
+  function handleSelectQueueItem(item: ExpediceManualItem) {
+    setSelectedItem(item);
+    setPanelMode("detail");
+    setIsDirty(false);
+  }
+
+  function handleSwitchToEdit() { setPanelMode("edit"); }
+  function handleSwitchToDetail() { setPanelMode("detail"); setIsDirty(false); }
+  function handleSwitchToBuilder() { setPanelMode("builder"); setSelectedItem(null); setIsDirty(false); }
+
+  async function handleSaved() {
+    setIsDirty(false);
+    if (selectedItem) {
+      const srcType = selectedItem.sourceType;
+      const id = selectedItem.id;
+      setPanelMode("detail");
+      await refreshAndSelect(srcType, id);
+    } else {
+      await fetchData();
+      setPanelMode("builder");
+    }
+  }
+
+  async function handleDeleted() {
+    setSelectedItem(null);
+    setPanelMode("builder");
+    setIsDirty(false);
+    await fetchData();
   }
 
   function handleChangeDensity(d: Density) {
@@ -76,9 +278,111 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     localStorage.setItem(DENSITY_LS_KEY, d);
   }
 
-  // Aplikovat filtr na dny
-  // Při filtru "all" zobrazovat i prázdné dny (vidíš kdy nic neexpeduje)
-  // U specifických filtrů skrýt dny bez odpovídajících položek
+  // ─── Drag & drop handlery ──────────────────────────────────────────────────
+
+  function handleDragStart(item: ExpediceItem) {
+    setDraggedItem(item);
+  }
+
+  function handleDragEnd() {
+    setDraggedItem(null);
+  }
+
+  async function handleDropOnDay(targetDate: string, beforeItemKey: string | null) {
+    if (!draggedItem || !data) return;
+
+    const dragKey = `${draggedItem.sourceType}-${draggedItem.id}`;
+
+    // Zjistit aktuální den položky
+    const currentDate =
+      draggedItem.sourceType === "block"
+        ? draggedItem.deadlineExpedice
+        : draggedItem.date;
+
+    const isSameDayReorder = currentDate === targetDate;
+
+    // Výpočet nového sort order (klientský odhad)
+    const targetDayItems = data.days.find((d) => d.date === targetDate)?.items ?? [];
+    const newSortOrder = computeInsertSortOrder(
+      targetDayItems,
+      isSameDayReorder ? dragKey : "",
+      beforeItemKey
+    );
+
+    // Optimistická aktualizace
+    const prevData = data;
+    setData(applyOptimisticMove(data, draggedItem, targetDate, beforeItemKey, newSortOrder));
+    setDraggedItem(null);
+
+    try {
+      if (draggedItem.sourceType === "block") {
+        if (isSameDayReorder) {
+          // Reorder v rámci dne — jen sort order
+          const r = await fetch(`/api/blocks/${draggedItem.id}/expedition`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "reorder", expeditionSortOrder: newSortOrder }),
+          });
+          if (!r.ok) throw new Error("API error");
+        } else {
+          // Přesun na jiný den — server přidělí sort order na konci cílového dne
+          const r = await fetch(`/api/blocks/${draggedItem.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deadlineExpedice: targetDate }),
+          });
+          if (!r.ok) throw new Error("API error");
+        }
+      } else {
+        if (isSameDayReorder) {
+          // Reorder v rámci dne
+          const r = await fetch(`/api/expedice/manual-items/${draggedItem.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expeditionSortOrder: newSortOrder }),
+          });
+          if (!r.ok) throw new Error("API error");
+        } else {
+          // Přesun na jiný den nebo z fronty na den — server přidělí sort order
+          const r = await fetch(`/api/expedice/manual-items/${draggedItem.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ date: targetDate }),
+          });
+          if (!r.ok) throw new Error("API error");
+        }
+      }
+      // Sync s DB
+      await fetchData();
+    } catch {
+      // Vrátit optimistickou aktualizaci při chybě
+      setData(prevData);
+    }
+  }
+
+  async function handleDropOnQueue() {
+    if (!draggedItem || !data) return;
+    if (draggedItem.sourceType !== "manual") return; // bloky nelze vrátit do fronty
+    if (!draggedItem.date) { setDraggedItem(null); return; } // je už ve frontě
+
+    const prevData = data;
+    setData(applyOptimisticMove(data, draggedItem, null, null, 0));
+    setDraggedItem(null);
+
+    try {
+      const r = await fetch(`/api/expedice/manual-items/${draggedItem.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: null }),
+      });
+      if (!r.ok) throw new Error("API error");
+      await fetchData();
+    } catch {
+      setData(prevData);
+    }
+  }
+
+  // ─── Filtrování dnů ────────────────────────────────────────────────────────
   const filteredDays = (data?.days ?? []).map((day) => ({
     ...day,
     items: day.items.filter((item) => {
@@ -90,7 +394,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     }),
   })).filter((day) => filter === "all" || day.items.length > 0);
 
-  // ─── Styly ────────────────────────────────────────────────────────────────
+  // ─── Styly ─────────────────────────────────────────────────────────────────
 
   const navBtnStyle = (active: boolean): React.CSSProperties => ({
     height: 26, padding: "0 10px", borderRadius: 6, fontSize: 11,
@@ -104,7 +408,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     width: 1, height: 16, background: "var(--border)", flexShrink: 0,
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div style={{
@@ -191,15 +495,37 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
           <>
             <ExpediceTimeline
               days={filteredDays}
-              selectedItemKey={selectedItemKey}
+              selectedItemKey={selectedKeyFor(selectedItem)}
               onSelectItem={handleSelectItem}
-              onClickEmpty={() => setSelectedItemKey(null)}
+              onDoubleClickItem={isEditor ? handleDoubleClickItem : undefined}
+              onClickEmpty={handleClickEmpty}
               density={density}
+              isEditor={isEditor}
+              draggedItem={draggedItem}
+              onDragStartItem={handleDragStart}
+              onDragEndItem={handleDragEnd}
+              onDropOnDay={handleDropOnDay}
             />
             {isEditor && data && (
               <ExpediceAside
+                panelMode={panelMode}
+                selectedItem={selectedItem}
                 candidates={data.candidates}
+                queueItems={data.queueItems}
+                selectedKey={selectedKeyFor(selectedItem)}
+                isDirty={isDirty}
                 onPublish={handlePublish}
+                onSwitchToEdit={handleSwitchToEdit}
+                onSwitchToDetail={handleSwitchToDetail}
+                onSwitchToBuilder={handleSwitchToBuilder}
+                onDirtyChange={setIsDirty}
+                onSaved={handleSaved}
+                onDeleted={handleDeleted}
+                onSelectQueueItem={handleSelectQueueItem}
+                draggedItem={draggedItem}
+                onDragStartItem={handleDragStart}
+                onDragEndItem={handleDragEnd}
+                onDropOnQueue={handleDropOnQueue}
               />
             )}
           </>
