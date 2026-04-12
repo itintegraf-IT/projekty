@@ -199,6 +199,22 @@ Po každé změně schématu spustit `npm run build` lokálně před pushem — 
 - `HINTY.md` – backlog zlepšení
 - `PLAN.md` – aktuální plánovací snapshot
 
+## Produkční DB — známé odchylky od migrací
+
+Produkční databáze `igvyroba` měla historicky některé sloupce vytvořené ručně před zavedením Prisma migrací. Tyto odchylky byly opraveny 12. 4. 2026:
+
+| Tabulka | Sloupec | Bylo | Správně |
+| --- | --- | --- | --- |
+| `AuditLog` | `action` | `varchar(16)` | `varchar(191)` |
+| `Block` | `doprava` | chyběl | `varchar(191) NULL` |
+| `Block` | `expediceNote` | chyběl | `varchar(191) NULL` |
+
+Pokud deploy hlásí `P2022` (sloupec neexistuje) nebo `P2000` (hodnota příliš dlouhá) — první krok je ověřit skutečný typ sloupce v DB:
+
+```bash
+mysql -u root -pmysql igvyroba -e "SHOW COLUMNS FROM <Tabulka>;"
+```
+
 ## Co už nepsat do dokumentace
 
 Nepiš už, že:
