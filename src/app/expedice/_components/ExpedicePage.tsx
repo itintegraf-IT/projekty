@@ -222,6 +222,22 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     await fetchData();
   }
 
+  async function handleUnpublishFromDetail(blockId: number) {
+    const res = await fetch(`/api/blocks/${blockId}/expedition`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "unpublish" }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(err.error ?? "Chyba při odebrání z expedice");
+    }
+    setSelectedItem(null);
+    setPanelMode("builder");
+    setIsDirty(false);
+    await fetchData();
+  }
+
   function handleSelectItem(item: ExpediceItem) {
     setSelectedItem(item);
     setPanelMode("detail");
@@ -515,6 +531,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
                 selectedKey={selectedKeyFor(selectedItem)}
                 isDirty={isDirty}
                 onPublish={handlePublish}
+                onUnpublish={handleUnpublishFromDetail}
                 onSwitchToEdit={handleSwitchToEdit}
                 onSwitchToDetail={handleSwitchToDetail}
                 onSwitchToBuilder={handleSwitchToBuilder}
