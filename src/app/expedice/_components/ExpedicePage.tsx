@@ -9,6 +9,10 @@ type DaysRange = 7 | 14 | 30;
 type Filter   = "all" | "block" | "manual" | "internal";
 
 const DENSITY_LS_KEY = "expedice_density";
+const ASIDE_WIDTH_LS_KEY = "expedice_aside_width";
+const ASIDE_MIN = 260;
+const ASIDE_MAX = 500;
+const ASIDE_DEFAULT = 320;
 const DAYS_BACK = 3;
 
 interface ExpedicePageProps {
@@ -126,6 +130,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   const [daysAhead, setDaysAhead] = useState<DaysRange>(14);
   const [density,   setDensity  ] = useState<Density>("standard");
   const [filter,    setFilter   ] = useState<Filter>("all");
+  const [asideWidth, setAsideWidth] = useState<number>(ASIDE_DEFAULT);
 
   // ─── Panel state ───────────────────────────────────────────────────────────
   const [panelMode,    setPanelMode   ] = useState<AsidePanelMode>("builder");
@@ -151,11 +156,18 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   const selectedKeyFor = (item: ExpediceItem | null) =>
     item ? `${item.sourceType}-${item.id}` : null;
 
-  // ─── Načíst hustotu z localStorage ────────────────────────────────────────
+  // ─── Načíst hustotu a šířku aside z localStorage ──────────────────────────
   useEffect(() => {
     const stored = localStorage.getItem(DENSITY_LS_KEY);
     if (stored === "detail" || stored === "standard" || stored === "compact") {
       setDensity(stored);
+    }
+    const storedWidth = localStorage.getItem(ASIDE_WIDTH_LS_KEY);
+    if (storedWidth) {
+      const n = Number(storedWidth);
+      if (Number.isFinite(n) && n >= ASIDE_MIN && n <= ASIDE_MAX) {
+        setAsideWidth(n);
+      }
     }
   }, []);
 
@@ -182,6 +194,9 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   // ─── Helpers pro refetch po akci ───────────────────────────────────────────
   const pendingSelectedIdRef = useRef<{ sourceType: string; id: number } | null>(null);
   const timelineRef = useRef<ExpediceTimelineHandle>(null);
+  const isResizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(ASIDE_DEFAULT);
 
   async function refreshAndSelect(sourceType?: string, id?: number) {
     if (sourceType && id) {
@@ -305,6 +320,37 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   function handleChangeDensity(d: Density) {
     setDensity(d);
     localStorage.setItem(DENSITY_LS_KEY, d);
+  }
+
+  // ─── Resize aside ──────────────────────────────────────────────────────────
+
+  function onResizeMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    isResizingRef.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = asideWidth;
+
+    function onMove(ev: MouseEvent) {
+      if (!isResizingRef.current) return;
+      // Dragging left increases aside width; dragging right decreases it
+      const delta = startXRef.current - ev.clientX;
+      const newWidth = Math.min(ASIDE_MAX, Math.max(ASIDE_MIN, startWidthRef.current + delta));
+      setAsideWidth(newWidth);
+    }
+
+    function onUp() {
+      isResizingRef.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      // Persist to localStorage
+      setAsideWidth((w) => {
+        localStorage.setItem(ASIDE_WIDTH_LS_KEY, String(w));
+        return w;
+      });
+    }
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   // ─── Drag & drop handlery ──────────────────────────────────────────────────
@@ -597,8 +643,26 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
               onDragEndItem={handleDragEnd}
               onDropOnDay={handleDropOnDay}
             />
+            {/* Resize handle */}
+            {isEditor && data && (
+              <div
+                onMouseDown={onResizeMouseDown}
+                style={{
+                  width: 5, flexShrink: 0, cursor: "col-resize",
+                  background: "transparent",
+                  transition: "background 80ms ease-out",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background = "rgba(59,130,246,0.25)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.background = "transparent";
+                }}
+              />
+            )}
             {isEditor && data && (
               <ExpediceAside
+                width={asideWidth}
                 panelMode={panelMode}
                 selectedItem={selectedItem}
                 candidates={data.candidates}
