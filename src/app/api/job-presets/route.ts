@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -164,7 +165,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(includeInactive || quick ? presets : presets.filter((preset) => preset.isActive));
   } catch (error) {
-    console.error("[GET /api/job-presets]", error);
+    logger.error("[GET /api/job-presets]", error);
     return NextResponse.json({ error: "Chyba při načítání presetů" }, { status: 500 });
   }
 }
@@ -203,7 +204,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(preset, { status: 201 });
   } catch (error) {
-    console.error("[POST /api/job-presets]", error);
+    logger.error("[POST /api/job-presets]", error);
     return NextResponse.json({ error: "Chyba při vytváření presetu" }, { status: 500 });
   }
 }

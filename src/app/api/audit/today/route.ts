@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -30,7 +31,7 @@ export async function GET() {
 
     return NextResponse.json(logs);
   } catch (error) {
-    console.error("[GET /api/audit/today]", error);
+    logger.error("[GET /api/audit/today]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

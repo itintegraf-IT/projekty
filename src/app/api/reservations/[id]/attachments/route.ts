@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -81,7 +82,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     });
     return NextResponse.json(attachments);
   } catch (error) {
-    console.error(`[GET /api/reservations/${id}/attachments]`, error);
+    logger.error(`[GET /api/reservations/${id}/attachments]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -179,7 +180,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(attachment, { status: 201 });
   } catch (error) {
-    console.error(`[POST /api/reservations/${id}/attachments]`, error);
+    logger.error(`[POST /api/reservations/${id}/attachments]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

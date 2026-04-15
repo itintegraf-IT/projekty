@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, role: user.role });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error("[POST /api/auth/login]", error);
+    logger.error("[POST /api/auth/login]", error);
     const detail = process.env.NODE_ENV !== "production" ? msg : undefined;
     return NextResponse.json(
       { error: "Chyba serveru", ...(detail ? { detail } : {}) },

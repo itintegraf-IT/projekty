@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
     });
     return NextResponse.json(blocks.map(serializeBlock));
   } catch (error) {
-    console.error("[GET /api/blocks]", error);
+    logger.error("[GET /api/blocks]", error);
     return NextResponse.json({ error: "Chyba při načítání bloků" }, { status: 500 });
   }
 }
@@ -207,7 +208,7 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    console.error("[POST /api/blocks]", error);
+    logger.error("[POST /api/blocks]", error);
     return NextResponse.json({ error: "Chyba při vytváření bloku" }, { status: 500 });
   }
 }

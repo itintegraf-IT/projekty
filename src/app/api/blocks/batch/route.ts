@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Jeden nebo více bloků nenalezeno" }, { status: 404 });
     }
-    console.error("[POST /api/blocks/batch]", error);
+    logger.error("[POST /api/blocks/batch]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

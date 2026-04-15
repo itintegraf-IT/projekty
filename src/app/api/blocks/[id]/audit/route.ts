@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -25,7 +26,7 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     });
     return NextResponse.json(logs);
   } catch (error) {
-    console.error(`[GET /api/blocks/${id}/audit]`, error);
+    logger.error(`[GET /api/blocks/${id}/audit]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

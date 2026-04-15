@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -31,7 +32,7 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     }
     return NextResponse.json(serializeBlock(block));
   } catch (error) {
-    console.error(`[GET /api/blocks/${id}]`, error);
+    logger.error(`[GET /api/blocks/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -367,7 +368,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
     }
-    console.error(`[PUT /api/blocks/${id}]`, error);
+    logger.error(`[PUT /api/blocks/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -424,7 +425,7 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
     }
-    console.error(`[DELETE /api/blocks/${id}]`, error);
+    logger.error(`[DELETE /api/blocks/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -43,7 +44,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     if (code === "P2025") {
       return NextResponse.json({ error: "Záznam nenalezen" }, { status: 404 });
     }
-    console.error("Company day update failed", err);
+    logger.error("Company day update failed", err);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -69,7 +70,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     if (code === "P2025") {
       return NextResponse.json({ error: "Záznam nenalezen" }, { status: 404 });
     }
-    console.error("Company day delete failed", err);
+    logger.error("Company day delete failed", err);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

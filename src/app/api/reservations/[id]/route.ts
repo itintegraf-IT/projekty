@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(serializeReservation(reservation));
   } catch (error) {
-    console.error(`[GET /api/reservations/${id}]`, error);
+    logger.error(`[GET /api/reservations/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -187,7 +188,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json({ error: `Neznámá akce: ${action}` }, { status: 400 });
   } catch (error) {
-    console.error(`[PATCH /api/reservations/${id}]`, error);
+    logger.error(`[PATCH /api/reservations/${id}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

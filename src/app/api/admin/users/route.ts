@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -61,7 +62,7 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(user, { status: 201 });
   } catch (error) {
-    console.error("Create admin user failed", error);
+    logger.error("Create admin user failed", error);
     return NextResponse.json({ error: "Uživatelské jméno již existuje" }, { status: 409 });
   }
 }

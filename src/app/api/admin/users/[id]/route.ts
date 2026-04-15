@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -72,7 +73,7 @@ export async function PUT(
     });
     return NextResponse.json(user);
   } catch (error) {
-    console.error("Update admin user failed", error);
+    logger.error("Update admin user failed", error);
     return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
   }
 }
@@ -99,7 +100,7 @@ export async function DELETE(
     await prisma.user.delete({ where: { id: numId } });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Delete admin user failed", error);
+    logger.error("Delete admin user failed", error);
     return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
   }
 }

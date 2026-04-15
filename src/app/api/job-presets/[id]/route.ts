@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -194,7 +195,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(updated);
   } catch (error) {
-    console.error(`[PUT /api/job-presets/${numId}]`, error);
+    logger.error(`[PUT /api/job-presets/${numId}]`, error);
     return NextResponse.json({ error: "Chyba při ukládání presetu" }, { status: 500 });
   }
 }
@@ -222,7 +223,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteContext) {
     await prisma.jobPreset.delete({ where: { id: numId } });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error(`[DELETE /api/job-presets/${numId}]`, error);
+    logger.error(`[DELETE /api/job-presets/${numId}]`, error);
     return NextResponse.json({ error: "Chyba při mazání presetu" }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
       });
       return NextResponse.json({ ok: true });
     } catch (error) {
-      console.error("[POST /api/notifications] rezervační", error);
+      logger.error("[POST /api/notifications] rezervační", error);
       return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
     }
   }
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("[POST /api/notifications]", error);
+    logger.error("[POST /api/notifications]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -85,7 +86,7 @@ export async function GET() {
     }
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   } catch (error) {
-    console.error("[GET /api/notifications]", error);
+    logger.error("[GET /api/notifications]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

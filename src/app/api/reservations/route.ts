@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -75,7 +76,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(reservations.map(serializeReservation));
   } catch (error) {
-    console.error("[GET /api/reservations]", error);
+    logger.error("[GET /api/reservations]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(serializeReservation(reservation), { status: 201 });
   } catch (error) {
-    console.error("[POST /api/reservations]", error);
+    logger.error("[POST /api/reservations]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

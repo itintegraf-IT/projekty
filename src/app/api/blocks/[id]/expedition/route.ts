@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           return NextResponse.json({ error: "Blok není zaplánován v expedici" }, { status: 400 });
         }
       }
-      console.error(`[POST /api/blocks/${id}/expedition reorder]`, error);
+      logger.error(`[POST /api/blocks/${id}/expedition reorder]`, error);
       return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
     }
   }
@@ -219,7 +220,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       }
     }
 
-    console.error(`[POST /api/blocks/${id}/expedition]`, error);
+    logger.error(`[POST /api/blocks/${id}/expedition]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

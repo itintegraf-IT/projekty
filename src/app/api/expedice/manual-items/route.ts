@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
-    console.error("[POST /api/expedice/manual-items]", error);
+    logger.error("[POST /api/expedice/manual-items]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

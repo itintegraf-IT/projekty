@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -38,7 +39,7 @@ export async function PUT(
     });
     return NextResponse.json(updated);
   } catch (error) {
-    console.error("Update codebook option failed", error);
+    logger.error("Update codebook option failed", error);
     return NextResponse.json({ error: "Chyba při ukládání" }, { status: 500 });
   }
 }
@@ -97,7 +98,7 @@ export async function DELETE(
     await prisma.codebookOption.delete({ where: { id: numId } });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Delete codebook option failed", error);
+    logger.error("Delete codebook option failed", error);
     return NextResponse.json({ error: "Chyba při mazání" }, { status: 500 });
   }
 }

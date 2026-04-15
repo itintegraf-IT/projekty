@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -30,7 +31,7 @@ export async function PATCH(_request: NextRequest, { params }: RouteContext) {
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("[PATCH /api/notifications/[id]/read]", error);
+    logger.error("[PATCH /api/notifications/[id]/read]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }

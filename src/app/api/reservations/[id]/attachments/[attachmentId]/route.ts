@@ -1,3 +1,4 @@
+import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
@@ -57,7 +58,7 @@ export async function GET(_req: NextRequest, { params }: RouteContext) {
     if (typeof error === "object" && error !== null && "code" in error && (error as { code: string }).code === "ENOENT") {
       return NextResponse.json({ error: "Soubor nenalezen na disku" }, { status: 404 });
     }
-    console.error(`[GET /api/reservations/${reservationId}/attachments/${attachmentId}]`, error);
+    logger.error(`[GET /api/reservations/${reservationId}/attachments/${attachmentId}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
@@ -112,12 +113,12 @@ export async function DELETE(_req: NextRequest, { params }: RouteContext) {
       await unlink(filePath);
     } catch {
       // Soubor mohl být ručně smazán — DB záznam je pryč, OK
-      console.warn(`[DELETE attachment] Soubor ${filePath} nenalezen na disku, DB záznam smazán`);
+      logger.warn(`[DELETE attachment] Soubor ${filePath} nenalezen na disku, DB záznam smazán`);
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error(`[DELETE /api/reservations/${reservationId}/attachments/${attachmentId}]`, error);
+    logger.error(`[DELETE /api/reservations/${reservationId}/attachments/${attachmentId}]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
