@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose/jwt/verify";
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET ?? "integraf-dev-secret-please-change-in-production"
-);
+const jwtSecretRaw = process.env.JWT_SECRET;
+if (!jwtSecretRaw) {
+  throw new Error(
+    "[middleware] JWT_SECRET env variable is not set. " +
+    "Add it to .env (development) or to the production environment."
+  );
+}
+const SECRET = new TextEncoder().encode(jwtSecretRaw);
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

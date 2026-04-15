@@ -1,9 +1,14 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET ?? "integraf-dev-secret-please-change-in-production"
-);
+const jwtSecretRaw = process.env.JWT_SECRET;
+if (!jwtSecretRaw) {
+  throw new Error(
+    "[auth] JWT_SECRET env variable is not set. " +
+    "Add it to .env (development) or to the production environment."
+  );
+}
+const SECRET = new TextEncoder().encode(jwtSecretRaw);
 const COOKIE = "integraf-session";
 
 export interface SessionUser {
@@ -24,7 +29,13 @@ export async function createSessionToken(user: SessionUser): Promise<string> {
 
 /** Vrátí hodnoty pro Set-Cookie hlavičku (pro HTTP přístup přes IP) */
 export function getCookieOptions(): { secure: boolean } {
-  const secure = process.env.NODE_ENV === "production" && process.env.ALLOW_HTTP_SESSION !== "true";
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_HTTP_SESSION === "true") {
+    throw new Error(
+      "[auth] ALLOW_HTTP_SESSION=true is not permitted in production. " +
+      "Remove this env var from the production environment."
+    );
+  }
+  const secure = process.env.NODE_ENV === "production";
   return { secure };
 }
 

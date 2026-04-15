@@ -18,8 +18,10 @@ const ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ];
 
-// Magic bytes pro PDF, PNG, JPEG
+// Magic bytes pro PDF, PNG, JPEG a Office
 function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
+  if (buffer.length < 4) return false;
+
   if (mimeType === "application/pdf") {
     return buffer.slice(0, 4).toString("ascii") === "%PDF";
   }
@@ -29,7 +31,15 @@ function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
   if (mimeType === "image/jpeg") {
     return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
   }
-  // Pro dokumenty Office a ostatní — spoléháme na Content-Type (magic bytes jsou komplikovanější)
+  // Office Open XML (docx, xlsx, pptx) a starší formáty (doc, xls) jsou ZIP archivy — začínají PK
+  if (
+    mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    mimeType === "application/msword" ||
+    mimeType === "application/vnd.ms-excel"
+  ) {
+    return buffer[0] === 0x50 && buffer[1] === 0x4b;
+  }
   return true;
 }
 

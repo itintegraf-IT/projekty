@@ -157,18 +157,31 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     // ── notify: manuální upozornění obchodníka ─────────────────────────────────
     if (action === "notify") {
       const notifMessage = body.message
-        ? String(body.message)
+        ? String(body.message).slice(0, 500)
         : `Upozornění k rezervaci ${reservation.code} (${reservation.companyName})`;
-      await prisma.notification.create({
-        data: {
-          type: "RESERVATION_MANUAL",
-          message: notifMessage,
-          reservationId: id,
-          targetUserId: reservation.requestedByUserId,
-          createdByUserId: session.id,
-          createdByUsername: session.username,
-        },
-      });
+      await prisma.$transaction([
+        prisma.notification.create({
+          data: {
+            type: "RESERVATION_MANUAL",
+            message: notifMessage,
+            reservationId: id,
+            targetUserId: reservation.requestedByUserId,
+            createdByUserId: session.id,
+            createdByUsername: session.username,
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            blockId: 0,
+            orderNumber: reservation.code ?? `rezervace-${id}`,
+            userId: session.id,
+            username: session.username,
+            action: "RESERVATION_NOTIFY",
+            field: "message",
+            newValue: notifMessage,
+          },
+        }),
+      ]);
       return NextResponse.json({ ok: true });
     }
 
