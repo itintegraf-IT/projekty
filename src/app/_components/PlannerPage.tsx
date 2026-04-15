@@ -454,6 +454,12 @@ function BlockEdit({
         if (res.ok) {
           const updated: Block = await res.json();
           onBlockUpdate?.(updated);
+          // Sync form state pro aktuální blok — jinak by buildPayload() při
+          // následném "Uložit změny" přepsal tyto hodnoty původními.
+          if (draft.blockId === block.id) {
+            setDataRequiredDate(draft.dataRequiredDate);
+            setDeadlineExpedice(draft.deadlineExpedice);
+          }
           saved++;
         }
       } catch { /* skip */ }
@@ -1050,7 +1056,7 @@ function BlockEdit({
                       background: occ.blockId === block.id ? "rgba(59,130,246,0.28)" : "rgba(59,130,246,0.1)",
                       border: occ.blockId === block.id ? "1px solid rgba(59,130,246,0.55)" : "1px solid rgba(59,130,246,0.2)",
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: 9, fontWeight: 700, color: "#93c5fd",
+                      fontSize: 9, fontWeight: 700, color: "#3b82f6",
                     }}>{i + 1}</div>
                     <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>Tisk:</div>
                     <div style={{ flex: 1 }}>
@@ -1112,7 +1118,7 @@ function BlockEdit({
               style={{
                 marginTop: 8, width: "100%", height: 30,
                 borderRadius: 7, border: "1px solid rgba(59,130,246,0.3)",
-                background: "rgba(59,130,246,0.12)", color: "#93c5fd",
+                background: "rgba(59,130,246,0.12)", color: "#3b82f6",
                 fontSize: 11, fontWeight: 600,
                 cursor: seriesOccSaving ? "default" : "pointer",
                 opacity: seriesOccSaving ? 0.65 : 1,
@@ -1127,8 +1133,8 @@ function BlockEdit({
 
         {/* Série — inline dialog */}
         {seriesConfirm ? (
-          <div style={{ marginTop: 16, borderRadius: 8, border: "1px solid color-mix(in oklab, var(--accent) 30%, transparent)", background: "color-mix(in oklab, var(--accent) 8%, transparent)", padding: "12px 14px" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", marginBottom: 8 }}>
+          <div style={{ padding: "12px 14px", borderTop: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>
               {seriesConfirm === "save" ? "Uložit změny pro…" : "Smazat…"}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1143,7 +1149,7 @@ function BlockEdit({
                   }
                   setSeriesConfirm(null);
                 }}
-                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: saving ? "default" : "pointer", opacity: saving ? 0.65 : 1, textAlign: "left" }}
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 7, color: "var(--text)", fontSize: 12, fontWeight: 600, padding: "8px 12px", cursor: saving ? "default" : "pointer", opacity: saving ? 0.65 : 1, textAlign: "left", transition: "opacity 120ms ease-out" }}
               >
                 Jen tuto instanci
               </button>
@@ -1161,7 +1167,7 @@ function BlockEdit({
                   }
                   setSeriesConfirm(null);
                 }}
-                style={{ background: "color-mix(in oklab, var(--accent) 15%, transparent)", border: "1px solid color-mix(in oklab, var(--accent) 35%, transparent)", borderRadius: 7, color: "var(--accent)", fontSize: 11, fontWeight: 600, padding: "7px 12px", cursor: saving ? "default" : "pointer", opacity: saving ? 0.65 : 1, textAlign: "left" }}
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 7, color: "var(--text)", fontSize: 12, fontWeight: 600, padding: "8px 12px", cursor: saving ? "default" : "pointer", opacity: saving ? 0.65 : 1, textAlign: "left", transition: "opacity 120ms ease-out" }}
               >
                 {seriesConfirm === "delete"
                   ? `Tuto a následující (${getFollowingSeriesIds().length} bloků)`
