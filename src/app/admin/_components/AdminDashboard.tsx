@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
+import ThemeToggle from "@/app/_components/ThemeToggle";
 import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
 import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
@@ -157,6 +158,10 @@ const btnAddAccent: React.CSSProperties = {
 
 export default function AdminDashboard({ currentUser }: { currentUser: SessionUser }) {
   const isPlanovat = currentUser.role === "PLANOVAT";
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
   const visibleTabs = (["users", "codebook", "presets", "audit", "shifts"] as const).filter((tab) => {
     if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts";
     return true;
@@ -203,7 +208,16 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
         <span style={{ fontSize: 16, fontWeight: 600, position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
           Správa systému
         </span>
-        <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{currentUser.username}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: TEXT_SECONDARY }}>{currentUser.username}</span>
+          <ThemeToggle />
+          <button
+            onClick={handleLogout}
+            style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, background: "transparent", border: `1px solid ${SEPARATOR}`, color: TEXT_SECONDARY, cursor: "pointer", fontFamily: "inherit" }}
+          >
+            Odhlásit
+          </button>
+        </div>
       </div>
 
       {/* Tab switcher */}

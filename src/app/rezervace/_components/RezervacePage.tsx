@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import ReservationForm from "./ReservationForm";
 import ReservationList from "./ReservationList";
 import ReservationDetail from "./ReservationDetail";
+import ThemeToggle from "@/app/_components/ThemeToggle";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 export interface Reservation {
   id: number;
@@ -57,6 +59,10 @@ const isPlanner = (role: string) => ["ADMIN", "PLANOVAT"].includes(role);
 
 export default function RezervacePage({ currentUser, initialSelectedId }: Props) {
   const router = useRouter();
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  }
   const [activeTab, setActiveTab] = useState<AnyTab>(
     isObchodnik(currentUser.role) ? "nova" : "nove"
   );
@@ -218,16 +224,24 @@ export default function RezervacePage({ currentUser, initialSelectedId }: Props)
           ← Planner
         </button>
         <span style={{ fontWeight: 600, fontSize: 15 }}>Rezervace</span>
-        <span style={{
-          marginLeft: "auto",
-          fontSize: 12,
-          color: "var(--text-muted)",
-          background: "var(--surface-2)",
-          padding: "3px 8px",
-          borderRadius: 6,
-        }}>
-          {currentUser.username} · {currentUser.role}
-        </span>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{
+            fontSize: 12,
+            color: "var(--text-muted)",
+            background: "var(--surface-2)",
+            padding: "3px 8px",
+            borderRadius: 6,
+          }}>
+            {currentUser.username} · {currentUser.role}
+          </span>
+          <ThemeToggle />
+          <button
+            onClick={handleLogout}
+            style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer", fontFamily: "inherit" }}
+          >
+            Odhlásit
+          </button>
+        </div>
       </header>
 
       <div style={{ maxWidth: 900, margin: "0 auto", padding: "20px 16px" }}>
@@ -272,9 +286,7 @@ export default function RezervacePage({ currentUser, initialSelectedId }: Props)
         {(activeTab !== "nova") && (
           <div style={{ display: "grid", gap: 12 }}>
             {loading ? (
-              <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)", fontSize: 14 }}>
-                Načítám…
-              </div>
+              <LoadingSpinner />
             ) : reservations.length === 0 ? (
               <div style={{ textAlign: "center", padding: 40, color: "var(--text-muted)", fontSize: 14 }}>
                 Žádné rezervace v této kategorii

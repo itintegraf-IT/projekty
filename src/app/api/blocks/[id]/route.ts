@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { AppError, isAppError } from "@/lib/errors";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from "@/lib/blockSerialization";
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
-import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
+import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -111,34 +112,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           const checkMachine = (allowed.machine as string | undefined) ?? existing.machine;
           const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : existing.startTime;
           const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : existing.endTime;
-          const [rawTemplates, exceptions, companyDays] = await Promise.all([
-            prisma.machineWorkHoursTemplate.findMany({
-              where: { machine: checkMachine },
-              include: { days: true },
-            }),
-            prisma.machineScheduleException.findMany({
-              where: {
-                machine: checkMachine,
-                date: {
-                  gte: new Date(checkStart.getTime() - 24 * 60 * 60 * 1000),
-                  lte: new Date(checkEnd.getTime()   + 24 * 60 * 60 * 1000),
-                },
-              },
-            }),
-            prisma.companyDay.findMany({
-              where: { startDate: { lt: checkEnd }, endDate: { gt: checkStart } },
-            }),
-          ]);
-          if (!bypassScheduleValidation) {
-            const templates = serializeTemplates(rawTemplates);
-            const violation = checkScheduleViolationWithTemplates(checkMachine, checkStart, checkEnd, templates, exceptions);
-            if (violation) return NextResponse.json({ error: violation }, { status: 422 });
-          }
-          // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
-          const cdConflict = companyDays.find(
-            (cd) => cd.machine === null || cd.machine === checkMachine
-          );
-          if (cdConflict) return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
+          const scheduleError = await validateBlockScheduleFromDb(checkMachine, checkStart, checkEnd, checkType, bypassScheduleValidation);
+          if (scheduleError) return NextResponse.json({ error: scheduleError.error }, { status: 422 });
         }
       }
     }
@@ -157,7 +132,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const block = await prisma.$transaction(async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });
       if (!oldBlock) {
-        throw new Error("NOT_FOUND");
+        throw new AppError("NOT_FOUND", "Blok nenalezen");
       }
 
       // Normalizace blockVariant — platí na výsledný type, ne jen na vstup
@@ -199,7 +174,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       } else if (presetExplicitlyChanged) {
         const presetResult = await resolvePresetForBlock(allowed.jobPresetId, resultingType);
         if ("error" in presetResult) {
-          throw new Error(`PRESET:${presetResult.error}`);
+          throw new AppError("PRESET_INVALID", presetResult.error);
         }
         presetUpdate = presetResult;
       } else if (allowed.type !== undefined && oldBlock.jobPresetId) {
@@ -209,10 +184,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         });
         if (existingPreset) {
           if (resultingType === "ZAKAZKA" && !existingPreset.appliesToZakazka) {
-            throw new Error("PRESET:Vybraný preset není povolen pro zakázku.");
+            throw new AppError("PRESET_INVALID", "Vybraný preset není povolen pro zakázku.");
           }
           if (resultingType === "REZERVACE" && !existingPreset.appliesToRezervace) {
-            throw new Error("PRESET:Vybraný preset není povolen pro rezervaci.");
+            throw new AppError("PRESET_INVALID", "Vybraný preset není povolen pro rezervaci.");
           }
         }
       }
@@ -376,11 +351,18 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(serializeBlock(block));
   } catch (error: unknown) {
-    if (error instanceof Error && error.message.startsWith("PRESET:")) {
-      return NextResponse.json({ error: error.message.slice("PRESET:".length) }, { status: 400 });
-    }
-    if (error instanceof Error && error.message === "NOT_FOUND") {
-      return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
+    if (isAppError(error)) {
+      const statusMap: Record<string, number> = {
+        NOT_FOUND: 404,
+        FORBIDDEN: 403,
+        PRESET_INVALID: 400,
+        SCHEDULE_VIOLATION: 422,
+        CONFLICT: 409,
+      };
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: statusMap[error.code] ?? 400 }
+      );
     }
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });

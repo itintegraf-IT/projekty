@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeBlock } from "@/lib/blockSerialization";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
-import { checkScheduleViolationWithTemplates, serializeTemplates } from "@/lib/scheduleValidation";
+import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -62,37 +62,14 @@ export async function POST(request: NextRequest) {
     const blockVariant = normalizeBlockVariant(body.blockVariant, blockType);
     // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
     const bypassScheduleValidation = body.bypassScheduleValidation === true;
-    if (blockType === "ZAKAZKA") {
-      const machine = body.machine as string;
-      const startTime = new Date(body.startTime);
-      const endTime = new Date(body.endTime);
-      const [rawTemplates, exceptions, companyDays] = await Promise.all([
-        prisma.machineWorkHoursTemplate.findMany({
-          where: { machine },
-          include: { days: true },
-        }),
-        prisma.machineScheduleException.findMany({
-          where: {
-            machine,
-            date: {
-              gte: new Date(startTime.getTime() - 24 * 60 * 60 * 1000),
-              lte: new Date(endTime.getTime()   + 24 * 60 * 60 * 1000),
-            },
-          },
-        }),
-        prisma.companyDay.findMany({
-          where: { startDate: { lt: endTime }, endDate: { gt: startTime } },
-        }),
-      ]);
-      if (!bypassScheduleValidation) {
-        const templates = serializeTemplates(rawTemplates);
-        const violation = checkScheduleViolationWithTemplates(machine, startTime, endTime, templates, exceptions);
-        if (violation) return NextResponse.json({ error: violation }, { status: 422 });
-      }
-      // companyDays check se přeskakovat NESMÍ — platí i v bypass módu
-      const cdConflict = companyDays.find((cd) => cd.machine === null || cd.machine === machine);
-      if (cdConflict) return NextResponse.json({ error: "Blok zasahuje do plánované odstávky." }, { status: 422 });
-    }
+    const scheduleError = await validateBlockScheduleFromDb(
+      body.machine as string,
+      new Date(body.startTime),
+      new Date(body.endTime),
+      blockType,
+      bypassScheduleValidation
+    );
+    if (scheduleError) return NextResponse.json({ error: scheduleError.error }, { status: 422 });
 
     // Pokud je přítomno reservationId — ověřit existenci (mimo transakci)
     const reservationId: number | undefined = body.reservationId ? Number(body.reservationId) : undefined;
