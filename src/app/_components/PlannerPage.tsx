@@ -31,6 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Lock, Unlock, ClipboardList, Pin, Wrench, CalendarDays } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import DatePickerField from "./DatePickerField";
+import { Toast, ToastContainer, useToast } from "@/components/ToastContainer";
 import {
   applyJobPresetToDraft,
   presetSupportsType,
@@ -117,8 +118,6 @@ type PushSuggestion = {
   blockedByLock: boolean;
   lockedBlock: Block | null;
 };
-
-type Toast = { id: number; message: string; type: "success" | "error" | "info" };
 
 type HistoryEntry = { undo: () => Promise<void>; redo: () => Promise<void> };
 
@@ -322,7 +321,7 @@ function BlockEdit({
   barvyOpts?: CodebookOption[];
   lakOpts?: CodebookOption[];
   jobPresets?: JobPreset[];
-  onToast?: (message: string, type: "success" | "error" | "info") => void;
+  onToast?: (message: string, type: Toast["type"]) => void;
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
   const [type, setType]               = useState(block.type);
@@ -2035,47 +2034,6 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
   );
 }
 
-// ─── ToastContainer ──────────────────────────────────────────────────────────
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
-  if (toasts.length === 0) return null;
-  const borderColor = { success: "var(--success)", error: "var(--danger)", info: "var(--info)" };
-  return (
-    <div
-      aria-live="polite"
-      aria-atomic="true"
-      style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, pointerEvents: "none" }}
-    >
-      {toasts.map((t) => (
-        <div key={t.id} role="status" style={{
-          display: "flex", alignItems: "center", gap: 10,
-          background: "color-mix(in oklab, var(--surface) 92%, transparent)", backdropFilter: "blur(12px)",
-          borderTop: "1px solid var(--border)",
-          borderRight: "1px solid var(--border)",
-          borderBottom: "1px solid var(--border)",
-          borderLeft: `3px solid ${borderColor[t.type]}`,
-          borderRadius: 10, padding: "10px 14px",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-          minWidth: 220, maxWidth: 340,
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-          fontSize: 13, color: "var(--text)",
-          pointerEvents: "auto",
-          animation: "toast-in 0.15s ease-out",
-        }}>
-          <span style={{ flex: 1, lineHeight: 1.4 }}>{t.message}</span>
-          <button
-            type="button"
-            aria-label="Zavřít oznámení"
-            onClick={() => onDismiss(t.id)}
-            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: 0, flexShrink: 0 }}
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Reservation queue types ──────────────────────────────────────────────────
 type ReservationQueueItem = {
   id: number;
@@ -2142,13 +2100,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [notifNewCount, setNotifNewCount] = useState(0);
 
   // ── Toast systém ──
-  const [toasts, setToasts] = useState<Toast[]>([]);
-  const toastIdRef = useRef(0);
-  function showToast(message: string, type: Toast["type"] = "info") {
-    const id = ++toastIdRef.current;
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
-  }
+  const { toasts, showToast, dismissToast } = useToast();
 
   // ── Undo/Redo ──
   const undoStack = useRef<HistoryEntry[]>([]);
@@ -5151,7 +5103,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         </div>
       )}
 
-      <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
     </main>
   );
