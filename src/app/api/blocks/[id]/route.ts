@@ -71,7 +71,6 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       allowed = {
         dataStatusId: body.dataStatusId,
         dataStatusLabel: body.dataStatusLabel,
-        dataRequiredDate: body.dataRequiredDate,
         dataOk: body.dataOk,
       };
     } else if (session.role === "MTZ") {
