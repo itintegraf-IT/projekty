@@ -846,6 +846,7 @@ function BlockCard({
   const materialDeadlineState = block.materialInStock
     ? "ok"
     : deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
+  const pantoneDeadlineState = deadlineState(block.pantoneRequiredDate, block.pantoneOk, now, block.startTime);
 
   const s = isPrintDone
     ? BLOCK_PRINT_DONE
@@ -1005,7 +1006,7 @@ function BlockCard({
         const dStateKey = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
-        const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
+        const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
         const dateChip = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 10, fontWeight: 600,
           color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
@@ -1019,13 +1020,14 @@ function BlockCard({
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
+        const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
                 <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar || dataCanOpenDtpPopover) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
                   onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => {
                     e.stopPropagation();
                     if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; }
@@ -1048,10 +1050,10 @@ function BlockCard({
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
                 {(block.pantoneRequiredDate || block.pantoneOk) && (
-                  <span style={dateChip(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
+                  <span style={dateChip(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)} title={pantoneDeadlineState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                     onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                    P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
+                    P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "—"}
                   </span>
                 )}
                 <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
@@ -1118,13 +1120,14 @@ function BlockCard({
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
+        const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar || dataCanOpenDtpPopover) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
                   onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => {
                     e.stopPropagation();
                     if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; }
@@ -1147,12 +1150,12 @@ function BlockCard({
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
                 {(block.pantoneRequiredDate || block.pantoneOk) && (() => {
-                  const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
+                  const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
                   return (
-                    <span style={chipStyle(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
+                    <span style={chipStyle(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)} title={pantoneDeadlineState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                       onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                       onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                      P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
+                      P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "—"}
                     </span>
                   );
                 })()}
@@ -1285,7 +1288,7 @@ function BlockCard({
             <DateBadge
               label="PAN." dateStr={block.pantoneOk ? null : block.pantoneRequiredDate}
               overrideText={block.pantoneOk ? "OK" : undefined}
-              ok={block.pantoneOk} warn={false} danger={false} accent={FIELD_ACCENT.PANTONE}
+              ok={pantoneDeadlineState === "ok"} warn={pantoneDeadlineState === "warning"} danger={pantoneDeadlineState === "danger"} earlyStart={pantoneDeadlineState === "earlyStart"} accent={FIELD_ACCENT.PANTONE}
               onToggle={() => toggleField("pantoneOk", block.pantoneOk)}
               onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "pantone", block.pantoneRequiredDate ?? "", rect) : undefined}
             />
@@ -1298,7 +1301,7 @@ function BlockCard({
         const dSK = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mSK = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eSK = !block.deadlineExpedice ? "empty" : "neutral";
-        const pSK = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
+        const pSK = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
         const cs = (sk: string, fa: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600,
           color: sk === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
@@ -1312,6 +1315,7 @@ function BlockCard({
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
+        const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden", alignItems: "center" }}>
             <span style={cs(dSK, FIELD_ACCENT.DATA, dataCanToggle)}
@@ -1330,10 +1334,10 @@ function BlockCard({
               E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
             </span>
             {(block.pantoneRequiredDate || block.pantoneOk) && (
-              <span style={cs(pSK, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
+              <span style={cs(pSK, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)} title={pantoneDeadlineState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                 onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                 onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
+                P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "—"}
               </span>
             )}
           </div>
