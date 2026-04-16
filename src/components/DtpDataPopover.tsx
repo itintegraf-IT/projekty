@@ -18,12 +18,23 @@ export function DtpDataPopover({ blockId, currentStatusId, currentOk, dataOpts, 
   const [ok, setOk] = useState(currentOk);
   const ref = useRef<HTMLDivElement>(null);
   const isDirtyRef = useRef(false);
+  const statusIdRef = useRef(statusId);
+  const okRef = useRef(ok);
 
   // Sleduj změny
   useEffect(() => {
     const changed = statusId !== (currentStatusId?.toString() ?? "") || ok !== currentOk;
     isDirtyRef.current = changed;
   }, [statusId, ok, currentStatusId, currentOk]);
+
+  // Udržuj refs aktuální pro handleClose
+  useEffect(() => {
+    statusIdRef.current = statusId;
+  }, [statusId]);
+
+  useEffect(() => {
+    okRef.current = ok;
+  }, [ok]);
 
   // Zavření klikem mimo
   useEffect(() => {
@@ -46,19 +57,20 @@ export function DtpDataPopover({ blockId, currentStatusId, currentOk, dataOpts, 
 
   function handleClose() {
     if (isDirtyRef.current) {
-      const selectedOpt = dataOpts.find((o) => o.id.toString() === statusId);
+      const currentStatusId = statusIdRef.current;
+      const selectedOpt = dataOpts.find((o) => o.id.toString() === currentStatusId);
       onSave(blockId, {
-        dataStatusId: statusId ? parseInt(statusId) : null,
+        dataStatusId: currentStatusId ? parseInt(currentStatusId, 10) : null,
         dataStatusLabel: selectedOpt?.label ?? null,
-        dataOk: ok,
+        dataOk: okRef.current,
       });
     }
     onClose();
   }
 
-  // Pozice: pod anchorRect, zarovnáno vlevo
-  const top = anchorRect.bottom + window.scrollY + 4;
-  const left = Math.min(anchorRect.left + window.scrollX, window.innerWidth - 210);
+  // Pozice: pod anchorRect, zarovnáno vlevo (position: fixed je relativní k viewportu, ne k dokumentu)
+  const top = anchorRect.bottom + 4;
+  const left = Math.max(4, Math.min(anchorRect.left, window.innerWidth - 210));
 
   return (
     <div
