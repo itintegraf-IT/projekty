@@ -3,7 +3,8 @@ export type AppErrorCode =
   | "FORBIDDEN"
   | "PRESET_INVALID"
   | "SCHEDULE_VIOLATION"
-  | "CONFLICT";
+  | "CONFLICT"
+  | "VALIDATION_ERROR";
 
 export class AppError extends Error {
   constructor(
