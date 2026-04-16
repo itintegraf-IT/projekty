@@ -54,6 +54,14 @@ export async function PUT(request: NextRequest) {
       throw new AppError("VALIDATION_ERROR", "Parametry key nebo value jsou příliš dlouhé.");
     }
 
+    const ALLOWED_NUMERIC_KEYS = new Set(["zoom", "aside-width", "dtp-panel-width"]);
+    if (!ALLOWED_NUMERIC_KEYS.has(key)) {
+      throw new AppError("VALIDATION_ERROR", "Neznámý klíč preference.");
+    }
+    if (isNaN(Number(value))) {
+      throw new AppError("VALIDATION_ERROR", "Hodnota pro tento klíč musí být číslo.");
+    }
+
     await prisma.userPreference.upsert({
       where: { userId_key: { userId: session.id, key } },
       create: { userId: session.id, key, value },
