@@ -44,6 +44,8 @@ import { InboxPanel, type NotificationItem } from "@/components/InboxPanel";
 import { FIELD_LABELS, fmtAuditVal, formatPragueMaybeToday } from "@/lib/auditFormatters";
 import { BlockDetail } from "@/components/BlockDetail";
 import { BlockEdit } from "@/components/BlockEdit";
+import { DtpPanel } from "@/components/DtpPanel";
+import { DtpDataPopover } from "@/components/DtpDataPopover";
 import {
   type CodebookOption,
   TYPE_LABELS,
@@ -497,9 +499,10 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
 export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHoursTemplates, initialMachineExceptions, currentUser, initialQueueReservations = [], initialFilterText }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHoursTemplates: MachineWorkHoursTemplate[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[]; initialFilterText?: string }) {
   // Role-based permissions
-  const canEdit     = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
-  const canEditData = canEdit || currentUser.role === "DTP";
-  const canEditMat  = canEdit || currentUser.role === "MTZ";
+  const canEdit         = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
+  const canEditData     = canEdit || currentUser.role === "DTP";
+  const canEditDataDate = canEdit;
+  const canEditMat      = canEdit || currentUser.role === "MTZ";
   const isTiskar    = currentUser.role === "TISKAR";
 
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
@@ -697,6 +700,26 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   useEffect(() => { localStorage.setItem("ig-planner-aside-width", String(asideWidth)); }, [asideWidth]);
 
+  // ── DTP Panel state ──
+  const [dtpPanelWidth, setDtpPanelWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 260;
+    return parseInt(localStorage.getItem("ig-planner-dtp-panel-width") ?? "260", 10);
+  });
+  const [showDtpPanel, setShowDtpPanel] = useState<boolean>(
+    () => currentUser.role === "DTP"
+  );
+
+  const [dtpPopover, setDtpPopover] = useState<{
+    blockId: number;
+    statusId: number | null;
+    ok: boolean;
+    rect: DOMRect;
+  } | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem("ig-planner-dtp-panel-width", String(dtpPanelWidth));
+  }, [dtpPanelWidth]);
+
   // Načtení číselníků pro builder
   useEffect(() => {
     Promise.all([
@@ -859,6 +882,30 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setFilterText(orderNumber);
     const match = blocks.find((b) => b.orderNumber === orderNumber);
     if (match) setSelectedBlock(match);
+  }
+
+  function handleDtpScrollToBlock(block: Block) {
+    const blockTime = new Date(block.startTime);
+    if (blockTime < viewStart) {
+      // Blok je před viewStart — rozšíř daysBack a scrollni po re-renderu
+      const diffDays = diffCivilDateDays(utcToPragueDateStr(blockTime), todayPragueDateStr());
+      pendingScrollMs.current = blockTime.getTime();
+      pendingSelectBlock.current = block;
+      setDaysBack(Math.max(3, diffDays + 5));
+    } else {
+      const diffDays = diffCivilDateDays(utcToPragueDateStr(blockTime), todayPragueDateStr());
+      if (diffDays < -daysAhead) {
+        // Blok je za viewEnd — rozšíř daysAhead a scrollni po re-renderu
+        pendingScrollMs.current = blockTime.getTime();
+        pendingSelectBlock.current = block;
+        setDaysAhead(-diffDays + 5);
+      } else {
+        // Blok je v aktuálním rozsahu — scrollni přímo
+        const y = dateToY(blockTime, viewStart, slotHeight);
+        scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
+        setSelectedBlock(block);
+      }
+    }
   }
 
   async function handleNotify(blockId: number, orderNumber: string) {
@@ -1286,7 +1333,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         throw new Error(err.error ?? "Chyba serveru");
       }
       const results: Block[] = await batchRes.json();
-      setBlocks((prev) => prev.map((b) => results.find((r) => r.id === b.id) ?? b));
+      const newBlocks = blocksRef.current.map((b) => results.find((r) => r.id === b.id) ?? b);
+      blocksRef.current = newBlocks;
+      setBlocks(newBlocks);
 
       const prevSnaps = updates.map(u => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime, endTime: o.endTime, machine: o.machine } : null; }).filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[];
       const nextSnaps = updates.map(u => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }));
@@ -1294,12 +1343,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const bypassAtTime = !workingTimeLockRef.current;
         undoStack.current.push({
           undo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps, bypassScheduleValidation: bypassAtTime }) });
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps, bypassScheduleValidation: true }) });
             if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
             const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
           redo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps, bypassScheduleValidation: bypassAtTime }) });
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps, bypassScheduleValidation: true }) });
             if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
             const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
@@ -1326,6 +1375,39 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
       )
     );
+  }
+
+  function handleDataChipDoubleClick(blockId: number, rect: DOMRect) {
+    const block = blocks.find((b) => b.id === blockId);
+    if (!block) return;
+    setDtpPopover({
+      blockId,
+      statusId: block.dataStatusId ?? null,
+      ok: block.dataOk,
+      rect,
+    });
+  }
+
+  async function handleDtpPopoverSave(
+    blockId: number,
+    patch: { dataStatusId?: number | null; dataStatusLabel?: string | null; dataOk?: boolean }
+  ) {
+    try {
+      const res = await fetch(`/api/blocks/${blockId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error ?? "Chyba při ukládání.", "error");
+        return;
+      }
+      const updated: Block = await res.json();
+      setBlocks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+    } catch {
+      showToast("Chyba při ukládání.", "error");
+    }
   }
 
   async function deleteSingleBlockWithUndo(block: Block) {
@@ -2507,6 +2589,31 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
           <ThemeToggle />
 
+          {/* DTP panel toggle — jen pro ADMIN/PLANOVAT */}
+          {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
+            <button
+              onClick={() => setShowDtpPanel((v) => !v)}
+              title="DTP přehled"
+              style={{
+                width: 28, height: 28, borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: showDtpPanel ? "rgba(37,99,235,0.14)" : "var(--surface-2)",
+                border: `1px solid ${showDtpPanel ? "rgba(37,99,235,0.35)" : "var(--border)"}`,
+                color: showDtpPanel ? "#2563eb" : "var(--text-muted)",
+                cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="8" y1="6" x2="21" y2="6"/>
+                <line x1="8" y1="12" x2="21" y2="12"/>
+                <line x1="8" y1="18" x2="21" y2="18"/>
+                <line x1="3" y1="6" x2="3.01" y2="6"/>
+                <line x1="3" y1="12" x2="3.01" y2="12"/>
+                <line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+            </button>
+          )}
+
           {/* Bell — audit (ADMIN/PLANOVAT) */}
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <div style={{ position: "relative" }}>
@@ -2634,6 +2741,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             daysBack={effectiveDaysBack}
             canEdit={canEdit}
             canEditData={canEditData}
+            canEditDataDate={canEditDataDate}
             canEditMat={canEditMat}
             onError={(msg) => showToast(msg, "error")}
             onInfo={(msg) => showToast(msg, "info")}
@@ -2650,6 +2758,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onBlockVariantChange={canEdit ? handleBlockVariantChange : undefined}
             onExpeditionPublish={canEdit ? handleExpeditionPublish : undefined}
             onExpeditionUnpublish={canEdit ? handleExpeditionUnpublish : undefined}
+            onDataChipDoubleClick={canEditData && !canEditDataDate ? handleDataChipDoubleClick : undefined}
           />
         </div>
 
@@ -2670,6 +2779,40 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               onJumpToBlock={(orderNumber) => { setShowInboxPanel(false); setFilterText(orderNumber); }}
             />
           </aside>
+        )}
+
+        {/* DTP Panel */}
+        {showDtpPanel && (
+          <DtpPanel
+            blocks={blocks}
+            dataOpts={bDataOpts}
+            onScrollToBlock={handleDtpScrollToBlock}
+            renderBlockEdit={(block, onClose) => (
+              <BlockEdit
+                key={block.id}
+                block={block}
+                onClose={onClose}
+                onSave={(updated) => { handleBlockUpdate(updated); onClose(); }}
+                onBlockUpdate={handleBlockUpdate}
+                allBlocks={blocks}
+                onDeleteAll={handleDeleteAll}
+                onSaveAll={handleSaveAll}
+                canEdit={false}
+                canEditData={canEditData}
+                canEditDataDate={canEditDataDate}
+                canEditMat={false}
+                dataOpts={bDataOpts}
+                materialOpts={bMaterialOpts}
+                barvyOpts={bBarvyOpts}
+                lakOpts={bLakOpts}
+                jobPresets={jobPresets}
+                onToast={showToast}
+              />
+            )}
+            width={dtpPanelWidth}
+            onWidthChange={setDtpPanelWidth}
+            onClose={currentUser.role !== "DTP" ? () => setShowDtpPanel(false) : undefined}
+          />
         )}
 
         {/* PRAVÁ ČÁST – detail nebo builder */}
@@ -2700,6 +2843,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               onSaveAll={handleSaveAll}
               canEdit={canEdit}
               canEditData={canEditData}
+              canEditDataDate={canEditDataDate}
               canEditMat={canEditMat}
               dataOpts={bDataOpts}
               materialOpts={bMaterialOpts}
@@ -3519,6 +3663,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      {dtpPopover && (
+        <DtpDataPopover
+          blockId={dtpPopover.blockId}
+          currentStatusId={dtpPopover.statusId}
+          currentOk={dtpPopover.ok}
+          dataOpts={bDataOpts}
+          anchorRect={dtpPopover.rect}
+          onClose={() => setDtpPopover(null)}
+          onSave={handleDtpPopoverSave}
+        />
+      )}
 
     </main>
   );
