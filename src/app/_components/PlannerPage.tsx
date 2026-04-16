@@ -28,7 +28,7 @@ import { Switch }    from "@/components/ui/switch";
 import { Badge }     from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Lock, Unlock, CalendarDays } from "lucide-react";
+import { Lock, Unlock } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import DatePickerField from "./DatePickerField";
 import { Toast, ToastContainer, useToast } from "@/components/ToastContainer";
@@ -2596,14 +2596,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               title="Plánované odstávky"
               style={{
                 height: 28, padding: "0 10px", borderRadius: 8,
-                display: "flex", alignItems: "center", gap: 5,
-                background: showShutdowns ? "var(--brand)" : "var(--surface-2)",
-                border: `1px solid ${showShutdowns ? "var(--brand)" : "var(--border)"}`,
-                color: showShutdowns ? "var(--brand-contrast)" : "var(--text-muted)",
+                display: "flex", alignItems: "center",
+                background: showShutdowns ? "rgba(239,68,68,0.12)" : "var(--surface-2)",
+                border: `1px solid ${showShutdowns ? "rgba(239,68,68,0.35)" : "var(--border)"}`,
+                color: showShutdowns ? "#ef4444" : "#ef4444",
                 fontSize: 12, cursor: "pointer", transition: "all 120ms ease-out", whiteSpace: "nowrap",
+                textDecoration: "none",
               }}
             >
-              <CalendarDays size={12} strokeWidth={1.5} />Odstávky
+              Odstávky
             </button>
           )}
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
@@ -2645,8 +2646,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
           <ThemeToggle />
 
-          {/* DTP panel toggle — jen pro ADMIN/PLANOVAT */}
-          {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
+          {/* DTP panel toggle — jen pro PLANOVAT */}
+          {currentUser.role === "PLANOVAT" && (
             <button
               onClick={() => setShowDtpPanel((v) => !v)}
               title="DTP přehled"

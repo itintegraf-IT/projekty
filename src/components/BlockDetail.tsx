@@ -9,6 +9,7 @@ import { type AuditLogEntry } from "@/components/InfoPanel";
 import { TYPE_LABELS, TYPE_BUILDER_CONFIG } from "@/lib/plannerTypes";
 import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
 import { formatCivilDate, formatPragueDateTime, formatPragueDateShort, formatPragueTime } from "@/lib/dateUtils";
+import DatePickerField from "@/app/_components/DatePickerField";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -278,21 +279,11 @@ export function BlockDetail({
                 <div style={{ display: "grid", gap: 8, marginTop: 4 }}>
                   <div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3 }}>Nový termín expedice</div>
-                    <input
-                      type="date"
-                      value={counterExpDate}
-                      onChange={(e) => setCounterExpDate(e.target.value)}
-                      style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 11, fontFamily: "inherit" }}
-                    />
+                    <DatePickerField value={counterExpDate} onChange={setCounterExpDate} placeholder="Vyberte datum…" asButton />
                   </div>
                   <div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3 }}>Nový termín dat <span style={{ color: "var(--text-muted)", fontSize: 9 }}>(volitelné)</span></div>
-                    <input
-                      type="date"
-                      value={counterDataDate}
-                      onChange={(e) => setCounterDataDate(e.target.value)}
-                      style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 11, fontFamily: "inherit" }}
-                    />
+                    <DatePickerField value={counterDataDate} onChange={setCounterDataDate} placeholder="Vyberte datum…" asButton />
                   </div>
                   <div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3 }}>Důvod *</div>
