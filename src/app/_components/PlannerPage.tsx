@@ -1404,7 +1404,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return;
       }
       const updated: Block = await res.json();
-      setBlocks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
+      handleBlockUpdate(updated);
     } catch {
       showToast("Chyba při ukládání.", "error");
     }
