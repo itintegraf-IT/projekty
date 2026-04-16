@@ -2077,6 +2077,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   function handleBlockDoubleClick(block: Block) {
+    if (!canEdit) return;
     setSelectedBlock(null);
     setEditingBlock(block);
   }
