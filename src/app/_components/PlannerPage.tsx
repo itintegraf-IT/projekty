@@ -2785,28 +2785,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             blocks={blocks}
             dataOpts={bDataOpts}
             onScrollToBlock={handleDtpScrollToBlock}
-            renderBlockEdit={(block, onClose) => (
-              <BlockEdit
-                key={block.id}
-                block={block}
-                onClose={onClose}
-                onSave={(updated) => { handleBlockUpdate(updated); onClose(); }}
-                onBlockUpdate={handleBlockUpdate}
-                allBlocks={blocks}
-                onDeleteAll={handleDeleteAll}
-                onSaveAll={handleSaveAll}
-                canEdit={false}
-                canEditData={canEditData}
-                canEditDataDate={canEditDataDate}
-                canEditMat={false}
-                dataOpts={bDataOpts}
-                materialOpts={bMaterialOpts}
-                barvyOpts={bBarvyOpts}
-                lakOpts={bLakOpts}
-                jobPresets={jobPresets}
-                onToast={showToast}
-              />
-            )}
             width={dtpPanelWidth}
             onWidthChange={setDtpPanelWidth}
             onClose={currentUser.role !== "DTP" ? () => setShowDtpPanel(false) : undefined}
