@@ -1,0 +1,91 @@
+<h2>DTP popover — finální design</h2>
+<p class="subtitle">Dvojklik na DATA chip otevře popover. Auto-save při zavření. Obsahuje: DATA status + dataOk toggle.</p>
+
+<div class="split" style="gap: 24px; align-items: flex-start;">
+
+  <!-- Levý mockup: blok před interakcí -->
+  <div class="mockup" style="flex: 1;">
+    <div class="mockup-header">1. Stav před — DTP vidí chip</div>
+    <div class="mockup-body" style="background: #111318; padding: 20px; min-height: 180px; position: relative;">
+      <div style="font-size: 10px; color: rgba(255,255,255,0.3); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.08em;">Timeline — XL_105</div>
+      <div style="background: #1e3a5f; border: 1px solid #3b82f6; border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #e2e8f0; width: 80%;">
+        <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px;">Z-2024-0312</div>
+        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+          <span style="background: rgba(220,38,38,0.15); border: 1px solid #dc2626; border-radius: 3px; padding: 2px 6px; font-size: 10px; color: #fca5a5; cursor: pointer;">D&nbsp;15.5 ⚠</span>
+          <span style="background: rgba(100,116,139,0.15); border: 1px solid #475569; border-radius: 3px; padding: 2px 6px; font-size: 10px; color: #94a3b8;">M —</span>
+        </div>
+      </div>
+      <div style="margin-top: 14px; font-size: 11px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 6px;">
+        <span style="font-size: 14px;">👆👆</span> dvojklik na DATA chip
+      </div>
+    </div>
+  </div>
+
+  <!-- Pravý mockup: popover otevřený -->
+  <div class="mockup" style="flex: 1;">
+    <div class="mockup-header">2. Po dvojkliku — popover</div>
+    <div class="mockup-body" style="background: #111318; padding: 20px; min-height: 180px; position: relative;">
+      <div style="background: #1e3a5f; border: 1px solid #3b82f6; border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #e2e8f0; width: 80%; opacity: 0.5;">
+        <div style="font-weight: 700; font-size: 13px; margin-bottom: 6px;">Z-2024-0312</div>
+        <div style="display: flex; gap: 5px;">
+          <span style="background: rgba(220,38,38,0.15); border: 1px solid #3b82f6; border-radius: 3px; padding: 2px 6px; font-size: 10px; color: #fca5a5;">D&nbsp;15.5 ⚠</span>
+        </div>
+      </div>
+
+      <!-- Popover -->
+      <div style="background: #1c1c1e; border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 12px 14px; width: 190px; box-shadow: 0 12px 40px rgba(0,0,0,0.7); position: absolute; top: 75px; left: 28px; z-index: 10;">
+        <!-- Header -->
+        <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 10px;">DATA — Z-2024-0312</div>
+
+        <!-- Status dropdown -->
+        <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 4px;">Status</div>
+        <div style="background: #2c2c2e; border: 1px solid rgba(255,255,255,0.12); border-radius: 7px; padding: 7px 10px; color: #e2e8f0; font-size: 13px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer;">
+          Chybná data <span style="color: rgba(255,255,255,0.4); font-size: 11px;">▾</span>
+        </div>
+
+        <!-- Divider -->
+        <div style="height: 1px; background: rgba(255,255,255,0.08); margin-bottom: 10px;"></div>
+
+        <!-- OK toggle -->
+        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 2px 0;">
+          <div style="width: 36px; height: 20px; background: #22c55e; border-radius: 10px; position: relative; flex-shrink: 0;">
+            <div style="width: 16px; height: 16px; background: white; border-radius: 50%; position: absolute; top: 2px; right: 2px; box-shadow: 0 1px 3px rgba(0,0,0,0.4);"></div>
+          </div>
+          <span style="font-size: 13px; color: #4ade80; font-weight: 500;">data.ok</span>
+        </label>
+
+        <!-- Auto-save hint -->
+        <div style="margin-top: 10px; font-size: 10px; color: rgba(255,255,255,0.25); text-align: center;">ukládá se automaticky při zavření</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Permissions summary -->
+<div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+  <div style="background: rgba(34,197,94,0.07); border: 1px solid rgba(34,197,94,0.2); border-radius: 8px; padding: 12px 14px;">
+    <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #4ade80; margin-bottom: 8px;">DTP může</div>
+    <div style="font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.8;">
+      ✓ Měnit DATA status (dropdown)<br/>
+      ✓ Přepínat data.ok ✓/✗<br/>
+      ✓ Číst datum na chipu (read-only)<br/>
+      ✓ Otevřít detail bloku (read-only)
+    </div>
+  </div>
+  <div style="background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px; padding: 12px 14px;">
+    <div style="font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #f87171; margin-bottom: 8px;">DTP nemůže</div>
+    <div style="font-size: 12px; color: rgba(255,255,255,0.7); line-height: 1.8;">
+      ✗ Měnit datum dodání dat<br/>
+      ✗ Editovat cokoli jiného v bloku<br/>
+      ✗ Přesouvat / rezizovat bloky<br/>
+      ✗ Přidávat nové bloky
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 16px; background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15); border-radius: 8px; padding: 10px 14px; font-size: 11px; color: rgba(255,255,255,0.5);">
+  <strong style="color: rgba(255,255,255,0.7);">Technická poznámka:</strong> Klik na chip = toggle dataOk zůstává (existující chování). Dvojklik = otevře popover.
+  showMenu podmínka v BlockCard se rozšíří o <code style="background: rgba(255,255,255,0.1); padding: 1px 4px; border-radius: 3px; font-size: 10px;">canEditData</code>,
+  ale DTP uvidí jen DATA sekci, ne položky pro plánovače.
+</div>

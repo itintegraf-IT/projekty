@@ -1,0 +1,152 @@
+<h2>DTP panel — jak filtrovat a co zobrazit?</h2>
+<p class="subtitle">Dva rozhodnutí: <strong>relevance</strong> (co se vůbec zobrazí) a <strong>filtr</strong> (jak to dál třídit)</p>
+
+<div class="section">
+  <h3 style="margin-bottom:6px;">📌 Relevance — co je pro DTP zakázka?</h3>
+  <p class="subtitle" style="margin-bottom:12px;">Návrh: všechny ZAKAZKA bloky s <code>startTime</code> do 30 dní (=plánovací horizont), bez ODSTÁVKA/PŘÍPRAVA. Plus bloky kde <code>dataOk = false</code> bez ohledu na čas (čeká na akci).</p>
+</div>
+
+<h3>Jak vypadá filtrování? Vyber model:</h3>
+
+<div class="cards">
+
+  <!-- Model A: Status tabs -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:14px; border-radius:6px;">
+      <!-- Panel mockup -->
+      <div style="background:#1e293b; border-radius:6px; overflow:hidden; border:1px solid #334155; width:220px; margin:0 auto;">
+        <!-- Panel header -->
+        <div style="padding:8px 10px; border-bottom:1px solid #334155; display:flex; align-items:center; justify-content:space-between;">
+          <span style="color:#f1f5f9; font-size:11px; font-weight:700;">DTP přehled</span>
+          <span style="color:#64748b; font-size:9px;">↔ resize</span>
+        </div>
+        <!-- Filter tabs -->
+        <div style="display:flex; gap:0; border-bottom:1px solid #334155; overflow:hidden;">
+          <div style="flex:1; padding:5px 4px; background:#0f172a; text-align:center; font-size:9px; color:#ef4444; font-weight:700; border-bottom:2px solid #ef4444;">🔴 Urgentní<br><span style="font-size:10px; font-weight:900;">2</span></div>
+          <div style="flex:1; padding:5px 4px; text-align:center; font-size:9px; color:#64748b;">🟡 Čeká<br><span style="font-size:10px; font-weight:700;">5</span></div>
+          <div style="flex:1; padding:5px 4px; text-align:center; font-size:9px; color:#64748b;">🟢 OK<br><span style="font-size:10px; font-weight:700;">8</span></div>
+          <div style="flex:1; padding:5px 4px; text-align:center; font-size:9px; color:#64748b;">Vše<br><span style="font-size:10px; font-weight:700;">15</span></div>
+        </div>
+        <!-- Cards -->
+        <div style="padding:8px; display:flex; flex-direction:column; gap:5px;">
+          <div style="background:#0f172a; border-left:3px solid #ef4444; padding:6px 8px; border-radius:3px;">
+            <div style="color:#f1f5f9; font-size:10px; font-weight:700;">ZAK-2503</div>
+            <div style="color:#94a3b8; font-size:9px;">XL 105 · zítra 8:00</div>
+            <div style="color:#ef4444; font-size:9px; margin-top:2px;">dataRequiredDate: dnes!</div>
+          </div>
+          <div style="background:#0f172a; border-left:3px solid #ef4444; padding:6px 8px; border-radius:3px;">
+            <div style="color:#f1f5f9; font-size:10px; font-weight:700;">ZAK-2498</div>
+            <div style="color:#94a3b8; font-size:9px;">XL 106 · dnes 14:00</div>
+            <div style="color:#ef4444; font-size:9px; margin-top:2px;">deadline překročen</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Status tabs s počty</h3>
+      <p>4 záložky: Urgentní / Čeká / OK / Vše. Každá záložka ukazuje počet. Urgentní = <code>dataOk=false</code> + deadline ≤ dnes+2 nebo tisk ≤ zítra.</p>
+      <div class="pros-cons" style="margin-top:8px;">
+        <div class="pros"><h4>+</h4><ul><li>Jasná prioritizace</li><li>iOS standard (tab bar)</li><li>Jednoduché na pochopení</li></ul></div>
+        <div class="cons"><h4>−</h4><ul><li>Pevné kategorie, méně flexibilní</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model B: Chytré sekce -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:14px; border-radius:6px;">
+      <div style="background:#1e293b; border-radius:6px; overflow:hidden; border:1px solid #334155; width:220px; margin:0 auto;">
+        <div style="padding:8px 10px; border-bottom:1px solid #334155; display:flex; align-items:center; justify-content:space-between;">
+          <span style="color:#f1f5f9; font-size:11px; font-weight:700;">DTP přehled</span>
+          <span style="color:#64748b; font-size:9px;">↔ resize</span>
+        </div>
+        <!-- Search/filter bar -->
+        <div style="padding:6px 8px; border-bottom:1px solid #1e293b;">
+          <div style="background:#0f172a; border-radius:4px; padding:4px 8px; font-size:9px; color:#64748b; border:1px solid #334155;">🔍 Hledat zakázku…</div>
+        </div>
+        <div style="padding:8px; display:flex; flex-direction:column; gap:2px; max-height:140px; overflow:hidden;">
+          <!-- Sekce Urgentní -->
+          <div style="color:#ef4444; font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; padding:2px 0; margin-top:2px;">⚡ Urgentní — 2</div>
+          <div style="background:#0f172a; border-left:3px solid #ef4444; padding:5px 7px; border-radius:3px;">
+            <div style="display:flex; justify-content:space-between;">
+              <span style="color:#f1f5f9; font-size:10px; font-weight:700;">ZAK-2503</span>
+              <span style="color:#ef4444; font-size:9px;">dnes!</span>
+            </div>
+            <div style="color:#94a3b8; font-size:9px;">XL 105 · tisk zítra 8:00</div>
+          </div>
+          <!-- Sekce Tento týden -->
+          <div style="color:#f59e0b; font-size:8px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; padding:2px 0; margin-top:4px;">📅 Tento týden — 3</div>
+          <div style="background:#0f172a; border-left:3px solid #f59e0b; padding:5px 7px; border-radius:3px;">
+            <div style="display:flex; justify-content:space-between;">
+              <span style="color:#f1f5f9; font-size:10px; font-weight:700;">ZAK-2510</span>
+              <span style="color:#f59e0b; font-size:9px;">čt 18.4.</span>
+            </div>
+            <div style="color:#94a3b8; font-size:9px;">XL 106 · dataStatus: v přípravě</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Chytré časové sekce</h3>
+      <p>Záznamy automaticky zařazeny do sekcí: Urgentní / Tento týden / Příští týden / Hotovo. Plus search box. Bez ručního filtrování.</p>
+      <div class="pros-cons" style="margin-top:8px;">
+        <div class="pros"><h4>+</h4><ul><li>iOS "smart list" vzor</li><li>Vše viditelné najednou</li><li>Search box = rychlé hledání</li></ul></div>
+        <div class="cons"><h4>−</h4><ul><li>Delší scroll, méně kontroly</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Model C: Kombinace -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0f172a; padding:14px; border-radius:6px;">
+      <div style="background:#1e293b; border-radius:6px; overflow:hidden; border:1px solid #334155; width:220px; margin:0 auto;">
+        <div style="padding:8px 10px; border-bottom:1px solid #334155; display:flex; align-items:center; justify-content:space-between;">
+          <span style="color:#f1f5f9; font-size:11px; font-weight:700;">DTP přehled</span>
+          <span style="color:#64748b; font-size:9px;">↔ resize</span>
+        </div>
+        <!-- Quick filter pills -->
+        <div style="padding:6px 8px; display:flex; gap:4px; border-bottom:1px solid #334155; flex-wrap:wrap;">
+          <div style="background:#ef4444; color:#fff; padding:2px 7px; border-radius:10px; font-size:9px; font-weight:700;">Urgentní 2</div>
+          <div style="background:#1e293b; color:#94a3b8; padding:2px 7px; border-radius:10px; font-size:9px; border:1px solid #334155;">Čeká 5</div>
+          <div style="background:#1e293b; color:#94a3b8; padding:2px 7px; border-radius:10px; font-size:9px; border:1px solid #334155;">OK 8</div>
+        </div>
+        <!-- Status select -->
+        <div style="padding:4px 8px; border-bottom:1px solid #1e293b;">
+          <select style="background:#0f172a; border:1px solid #334155; color:#94a3b8; font-size:9px; padding:3px 6px; border-radius:4px; width:100%;">
+            <option>Filtr: dataStatus — vše</option>
+          </select>
+        </div>
+        <div style="padding:8px; display:flex; flex-direction:column; gap:4px;">
+          <div style="background:#0f172a; border-left:3px solid #ef4444; padding:5px 7px; border-radius:3px;">
+            <div style="color:#f1f5f9; font-size:10px; font-weight:700;">ZAK-2503</div>
+            <div style="display:flex; gap:4px; margin-top:2px; align-items:center;">
+              <span style="background:#7f1d1d; color:#fca5a5; padding:1px 5px; border-radius:3px; font-size:8px;">dataStatus: chybí</span>
+              <span style="color:#64748b; font-size:8px;">zítra 8:00</span>
+            </div>
+          </div>
+          <div style="background:#0f172a; border-left:3px solid #f59e0b; padding:5px 7px; border-radius:3px;">
+            <div style="color:#f1f5f9; font-size:10px; font-weight:700;">ZAK-2510</div>
+            <div style="display:flex; gap:4px; margin-top:2px; align-items:center;">
+              <span style="background:#451a03; color:#fde68a; padding:1px 5px; border-radius:3px; font-size:8px;">dataStatus: v přípravě</span>
+              <span style="color:#64748b; font-size:8px;">čt 18.4.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Pills + dataStatus dropdown</h3>
+      <p>Rychlé pills (Urgentní/Čeká/OK) kombinované s dropdownem pro konkrétní hodnotu <code>dataStatusLabel</code> z číselníku. Nejvíc flexibility.</p>
+      <div class="pros-cons" style="margin-top:8px;">
+        <div class="pros"><h4>+</h4><ul><li>Filtr přímo podle hodnot z číselníku</li><li>Pills pro rychlý přehled</li><li>Nejvíc kontroly</li></ul></div>
+        <div class="cons"><h4>−</h4><ul><li>Složitější UI, víc klikání</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:16px; background:#0f172a; border:1px solid #334155; border-radius:6px; padding:12px;">
+  <div class="label">Poznámka k relevanci</div>
+  <p style="font-size:12px; color:#94a3b8; margin:4px 0 0;">Zobrazují se <strong style="color:#f1f5f9;">jen ZAKAZKA bloky</strong> (ne ODSTÁVKA, PŘÍPRAVA apod.) s <code>startTime</code> do 30 dní. Navíc vždy všechny kde <code>dataOk = false</code> bez ohledu na horizont — aby nic nespadlo do "mrtvého úhlu".</p>
+</div>

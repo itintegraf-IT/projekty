@@ -622,7 +622,7 @@ function DateBadge({
         setLoading(true);
         onToggle();
         setLoading(false);
-      }, 220);
+      }, 350);
     } else {
       setLoading(true);
       onToggle();
@@ -649,6 +649,7 @@ function DateBadge({
         borderLeft: `2px solid ${neutralAccent}`,
         cursor: empty ? "default" : "pointer", flex: "0 0 auto",
         transition: "all 0.12s", opacity: loading ? 0.6 : 1,
+        userSelect: "none",
       }}
     >
       <span style={{ fontSize: 8, fontWeight: 700, color: labelColor, lineHeight: 1, letterSpacing: "0.07em" }}>
@@ -961,7 +962,7 @@ function BlockCard({
       ref={blockCardRef}
       data-block="true"
       data-planner-block-card="true"
-      onMouseDown={block.locked ? undefined : onMouseDown}
+      onMouseDown={(e) => { e.preventDefault(); if (!block.locked) onMouseDown?.(e); }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
@@ -1008,6 +1009,7 @@ function BlockCard({
           borderRadius: 4, padding: "2px 6px 2px 5px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
           cursor: clickable ? "pointer" : "default",
+          userSelect: "none",
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
@@ -1017,13 +1019,13 @@ function BlockCard({
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
                 <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
                   onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                   {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                     M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                   </span>
@@ -1033,7 +1035,7 @@ function BlockCard({
                 </span>
                 {(block.pantoneRequiredDate || block.pantoneOk) && (
                   <span style={dateChip(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
-                    onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 220); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
+                    onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                     P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
                   </span>
@@ -1098,6 +1100,7 @@ function BlockCard({
           borderRadius: 3, padding: "1px 5px 1px 4px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
           cursor: clickable ? "pointer" : "default",
+          userSelect: "none",
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
@@ -1107,13 +1110,13 @@ function BlockCard({
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
-                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+                  onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
                   onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                   {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                     M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                   </span>
@@ -1125,7 +1128,7 @@ function BlockCard({
                   const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : "neutral";
                   return (
                     <span style={chipStyle(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
-                      onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 220); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
+                      onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                       onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                       P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
                     </span>
@@ -1283,19 +1286,20 @@ function BlockCard({
           borderRadius: 3, padding: "1px 5px 1px 4px",
           whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1,
           cursor: clickable ? "pointer" : "default",
+          userSelect: "none",
         });
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden", alignItems: "center" }}>
             <span style={cs(dSK, FIELD_ACCENT.DATA, dataCanToggle)}
-              onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 220); } else { toggleField("dataOk", block.dataOk); } } : undefined}
+              onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
               onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
               {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
             </span>
             <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
               <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)}
-                onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 220); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                 onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                 M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
               </span>
@@ -1305,7 +1309,7 @@ function BlockCard({
             </span>
             {(block.pantoneRequiredDate || block.pantoneOk) && (
               <span style={cs(pSK, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)}
-                onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 220); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
+                onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                 onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
                 P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? fmtDateShort(block.pantoneRequiredDate) : "—"}
               </span>

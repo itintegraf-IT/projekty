@@ -1,0 +1,7 @@
+{"type":"server-started","port":57021,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:57021","screen_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/79438-1776354126/content","state_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/79438-1776354126/state"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/79438-1776354126/content/umisteni.html"}
+{"source":"user-event","type":"click","text":"TIMELINE →\n          \n          \n          \n        \n        \n          📋 MTZ panel\n          ZAK-2501 ✓\n          ZAK-2502 !\n          ZAK-2503 ✗\n        \n      \n    \n    \n      B — Side panel vedle timeline\n      Dashboard jako pravý panel přímo v planneru — timeline vlevo, přehled statusů vpravo. Uživatel vidí obojí najednou.\n      \n        +Kontext timeline + statusy v jednom pohleduBez přepínání stránek\n        −Méně místa pro timelineNa mobilu nefunkční","choice":"b","id":null,"timestamp":1776354238966}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/79438-1776354126/content/waiting.html"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/79438-1776354126/content/dtp-filtry.html"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/79438-1776354126/content/dtp-panel-chips.html"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/79438-1776354126/content/waiting-2.html"}
