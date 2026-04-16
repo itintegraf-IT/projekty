@@ -640,7 +640,29 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [daysBack, setDaysBack]   = useState(3);
 
   // Zoom — kotva pro scroll při změně zoomu
-  const [slotHeight, setSlotHeight] = useState(26);
+  const [slotHeight, setSlotHeight] = useState<number>(() => {
+    if (typeof window === "undefined") return 26;
+    const z = localStorage.getItem("ig-planner-zoom");
+    return z ? Math.max(3, Math.min(26, Number(z))) : 26;
+  });
+
+  // Ref pro debounced ukládání preferencí na server
+  const prefsSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  function savePreference(key: string, value: string) {
+    // Okamžitě do localStorage (optimistický cache)
+    localStorage.setItem(`ig-planner-${key}`, value);
+    // Debounced uložení na server
+    clearTimeout(prefsSaveTimers.current[key]);
+    prefsSaveTimers.current[key] = setTimeout(() => {
+      fetch("/api/me/preferences", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value }),
+      }).catch(() => {}); // tiché selhání — localStorage fallback zůstane
+    }, 500);
+  }
+
   const zoomAnchorMs = useRef<number | null>(null); // ms od epochy = datum středu viewportu
 
   function handleZoomChange(newHeight: number) {
@@ -663,20 +685,44 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     zoomAnchorMs.current = null;
   }, [slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Načtení preferencí z localStorage po mount (SSR-safe — default se renderuje server i client stejně)
+  // Načtení preferencí po mount — nejprve z localStorage (lazy initializers), pak přepíše server
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("q");
     if (q) setFilterText(q);
-    const z = localStorage.getItem("ig-planner-zoom");
-    if (z) setSlotHeight(Math.max(3, Math.min(26, Number(z))));
-    const w = localStorage.getItem("ig-planner-aside-width");
-    if (w) setAsideWidth(Math.max(200, Math.min(600, Number(w))));
+
+    // Načtení preferencí ze serveru — přepíše localStorage pokud server má novější data
+    fetch("/api/me/preferences")
+      .then((r) => r.json())
+      .then((prefs: Record<string, string>) => {
+        if (prefs["zoom"]) {
+          const v = Math.max(3, Math.min(26, Number(prefs["zoom"])));
+          setSlotHeight(v);
+          localStorage.setItem("ig-planner-zoom", String(v));
+        }
+        if (prefs["aside-width"]) {
+          const v = Math.max(200, Math.min(600, Number(prefs["aside-width"])));
+          setAsideWidth(v);
+          localStorage.setItem("ig-planner-aside-width", String(v));
+        }
+        if (prefs["dtp-panel-width"]) {
+          const v = parseInt(prefs["dtp-panel-width"], 10);
+          if (!isNaN(v)) {
+            setDtpPanelWidth(v);
+            localStorage.setItem("ig-planner-dtp-panel-width", String(v));
+          }
+        }
+      })
+      .catch(() => {}); // tiché selhání — localStorage hodnoty z lazy initializerů zůstanou
   }, []);
 
-  useEffect(() => { localStorage.setItem("ig-planner-zoom", String(slotHeight)); }, [slotHeight]);
+  useEffect(() => { savePreference("zoom", String(slotHeight)); }, [slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resizable aside
-  const [asideWidth, setAsideWidth] = useState(320);
+  const [asideWidth, setAsideWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 320;
+    const w = localStorage.getItem("ig-planner-aside-width");
+    return w ? Math.max(200, Math.min(600, Number(w))) : 320;
+  });
   const isResizing = useRef(false);
 
   useEffect(() => {
@@ -698,7 +744,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     };
   }, []);
 
-  useEffect(() => { localStorage.setItem("ig-planner-aside-width", String(asideWidth)); }, [asideWidth]);
+  useEffect(() => { savePreference("aside-width", String(asideWidth)); }, [asideWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── DTP Panel state ──
   const [dtpPanelWidth, setDtpPanelWidth] = useState<number>(() => {
@@ -716,9 +762,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     rect: DOMRect;
   } | null>(null);
 
-  useEffect(() => {
-    localStorage.setItem("ig-planner-dtp-panel-width", String(dtpPanelWidth));
-  }, [dtpPanelWidth]);
+  useEffect(() => { savePreference("dtp-panel-width", String(dtpPanelWidth)); }, [dtpPanelWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Načtení číselníků pro builder
   useEffect(() => {
