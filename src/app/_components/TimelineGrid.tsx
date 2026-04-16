@@ -204,7 +204,9 @@ interface TimelineGridProps {
   onMultiBlockUpdate?: (updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) => void;
   canEdit?: boolean;
   canEditData?: boolean;
+  canEditDataDate?: boolean;
   canEditMat?: boolean;
+  onDataChipDoubleClick?: (blockId: number, rect: DOMRect) => void;
   onError?: (msg: string) => void;
   onInfo?: (msg: string) => void;
   workingTimeLock?: boolean;
@@ -772,9 +774,10 @@ function MaterialNoteAffordance({
 function BlockCard({
   block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
-  canEdit, canEditData, canEditMat, onInlineDatePick, badgeColorMap,
+  canEdit, canEditData, canEditDataDate, canEditMat, onInlineDatePick, badgeColorMap,
   onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
   onExpeditionPublish, onExpeditionUnpublish,
+  onDataChipDoubleClick,
   splitPart, splitTotal,
 }: {
   block: Block;
@@ -796,7 +799,9 @@ function BlockCard({
   onError?: (msg: string) => void;
   canEdit?: boolean;
   canEditData?: boolean;
+  canEditDataDate?: boolean;
   canEditMat?: boolean;
+  onDataChipDoubleClick?: (blockId: number, rect: DOMRect) => void;
   onInlineDatePick?: (blockId: number, field: "data" | "material" | "pantone", currentValue: string, rect: DOMRect) => void;
   badgeColorMap?: Record<number, string | null>;
   onBlockCopy?: () => void;
@@ -833,7 +838,8 @@ function BlockCard({
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
   const dataDisplayLabel = block.dataStatusLabel?.trim() || "OK";
   const dataCanToggle = block.dataOk || !!block.dataRequiredDate;
-  const dataCanOpenCalendar = !block.dataOk && canEditData && !!onInlineDatePick;
+  const dataCanOpenCalendar    = !block.dataOk && !!canEditDataDate && !!onInlineDatePick;
+  const dataCanOpenDtpPopover  = !!canEditData && !canEditDataDate && !!onDataChipDoubleClick;
   // materialInStock potlačuje warning logiku materiálu
   const effectiveMaterialDate = block.materialInStock ? null : block.materialRequiredDate;
   const effectiveMaterialOk   = block.materialInStock ? true : block.materialOk;
@@ -1020,7 +1026,15 @@ function BlockCard({
               {!isTiskar && <>
                 <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
                   onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-                  onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                  onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => {
+                    e.stopPropagation();
+                    if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; }
+                    if (dataCanOpenCalendar) {
+                      onInlineDatePick!(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect());
+                    } else if (dataCanOpenDtpPopover) {
+                      onDataChipDoubleClick!(block.id, e.currentTarget.getBoundingClientRect());
+                    }
+                  } : undefined}>
                   {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
@@ -1111,7 +1125,15 @@ function BlockCard({
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
                   onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
-                  onDoubleClick={dataCanOpenCalendar ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                  onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => {
+                    e.stopPropagation();
+                    if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; }
+                    if (dataCanOpenCalendar) {
+                      onInlineDatePick!(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect());
+                    } else if (dataCanOpenDtpPopover) {
+                      onDataChipDoubleClick!(block.id, e.currentTarget.getBoundingClientRect());
+                    }
+                  } : undefined}>
                   {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
@@ -1706,7 +1728,9 @@ export default function TimelineGrid({
   onMultiBlockUpdate,
   canEdit = true,
   canEditData = false,
+  canEditDataDate = false,
   canEditMat = false,
+  onDataChipDoubleClick,
   onError,
   onInfo,
   workingTimeLock = true,
@@ -2783,6 +2807,7 @@ export default function TimelineGrid({
                       onError={callbacksRef.current.onError}
                       canEdit={canEdit}
                       canEditData={canEditData}
+                      canEditDataDate={canEditDataDate}
                       canEditMat={canEditMat}
                       onBlockCopy={() => onBlockCopy?.(block)}
                       onBlockSplit={(splitAt) => handleSplitBlockAt(block, splitAt)}
@@ -2790,6 +2815,7 @@ export default function TimelineGrid({
                       onInlineDatePick={(blockId, field, currentValue, rect) => {
                         setInlinePicker({ blockId, field, currentValue, x: rect.left, y: rect.bottom });
                       }}
+                      onDataChipDoubleClick={onDataChipDoubleClick}
                       badgeColorMap={badgeColorMap}
                       isTiskar={isTiskar}
                       onPrintComplete={onPrintComplete}
