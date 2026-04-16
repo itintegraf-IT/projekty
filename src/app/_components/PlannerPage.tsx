@@ -649,6 +649,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Ref pro debounced ukládání preferencí na server
   const prefsSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  // Cleanup debounce timerů při unmountu komponenty
+  useEffect(() => {
+    return () => {
+      Object.values(prefsSaveTimers.current).forEach(clearTimeout);
+    };
+  }, []);
+
   function savePreference(key: string, value: string) {
     // Okamžitě do localStorage (optimistický cache)
     localStorage.setItem(`ig-planner-${key}`, value);
