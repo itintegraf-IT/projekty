@@ -25,6 +25,7 @@ interface DtpPanelProps {
   onScrollToBlock: (block: Block) => void;
   width: number;
   onWidthChange: (w: number) => void;
+  onWidthCommit?: (w: number) => void;
   onClose?: () => void;
 }
 
@@ -61,6 +62,7 @@ export function DtpPanel({
   onScrollToBlock,
   width,
   onWidthChange,
+  onWidthCommit,
   onClose,
 }: DtpPanelProps) {
   const [activeFilter, setActiveFilter] = useState<FilterValue>("all");
@@ -81,11 +83,14 @@ export function DtpPanel({
       const newW = Math.min(DTP_PANEL_MAX_W, Math.max(DTP_PANEL_MIN_W, dragStartWidth.current + delta));
       onWidthChange(newW);
     }
-    function onMouseUp() {
+    function onMouseUp(ev: MouseEvent) {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      const delta = dragStartX.current - ev.clientX;
+      const finalW = Math.min(DTP_PANEL_MAX_W, Math.max(DTP_PANEL_MIN_W, dragStartWidth.current + delta));
+      onWidthCommit?.(finalW); // uložit preferenci až po ukončení resize
     }
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);

@@ -730,6 +730,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const w = localStorage.getItem("ig-planner-aside-width");
     return w ? Math.max(200, Math.min(600, Number(w))) : 320;
   });
+  const asideWidthRef = useRef<number>(asideWidth);
+  useEffect(() => { asideWidthRef.current = asideWidth; }, [asideWidth]);
   const isResizing = useRef(false);
 
   useEffect(() => {
@@ -742,6 +744,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       isResizing.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      savePreference("aside-width", String(asideWidthRef.current)); // uložit až po resize
     }
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
@@ -750,8 +753,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
-
-  useEffect(() => { savePreference("aside-width", String(asideWidth)); }, [asideWidth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── DTP Panel state ──
   const [dtpPanelWidth, setDtpPanelWidth] = useState<number>(() => {
@@ -769,7 +770,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     rect: DOMRect;
   } | null>(null);
 
-  useEffect(() => { savePreference("dtp-panel-width", String(dtpPanelWidth)); }, [dtpPanelWidth]); // eslint-disable-line react-hooks/exhaustive-deps
+  // dtp-panel-width se ukládá pouze při onWidthCommit (mouseUp), ne při každém mousemove
 
   // Načtení číselníků pro builder
   useEffect(() => {
@@ -2841,6 +2842,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onScrollToBlock={handleDtpScrollToBlock}
             width={dtpPanelWidth}
             onWidthChange={setDtpPanelWidth}
+            onWidthCommit={(w) => savePreference("dtp-panel-width", String(w))}
             onClose={currentUser.role !== "DTP" ? () => setShowDtpPanel(false) : undefined}
           />
         )}
