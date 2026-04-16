@@ -65,6 +65,7 @@ export function BlockEdit({
   onSaveAll,
   canEdit = true,
   canEditData = true,
+  canEditDataDate = true,
   canEditMat = true,
   dataOpts: dataOptsProp,
   materialOpts: materialOptsProp,
@@ -82,6 +83,7 @@ export function BlockEdit({
   onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<void>;
   canEdit?: boolean;
   canEditData?: boolean;
+  canEditDataDate?: boolean;
   canEditMat?: boolean;
   dataOpts?: CodebookOption[];
   materialOpts?: CodebookOption[];
@@ -709,7 +711,9 @@ export function BlockEdit({
               {/* DATA */}
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA</ColLabel>
-                <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum" />
+                <div style={{ pointerEvents: !canEditDataDate ? "none" : "auto", opacity: !canEditDataDate ? 0.45 : 1 }}>
+                  <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum" />
+                </div>
                 <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: dataOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
                   <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: dataOk ? "var(--success)" : "transparent", border: dataOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
                     {dataOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
