@@ -1,0 +1,6 @@
+{"type":"server-started","port":64023,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:64023","screen_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/93566-1776362025/content","state_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/93566-1776362025/state"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/93566-1776362025/content/workflow-overview.html"}
+{"source":"user-event","type":"click","text":"A\n    \n      V detailu bloku na timeline\n      Plánovač klikne na blok z rezervace, v panelu detailu se zobrazí sekce s akcemi: Potvrdit termín / Navrhnout jiný. Nejméně kroků — potvrdí tam, kde právě pracuje.\n      \n        ProZero přepínání kontextuAkce přesně tam, kde plánovač pracujeNejrychlejší workflow\n        ProtiBlockDetail je už nabitýRezervační logika prosakuje do planneru","choice":"a","id":null,"timestamp":1776362098059}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/93566-1776362025/content/ui-block-detail.html"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/93566-1776362025/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

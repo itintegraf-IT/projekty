@@ -99,6 +99,8 @@ export function BlockEdit({
   const [locked, setLocked]           = useState(block.locked);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
+  const [showOrderNumberPrompt, setShowOrderNumberPrompt] = useState(false);
+  const [promptOrderNumber, setPromptOrderNumber] = useState("");
 
   // Délka tisku
   const currentDurationHours = (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
@@ -483,13 +485,13 @@ export function BlockEdit({
   return (
     <div
       tabIndex={-1}
-      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)", outline: "none" }}
+      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)", outline: "none", position: "relative" }}
       onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
         if (
           e.key === "Enter" && !e.shiftKey &&
           (e.target as HTMLElement).tagName !== "TEXTAREA" &&
           (e.target as HTMLElement).tagName !== "SELECT" &&
-          !seriesConfirm
+          !seriesConfirm && !showOrderNumberPrompt
         ) {
           e.preventDefault();
           handleSave();
@@ -534,7 +536,7 @@ export function BlockEdit({
           <SectionLabel>Typ záznamu</SectionLabel>
           <div style={{ display: "flex", gap: 6 }}>
             {(Object.entries(TYPE_BUILDER_CONFIG) as [string, typeof TYPE_BUILDER_CONFIG[keyof typeof TYPE_BUILDER_CONFIG]][]).map(([key, cfg]) => (
-              <button key={key} type="button" onClick={() => { setType(key); if (key !== "ZAKAZKA") setBlockVariant("STANDARD"); }} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)", background: type === key ? `${cfg.color}22` : "var(--surface-2)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <button key={key} type="button" onClick={() => { if (key === "ZAKAZKA" && block.type === "REZERVACE") { setShowOrderNumberPrompt(true); return; } setType(key); if (key !== "ZAKAZKA") setBlockVariant("STANDARD"); }} style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: type === key ? `1px solid ${cfg.color}` : "1px solid var(--border)", background: type === key ? `${cfg.color}22` : "var(--surface-2)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                 <cfg.icon size={14} strokeWidth={1.5} color={type === key ? cfg.color : "var(--text-muted)"} />
                 <span style={{ fontSize: 9, fontWeight: 600, color: type === key ? cfg.color : "var(--text-muted)", textAlign: "center" }}>{cfg.label}</span>
               </button>
@@ -1034,6 +1036,66 @@ export function BlockEdit({
           {typeCfg && <typeCfg.icon size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />}{typeCfg?.label}
         </div>
       </div>
+
+      {/* Popup: vyplň číslo zakázky při překlopení REZERVACE → ZAKAZKA */}
+      {showOrderNumberPrompt && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", borderRadius: "inherit" }}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 20, width: 280, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 12 }}>Překlopení na zakázku</div>
+            <label style={{ fontSize: 12, color: "var(--text)", display: "block", marginBottom: 6 }}>Vyplň číslo zakázky</label>
+            <input
+              autoFocus
+              value={promptOrderNumber}
+              onChange={(e) => setPromptOrderNumber(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && promptOrderNumber.trim()) {
+                  e.stopPropagation();
+                  const num = promptOrderNumber.trim();
+                  setShowOrderNumberPrompt(false);
+                  setPromptOrderNumber("");
+                  const payload = buildPayload();
+                  payload.orderNumber = num;
+                  payload.type = "ZAKAZKA";
+                  payload.blockVariant = blockVariant;
+                  doSave(payload);
+                }
+                if (e.key === "Escape") {
+                  setShowOrderNumberPrompt(false);
+                  setPromptOrderNumber("");
+                }
+              }}
+              placeholder="např. 12345"
+              style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--card)", color: "var(--foreground)", fontSize: 13, fontFamily: "inherit", boxSizing: "border-box" }}
+            />
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button
+                type="button"
+                disabled={!promptOrderNumber.trim()}
+                onClick={() => {
+                  const num = promptOrderNumber.trim();
+                  setShowOrderNumberPrompt(false);
+                  setPromptOrderNumber("");
+                  const payload = buildPayload();
+                  payload.orderNumber = num;
+                  payload.type = "ZAKAZKA";
+                  payload.blockVariant = blockVariant;
+                  doSave(payload);
+                }}
+                style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "none", background: promptOrderNumber.trim() ? "#10b981" : "var(--surface-2)", color: promptOrderNumber.trim() ? "#fff" : "var(--text-muted)", fontWeight: 600, fontSize: 12, cursor: promptOrderNumber.trim() ? "pointer" : "not-allowed" }}
+              >
+                Potvrdit
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowOrderNumberPrompt(false); setPromptOrderNumber(""); }}
+                style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}
+              >
+                Zrušit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

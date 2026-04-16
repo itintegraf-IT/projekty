@@ -14,8 +14,8 @@ export interface Reservation {
   status: string;
   companyName: string;
   erpOfferNumber: string;
-  requestedExpeditionDate: string;
-  requestedDataDate: string;
+  requestedExpeditionDate: string | null;
+  requestedDataDate: string | null;
   requestText: string | null;
   requestedByUserId: number;
   requestedByUsername: string;
@@ -29,6 +29,17 @@ export interface Reservation {
   scheduledStartTime: string | null;
   scheduledEndTime: string | null;
   scheduledAt: string | null;
+  confirmedAt: string | null;
+  confirmedByUserId: number | null;
+  confirmedByUsername: string | null;
+  counterProposedExpeditionDate: string | null;
+  counterProposedDataDate: string | null;
+  counterProposedReason: string | null;
+  counterProposedAt: string | null;
+  counterProposedByUserId: number | null;
+  counterProposedByUsername: string | null;
+  withdrawnAt: string | null;
+  withdrawnReason: string | null;
   createdAt: string;
   updatedAt: string;
   attachments: ReservationAttachment[];

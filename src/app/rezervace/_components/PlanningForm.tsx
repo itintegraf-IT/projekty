@@ -68,6 +68,9 @@ function SelectWrap({ children }: { children: React.ReactNode }) {
 export default function PlanningForm({ reservation, onPrepared }: Props) {
   const existing = reservation.planningPayload as Record<string, unknown> | null;
 
+  const [machine, setMachine] = useState<string>(
+    (existing?.machine as string | undefined) ?? ""
+  );
   const [description, setDescription] = useState<string>(
     (existing?.description as string | undefined) ?? reservation.companyName
   );
@@ -76,11 +79,11 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
   );
   const [deadlineExpedice, setDeadlineExpedice] = useState<string>(
     (existing?.deadlineExpedice as string | undefined) ??
-    reservation.requestedExpeditionDate.slice(0, 10)
+    (reservation.requestedExpeditionDate ? reservation.requestedExpeditionDate.slice(0, 10) : "")
   );
   const [dataRequiredDate, setDataRequiredDate] = useState<string>(
     (existing?.dataRequiredDate as string | undefined) ??
-    reservation.requestedDataDate.slice(0, 10)
+    (reservation.requestedDataDate ? reservation.requestedDataDate.slice(0, 10) : "")
   );
   const [dataStatusId, setDataStatusId] = useState<string>(
     existing?.dataStatusId !== undefined && existing.dataStatusId !== null
@@ -149,6 +152,7 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
     setError(null);
     try {
       const payload: Record<string, unknown> = {
+        machine: machine || null,
         description,
         durationHours,
         deadlineExpedice: deadlineExpedice || null,
@@ -195,7 +199,7 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
       {/* ── Základní parametry ── */}
       <div>
         <div style={sectionLabel}>Základní parametry</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           <div>
             <label style={labelStyle}>Popis zakázky</label>
             <input
@@ -224,6 +228,24 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
                 {DURATION_OPTIONS.map((opt) => (
                   <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
                 ))}
+              </select>
+            </SelectWrap>
+          </div>
+          <div>
+            <label style={labelStyle}>Tiskový stroj</label>
+            <SelectWrap>
+              <select
+                value={machine}
+                onChange={(e) => setMachine(e.target.value)}
+                style={{ ...selectStyle, color: machine ? "var(--text)" : "var(--text-muted)" }}
+                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
+                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
+              >
+                <option value="">— neurčeno —</option>
+                <option value="XL_105">XL 105</option>
+                <option value="XL_106">XL 106</option>
               </select>
             </SelectWrap>
           </div>

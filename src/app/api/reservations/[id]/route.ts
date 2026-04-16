@@ -3,11 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { serializeReservation } from "@/lib/reservationSerialization";
+import { parseCivilDateForDb } from "@/lib/dateUtils";
 
 const ALLOWED_ROLES = ["ADMIN", "PLANOVAT", "OBCHODNIK"];
 const PLANNER_ROLES = ["ADMIN", "PLANOVAT"];
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+function parseCivilDateInput(value: unknown): Date | null {
+  return parseCivilDateForDb(value);
+}
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
   const session = await getSession();
@@ -65,8 +70,10 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 
     if (!action) return NextResponse.json({ error: "Chybí pole action" }, { status: 400 });
 
-    // Jen PLANOVAT/ADMIN smí provádět stavové přechody
-    if (!PLANNER_ROLES.includes(session.role)) {
+    // Role check — většinu akcí smí jen PLANOVAT/ADMIN, protinávrh-odpověď smí i OBCHODNIK
+    const isPlanner = PLANNER_ROLES.includes(session.role);
+    const isObchodnik = session.role === "OBCHODNIK";
+    if (!isPlanner && !isObchodnik) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -75,6 +82,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 
     // ── accept: SUBMITTED → ACCEPTED ──────────────────────────────────────────
     if (action === "accept") {
+      if (!isPlanner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       if (reservation.status !== "SUBMITTED") {
         return NextResponse.json(
           { error: `Nelze přijmout rezervaci ve stavu ${reservation.status}` },
@@ -92,9 +100,10 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       return NextResponse.json(serializeReservation(updated));
     }
 
-    // ── reject: SUBMITTED|ACCEPTED|QUEUE_READY → REJECTED ─────────────────────
+    // ── reject: SUBMITTED|ACCEPTED|QUEUE_READY|SCHEDULED|COUNTER_PROPOSED → REJECTED ──
     if (action === "reject") {
-      if (!["SUBMITTED", "ACCEPTED", "QUEUE_READY"].includes(reservation.status)) {
+      if (!isPlanner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (!["SUBMITTED", "ACCEPTED", "QUEUE_READY", "SCHEDULED", "COUNTER_PROPOSED"].includes(reservation.status)) {
         return NextResponse.json(
           { error: `Nelze zamítnout rezervaci ve stavu ${reservation.status}` },
           { status: 409 }
@@ -132,6 +141,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 
     // ── prepare: ACCEPTED → QUEUE_READY ───────────────────────────────────────
     if (action === "prepare") {
+      if (!isPlanner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       if (reservation.status !== "ACCEPTED") {
         return NextResponse.json(
           { error: `Nelze připravit rezervaci ve stavu ${reservation.status}` },
@@ -155,35 +165,171 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       return NextResponse.json(serializeReservation(updated));
     }
 
-    // ── notify: manuální upozornění obchodníka ─────────────────────────────────
-    if (action === "notify") {
-      const notifMessage = body.message
-        ? String(body.message).slice(0, 500)
-        : `Upozornění k rezervaci ${reservation.code} (${reservation.companyName})`;
-      await prisma.$transaction([
-        prisma.notification.create({
+    // ── confirm: SCHEDULED → CONFIRMED ────────────────────────────────────────
+    if (action === "confirm") {
+      if (!isPlanner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (reservation.status !== "SCHEDULED") {
+        return NextResponse.json(
+          { error: `Nelze potvrdit rezervaci ve stavu ${reservation.status}` },
+          { status: 409 }
+        );
+      }
+      const updated = await prisma.$transaction(async (tx) => {
+        const r = await tx.reservation.update({
+          where: { id },
           data: {
-            type: "RESERVATION_MANUAL",
-            message: notifMessage,
+            status: "CONFIRMED",
+            confirmedAt: new Date(),
+            confirmedByUserId: session.id,
+            confirmedByUsername: session.username,
+          },
+        });
+        await tx.notification.create({
+          data: {
+            type: "RESERVATION_CONFIRMED",
+            message: `Vaše rezervace ${r.code} (${r.companyName}) byla potvrzena`,
             reservationId: id,
-            targetUserId: reservation.requestedByUserId,
+            targetUserId: r.requestedByUserId,
             createdByUserId: session.id,
             createdByUsername: session.username,
           },
-        }),
-        prisma.auditLog.create({
+        });
+        return r;
+      });
+      return NextResponse.json(serializeReservation(updated));
+    }
+
+    // ── counter-propose: SCHEDULED → COUNTER_PROPOSED ─────────────────────────
+    if (action === "counter-propose") {
+      if (!isPlanner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (reservation.status !== "SCHEDULED") {
+        return NextResponse.json(
+          { error: `Nelze navrhnout jiný termín pro rezervaci ve stavu ${reservation.status}` },
+          { status: 409 }
+        );
+      }
+      const { counterExpeditionDate, counterDataDate, reason } = body;
+      if (!counterExpeditionDate && !counterDataDate) {
+        return NextResponse.json({ error: "Vyplňte alespoň jeden navrhovaný termín" }, { status: 400 });
+      }
+      const reason_ = reason ? String(reason).trim() : "";
+      if (!reason_) {
+        return NextResponse.json({ error: "Důvod protinávrhu je povinný" }, { status: 400 });
+      }
+      const cpExpDate = counterExpeditionDate ? parseCivilDateInput(counterExpeditionDate) : null;
+      const cpDataDate = counterDataDate ? parseCivilDateInput(counterDataDate) : null;
+      if (counterExpeditionDate && !cpExpDate) {
+        return NextResponse.json({ error: "Neplatný formát counterExpeditionDate" }, { status: 400 });
+      }
+      if (counterDataDate && !cpDataDate) {
+        return NextResponse.json({ error: "Neplatný formát counterDataDate" }, { status: 400 });
+      }
+      const updated = await prisma.$transaction(async (tx) => {
+        const r = await tx.reservation.update({
+          where: { id },
           data: {
-            blockId: 0,
-            orderNumber: reservation.code ?? `rezervace-${id}`,
-            userId: session.id,
-            username: session.username,
-            action: "RESERVATION_NOTIFY",
-            field: "message",
-            newValue: notifMessage,
+            status: "COUNTER_PROPOSED",
+            counterProposedExpeditionDate: cpExpDate,
+            counterProposedDataDate: cpDataDate,
+            counterProposedReason: reason_,
+            counterProposedAt: new Date(),
+            counterProposedByUserId: session.id,
+            counterProposedByUsername: session.username,
           },
-        }),
-      ]);
-      return NextResponse.json({ ok: true });
+        });
+        await tx.notification.create({
+          data: {
+            type: "RESERVATION_COUNTER_PROPOSED",
+            message: `K rezervaci ${r.code} (${r.companyName}) byl navržen jiný termín`,
+            reservationId: id,
+            targetUserId: r.requestedByUserId,
+            createdByUserId: session.id,
+            createdByUsername: session.username,
+          },
+        });
+        return r;
+      });
+      return NextResponse.json(serializeReservation(updated));
+    }
+
+    // ── accept-counter: COUNTER_PROPOSED → CONFIRMED (obchodník souhlasí) ────
+    if (action === "accept-counter") {
+      if (!isObchodnik) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (reservation.status !== "COUNTER_PROPOSED") {
+        return NextResponse.json(
+          { error: `Nelze potvrdit protinávrh pro rezervaci ve stavu ${reservation.status}` },
+          { status: 409 }
+        );
+      }
+      if (reservation.requestedByUserId !== session.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const updated = await prisma.$transaction(async (tx) => {
+        const r = await tx.reservation.update({
+          where: { id },
+          data: {
+            status: "CONFIRMED",
+            requestedExpeditionDate: reservation.counterProposedExpeditionDate ?? reservation.requestedExpeditionDate,
+            requestedDataDate: reservation.counterProposedDataDate ?? reservation.requestedDataDate,
+            confirmedAt: new Date(),
+            confirmedByUserId: reservation.counterProposedByUserId,
+            confirmedByUsername: reservation.counterProposedByUsername,
+          },
+        });
+        if (reservation.counterProposedByUserId) {
+          await tx.notification.create({
+            data: {
+              type: "RESERVATION_COUNTER_ACCEPTED",
+              message: `Obchodník souhlasil s protinávrhem pro ${r.code} (${r.companyName})`,
+              reservationId: id,
+              targetUserId: reservation.counterProposedByUserId,
+              createdByUserId: session.id,
+              createdByUsername: session.username,
+            },
+          });
+        }
+        return r;
+      });
+      return NextResponse.json(serializeReservation(updated));
+    }
+
+    // ── reject-counter: COUNTER_PROPOSED → WITHDRAWN (obchodník nesouhlasí) ──
+    if (action === "reject-counter") {
+      if (!isObchodnik) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      if (reservation.status !== "COUNTER_PROPOSED") {
+        return NextResponse.json(
+          { error: `Nelze odmítnout protinávrh pro rezervaci ve stavu ${reservation.status}` },
+          { status: 409 }
+        );
+      }
+      if (reservation.requestedByUserId !== session.id) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+      const withdrawnReason = body.reason ? String(body.reason).trim() : null;
+      const updated = await prisma.$transaction(async (tx) => {
+        const r = await tx.reservation.update({
+          where: { id },
+          data: {
+            status: "WITHDRAWN",
+            withdrawnAt: new Date(),
+            withdrawnReason: withdrawnReason,
+          },
+        });
+        if (reservation.counterProposedByUserId) {
+          await tx.notification.create({
+            data: {
+              type: "RESERVATION_WITHDRAWN",
+              message: `Obchodník odmítl protinávrh pro ${r.code} (${r.companyName})${withdrawnReason ? `: ${withdrawnReason}` : ""}`,
+              reservationId: id,
+              targetUserId: reservation.counterProposedByUserId,
+              createdByUserId: session.id,
+              createdByUsername: session.username,
+            },
+          });
+        }
+        return r;
+      });
+      return NextResponse.json(serializeReservation(updated));
     }
 
     return NextResponse.json({ error: `Neznámá akce: ${action}` }, { status: 400 });

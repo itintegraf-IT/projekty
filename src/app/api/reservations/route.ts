@@ -26,15 +26,14 @@ export async function GET(req: NextRequest) {
     // Stavy dle bucketu — role-aware mapping (spec: SPECIFIKACE_DALSI_VLNY_ZMEN.md §GET /api/reservations)
     let statusFilter: string[] | undefined;
     if (session.role === "OBCHODNIK") {
-      // OBCHODNIK: active = vlastní SUBMITTED+ACCEPTED+QUEUE_READY; archive = SCHEDULED+REJECTED
-      if (bucket === "active")  statusFilter = ["SUBMITTED", "ACCEPTED", "QUEUE_READY"];
-      else if (bucket === "archive") statusFilter = ["SCHEDULED", "REJECTED"];
-      // bucket "new" → žádný filtr (OBCHODNIK nemá záložku Nové)
+      // OBCHODNIK: active = vlastní aktivní; archive = uzavřené
+      if (bucket === "active")  statusFilter = ["SUBMITTED", "ACCEPTED", "QUEUE_READY", "SCHEDULED", "COUNTER_PROPOSED"];
+      else if (bucket === "archive") statusFilter = ["CONFIRMED", "REJECTED", "WITHDRAWN"];
     } else {
-      // ADMIN, PLANOVAT: new=SUBMITTED; active=ACCEPTED+QUEUE_READY; archive=SCHEDULED+REJECTED
+      // ADMIN, PLANOVAT: new=SUBMITTED; active=rozpracované; archive=uzavřené
       if (bucket === "new")         statusFilter = ["SUBMITTED"];
-      else if (bucket === "active") statusFilter = ["ACCEPTED", "QUEUE_READY"];
-      else if (bucket === "archive") statusFilter = ["SCHEDULED", "REJECTED"];
+      else if (bucket === "active") statusFilter = ["ACCEPTED", "QUEUE_READY", "SCHEDULED", "COUNTER_PROPOSED"];
+      else if (bucket === "archive") statusFilter = ["CONFIRMED", "REJECTED", "WITHDRAWN"];
     }
 
     // OBCHODNIK vidí jen vlastní rezervace
@@ -92,20 +91,26 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { companyName, erpOfferNumber, requestedExpeditionDate, requestedDataDate, requestText } = body;
 
-    if (!companyName || !erpOfferNumber || !requestedExpeditionDate || !requestedDataDate) {
+    if (!companyName || !erpOfferNumber) {
       return NextResponse.json(
-        { error: "Chybí povinná pole: companyName, erpOfferNumber, requestedExpeditionDate, requestedDataDate" },
+        { error: "Chybí povinná pole: companyName, erpOfferNumber" },
+        { status: 400 }
+      );
+    }
+    if (!requestedExpeditionDate && !requestedDataDate) {
+      return NextResponse.json(
+        { error: "Vyplňte alespoň jeden termín (expedice nebo dat)" },
         { status: 400 }
       );
     }
 
     // Validace datumů — odmítnout nevalidní hodnoty před zápisem do DB
-    const expDate = parseCivilDateInput(requestedExpeditionDate);
-    const dataDate = parseCivilDateInput(requestedDataDate);
-    if (!expDate) {
+    const expDate = requestedExpeditionDate ? parseCivilDateInput(requestedExpeditionDate) : null;
+    const dataDate = requestedDataDate ? parseCivilDateInput(requestedDataDate) : null;
+    if (requestedExpeditionDate && !expDate) {
       return NextResponse.json({ error: "Neplatný formát requestedExpeditionDate" }, { status: 400 });
     }
-    if (!dataDate) {
+    if (requestedDataDate && !dataDate) {
       return NextResponse.json({ error: "Neplatný formát requestedDataDate" }, { status: 400 });
     }
 
@@ -116,8 +121,8 @@ export async function POST(request: NextRequest) {
           status: "SUBMITTED",
           companyName: String(companyName),
           erpOfferNumber: String(erpOfferNumber),
-          requestedExpeditionDate: expDate,
-          requestedDataDate: dataDate,
+          requestedExpeditionDate: expDate ?? undefined,
+          requestedDataDate: dataDate ?? undefined,
           requestText: requestText ? String(requestText) : null,
           requestedByUserId: session.id,
           requestedByUsername: session.username,

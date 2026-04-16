@@ -67,6 +67,24 @@ export function BlockDetail({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [blockHistory, setBlockHistory] = useState<AuditLogEntry[]>([]);
+  const [reservation, setReservation] = useState<{
+    id: number;
+    code: string;
+    status: string;
+    companyName: string;
+    requestedExpeditionDate: string | null;
+    requestedDataDate: string | null;
+    requestedByUsername: string;
+    counterProposedExpeditionDate: string | null;
+    counterProposedByUsername: string | null;
+  } | null>(null);
+  const [resLoading, setResLoading] = useState(false);
+  const [resAction, setResAction] = useState<string | null>(null);
+  const [resError, setResError] = useState<string | null>(null);
+  const [showCounterForm, setShowCounterForm] = useState(false);
+  const [counterExpDate, setCounterExpDate] = useState("");
+  const [counterDataDate, setCounterDataDate] = useState("");
+  const [counterReason, setCounterReason] = useState("");
   const typeCfg = TYPE_BUILDER_CONFIG[block.type as keyof typeof TYPE_BUILDER_CONFIG];
 
   useEffect(() => {
@@ -75,6 +93,43 @@ export function BlockDetail({
       .then((data: AuditLogEntry[]) => setBlockHistory(data))
       .catch(() => setBlockHistory([]));
   }, [block.id]);
+
+  useEffect(() => {
+    if (!block.reservationId) { setReservation(null); return; }
+    setResLoading(true);
+    fetch(`/api/reservations/${block.reservationId}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => setReservation(data))
+      .catch(() => setReservation(null))
+      .finally(() => setResLoading(false));
+  }, [block.reservationId]);
+
+  async function handleResAction(action: string, extra?: Record<string, unknown>) {
+    if (!reservation) return;
+    setResAction(action);
+    setResError(null);
+    try {
+      const res = await fetch(`/api/reservations/${reservation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error ?? "Chyba");
+      }
+      const updated = await res.json();
+      setReservation(updated);
+      setShowCounterForm(false);
+      setCounterExpDate("");
+      setCounterDataDate("");
+      setCounterReason("");
+    } catch (err: unknown) {
+      setResError(err instanceof Error ? err.message : "Chyba");
+    } finally {
+      setResAction(null);
+    }
+  }
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--border)" }}>
@@ -163,6 +218,125 @@ export function BlockDetail({
               <div className="text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Termín</div>
               <Row label="Expedice" value={formatDate(block.deadlineExpedice)} />
             </div>
+          </>
+        )}
+
+        {/* Rezervace — zobrazit jen pokud blok má reservationId */}
+        {block.reservationId && reservation && (
+          <>
+            <Separator className="my-1 bg-slate-800" />
+            <div style={{ borderRadius: 8, border: "1px solid rgba(124,58,237,0.2)", background: "rgba(124,58,237,0.06)", padding: "10px 12px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#c084fc", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>
+                Rezervace {reservation.code}
+              </div>
+              <div style={{ display: "grid", gap: 4, fontSize: 11, marginBottom: 10 }}>
+                <div><span style={{ color: "var(--text-muted)", display: "inline-block", width: 100 }}>Firma:</span> <span style={{ color: "var(--text)" }}>{reservation.companyName}</span></div>
+                {reservation.requestedExpeditionDate && (
+                  <div><span style={{ color: "var(--text-muted)", display: "inline-block", width: 100 }}>Termín expedice:</span> <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDate(reservation.requestedExpeditionDate)}</span></div>
+                )}
+                {reservation.requestedDataDate && (
+                  <div><span style={{ color: "var(--text-muted)", display: "inline-block", width: 100 }}>Termín dat:</span> <span style={{ color: "var(--text)", fontWeight: 600 }}>{formatDate(reservation.requestedDataDate)}</span></div>
+                )}
+                <div><span style={{ color: "var(--text-muted)", display: "inline-block", width: 100 }}>Obchodník:</span> {reservation.requestedByUsername}</div>
+                <div>
+                  <span style={{ color: "var(--text-muted)", display: "inline-block", width: 100 }}>Stav:</span>
+                  {reservation.status === "SCHEDULED" && <span style={{ color: "#f59e0b", fontWeight: 600 }}>Naplánováno</span>}
+                  {reservation.status === "CONFIRMED" && <span style={{ color: "#10b981", fontWeight: 600 }}>Potvrzeno</span>}
+                  {reservation.status === "COUNTER_PROPOSED" && <span style={{ color: "#f59e0b", fontWeight: 600 }}>Čeká na obchodníka</span>}
+                  {reservation.status === "REJECTED" && <span style={{ color: "#dc2626", fontWeight: 600 }}>Zamítnuto</span>}
+                  {reservation.status === "WITHDRAWN" && <span style={{ color: "#dc2626", fontWeight: 600 }}>Staženo</span>}
+                </div>
+              </div>
+
+              {resError && (
+                <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8, padding: "4px 8px", background: "rgba(239,68,68,0.08)", borderRadius: 6 }}>
+                  {resError}
+                </div>
+              )}
+
+              {/* Akce pro SCHEDULED */}
+              {canEdit && reservation.status === "SCHEDULED" && !showCounterForm && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button
+                    onClick={() => handleResAction("confirm")}
+                    disabled={resAction === "confirm"}
+                    style={{ fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: "#10b981", color: "#fff", cursor: resAction === "confirm" ? "not-allowed" : "pointer", opacity: resAction === "confirm" ? 0.6 : 1 }}
+                  >
+                    {resAction === "confirm" ? "Potvrzuji…" : "Potvrdit termín"}
+                  </button>
+                  <button
+                    onClick={() => setShowCounterForm(true)}
+                    style={{ fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", background: "#f59e0b", color: "#fff", cursor: "pointer" }}
+                  >
+                    Navrhnout jiný
+                  </button>
+                </div>
+              )}
+
+              {/* Inline formulář protinávrhu */}
+              {canEdit && reservation.status === "SCHEDULED" && showCounterForm && (
+                <div style={{ display: "grid", gap: 8, marginTop: 4 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3 }}>Nový termín expedice</div>
+                    <input
+                      type="date"
+                      value={counterExpDate}
+                      onChange={(e) => setCounterExpDate(e.target.value)}
+                      style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 11, fontFamily: "inherit" }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3 }}>Nový termín dat <span style={{ color: "var(--text-muted)", fontSize: 9 }}>(volitelné)</span></div>
+                    <input
+                      type="date"
+                      value={counterDataDate}
+                      onChange={(e) => setCounterDataDate(e.target.value)}
+                      style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 11, fontFamily: "inherit" }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 3 }}>Důvod *</div>
+                    <textarea
+                      value={counterReason}
+                      onChange={(e) => setCounterReason(e.target.value)}
+                      placeholder="Kapacita knihárny obsazená do…"
+                      rows={2}
+                      style={{ width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--surface-2)", color: "var(--text)", fontSize: 11, fontFamily: "inherit", resize: "vertical" }}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      onClick={() => handleResAction("counter-propose", {
+                        counterExpeditionDate: counterExpDate || undefined,
+                        counterDataDate: counterDataDate || undefined,
+                        reason: counterReason,
+                      })}
+                      disabled={(!counterExpDate && !counterDataDate) || !counterReason.trim() || resAction === "counter-propose"}
+                      style={{
+                        fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none",
+                        background: (!counterExpDate && !counterDataDate) || !counterReason.trim() ? "var(--surface-3)" : "#f59e0b",
+                        color: (!counterExpDate && !counterDataDate) || !counterReason.trim() ? "var(--text-muted)" : "#fff",
+                        cursor: (!counterExpDate && !counterDataDate) || !counterReason.trim() ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      {resAction === "counter-propose" ? "Odesílám…" : "Odeslat protinávrh"}
+                    </button>
+                    <button
+                      onClick={() => { setShowCounterForm(false); setCounterExpDate(""); setCounterDataDate(""); setCounterReason(""); }}
+                      style={{ fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", cursor: "pointer" }}
+                    >
+                      Zrušit
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+        {block.reservationId && resLoading && (
+          <>
+            <Separator className="my-1 bg-slate-800" />
+            <div style={{ fontSize: 10, color: "var(--text-muted)", padding: 8 }}>Načítám rezervaci…</div>
           </>
         )}
 

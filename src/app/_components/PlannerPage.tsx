@@ -86,6 +86,7 @@ type QueueItem = {
   reservationId?: number;
   reservationCode?: string;
   companyName?: string;
+  reservationMachine?: string | null;
 };
 
 type PushSuggestion = {
@@ -457,8 +458,8 @@ type ReservationQueueItem = {
   code: string;
   companyName: string;
   planningPayload: Record<string, unknown> | null;
-  requestedExpeditionDate: string;
-  requestedDataDate: string;
+  requestedExpeditionDate: string | null;
+  requestedDataDate: string | null;
   preparedAt: string | null;
 };
 
@@ -475,7 +476,7 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     description: typeof p.description === "string" ? p.description : r.companyName,
     dataStatusId: null,
     dataStatusLabel: null,
-    dataRequiredDate: typeof p.dataRequiredDate === "string" ? p.dataRequiredDate : r.requestedDataDate.slice(0, 10),
+    dataRequiredDate: typeof p.dataRequiredDate === "string" ? p.dataRequiredDate : r.requestedDataDate ? r.requestedDataDate.slice(0, 10) : null,
     materialStatusId: null,
     materialStatusLabel: null,
     materialRequiredDate: typeof p.materialRequiredDate === "string" ? p.materialRequiredDate : null,
@@ -487,12 +488,13 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     lakStatusId: null,
     lakStatusLabel: null,
     specifikace: typeof p.specifikace === "string" ? p.specifikace : "",
-    deadlineExpedice: typeof p.deadlineExpedice === "string" ? p.deadlineExpedice : r.requestedExpeditionDate.slice(0, 10),
+    deadlineExpedice: typeof p.deadlineExpedice === "string" ? p.deadlineExpedice : r.requestedExpeditionDate ? r.requestedExpeditionDate.slice(0, 10) : "",
     recurrenceType: "NONE",
     recurrenceCount: 1,
     reservationId: r.id,
     reservationCode: r.code,
     companyName: r.companyName,
+    reservationMachine: typeof p.machine === "string" ? p.machine : null,
   };
 }
 
@@ -640,11 +642,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [daysBack, setDaysBack]   = useState(3);
 
   // Zoom — kotva pro scroll při změně zoomu
-  const [slotHeight, setSlotHeight] = useState<number>(() => {
-    if (typeof window === "undefined") return 26;
+  const [slotHeight, setSlotHeight] = useState<number>(26);
+  useEffect(() => {
     const z = localStorage.getItem("ig-planner-zoom");
-    return z ? Math.max(3, Math.min(26, Number(z))) : 26;
-  });
+    if (z) setSlotHeight(Math.max(3, Math.min(26, Number(z))));
+  }, []);
 
   // Ref pro debounced ukládání preferencí na server
   const prefsSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -725,13 +727,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   useEffect(() => { savePreference("zoom", String(slotHeight)); }, [slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resizable aside
-  const [asideWidth, setAsideWidth] = useState<number>(() => {
-    if (typeof window === "undefined") return 320;
-    const w = localStorage.getItem("ig-planner-aside-width");
-    return w ? Math.max(200, Math.min(600, Number(w))) : 320;
-  });
+  const [asideWidth, setAsideWidth] = useState<number>(320);
   const asideWidthRef = useRef<number>(asideWidth);
   useEffect(() => { asideWidthRef.current = asideWidth; }, [asideWidth]);
+  useEffect(() => {
+    const w = localStorage.getItem("ig-planner-aside-width");
+    if (w) setAsideWidth(Math.max(200, Math.min(600, Number(w))));
+  }, []);
   const isResizing = useRef(false);
 
   useEffect(() => {
@@ -755,10 +757,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }, []);
 
   // ── DTP Panel state ──
-  const [dtpPanelWidth, setDtpPanelWidth] = useState<number>(() => {
-    if (typeof window === "undefined") return 260;
-    return parseInt(localStorage.getItem("ig-planner-dtp-panel-width") ?? "260", 10);
-  });
+  const [dtpPanelWidth, setDtpPanelWidth] = useState<number>(260);
+  useEffect(() => {
+    const w = localStorage.getItem("ig-planner-dtp-panel-width");
+    if (w) setDtpPanelWidth(parseInt(w, 10));
+  }, []);
   const [showDtpPanel, setShowDtpPanel] = useState<boolean>(
     () => currentUser.role === "DTP"
   );
@@ -2887,29 +2890,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           ) : selectedBlock ? (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} canEdit={canEdit} onBlockUpdate={handleBlockUpdate} />
-              {/* "Upozornit obchod" — jen pokud blok má reservationId a canEdit */}
-              {canEdit && selectedBlock.reservationId && (
-                <div style={{ padding: "8px 16px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
-                  <button
-                    onClick={async () => {
-                      const r = await fetch(`/api/reservations/${selectedBlock.reservationId}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ action: "notify" }),
-                      });
-                      if (r.ok) showToast("Upozornění odesláno obchodníkovi", "success");
-                      else showToast("Chyba při odesílání upozornění", "error");
-                    }}
-                    style={{
-                      width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(124,58,237,0.3)",
-                      background: "rgba(124,58,237,0.08)", color: "#7c3aed", fontFamily: "inherit",
-                      fontWeight: 600, fontSize: 12, cursor: "pointer", transition: "background 150ms ease-out",
-                    }}
-                  >
-                    Upozornit obchod
-                  </button>
-                </div>
-              )}
             </div>
           ) : (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "var(--surface)", borderLeft: "1px solid var(--border)" }}>
@@ -3651,12 +3631,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                                 {item.reservationCode}
                               </span>
                               <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>Rezervace</span>
+                              {item.reservationMachine && (
+                                <span style={{ fontSize: 9, fontWeight: 600, color: item.reservationMachine === "XL_105" ? "#3b82f6" : "#16a34a", background: item.reservationMachine === "XL_105" ? "rgba(59,130,246,0.12)" : "rgba(22,163,74,0.12)", padding: "1px 5px", borderRadius: 4, marginLeft: "auto" }}>
+                                  {item.reservationMachine === "XL_105" ? "XL 105" : "XL 106"}
+                                </span>
+                              )}
                             </div>
                             <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {item.companyName}
                             </div>
-                            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>
-                              {formatDuration(item.durationHours)}
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>
+                              <span>{formatDuration(item.durationHours)}</span>
+                              {item.dataRequiredDate && (
+                                <span>Data: <strong style={{ color: "var(--text)" }}>{new Date(item.dataRequiredDate + "T00:00:00").toLocaleDateString("cs-CZ", { day: "numeric", month: "short", timeZone: "UTC" })}</strong></span>
+                              )}
+                              {item.materialInStock ? (
+                                <span>Mat: <strong style={{ color: "#10b981" }}>skladem</strong></span>
+                              ) : item.materialRequiredDate ? (
+                                <span>Mat: <strong style={{ color: "var(--text)" }}>{new Date(item.materialRequiredDate + "T00:00:00").toLocaleDateString("cs-CZ", { day: "numeric", month: "short", timeZone: "UTC" })}</strong></span>
+                              ) : null}
                             </div>
                           </div>
                         </div>

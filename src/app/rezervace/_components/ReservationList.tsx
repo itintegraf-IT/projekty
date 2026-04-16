@@ -32,7 +32,8 @@ const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
   REJECTED: { bg: "rgba(220,38,38,0.12)", text: "#dc2626" },
 };
 
-function fmtDate(iso: string): string {
+function fmtDate(iso: string | null): string {
+  if (!iso) return "—";
   try {
     return DATE_FMT.format(new Date(iso));
   } catch {

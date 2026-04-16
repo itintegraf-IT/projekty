@@ -1,0 +1,44 @@
+<h2>Kde plánovač potvrzuje termín po naplánování?</h2>
+<p class="subtitle">Klíčová UX otázka: plánovač právě přetáhl zakázku na timeline. Kde a jak potvrdí termín obchodníkovi?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>V detailu bloku na timeline</h3>
+      <p>Plánovač klikne na blok z rezervace, v panelu detailu se zobrazí sekce s akcemi: <strong>Potvrdit termín</strong> / <strong>Navrhnout jiný</strong>. Nejméně kroků — potvrdí tam, kde právě pracuje.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pro</h4><ul><li>Zero přepínání kontextu</li><li>Akce přesně tam, kde plánovač pracuje</li><li>Nejrychlejší workflow</li></ul></div>
+        <div class="cons"><h4>Proti</h4><ul><li>BlockDetail je už nabitý</li><li>Rezervační logika prosakuje do planneru</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>V modulu Rezervace (ReservationDetail)</h3>
+      <p>Po naplánování plánovač přejde do Rezervací, najde zakázku ve stavu SCHEDULED a tam potvrdí/navrhne jiný termín.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pro</h4><ul><li>Vše kolem rezervací na jednom místě</li><li>Čistá separace modulů</li></ul></div>
+        <div class="cons"><h4>Proti</h4><ul><li>Nutné přepínání planner ↔ rezervace</li><li>Při 50 rez/týden otravné</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Obojí — primárně timeline, kompletně v Rezervacích</h3>
+      <p>Na timeline v detailu bloku: rychlé akce (potvrdit / navrhnout jiný termín). V Rezervacích: kompletní pohled s historií, přílohami, komunikací. Plánovač si vybere cestu.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pro</h4><ul><li>Rychlá cesta pro denní práci</li><li>Kompletní pohled pro složitější případy</li><li>Flexibilita</li></ul></div>
+        <div class="cons"><h4>Proti</h4><ul><li>Dvě místa pro stejnou akci = víc kódu</li><li>Riziko nekonzistence</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 32px; padding: 16px 20px; background: rgba(124,58,237,0.06); border-radius: 10px; border: 1px solid rgba(124,58,237,0.15);">
+  <p style="margin: 0; font-size: 14px; color: #aaa;"><strong style="color: #c084fc;">Doporučení:</strong> Varianta C — primární cesta přes timeline (kde plánovač reálně pracuje), plný detail v Rezervacích. Sdílená API akce zajistí konzistenci, UI je na dvou místech ale logika jedna.</p>
+</div>

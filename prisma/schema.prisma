@@ -239,8 +239,8 @@ model Reservation {
   status                  String
   companyName             String
   erpOfferNumber          String
-  requestedExpeditionDate DateTime
-  requestedDataDate       DateTime
+  requestedExpeditionDate DateTime?
+  requestedDataDate       DateTime?
   requestText             String?                 @db.Text
   requestedByUserId       Int
   requestedByUsername     String
@@ -254,6 +254,17 @@ model Reservation {
   scheduledStartTime      DateTime?
   scheduledEndTime        DateTime?
   scheduledAt             DateTime?
+  confirmedAt                    DateTime?
+  confirmedByUserId              Int?
+  confirmedByUsername            String?
+  counterProposedExpeditionDate  DateTime?
+  counterProposedDataDate        DateTime?
+  counterProposedReason          String?          @db.Text
+  counterProposedAt              DateTime?
+  counterProposedByUserId        Int?
+  counterProposedByUsername      String?
+  withdrawnAt                    DateTime?
+  withdrawnReason                String?
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @default(now())
   blocks                  Block[]

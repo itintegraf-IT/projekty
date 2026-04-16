@@ -1,0 +1,132 @@
+<h2>Sekce 3: UI změny</h2>
+<p class="subtitle">Jak vypadají nové prvky v BlockDetail (timeline) a ReservationDetail (modul Rezervace)</p>
+
+<!-- ═══ BLOCK DETAIL NA TIMELINE ═══ -->
+<div class="section">
+  <h3>A) BlockDetail — nová sekce pro bloky z rezervace</h3>
+  <p style="color: #aaa; font-size: 13px; margin-bottom: 16px;">Zobrazí se jen u bloků, které mají <code>reservationId</code>. Plánovač vidí tuto sekci po kliknutí na blok na timeline.</p>
+
+  <div class="split">
+    <!-- Stav SCHEDULED — čeká na potvrzení -->
+    <div class="mockup">
+      <div class="mockup-header">BlockDetail — blok ve stavu SCHEDULED</div>
+      <div class="mockup-body" style="padding: 16px;">
+        <!-- Existující obsah bloku (schematicky) -->
+        <div style="padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.06);">
+          <div style="font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">Zakázka</div>
+          <div style="font-size: 14px; font-weight: 600;">N-26-04521 — Novotný s.r.o.</div>
+          <div style="font-size: 12px; color: #aaa; margin-top: 4px;">XL 105 &middot; 14.–16. 5. 2026</div>
+        </div>
+
+        <!-- NOVÁ SEKCE: Rezervace -->
+        <div style="padding: 14px; background: rgba(124,58,237,0.06); border: 1px solid rgba(124,58,237,0.2); border-radius: 10px;">
+          <div style="font-size: 11px; font-weight: 600; color: #c084fc; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px;">Rezervace R-42</div>
+          <div style="display: grid; gap: 6px; font-size: 13px; margin-bottom: 14px;">
+            <div><span style="color: #888; width: 120px; display: inline-block;">Termín expedice:</span> <strong>20. 5. 2026</strong></div>
+            <div><span style="color: #888; width: 120px; display: inline-block;">Obchodník:</span> Vendl</div>
+            <div><span style="color: #888; width: 120px; display: inline-block;">Stav:</span> <span style="color: #f59e0b;">Naplánováno</span></div>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button style="padding: 8px 16px; border-radius: 8px; border: none; background: #10b981; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer;">Potvrdit termín</button>
+            <button style="padding: 8px 16px; border-radius: 8px; border: none; background: #f59e0b; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer;">Navrhnout jiný</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Po kliknutí "Navrhnout jiný" -->
+    <div class="mockup">
+      <div class="mockup-header">BlockDetail — formulář protinávrhu</div>
+      <div class="mockup-body" style="padding: 16px;">
+        <div style="padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.06);">
+          <div style="font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px;">Zakázka</div>
+          <div style="font-size: 14px; font-weight: 600;">N-26-04521 — Novotný s.r.o.</div>
+          <div style="font-size: 12px; color: #aaa; margin-top: 4px;">XL 105 &middot; 14.–16. 5. 2026</div>
+        </div>
+
+        <div style="padding: 14px; background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px;">
+          <div style="font-size: 11px; font-weight: 600; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 12px;">Navrhnout jiný termín</div>
+          <div style="display: grid; gap: 10px;">
+            <div>
+              <div style="font-size: 12px; color: #aaa; margin-bottom: 4px;">Nový termín expedice</div>
+              <div style="padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); font-size: 13px; color: #fff;">27. 5. 2026</div>
+            </div>
+            <div>
+              <div style="font-size: 12px; color: #aaa; margin-bottom: 4px;">Nový termín dat <span style="color: #666;">(volitelné)</span></div>
+              <div style="padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); font-size: 13px; color: #666;">—</div>
+            </div>
+            <div>
+              <div style="font-size: 12px; color: #aaa; margin-bottom: 4px;">Důvod</div>
+              <div style="padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); font-size: 13px; color: #fff; min-height: 40px;">Kapacita knihárny obsazená do 23. 5.</div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 4px;">
+              <button style="padding: 8px 16px; border-radius: 8px; border: none; background: #f59e0b; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer;">Odeslat protinávrh</button>
+              <button style="padding: 8px 16px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: transparent; color: #aaa; font-weight: 600; font-size: 13px; cursor: pointer;">Zrušit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RESERVATION DETAIL — OBCHODNÍK ═══ -->
+<div class="section" style="margin-top: 32px;">
+  <h3>B) ReservationDetail — obchodník vidí protinávrh</h3>
+  <p style="color: #aaa; font-size: 13px; margin-bottom: 16px;">Obchodník klikne na notifikaci, otevře se detail rezervace ve stavu COUNTER_PROPOSED.</p>
+
+  <div class="mockup" style="max-width: 520px;">
+    <div class="mockup-header">ReservationDetail — protinávrh termínu</div>
+    <div class="mockup-body" style="padding: 16px;">
+      <!-- Info -->
+      <div style="display: grid; gap: 6px; font-size: 13px; margin-bottom: 16px;">
+        <div><span style="color: #888; width: 140px; display: inline-block;">Firma:</span> Novotný s.r.o.</div>
+        <div><span style="color: #888; width: 140px; display: inline-block;">Nabídka ERP:</span> N-26-04521</div>
+        <div><span style="color: #888; width: 140px; display: inline-block;">Váš termín expedice:</span> <span style="text-decoration: line-through; color: #888;">20. 5. 2026</span></div>
+        <div><span style="color: #888; width: 140px; display: inline-block;">Stav:</span> <span style="color: #f59e0b; font-weight: 600;">Navržen jiný termín</span></div>
+      </div>
+
+      <!-- Protinávrh box -->
+      <div style="padding: 14px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 10px; margin-bottom: 16px;">
+        <div style="font-size: 11px; font-weight: 600; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 10px;">Protinávrh od plánovače</div>
+        <div style="display: grid; gap: 6px; font-size: 13px;">
+          <div><span style="color: #888;">Nový termín expedice:</span> <strong style="color: #f59e0b; font-size: 15px;">27. 5. 2026</strong></div>
+          <div><span style="color: #888;">Důvod:</span> Kapacita knihárny obsazená do 23. 5.</div>
+          <div><span style="color: #888;">Navrhl:</span> Ťokan &middot; 12. 5. 2026 14:30</div>
+        </div>
+      </div>
+
+      <!-- Akce -->
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <button style="padding: 10px 20px; border-radius: 8px; border: none; background: #10b981; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; flex: 1;">Souhlasím s novým termínem</button>
+        <button style="padding: 10px 20px; border-radius: 8px; border: none; background: #dc2626; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; flex: 1;">Nesouhlasím</button>
+      </div>
+      <div style="font-size: 11px; color: #666; text-align: center;">Při nesouhlasu bude rezervace uzavřena. Pro nový požadavek založte novou rezervaci.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ FORMULÁŘ OBCHODNÍKA ═══ -->
+<div class="section" style="margin-top: 32px;">
+  <h3>C) ReservationForm — volitelné termíny</h3>
+  <p style="color: #aaa; font-size: 13px; margin-bottom: 16px;">Obchodník vyplní alespoň jeden termín. Hvězdička zmizí, místo ní validační hláška.</p>
+
+  <div class="mockup" style="max-width: 480px;">
+    <div class="mockup-header">Formulář nové rezervace — termíny</div>
+    <div class="mockup-body" style="padding: 16px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <div>
+          <div style="font-size: 12px; color: #aaa; margin-bottom: 4px;">Termín expedice</div>
+          <div style="padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); font-size: 13px; color: #fff;">20. 5. 2026</div>
+        </div>
+        <div>
+          <div style="font-size: 12px; color: #aaa; margin-bottom: 4px;">Termín dat</div>
+          <div style="padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.02); font-size: 13px; color: #666;">—</div>
+        </div>
+      </div>
+      <div style="font-size: 12px; color: #888; padding: 8px 12px; background: rgba(124,58,237,0.05); border-radius: 6px; border: 1px solid rgba(124,58,237,0.1);">
+        Vyplňte alespoň jeden termín (expedice nebo dat).
+      </div>
+    </div>
+  </div>
+</div>

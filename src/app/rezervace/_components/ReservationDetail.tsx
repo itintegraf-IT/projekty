@@ -51,6 +51,8 @@ export default function ReservationDetail({ reservation: r, currentUser, onUpdat
   const [rejectReason, setRejectReason] = useState("");
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showWithdrawInput, setShowWithdrawInput] = useState(false);
+  const [withdrawReason, setWithdrawReason] = useState("");
 
   async function doAction(action: string, extra?: Record<string, unknown>) {
     setSubmitting(action);
@@ -111,8 +113,8 @@ export default function ReservationDetail({ reservation: r, currentUser, onUpdat
       <div style={{ display: "grid", gap: 8 }}>
         {fieldRow("Firma", r.companyName)}
         {fieldRow("Nabídka ERP", r.erpOfferNumber)}
-        {fieldRow("Termín expedice", fmtDate(r.requestedExpeditionDate))}
-        {fieldRow("Termín dat", fmtDate(r.requestedDataDate))}
+        {r.requestedExpeditionDate && fieldRow("Termín expedice", fmtDate(r.requestedExpeditionDate))}
+        {r.requestedDataDate && fieldRow("Termín dat", fmtDate(r.requestedDataDate))}
         {fieldRow("Obchodník", r.requestedByUsername)}
         {fieldRow("Vytvořeno", fmtDatetime(r.createdAt))}
         {r.requestText && fieldRow("Popis", <span style={{ whiteSpace: "pre-wrap" }}>{r.requestText}</span>)}
@@ -172,6 +174,133 @@ export default function ReservationDetail({ reservation: r, currentUser, onUpdat
           >
             → Zobrazit v plánovači
           </a>
+        </div>
+      )}
+
+      {/* CONFIRMED info */}
+      {r.status === "CONFIRMED" && (
+        <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>
+          <span style={{ color: "#10b981", fontWeight: 600 }}>Potvrzeno</span>
+          {r.confirmedAt && <span style={{ color: "var(--text-muted)", marginLeft: 8, fontSize: 12 }}>{fmtDatetime(r.confirmedAt)}</span>}
+          {r.confirmedByUsername && <span style={{ color: "var(--text-muted)", marginLeft: 4, fontSize: 12 }}>— {r.confirmedByUsername}</span>}
+          {r.scheduledMachine && (
+            <div style={{ marginTop: 6 }}>
+              Stroj: <strong>{r.scheduledMachine.replace("_", " ")}</strong>,{" "}
+              {fmtDatetime(r.scheduledStartTime)} – {fmtDatetime(r.scheduledEndTime)}
+              {r.scheduledBlockId && (
+                <a href={`/?highlight=${r.scheduledBlockId}`} style={{ marginLeft: 12, color: "#3b82f6", textDecoration: "none", fontSize: 12 }}>
+                  → Zobrazit v plánovači
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* COUNTER_PROPOSED — obchodník vidí protinávrh */}
+      {r.status === "COUNTER_PROPOSED" && (
+        <div>
+          {/* Protinávrh box */}
+          <div style={{ padding: 14, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)", borderRadius: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#f59e0b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10 }}>
+              Protinávrh od plánovače
+            </div>
+            <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
+              {r.counterProposedExpeditionDate && (
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Nový termín expedice: </span>
+                  <strong style={{ color: "#f59e0b", fontSize: 15 }}>{fmtDate(r.counterProposedExpeditionDate)}</strong>
+                  {r.requestedExpeditionDate && (
+                    <span style={{ marginLeft: 8, textDecoration: "line-through", color: "var(--text-muted)", fontSize: 12 }}>
+                      (původně {fmtDate(r.requestedExpeditionDate)})
+                    </span>
+                  )}
+                </div>
+              )}
+              {r.counterProposedDataDate && (
+                <div>
+                  <span style={{ color: "var(--text-muted)" }}>Nový termín dat: </span>
+                  <strong style={{ color: "#f59e0b", fontSize: 15 }}>{fmtDate(r.counterProposedDataDate)}</strong>
+                  {r.requestedDataDate && (
+                    <span style={{ marginLeft: 8, textDecoration: "line-through", color: "var(--text-muted)", fontSize: 12 }}>
+                      (původně {fmtDate(r.requestedDataDate)})
+                    </span>
+                  )}
+                </div>
+              )}
+              {r.counterProposedReason && (
+                <div><span style={{ color: "var(--text-muted)" }}>Důvod: </span>{r.counterProposedReason}</div>
+              )}
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Navrhl: {r.counterProposedByUsername} · {fmtDatetime(r.counterProposedAt)}
+              </div>
+            </div>
+          </div>
+
+          {/* Akce pro obchodníka */}
+          {!isPlanner && r.requestedByUserId === currentUser.id && (
+            <div>
+              {error && (
+                <div style={{ background: "rgba(220,38,38,0.08)", border: "1px solid rgba(220,38,38,0.3)", borderRadius: 8, padding: "8px 12px", color: "var(--danger)", fontSize: 13, marginBottom: 12 }}>
+                  {error}
+                </div>
+              )}
+              {!showWithdrawInput ? (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => doAction("accept-counter")}
+                    disabled={submitting === "accept-counter"}
+                    style={btnStyle("#10b981", submitting === "accept-counter")}
+                  >
+                    {submitting === "accept-counter" ? "Potvrzuji…" : "Souhlasím s novým termínem"}
+                  </button>
+                  <button
+                    onClick={() => setShowWithdrawInput(true)}
+                    style={btnStyle("#dc2626", false)}
+                  >
+                    Nesouhlasím
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <textarea
+                    value={withdrawReason}
+                    onChange={(e) => setWithdrawReason(e.target.value)}
+                    placeholder="Důvod nesouhlasu (volitelné)…"
+                    rows={2}
+                    style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--foreground)", fontSize: 13, fontFamily: "inherit", resize: "vertical" }}
+                  />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => doAction("reject-counter", { reason: withdrawReason })}
+                      disabled={submitting === "reject-counter"}
+                      style={btnStyle("#dc2626", submitting === "reject-counter")}
+                    >
+                      {submitting === "reject-counter" ? "Odesílám…" : "Potvrdit nesouhlas"}
+                    </button>
+                    <button
+                      onClick={() => { setShowWithdrawInput(false); setWithdrawReason(""); }}
+                      style={{ ...btnStyle("var(--surface-2)", false), color: "var(--text-muted)" }}
+                    >
+                      Zrušit
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    Při nesouhlasu bude rezervace uzavřena. Pro nový požadavek založte novou rezervaci.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* WITHDRAWN info */}
+      {r.status === "WITHDRAWN" && (
+        <div style={{ background: "rgba(220,38,38,0.06)", border: "1px solid rgba(220,38,38,0.2)", borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>
+          <span style={{ color: "#dc2626", fontWeight: 600 }}>Rezervace stažena</span>
+          {r.withdrawnAt && <span style={{ color: "var(--text-muted)", marginLeft: 8, fontSize: 12 }}>{fmtDatetime(r.withdrawnAt)}</span>}
+          {r.withdrawnReason && <div style={{ marginTop: 4, color: "var(--text-muted)" }}>Důvod: {r.withdrawnReason}</div>}
         </div>
       )}
 
@@ -280,25 +409,7 @@ export default function ReservationDetail({ reservation: r, currentUser, onUpdat
               <div style={{ background: "rgba(124,58,237,0.12)", color: "#7c3aed", padding: "6px 12px", borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
                 ✓ Připraveno v frontě plánovače
               </div>
-              <button
-                onClick={() => doAction("notify")}
-                disabled={submitting === "notify"}
-                style={{ ...btnStyle("var(--surface-2)", submitting === "notify"), color: "var(--text-muted)", marginLeft: 8 }}
-              >
-                {submitting === "notify" ? "Odesílám…" : "Upozornit obchod"}
-              </button>
             </div>
-          )}
-
-          {/* SCHEDULED — Upozornit obchod */}
-          {r.status === "SCHEDULED" && (
-            <button
-              onClick={() => doAction("notify")}
-              disabled={submitting === "notify"}
-              style={btnStyle("var(--surface-2)", submitting === "notify")}
-            >
-              <span style={{ color: "var(--text-muted)" }}>{submitting === "notify" ? "Odesílám…" : "Upozornit obchod"}</span>
-            </button>
           )}
         </div>
       )}

@@ -67,8 +67,12 @@ export default function ReservationForm({ onCreated }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!companyName || !erpOfferNumber || !requestedExpeditionDate || !requestedDataDate) {
-      setError("Vyplňte všechna povinná pole");
+    if (!companyName || !erpOfferNumber) {
+      setError("Vyplňte název firmy a nabídku Cicero");
+      return;
+    }
+    if (!requestedExpeditionDate && !requestedDataDate) {
+      setError("Vyplňte alespoň jeden termín (expedice nebo dat)");
       return;
     }
     setSubmitting(true);
@@ -78,7 +82,13 @@ export default function ReservationForm({ onCreated }: Props) {
       const res = await fetch("/api/reservations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyName, erpOfferNumber, requestedExpeditionDate, requestedDataDate, requestText: requestText || null }),
+        body: JSON.stringify({
+          companyName,
+          erpOfferNumber,
+          requestedExpeditionDate: requestedExpeditionDate || undefined,
+          requestedDataDate: requestedDataDate || undefined,
+          requestText: requestText || undefined,
+        }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -192,7 +202,7 @@ export default function ReservationForm({ onCreated }: Props) {
       {/* Termíny */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div>
-          <label style={labelStyle}>Požadovaný termín expedice *</label>
+          <label style={labelStyle}>Požadovaný termín expedice</label>
           <DatePickerField
             value={requestedExpeditionDate}
             onChange={setRequestedExpeditionDate}
@@ -201,7 +211,7 @@ export default function ReservationForm({ onCreated }: Props) {
           />
         </div>
         <div>
-          <label style={labelStyle}>Požadovaný termín dat *</label>
+          <label style={labelStyle}>Požadovaný termín dat</label>
           <DatePickerField
             value={requestedDataDate}
             onChange={setRequestedDataDate}
@@ -215,6 +225,12 @@ export default function ReservationForm({ onCreated }: Props) {
           )}
         </div>
       </div>
+
+      {!requestedExpeditionDate && !requestedDataDate && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "4px 0" }}>
+          Vyplňte alespoň jeden termín (expedice nebo dat).
+        </div>
+      )}
 
       {/* Popis zakázky */}
       <div>
