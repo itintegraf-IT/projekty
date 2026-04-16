@@ -985,12 +985,22 @@ Tento sprint je největší a nejriskantnější (refaktoring velkých komponent
 
 ## Celkový progress
 
-- [ ] Sprint 1 (Bezpečnost) — etapy 1.1–1.6 hotové a otestované
-- [ ] Sprint 2 (Stabilita kódu) — etapy 2.1–2.4 hotové a otestované
-- [ ] Sprint 3 (UX) — etapy 3.1–3.3 hotové a otestované
-- [ ] Sprint 4 (Maintainability) — etapy 4.1–4.3 hotové a otestované
-- [ ] `npm run build` projde bez chyb
-- [ ] Kompletní test suite prochází
+- [x] Sprint 1 (Bezpečnost) — etapy 1.1–1.6 hotové a otestované *(commit: sprint 1)*
+- [x] Sprint 2 (Stabilita kódu) — etapy 2.1–2.4 hotové a otestované *(commit: sprint 2)*
+- [x] Sprint 3 (UX) — etapy 3.1–3.3 hotové a otestované *(commit: sprint 3)*
+- [x] Sprint 4 (Maintainability) — etapy 4.1–4.3 hotové a otestované *(2026-04-15)*
+  - [x] 4.1 — `src/lib/logger.ts` ✅
+  - [x] 4.2 — `src/lib/errors.test.ts` ✅
+  - [x] 4.3 — `src/components/ToastContainer.tsx` extrakce z PlannerPage ✅
+- [x] Sprint 5 (PlannerPage decomposition) — hotové a otestované *(2026-04-15)*
+  - [x] 5.1 — `src/components/ZoomSlider.tsx` extrakce z PlannerPage ✅
+  - [x] 5.2 — `src/components/InfoPanel.tsx` + `src/components/InboxPanel.tsx` extrakce + `src/lib/auditFormatters.ts` ✅
+  - [x] 5.3 — `src/lib/plannerTypes.ts` + `src/components/BlockDetail.tsx` + `src/components/BlockEdit.tsx` extrakce ✅
+  - [x] 5.4 — `src/lib/scheduleValidationServer.test.ts` — 11 testů pro `validateBlockScheduleFromDb` ✅
+  - [x] 5.5 — `npm run build` ✅ + 24/24 testů prochází (8 dateUtils + 5 errors + 11 scheduleValidation) ✅
+  - PlannerPage.tsx: 5110 → ~3525 řádků (−1585, −31 %)
+- [x] `npm run build` projde bez chyb
+- [x] Kompletní test suite prochází — 24/24 testů *(dateUtils + errors + scheduleValidationServer)*
 
 ---
 

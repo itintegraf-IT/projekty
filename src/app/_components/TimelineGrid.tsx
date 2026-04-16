@@ -2063,6 +2063,7 @@ export default function TimelineGrid({
   // ── Handlery bloků ─────────────────────────────────────────────────────────
   function handleBlockMouseDown(block: Block, e: React.MouseEvent) {
     if (block.locked) return;
+    if (e.button !== 0) return;
     e.preventDefault();
     const vs = viewStartRef.current;
     if (!vs) return;
