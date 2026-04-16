@@ -890,20 +890,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // Blok je před viewStart — rozšíř daysBack a scrollni po re-renderu
       const diffDays = diffCivilDateDays(utcToPragueDateStr(blockTime), todayPragueDateStr());
       pendingScrollMs.current = blockTime.getTime();
-      pendingSelectBlock.current = block;
       setDaysBack(Math.max(3, diffDays + 5));
     } else {
       const diffDays = diffCivilDateDays(utcToPragueDateStr(blockTime), todayPragueDateStr());
       if (diffDays < -daysAhead) {
         // Blok je za viewEnd — rozšíř daysAhead a scrollni po re-renderu
         pendingScrollMs.current = blockTime.getTime();
-        pendingSelectBlock.current = block;
         setDaysAhead(-diffDays + 5);
       } else {
         // Blok je v aktuálním rozsahu — scrollni přímo
         const y = dateToY(blockTime, viewStart, slotHeight);
         scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
-        setSelectedBlock(block);
       }
     }
   }
@@ -2721,7 +2718,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             blocks={blocks}
             filterText={filterText}
             selectedBlockId={selectedBlock?.id ?? null}
-            onBlockClick={(block) => { setSelectedBlockIds(new Set()); setSelectedBlock(block); }}
+            onBlockClick={(block) => { setSelectedBlockIds(new Set()); if (canEdit) setSelectedBlock(block); }}
             onBlockUpdate={handleBlockUpdate}
             onBlockCreate={handleBlockCreate}
             scrollRef={scrollRef}
