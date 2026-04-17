@@ -74,6 +74,7 @@ type QueueItem = {
   materialInStock: boolean;
   pantoneRequiredDate: string | null;
   pantoneOk: boolean;
+  pantoneRequired: boolean;
   barvyStatusId: number | null;
   barvyStatusLabel: string | null;
   lakStatusId: number | null;
@@ -117,6 +118,7 @@ function emptyPresetDraft(type: string): JobPresetDraftValues {
     materialStatusId: "",
     materialRequiredDate: "",
     materialInStock: false,
+    pantoneRequired: false,
     pantoneRequiredDate: "",
     barvyStatusId: "",
     lakStatusId: "",
@@ -483,6 +485,7 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     materialInStock: Boolean(p.materialInStock),
     pantoneRequiredDate: typeof p.pantoneRequiredDate === "string" ? p.pantoneRequiredDate : null,
     pantoneOk: Boolean(p.pantoneOk),
+    pantoneRequired: Boolean(p.pantoneRequired),
     barvyStatusId: null,
     barvyStatusLabel: null,
     lakStatusId: null,
@@ -546,6 +549,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [bMaterialInStock, setBMaterialInStock]           = useState(false);
   const [bPantoneRequiredDate, setBPantoneRequiredDate]   = useState<string>("");
   const [bPantoneOk, setBPantoneOk]                       = useState(false);
+  const [bPantoneRequired, setBPantoneRequired]           = useState(false);
   const [bBarvyStatusId, setBBarvyStatusId]       = useState<string>("");
   const [bLakStatusId, setBLakStatusId]           = useState<string>("");
   const [bSpecifikace, setBSpecifikace]           = useState("");
@@ -1142,7 +1146,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const res = await fetch(`/api/blocks/${current.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ startTime: new Date(orig.startTime).toISOString(), endTime: new Date(orig.endTime).toISOString(), machine: orig.machine, bypassScheduleValidation: !workingTimeLockRef.current }),
+          body: JSON.stringify({ startTime: new Date(orig.startTime).toISOString(), endTime: new Date(orig.endTime).toISOString(), machine: orig.machine, bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }),
         });
         if (res.ok) {
           const reverted = await res.json() as Block;
@@ -1176,7 +1180,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const res = await fetch(`/api/blocks/${current.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ startTime: new Date(newStart).toISOString(), endTime: new Date(newStart + duration).toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }),
+          body: JSON.stringify({ startTime: new Date(newStart).toISOString(), endTime: new Date(newStart + duration).toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }),
         });
         if (res.ok) {
           current = await res.json() as Block;
@@ -1208,40 +1212,59 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       return result;
     }
 
+    // Stavíme chain bloků které je potřeba posunout — a zároveň počítáme
+    // jejich nové pozice (každý blok se snapne za konec předchozího).
+    // Díky tomu detekujeme locked bloky na skutečných cílových pozicích.
     const chain: Block[] = [firstFollowing];
     let blockedByLocked = false;
     let lockedBlockRef: Block | null = null;
+
+    // Předpočítat nové pozice chainu pro locked check
+    const chainPositions: { id: number; newStart: number; newEnd: number }[] = [];
+    {
+      let pEnd = curEnd;
+      for (const b of [firstFollowing]) {
+        const dur = new Date(b.endTime).getTime() - new Date(b.startTime).getTime();
+        let ns = new Date(pEnd);
+        if (workingTimeLockRef.current) {
+          ns = snapToNextValidStartWithTemplates(b.machine, ns, dur, machineWorkHoursTemplates, machineExceptions);
+        }
+        chainPositions.push({ id: b.id, newStart: ns.getTime(), newEnd: ns.getTime() + dur });
+        pEnd = ns.getTime() + dur;
+      }
+    }
+
     for (let i = 0; i < 200; i++) {
       const cursor = chain[chain.length - 1];
-      const cursorEnd = new Date(cursor.endTime).getTime();
+      const lastPos = chainPositions[chainPositions.length - 1];
+      // Hledáme blok, který koliduje s novou pozicí posledního bloku v chainu
       const next = sameMachine.find(b =>
         !chain.find(c => c.id === b.id) &&
-        new Date(b.startTime).getTime() >= cursorEnd - 60_000 &&
-        new Date(b.startTime).getTime() < cursorEnd + shiftMs
+        new Date(b.startTime).getTime() < lastPos.newEnd &&
+        new Date(b.endTime).getTime() > lastPos.newStart
       );
       if (!next) break;
       if (next.locked) {
-        const availableRoom = new Date(next.startTime).getTime() - new Date(cursor.endTime).getTime();
-        if (availableRoom >= shiftMs) {
-          // Dost místa před zamknutým blokem — chain posuneme, zamknutý zůstane
-          break;
-        }
-        // Nedost místa — vrátit přesunutý blok zpět
         blockedByLocked = true;
         lockedBlockRef = next;
         break;
       }
       chain.push(next);
+      // Spočítat novou pozici pro nový blok v chainu
+      const dur = new Date(next.endTime).getTime() - new Date(next.startTime).getTime();
+      let ns = new Date(lastPos.newEnd);
+      if (workingTimeLockRef.current) {
+        ns = snapToNextValidStartWithTemplates(next.machine, ns, dur, machineWorkHoursTemplates, machineExceptions);
+      }
+      chainPositions.push({ id: next.id, newStart: ns.getTime(), newEnd: ns.getTime() + dur });
     }
 
-    // Zkontrolovat, zda posunutý chain nepřekryje locked blok mimo chain
+    // Zkontrolovat, zda posunuté bloky nepřekryjí locked blok mimo chain
     if (!blockedByLocked) {
       const lockedOnMachine = sameMachine.filter(b => b.locked && !chain.find(c => c.id === b.id));
-      for (const b of chain) {
-        const newStart = new Date(b.startTime).getTime() + shiftMs;
-        const newEnd   = new Date(b.endTime).getTime()   + shiftMs;
+      for (const pos of chainPositions) {
         const hit = lockedOnMachine.find(l =>
-          new Date(l.startTime).getTime() < newEnd && new Date(l.endTime).getTime() > newStart
+          new Date(l.startTime).getTime() < pos.newEnd && new Date(l.endTime).getTime() > pos.newStart
         );
         if (hit) {
           blockedByLocked = true;
@@ -1259,44 +1282,39 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     if (chain.length === 0) return "resolved";
 
-    // Pokud je zamknutý pracovní čas, snapneme push chain přes blokované časy
-    let effectiveShiftMs = shiftMs;
-    if (workingTimeLockRef.current) {
-      const { deltaMs } = snapGroupDeltaWithTemplates(
-        chain.map(b => ({ machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
-        shiftMs,
-        machineWorkHoursTemplates,
-        machineExceptions
-      );
-      effectiveShiftMs = deltaMs;
-    }
-
+    // Použít předpočítané pozice z chainPositions — každý blok je snapnutý
+    // individuálně za konec předchozího, správně přeskakuje šrafování.
     try {
-      const results = await Promise.all(
-        chain.map(b => {
-          const newStart = new Date(new Date(b.startTime).getTime() + effectiveShiftMs);
-          const newEnd   = new Date(new Date(b.endTime).getTime()   + effectiveShiftMs);
-          return fetch(`/api/blocks/${b.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }),
-          }).then(async r => {
-            if (!r.ok) {
-              const err = await r.json().catch(() => ({})) as { error?: string };
-              throw new Error(err.error ?? `Chain push HTTP ${r.status}`);
-            }
-            return r.json() as Promise<Block>;
-          });
-        })
-      );
-      setBlocks(prev => prev.map(b => (results as Block[]).find(r => r.id === b.id) ?? b));
-      // Pokud snap přeskočil víkend/noc a zvětšil posun, chain mohl přistát na bloku,
-      // který nebyl v původním chainu — rekurzivně vyřešit překryv posledního bloku chainu
-      if (effectiveShiftMs > shiftMs) {
-        const allExcluded = new Set([...Array.from(excludeIds), ...chain.map(b => b.id)]);
-        const lastResult = (results as Block[])[results.length - 1];
-        if (lastResult) void autoResolveOverlap(lastResult, allExcluded);
+      const batchUpdates = chain.map((b, idx) => ({
+        id: b.id,
+        startTime: new Date(chainPositions[idx].newStart).toISOString(),
+        endTime: new Date(chainPositions[idx].newEnd).toISOString(),
+        machine: b.machine,
+      }));
+
+      const batchRes = await fetch("/api/blocks/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          updates: batchUpdates,
+          bypassScheduleValidation: !workingTimeLockRef.current,
+          bypassOverlapCheck: true,
+        }),
+      });
+
+      if (!batchRes.ok) {
+        const err = await batchRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? `Chain push batch HTTP ${batchRes.status}`);
       }
+
+      const results: Block[] = await batchRes.json();
+      setBlocks(prev => prev.map(b => results.find(r => r.id === b.id) ?? b));
+
+      // Vždy rekurzivně vyřešit překryv posledního bloku chainu — mohl přistát
+      // na bloku který nebyl v původním chainu (za šrafováním apod.)
+      const allExcluded = new Set([...Array.from(excludeIds), ...chain.map(b => b.id)]);
+      const lastResult = results[results.length - 1];
+      if (lastResult) await autoResolveOverlap(lastResult, allExcluded);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Nepodařilo se automaticky posunout navazující bloky.";
       showToast(msg, "error");
@@ -1313,7 +1331,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     "type", "blockVariant",
     "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
     "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
-    "pantoneRequiredDate", "pantoneOk",
+    "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
     "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
   ] as const;
 
@@ -1322,6 +1340,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const prev = blocksRef.current.find(b => b.id === updated.id);
     setBlocks((arr) => arr.map((b) => (b.id === updated.id ? updated : b)));
     setSelectedBlock((sel) => (sel?.id === updated.id ? updated : sel));
+    setEditingBlock((eb) => eb?.id === updated.id ? updated : eb);
     // Lokální propagace sdílených polí do split sourozenců
     if (updated.splitGroupId != null) {
       const patch: Partial<Block> = {};
@@ -1346,8 +1365,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         void autoResolveOverlap(updated, new Set([updated.id]), prev);
         if (addToHistory) {
           const bypassAtTime = !workingTimeLockRef.current;
-          const prevSnap = { startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine, bypassScheduleValidation: bypassAtTime };
-          const nextSnap = { startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine, bypassScheduleValidation: bypassAtTime };
+          const prevSnap = { startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine, bypassScheduleValidation: bypassAtTime, bypassOverlapCheck: true };
+          const nextSnap = { startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine, bypassScheduleValidation: bypassAtTime, bypassOverlapCheck: true };
           undoStack.current.push({
             undo: async () => {
               const res = await fetch(`/api/blocks/${updated.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevSnap) });
@@ -1381,6 +1400,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             machine: u.machine,
           })),
           bypassScheduleValidation: !workingTimeLockRef.current,
+          bypassOverlapCheck: true,
         }),
       });
       if (!batchRes.ok) {
@@ -1398,12 +1418,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const bypassAtTime = !workingTimeLockRef.current;
         undoStack.current.push({
           undo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps, bypassScheduleValidation: true }) });
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
             if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
             const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
           redo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps, bypassScheduleValidation: true }) });
+            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
             if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
             const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
           },
@@ -1659,28 +1679,44 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   async function handleSaveAll(ids: number[], payload: Record<string, unknown>) {
     try {
-      const results = await Promise.all(
-        ids.map((id) =>
-          fetch(`/api/blocks/${id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          }).then((r) => r.json())
-        )
-      );
-      setBlocks((prev) =>
-        prev.map((b) => {
-          const updated = (results as Block[]).find((r) => r.id === b.id);
-          return updated ?? b;
-        })
-      );
+      // Pokud payload obsahuje endTime, spočítat durationMs a aplikovat per-block
+      const hasEndTime = payload.endTime !== undefined;
+      let durationMs = 0;
+      if (hasEndTime && editingBlock) {
+        durationMs = new Date(payload.endTime as string).getTime() - new Date(editingBlock.startTime).getTime();
+      }
+
+      const results: Block[] = [];
+      for (const id of ids) {
+        let blockPayload = payload;
+        if (hasEndTime) {
+          const currentBlock = blocksRef.current.find(b => b.id === id);
+          if (currentBlock) {
+            const blockEndTime = new Date(new Date(currentBlock.startTime).getTime() + durationMs).toISOString();
+            blockPayload = { ...payload, endTime: blockEndTime };
+          }
+        }
+        const res = await fetch(`/api/blocks/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...blockPayload, bypassOverlapCheck: true }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(err.error ?? `Chyba při ukládání bloku ${id}`);
+        }
+        const updated: Block = await res.json();
+        results.push(updated);
+        handleBlockUpdate(updated);
+      }
+
       if (editingBlock && ids.includes(editingBlock.id)) {
-        const updatedEditing = (results as Block[]).find((r) => r.id === editingBlock.id);
+        const updatedEditing = results.find((r) => r.id === editingBlock.id);
         if (updatedEditing) setEditingBlock(updatedEditing);
       }
     } catch (error) {
       console.error("Series save failed", error);
-      showToast("Chyba při ukládání série.", "error");
+      showToast(error instanceof Error ? error.message : "Chyba při ukládání série.", "error");
     }
   }
 
@@ -1721,6 +1757,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       materialStatusId: bMaterialStatusId,
       materialRequiredDate: bMaterialRequiredDate,
       materialInStock: bMaterialInStock,
+      pantoneRequired: bPantoneRequired,
       pantoneRequiredDate: bPantoneRequiredDate,
       barvyStatusId: bBarvyStatusId,
       lakStatusId: bLakStatusId,
@@ -1746,6 +1783,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setBMaterialRequiredDate(next.materialRequiredDate);
     setBMaterialInStock(next.materialInStock);
     setBPantoneRequiredDate(next.pantoneRequiredDate);
+    setBPantoneRequired(next.pantoneRequired);
     setBBarvyStatusId(next.barvyStatusId);
     setBLakStatusId(next.lakStatusId);
     setBDeadlineExpedice(next.deadlineExpedice);
@@ -1763,6 +1801,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setBMaterialRequiredDate(next.materialRequiredDate);
     setBMaterialInStock(next.materialInStock);
     setBPantoneRequiredDate(next.pantoneRequiredDate);
+    setBPantoneRequired(next.pantoneRequired);
     setBBarvyStatusId(next.barvyStatusId);
     setBLakStatusId(next.lakStatusId);
     setBDeadlineExpedice(next.deadlineExpedice);
@@ -1780,6 +1819,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setBMaterialInStock(false);
     setBPantoneRequiredDate("");
     setBPantoneOk(false);
+    setBPantoneRequired(false);
     setBBarvyStatusId("");
     setBLakStatusId("");
     setBSpecifikace("");
@@ -1815,6 +1855,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         materialInStock: bMaterialInStock,
         pantoneRequiredDate: bPantoneRequiredDate || null,
         pantoneOk: bPantoneOk,
+        pantoneRequired: bPantoneRequired,
         barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
         barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
         lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
@@ -1847,6 +1888,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       materialInStock: bMaterialInStock,
       pantoneRequiredDate: bPantoneRequiredDate || null,
       pantoneOk: bPantoneOk,
+      pantoneRequired: bPantoneRequired,
       barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
       barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
       lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
@@ -2040,6 +2082,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       materialInStock: item.materialInStock,
       pantoneRequiredDate: item.pantoneRequiredDate || null,
       pantoneOk: item.pantoneOk,
+      pantoneRequired: item.pantoneRequired ?? false,
       barvyStatusId: item.barvyStatusId,
       barvyStatusLabel: item.barvyStatusLabel,
       lakStatusId: item.lakStatusId,
@@ -2066,7 +2109,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const res1 = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }),
+        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }),
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
@@ -2110,6 +2153,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               endTime: curEnd.toISOString(),
               recurrenceParentId: parentBlock.id,
               bypassScheduleValidation: !workingTimeLockRef.current,
+              bypassOverlapCheck: true,
             }),
           });
           if (res.ok) {
@@ -2176,11 +2220,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           lakStatusLabel: src.lakStatusLabel,
           specifikace: src.specifikace,
           bypassScheduleValidation: !workingTimeLockRef.current,
+          bypassOverlapCheck: true,
         }),
       });
       if (!res.ok) throw new Error();
       const newBlock: Block = await res.json();
       handleBlockCreate(newBlock);
+      await autoResolveOverlap(newBlock, new Set([newBlock.id]), undefined, true);
       if (isCutRef.current) {
         await fetch(`/api/blocks/${src.id}`, { method: "DELETE" });
         setBlocks((prev) => prev.filter((b) => b.id !== src.id));
@@ -2231,6 +2277,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
             specifikace: src.specifikace,
             bypassScheduleValidation: !workingTimeLockRef.current,
+            bypassOverlapCheck: true,
           }),
         });
         if (!res.ok) {
@@ -2265,6 +2312,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     // Všechny POST proběhly úspěšně — přidej do lokálního stavu
     created.forEach((b) => handleBlockCreate(b));
+    // Vyřešit překryvy — sekvenčně, každý nový blok může posunout existující
+    const createdIds = new Set(created.map(b => b.id));
+    for (const b of created) {
+      await autoResolveOverlap(b, createdIds, undefined, true);
+    }
 
     if (isGroupCutRef.current) {
       // DELETE originálů — kontroluj .ok, sb er selhání
@@ -3220,17 +3272,28 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
                       {/* Pantone + Barvy + Lak — 3-sloupcový grid */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                        {/* Pantone — datepicker + OK */}
+                        {/* Pantone — potřeba toggle + datepicker + OK */}
                         <div>
                           <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Pantone</label>
-                          <DatePickerField value={bPantoneRequiredDate} onChange={setBPantoneRequiredDate} placeholder="Datum…" />
-                          <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: bPantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                            <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: bPantoneOk ? "var(--success)" : "transparent", border: bPantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
-                              {bPantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                            </div>
-                            <input type="checkbox" checked={bPantoneOk} onChange={(e) => setBPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
-                            OK
-                          </label>
+                          <button type="button" onClick={() => {
+                            const next = !bPantoneRequired;
+                            setBPantoneRequired(next);
+                            if (!next) { setBPantoneRequiredDate(""); setBPantoneOk(false); }
+                          }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: bPantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: bPantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: bPantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms", marginBottom: 4, width: "100%" }}>
+                            {bPantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
+                          </button>
+                          {bPantoneRequired && (
+                            <>
+                              <DatePickerField value={bPantoneRequiredDate} onChange={setBPantoneRequiredDate} placeholder="Datum…" />
+                              <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: bPantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                                <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: bPantoneOk ? "var(--success)" : "transparent", border: bPantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                                  {bPantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                                </div>
+                                <input type="checkbox" checked={bPantoneOk} onChange={(e) => setBPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                                OK
+                              </label>
+                            </>
+                          )}
                         </div>
                         {/* Barvy + Lak */}
                         {([

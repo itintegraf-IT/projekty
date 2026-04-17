@@ -6,6 +6,8 @@ import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeBlock } from "@/lib/blockSerialization";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
+import { checkBlockOverlap } from "@/lib/overlapCheck";
+import { isAppError } from "@/lib/errors";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
     const blockVariant = normalizeBlockVariant(body.blockVariant, blockType);
     // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
     const bypassScheduleValidation = body.bypassScheduleValidation === true;
+    const bypassOverlapCheck = body.bypassOverlapCheck === true;
     const scheduleError = await validateBlockScheduleFromDb(
       body.machine as string,
       new Date(body.startTime),
@@ -106,6 +109,10 @@ export async function POST(request: NextRequest) {
       const finalVariant = reservationPreview ? "STANDARD" : blockVariant;
       const finalRecurrence = reservationPreview ? "NONE" : (body.recurrenceType ?? "NONE");
 
+      if (!bypassOverlapCheck) {
+        await checkBlockOverlap(body.machine, new Date(body.startTime), new Date(body.endTime), null, tx);
+      }
+
       const newBlock = await tx.block.create({
         data: {
           orderNumber: finalOrderNumber,
@@ -117,11 +124,11 @@ export async function POST(request: NextRequest) {
           description: body.description ?? null,
           locked: body.locked ?? false,
           deadlineExpedice: parseNullableCivilDateForDb(body.deadlineExpedice),
-          // DATA
+          // DATA — auto-derivace: dataOk = true pokud chip nastaven
           dataStatusId: body.dataStatusId ?? null,
           dataStatusLabel: body.dataStatusLabel ?? null,
           dataRequiredDate: parseNullableCivilDateForDb(body.dataRequiredDate),
-          dataOk: body.dataOk ?? false,
+          dataOk: body.dataStatusId ? true : false,
           // MATERIÁL
           materialStatusId: body.materialStatusId ?? null,
           materialStatusLabel: body.materialStatusLabel ?? null,
@@ -140,6 +147,7 @@ export async function POST(request: NextRequest) {
           // PANTONE + MATERIAL IN STOCK
           pantoneRequiredDate: parseNullableCivilDateForDb(body.pantoneRequiredDate),
           pantoneOk: body.pantoneOk ?? false,
+          pantoneRequired: body.pantoneRequired ?? false,
           materialInStock: body.materialInStock ?? false,
           // OPAKOVÁNÍ
           recurrenceType: finalRecurrence,
@@ -202,6 +210,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(serializeBlock(block), { status: 201 });
   } catch (error: unknown) {
+    if (isAppError(error)) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.code === "OVERLAP" ? 409 : 400 }
+      );
+    }
     if (error instanceof Error && error.message === "RESERVATION_NOT_AVAILABLE") {
       return NextResponse.json(
         { error: "Rezervace již není dostupná — jiný plánovač ji mezitím přiřadil" },
