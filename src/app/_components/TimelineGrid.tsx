@@ -100,6 +100,7 @@ export type Block = {
   // Výrobní sloupečky — PANTONE
   pantoneRequiredDate: string | null;
   pantoneOk: boolean;
+  pantoneRequired: boolean;
   // Výrobní sloupečky — BARVY
   barvyStatusId: number | null;
   barvyStatusLabel: string | null;
@@ -836,8 +837,8 @@ function BlockCard({
   const clampedHeight = Math.max(height, 20);
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
-  const dataDisplayLabel = block.dataStatusLabel?.trim() || "OK";
-  const dataCanToggle = block.dataOk || !!block.dataRequiredDate;
+  const dataDisplayLabel = block.dataStatusLabel?.trim() || "";
+  const dataCanToggle = false;
   const dataCanOpenCalendar    = !block.dataOk && !!canEditDataDate && !!onInlineDatePick;
   const dataCanOpenDtpPopover  = !!canEditData && !canEditDataDate && !!onDataChipDoubleClick;
   // materialInStock potlačuje warning logiku materiálu
@@ -1003,10 +1004,10 @@ function BlockCard({
 
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
-        const dStateKey = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
-        const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
+        const pStateKey = !block.pantoneRequired && !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : !block.pantoneRequiredDate ? "warning" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
         const dateChip = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 10, fontWeight: 600,
           color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
@@ -1037,7 +1038,7 @@ function BlockCard({
                       onDataChipDoubleClick!(block.id, e.currentTarget.getBoundingClientRect());
                     }
                   } : undefined}>
-                  {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
+                  {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
@@ -1049,11 +1050,11 @@ function BlockCard({
                 <span style={dateChip(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
-                {(block.pantoneRequiredDate || block.pantoneOk) && (
+                {(block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk) && (
                   <span style={dateChip(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)} title={pantoneDeadlineState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                     onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                    P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "—"}
+                    P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "⚠"}
                   </span>
                 )}
                 <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
@@ -1104,7 +1105,7 @@ function BlockCard({
 
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
-        const dStateKey = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const chipStyle = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
@@ -1137,7 +1138,7 @@ function BlockCard({
                       onDataChipDoubleClick!(block.id, e.currentTarget.getBoundingClientRect());
                     }
                   } : undefined}>
-                  {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
+                  {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
@@ -1149,13 +1150,13 @@ function BlockCard({
                 <span style={chipStyle(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
                   E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
                 </span>
-                {(block.pantoneRequiredDate || block.pantoneOk) && (() => {
-                  const pStateKey = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
+                {(block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk) && (() => {
+                  const pStateKey = !block.pantoneRequired && !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : !block.pantoneRequiredDate ? "warning" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
                   return (
                     <span style={chipStyle(pStateKey, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)} title={pantoneDeadlineState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                       onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                       onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                      P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "—"}
+                      P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "⚠"}
                     </span>
                   );
                 })()}
@@ -1261,7 +1262,7 @@ function BlockCard({
         >
           <DateBadge
             label="DATA" dateStr={block.dataOk ? null : block.dataRequiredDate}
-            overrideText={block.dataOk ? dataDisplayLabel : undefined}
+            overrideText={block.dataStatusId ? dataDisplayLabel : undefined}
             ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
             onToggle={() => toggleField("dataOk", block.dataOk)}
@@ -1287,11 +1288,11 @@ function BlockCard({
             ok={false} warn={false} danger={false} accent={FIELD_ACCENT.EXPEDICE}
             onToggle={() => {}}
           />
-          {(block.pantoneRequiredDate || block.pantoneOk) && (
+          {(block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk) && (
             <DateBadge
               label="PAN." dateStr={block.pantoneOk ? null : block.pantoneRequiredDate}
-              overrideText={block.pantoneOk ? "OK" : undefined}
-              ok={pantoneDeadlineState === "ok"} warn={pantoneDeadlineState === "warning"} danger={pantoneDeadlineState === "danger"} earlyStart={pantoneDeadlineState === "earlyStart"} accent={FIELD_ACCENT.PANTONE}
+              overrideText={block.pantoneOk ? "OK" : !block.pantoneRequiredDate ? "⚠" : undefined}
+              ok={pantoneDeadlineState === "ok"} warn={pantoneDeadlineState === "warning" || (!block.pantoneRequiredDate && !block.pantoneOk && block.pantoneRequired)} danger={pantoneDeadlineState === "danger"} earlyStart={pantoneDeadlineState === "earlyStart"} accent={FIELD_ACCENT.PANTONE}
               onToggle={() => toggleField("pantoneOk", block.pantoneOk)}
               onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "pantone", block.pantoneRequiredDate ?? "", rect) : undefined}
             />
@@ -1301,10 +1302,10 @@ function BlockCard({
 
       {/* ── Řádek 2b: Kompaktní datum chipy (MODE_FULL, 48–59px — plný DateBadge se nevejde) ── */}
       {showDatesCompact && (() => {
-        const dSK = block.dataOk ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
+        const dSK = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mSK = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eSK = !block.deadlineExpedice ? "empty" : "neutral";
-        const pSK = !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
+        const pSK = !block.pantoneRequired && !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : !block.pantoneRequiredDate ? "warning" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
         const cs = (sk: string, fa: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600,
           color: sk === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
@@ -1324,7 +1325,7 @@ function BlockCard({
             <span style={cs(dSK, FIELD_ACCENT.DATA, dataCanToggle)}
               onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar || dataCanOpenDtpPopover) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
               onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } if (dataCanOpenCalendar) { onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } else if (dataCanOpenDtpPopover) { onDataChipDoubleClick?.(block.id, e.currentTarget.getBoundingClientRect()); } } : undefined}>
-              {block.dataOk ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
+              {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
             </span>
             <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
               <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)}
@@ -1336,11 +1337,11 @@ function BlockCard({
             <span style={cs(eSK, FIELD_ACCENT.EXPEDICE, false)}>
               E&nbsp;{block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}
             </span>
-            {(block.pantoneRequiredDate || block.pantoneOk) && (
+            {(block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk) && (
               <span style={cs(pSK, FIELD_ACCENT.PANTONE, !!block.pantoneRequiredDate)} title={pantoneDeadlineState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                 onClick={block.pantoneRequiredDate ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                 onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "—"}
+                P&nbsp;{block.pantoneOk ? "OK" : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${pIcon}` : "⚠"}
               </span>
             )}
           </div>
@@ -2019,7 +2020,7 @@ export default function TimelineGrid({
         }
         const newEnd      = new Date(newStart.getTime() + duration);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine, bypassScheduleValidation: !workingTimeLockRef.current }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine, bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
@@ -2038,7 +2039,7 @@ export default function TimelineGrid({
         const finalEnd       = snapToSlot(yToDate(originalTop + newHeightRaw, vs, sh));
         const minEnd         = new Date(ds.originalStart.getTime() + SLOT_MS);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo změnit.");
