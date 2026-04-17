@@ -6,35 +6,28 @@ import type { CodebookOption } from "@/lib/plannerTypes";
 interface Props {
   blockId: number;
   currentStatusId: number | null;
-  currentOk: boolean;
   dataOpts: CodebookOption[];
   anchorRect: DOMRect;
   onClose: () => void;
   onSave: (blockId: number, patch: { dataStatusId?: number | null; dataStatusLabel?: string | null; dataOk?: boolean }) => Promise<void>;
 }
 
-export function DtpDataPopover({ blockId, currentStatusId, currentOk, dataOpts, anchorRect, onClose, onSave }: Props) {
+export function DtpDataPopover({ blockId, currentStatusId, dataOpts, anchorRect, onClose, onSave }: Props) {
   const [statusId, setStatusId] = useState<string>(currentStatusId?.toString() ?? "");
-  const [ok, setOk] = useState(currentOk);
   const ref = useRef<HTMLDivElement>(null);
   const isDirtyRef = useRef(false);
   const statusIdRef = useRef(statusId);
-  const okRef = useRef(ok);
 
   // Sleduj změny
   useEffect(() => {
-    const changed = statusId !== (currentStatusId?.toString() ?? "") || ok !== currentOk;
+    const changed = statusId !== (currentStatusId?.toString() ?? "");
     isDirtyRef.current = changed;
-  }, [statusId, ok, currentStatusId, currentOk]);
+  }, [statusId, currentStatusId]);
 
-  // Udržuj refs aktuální pro handleClose
+  // Udržuj ref aktuální pro handleClose
   useEffect(() => {
     statusIdRef.current = statusId;
   }, [statusId]);
-
-  useEffect(() => {
-    okRef.current = ok;
-  }, [ok]);
 
   // Zavření klikem mimo
   useEffect(() => {
@@ -62,7 +55,7 @@ export function DtpDataPopover({ blockId, currentStatusId, currentOk, dataOpts, 
       onSave(blockId, {
         dataStatusId: currentStatusId ? parseInt(currentStatusId, 10) : null,
         dataStatusLabel: selectedOpt?.label ?? null,
-        dataOk: okRef.current,
+        dataOk: !!currentStatusId,
       });
     }
     onClose();
@@ -103,7 +96,6 @@ export function DtpDataPopover({ blockId, currentStatusId, currentOk, dataOpts, 
           padding: "6px 10px",
           color: "#e2e8f0",
           fontSize: 13,
-          marginBottom: 10,
           cursor: "pointer",
           outline: "none",
         }}
@@ -113,41 +105,6 @@ export function DtpDataPopover({ blockId, currentStatusId, currentOk, dataOpts, 
           <option key={o.id} value={o.id.toString()}>{o.label}</option>
         ))}
       </select>
-
-      {/* Oddělovač */}
-      <div style={{ height: 1, background: "rgba(255,255,255,0.08)", marginBottom: 10 }} />
-
-      {/* dataOk toggle */}
-      <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-        <div
-          onClick={() => setOk((v) => !v)}
-          style={{
-            width: 36,
-            height: 20,
-            background: ok ? "#22c55e" : "#3a3a3c",
-            borderRadius: 10,
-            position: "relative",
-            flexShrink: 0,
-            transition: "background 150ms ease-out",
-            cursor: "pointer",
-          }}
-        >
-          <div style={{
-            width: 16,
-            height: 16,
-            background: "white",
-            borderRadius: "50%",
-            position: "absolute",
-            top: 2,
-            left: ok ? 18 : 2,
-            transition: "left 150ms ease-out",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-          }} />
-        </div>
-        <span style={{ fontSize: 13, color: ok ? "#4ade80" : "rgba(255,255,255,0.6)", fontWeight: 500, transition: "color 150ms" }}>
-          data.ok
-        </span>
-      </label>
 
       {/* Hint */}
       <div style={{ marginTop: 10, fontSize: 10, color: "rgba(255,255,255,0.2)", textAlign: "center" }}>
