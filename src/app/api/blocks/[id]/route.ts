@@ -8,6 +8,7 @@ import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
+import { checkBlockOverlap } from "@/lib/overlapCheck";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -45,7 +46,7 @@ const SPLIT_SHARED_FIELDS = [
   "type", "blockVariant",
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
   "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
-  "pantoneRequiredDate", "pantoneOk",
+  "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
   "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
 ] as const;
 type SplitSharedField = typeof SPLIT_SHARED_FIELDS[number];
@@ -82,6 +83,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         materialNote: body.materialNote,
         pantoneRequiredDate: body.pantoneRequiredDate,
         pantoneOk: body.pantoneOk,
+        pantoneRequired: body.pantoneRequired,
         materialInStock: body.materialInStock,
       };
     } else {
@@ -89,12 +91,28 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     }
     // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
     const bypassScheduleValidation = (body as Record<string, unknown>).bypassScheduleValidation === true;
-    // Explicitně smazat příznak z allowed — nesmí jít do prisma.block.update
+    // bypassOverlapCheck přeskakuje overlap check — používá se POUZE při drag & drop / resize,
+    // kde autoResolveOverlap ihned po uložení vyřeší překryvy přes batch endpoint.
+    const bypassOverlapCheck = (body as Record<string, unknown>).bypassOverlapCheck === true;
+    // Explicitně smazat příznaky z allowed — nesmí jít do prisma.block.update
     delete (allowed as Record<string, unknown>).bypassScheduleValidation;
+    delete (allowed as Record<string, unknown>).bypassOverlapCheck;
     delete (allowed as Record<string, unknown>).expeditionPublishedAt;
     delete (allowed as Record<string, unknown>).expeditionSortOrder;
     // Remove undefined values
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
+
+    // ── DATA chip auto-derivace ──
+    // Pravidlo 1: Změna data → vymazat chip + dataOk=false
+    if (allowed.dataRequiredDate !== undefined) {
+      allowed.dataStatusId = null;
+      allowed.dataStatusLabel = null;
+      allowed.dataOk = false;
+    }
+    // Pravidlo 2: Změna chipu → auto-derivovat dataOk
+    if (allowed.dataStatusId !== undefined && allowed.dataRequiredDate === undefined) {
+      allowed.dataOk = allowed.dataStatusId !== null;
+    }
 
     // Server-side validace pracovní doby:
     // Validujeme pokud se mění startTime/endTime/machine NEBO pokud se typ mění na ZAKAZKA
@@ -121,7 +139,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const AUDITED_FIELDS = [
       "dataStatusLabel", "dataRequiredDate", "dataOk",
       "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
-      "pantoneRequiredDate", "pantoneOk", "materialInStock",
+      "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "materialInStock",
       "deadlineExpedice",
       "expediceNote", "doprava",
       "blockVariant",
@@ -133,6 +151,20 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       const oldBlock = await tx.block.findUnique({ where: { id } });
       if (!oldBlock) {
         throw new AppError("NOT_FOUND", "Blok nenalezen");
+      }
+
+      // Overlap check — pokud se mění čas nebo stroj (přeskočit při drag/resize, kde autoResolveOverlap řeší overlap)
+      if (!bypassOverlapCheck) {
+        const checkMachine = (allowed.machine as string | undefined) ?? oldBlock.machine;
+        const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : oldBlock.startTime;
+        const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : oldBlock.endTime;
+        if (
+          checkStart.getTime() !== oldBlock.startTime.getTime() ||
+          checkEnd.getTime() !== oldBlock.endTime.getTime() ||
+          checkMachine !== oldBlock.machine
+        ) {
+          await checkBlockOverlap(checkMachine, checkStart, checkEnd, id, tx);
+        }
       }
 
       // Normalizace blockVariant — platí na výsledný type, ne jen na vstup
@@ -258,6 +290,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             pantoneRequiredDate: parseNullableCivilDateForDb(allowed.pantoneRequiredDate),
           }),
           ...(allowed.pantoneOk !== undefined && { pantoneOk: allowed.pantoneOk as boolean }),
+          ...(allowed.pantoneRequired !== undefined && { pantoneRequired: allowed.pantoneRequired as boolean }),
+          ...(allowed.pantoneRequired === false && {
+            pantoneRequiredDate: null,
+            pantoneOk: false,
+          }),
           // MATERIAL IN STOCK (pokud materialInStock=true, vynulovat materialRequiredDate)
           ...(allowed.materialInStock !== undefined && { materialInStock: allowed.materialInStock as boolean }),
           ...(allowed.materialInStock === true && { materialRequiredDate: null }),
@@ -358,6 +395,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         PRESET_INVALID: 400,
         SCHEDULE_VIOLATION: 422,
         CONFLICT: 409,
+        OVERLAP: 409,
       };
       return NextResponse.json(
         { error: error.message, code: error.code },
