@@ -600,7 +600,7 @@ function InlineDatePicker({
 function DateBadge({
   label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick, statusLabel, overrideText,
 }: {
-  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle: () => void; onDoubleClick?: (rect: DOMRect) => void; statusLabel?: string | null; overrideText?: string;
+  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle?: () => void; onDoubleClick?: (rect: DOMRect) => void; statusLabel?: string | null; overrideText?: string;
 }) {
   const [loading, setLoading] = useState(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -616,7 +616,7 @@ function DateBadge({
 
   function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
-    if (empty || loading) return;
+    if (empty || loading || !onToggle) return;
     if (onDoubleClick) {
       // Odložit toggle — zruší se pokud přijde dblclick dřív než timeout
       if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
@@ -1082,7 +1082,7 @@ function BlockCard({
             {/* Pravá část: status chips + série */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
+                {block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1183,7 +1183,7 @@ function BlockCard({
             {/* Pravá část: status chips + série + split */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
+                {block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1238,7 +1238,7 @@ function BlockCard({
           {/* Pravá část: status chips + série + split */}
           {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-              {!block.dataOk && block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
+              {block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
               {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
               {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1261,11 +1261,11 @@ function BlockCard({
           onMouseLeave={() => setBadgeHovered(false)}
         >
           <DateBadge
-            label="DATA" dateStr={block.dataOk ? null : block.dataRequiredDate}
+            label="DATA" dateStr={block.dataStatusId ? null : block.dataRequiredDate}
             overrideText={block.dataStatusId ? dataDisplayLabel : undefined}
             ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
-            onToggle={() => toggleField("dataOk", block.dataOk)}
+            onToggle={undefined}
             onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (rect) => {
               if (dataCanOpenCalendar) { onInlineDatePick?.(block.id, "data", block.dataRequiredDate ?? "", rect); }
               else if (dataCanOpenDtpPopover) { onDataChipDoubleClick?.(block.id, rect); }
