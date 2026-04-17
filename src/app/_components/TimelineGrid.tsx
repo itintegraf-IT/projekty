@@ -981,10 +981,12 @@ function BlockCard({
         zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
         opacity, borderRadius: 7,
-        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : `1px solid ${selected ? "#FFE600" : s.border}`,
+        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : block.locked ? "1px solid rgba(251,191,36,0.4)" : `1px solid ${selected ? "#FFE600" : s.border}`,
         outline: isCopied ? "1px solid rgba(59,130,246,0.3)" : undefined,
         outlineOffset: isCopied ? "2px" : undefined,
-        boxShadow: shadow,
+        boxShadow: block.locked
+          ? `${shadow}, 0 0 0 1px rgba(251,191,36,0.2)`
+          : shadow,
         background: s.gradient,
         display: "flex", flexDirection: "column",
         overflow: "hidden", userSelect: "none",
@@ -995,8 +997,14 @@ function BlockCard({
         animationFillMode: "backwards",
       }}
     >
-      {/* Levý barevný pruh — iOS Calendar style */}
-      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
+      {/* Levý barevný pruh — iOS Calendar style / amber lock strip */}
+      {block.locked ? (
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 22, background: "rgba(251,191,36,0.25)", borderRadius: "7px 0 0 7px", borderRight: "1px solid rgba(251,191,36,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Lock size={11} strokeWidth={2} color="rgba(251,191,36,0.9)" />
+        </div>
+      ) : (
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
+      )}
 
       {/* Modrý selection overlay */}
       {multiSelected && <div style={{ position: "absolute", inset: 0, borderRadius: 6, background: "rgba(255,230,0,0.12)", pointerEvents: "none", zIndex: 1 }} />}
@@ -1023,7 +1031,7 @@ function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: block.locked ? 28 : 8, paddingRight: 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
@@ -1082,7 +1090,6 @@ function BlockCard({
             {/* Pravá část: status chips + série */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1123,7 +1130,7 @@ function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "0 8px", flex: 1, overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: block.locked ? 28 : 8, paddingRight: 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
@@ -1183,7 +1190,6 @@ function BlockCard({
             {/* Pravá část: status chips + série + split */}
             {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
                 {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
@@ -1210,7 +1216,7 @@ function BlockCard({
       {/* ── Řádek 1: Číslo zakázky + popis + chips vpravo (FULL mode) ── */}
       {MODE_FULL && (
         <div style={{
-          padding: "5px 9px 3px", display: "flex", alignItems: "flex-start",
+          paddingTop: 5, paddingBottom: 3, paddingLeft: block.locked ? 28 : 9, paddingRight: 9, display: "flex", alignItems: "flex-start",
           gap: 4, minWidth: 0, flexShrink: 0,
         }}>
           {/* Levá část: číslo + popis */}
@@ -1238,7 +1244,6 @@ function BlockCard({
           {/* Pravá část: status chips + série + split */}
           {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-              {block.dataStatusLabel && <MiniChip label={block.dataStatusLabel} accent={dataAccent} textColor={dataText ?? undefined} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
               {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
               {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
