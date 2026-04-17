@@ -45,6 +45,7 @@ function emptyPresetDraft(type: string): JobPresetDraftValues {
     materialStatusId: "",
     materialRequiredDate: "",
     materialInStock: false,
+    pantoneRequired: false,
     pantoneRequiredDate: "",
     barvyStatusId: "",
     lakStatusId: "",
@@ -113,10 +114,16 @@ export function BlockEdit({
 
   // DATA
   const [dataStatusId, setDataStatusId]         = useState<string>(block.dataStatusId?.toString() ?? "");
-  const [dataRequiredDate, setDataRequiredDate] = useState(
+  const [dataRequiredDate, setDataRequiredDate_raw] = useState(
     block.dataRequiredDate ? utcToPragueDateStr(new Date(block.dataRequiredDate)) : ""
   );
-  const [dataOk, setDataOk] = useState(block.dataOk);
+  // Změna data → auto-clear chipu
+  function setDataRequiredDate(val: string) {
+    setDataRequiredDate_raw(val);
+    if (val !== dataRequiredDate) {
+      setDataStatusId("");
+    }
+  }
 
   // MATERIÁL
   const [materialStatusId, setMaterialStatusId]         = useState<string>(block.materialStatusId?.toString() ?? "");
@@ -131,6 +138,7 @@ export function BlockEdit({
     block.pantoneRequiredDate ? utcToPragueDateStr(new Date(block.pantoneRequiredDate)) : ""
   );
   const [pantoneOk, setPantoneOk] = useState(block.pantoneOk);
+  const [pantoneRequired, setPantoneRequired] = useState(block.pantoneRequired ?? false);
   // BARVY
   const [barvyStatusId, setBarvyStatusId] = useState<string>(block.barvyStatusId?.toString() ?? "");
 
@@ -323,6 +331,7 @@ export function BlockEdit({
       materialStatusId,
       materialRequiredDate,
       materialInStock,
+      pantoneRequired,
       pantoneRequiredDate,
       barvyStatusId,
       lakStatusId,
@@ -347,6 +356,7 @@ export function BlockEdit({
     setMaterialStatusId(next.materialStatusId);
     setMaterialRequiredDate(next.materialRequiredDate);
     setMaterialInStock(next.materialInStock);
+    setPantoneRequired(next.pantoneRequired);
     setPantoneRequiredDate(next.pantoneRequiredDate);
     setBarvyStatusId(next.barvyStatusId);
     setLakStatusId(next.lakStatusId);
@@ -364,6 +374,7 @@ export function BlockEdit({
     setMaterialStatusId(next.materialStatusId);
     setMaterialRequiredDate(next.materialRequiredDate);
     setMaterialInStock(next.materialInStock);
+    setPantoneRequired(next.pantoneRequired);
     setPantoneRequiredDate(next.pantoneRequiredDate);
     setBarvyStatusId(next.barvyStatusId);
     setLakStatusId(next.lakStatusId);
@@ -384,13 +395,14 @@ export function BlockEdit({
       dataStatusId: dataStatusId ? parseInt(dataStatusId) : null,
       dataStatusLabel: dataStatusId ? resolveLabel(dataOpts, dataStatusId) : null,
       dataRequiredDate: dataRequiredDate || null,
-      dataOk,
+      dataOk: !!dataStatusId,
       materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
       materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
       materialRequiredDate: materialInStock ? null : materialRequiredDate || null,
       materialOk,
       materialNote: materialNote.trim() || null,
       materialInStock,
+      pantoneRequired,
       pantoneRequiredDate: pantoneRequiredDate || null,
       pantoneOk,
       barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
@@ -409,9 +421,15 @@ export function BlockEdit({
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, bypassOverlapCheck: true }),
       });
-      if (!res.ok) throw new Error("Chyba serveru");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string; code?: string };
+        if (err.code === "OVERLAP") {
+          throw new Error(err.error ?? "Blok koliduje s jiným blokem na stejném stroji.");
+        }
+        throw new Error(err.error ?? "Chyba serveru");
+      }
       const updated: Block = await res.json();
       onSave(updated);
     } catch (error) {
@@ -716,13 +734,6 @@ export function BlockEdit({
                 <div style={{ pointerEvents: !canEditDataDate ? "none" : "auto", opacity: !canEditDataDate ? 0.45 : 1 }}>
                   <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum" />
                 </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: dataOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                  <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: dataOk ? "var(--success)" : "transparent", border: dataOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
-                    {dataOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                  </div>
-                  <input type="checkbox" checked={dataOk} onChange={(e) => setDataOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
-                  OK
-                </label>
               </div>
               {/* MATERIÁL */}
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
@@ -750,14 +761,25 @@ export function BlockEdit({
               {/* PANTONE */}
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <ColLabel>Pantone</ColLabel>
-                <DatePickerField value={pantoneRequiredDate} onChange={setPantoneRequiredDate} placeholder="Datum" />
-                <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                  <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: pantoneOk ? "var(--success)" : "transparent", border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
-                    {pantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                  </div>
-                  <input type="checkbox" checked={pantoneOk} onChange={(e) => setPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
-                  OK
-                </label>
+                <button type="button" onClick={() => {
+                  const next = !pantoneRequired;
+                  setPantoneRequired(next);
+                  if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); }
+                }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms", marginBottom: 4, width: "100%" }}>
+                  {pantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
+                </button>
+                {pantoneRequired && (
+                  <>
+                    <DatePickerField value={pantoneRequiredDate} onChange={setPantoneRequiredDate} placeholder="Datum" />
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                      <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: pantoneOk ? "var(--success)" : "transparent", border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                        {pantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <input type="checkbox" checked={pantoneOk} onChange={(e) => setPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                      OK
+                    </label>
+                  </>
+                )}
               </div>
               {/* EXPEDICE */}
               <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
