@@ -773,7 +773,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [dtpPopover, setDtpPopover] = useState<{
     blockId: number;
     statusId: number | null;
-    ok: boolean;
     rect: DOMRect;
   } | null>(null);
 
@@ -1458,7 +1457,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setDtpPopover({
       blockId,
       statusId: block.dataStatusId ?? null,
-      ok: block.dataOk,
       rect,
     });
   }
@@ -3757,7 +3755,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         <DtpDataPopover
           blockId={dtpPopover.blockId}
           currentStatusId={dtpPopover.statusId}
-          currentOk={dtpPopover.ok}
           dataOpts={bDataOpts}
           anchorRect={dtpPopover.rect}
           onClose={() => setDtpPopover(null)}
