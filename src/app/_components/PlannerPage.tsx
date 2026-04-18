@@ -609,6 +609,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Timeline state
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [keyDeletePending, setKeyDeletePending] = useState(false);
+  const [deleteRejectionReason, setDeleteRejectionReason] = useState("");
   const [multiDeletePending, setMultiDeletePending] = useState(false);
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
@@ -1486,31 +1487,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
-  async function deleteSingleBlockWithUndo(block: Block) {
-    const res = await fetch(`/api/blocks/${block.id}`, { method: "DELETE" });
+  async function deleteSingleBlockWithUndo(block: Block, rejectionReason?: string) {
+    const fetchOpts: RequestInit = { method: "DELETE" };
+    if (block.reservationId && rejectionReason !== undefined) {
+      fetchOpts.headers = { "Content-Type": "application/json" };
+      fetchOpts.body = JSON.stringify({ reason: rejectionReason });
+    }
+    const res = await fetch(`/api/blocks/${block.id}`, fetchOpts);
     if (!res.ok) throw new Error("Chyba serveru");
 
     setBlocks((prev) => prev.filter((b) => b.id !== block.id));
     setSelectedBlock(null);
     setEditingBlock(null);
 
-    // Pokud byl blok spojen s rezervací — server ji vrátil do QUEUE_READY;
-    // klient ji musí přidat zpět do fialové fronty (bez reloadu)
+    // Pokud byl blok spojen s rezervací — server ji zamítl (REJECTED);
+    // odstraníme ji z fialové fronty
     if (block.reservationId) {
-      try {
-        const rRes = await fetch(`/api/reservations/${block.reservationId}`);
-        if (rRes.ok) {
-          const rData = await rRes.json();
-          if (rData.status === "QUEUE_READY") {
-            setReservationQueue((prev) => {
-              const alreadyIn = prev.some((q) => q.id === `r_${rData.id}`);
-              return alreadyIn ? prev : [...prev, reservationToQueueItem(rData)];
-            });
-          }
-        }
-      } catch {
-        // Nepodařilo se načíst — queue se zaktualizuje při dalším reloadu
-      }
+      setReservationQueue((prev) => prev.filter((q) => q.id !== `r_${block.reservationId}`));
       // REZERVACE bloky přeskakujeme undo — vztah rezervace↔blok je komplexní
       return;
     }
@@ -1577,11 +1570,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setCanRedo(false);
   }
 
-  async function handleDeleteBlock(id: number) {
+  async function handleDeleteBlock(id: number, rejectionReason?: string) {
     const block = blocks.find((b) => b.id === id);
     if (!block) return;
     try {
-      await deleteSingleBlockWithUndo(block);
+      await deleteSingleBlockWithUndo(block, rejectionReason);
     } catch (error) {
       console.error("Block delete failed", error);
       showToast("Chyba při mazání bloku.", "error");
@@ -2423,22 +2416,42 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       {/* ── Confirm smazání přes klávesnici ── */}
       {keyDeletePending && selectedBlock && (
         <div
-          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}
-          onClick={() => setKeyDeletePending(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}
+          onClick={() => { setKeyDeletePending(false); setDeleteRejectionReason(""); }}
         >
           <div
-            style={{ background: "#1c1c1e", borderRadius: 14, padding: "20px 24px", width: 280, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 16px 48px rgba(0,0,0,0.7)" }}
+            style={{ background: "#262630", borderRadius: 16, padding: "24px 28px", width: selectedBlock.reservationId ? 340 : 300, border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", textAlign: "center", marginBottom: 4 }}>Smazat blok?</p>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginBottom: 16 }}>{selectedBlock.orderNumber}{selectedBlock.description ? ` — ${selectedBlock.description}` : ""}</p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="destructive" size="sm" className="flex-1 text-xs" autoFocus
-                onClick={() => { setKeyDeletePending(false); handleDeleteBlock(selectedBlock.id); }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#f1f5f9", textAlign: "center", marginBottom: 6 }}>Smazat blok?</p>
+            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginBottom: selectedBlock.reservationId ? 14 : 20 }}>{selectedBlock.orderNumber}{selectedBlock.description ? ` — ${selectedBlock.description}` : ""}</p>
+            {selectedBlock.reservationId && (
+              <div style={{ background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
+                <p style={{ fontSize: 11, fontWeight: 600, color: "#c084fc", marginBottom: 8 }}>Propojená rezervace bude zamítnuta</p>
+                <input
+                  type="text"
+                  placeholder="Důvod zamítnutí (nepovinné)"
+                  value={deleteRejectionReason}
+                  onChange={(e) => setDeleteRejectionReason(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setKeyDeletePending(false);
+                      handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined);
+                      setDeleteRejectionReason("");
+                    }
+                  }}
+                  autoFocus
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.08)", color: "#e2e8f0", outline: "none" }}
+                />
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <Button variant="destructive" size="sm" className="flex-1 text-xs h-9" autoFocus={!selectedBlock.reservationId}
+                onClick={() => { setKeyDeletePending(false); handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined); setDeleteRejectionReason(""); }}>
                 Smazat
               </Button>
-              <Button variant="outline" size="sm" className="flex-1 text-xs border-slate-700 text-slate-300"
-                onClick={() => setKeyDeletePending(false)}>
+              <Button variant="outline" size="sm" className="flex-1 text-xs h-9 border-slate-600 text-slate-300"
+                onClick={() => { setKeyDeletePending(false); setDeleteRejectionReason(""); }}>
                 Zrušit
               </Button>
             </div>
@@ -2448,21 +2461,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       {/* ── Confirm hromadného smazání přes klávesnici ── */}
       {multiDeletePending && selectedBlockIds.size > 0 && (
         <div
-          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}
           onClick={() => setMultiDeletePending(false)}
         >
           <div
-            style={{ background: "#1c1c1e", borderRadius: 14, padding: "20px 24px", width: 280, border: "1px solid rgba(255,255,255,0.1)", boxShadow: "0 16px 48px rgba(0,0,0,0.7)" }}
+            style={{ background: "#262630", borderRadius: 16, padding: "24px 28px", width: 300, border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", textAlign: "center", marginBottom: 4 }}>Smazat {selectedBlockIds.size} {selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}?</p>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginBottom: 16 }}>Tato akce je nevratná.</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#f1f5f9", textAlign: "center", marginBottom: 6 }}>Smazat {selectedBlockIds.size} {selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}?</p>
+            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginBottom: 20 }}>Tato akce je nevratná.</p>
             <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="destructive" size="sm" className="flex-1 text-xs" autoFocus
+              <Button variant="destructive" size="sm" className="flex-1 text-xs h-9" autoFocus
                 onClick={() => { const ids = [...selectedBlockIds]; setMultiDeletePending(false); setSelectedBlockIds(new Set()); handleDeleteAll(ids); }}>
                 Smazat
               </Button>
-              <Button variant="outline" size="sm" className="flex-1 text-xs border-slate-700 text-slate-300"
+              <Button variant="outline" size="sm" className="flex-1 text-xs h-9 border-slate-600 text-slate-300"
                 onClick={() => setMultiDeletePending(false)}>
                 Zrušit
               </Button>
@@ -2661,16 +2674,28 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             </button>
           )}
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
-            <a
-              href="/admin"
-              style={{
-                height: 28, padding: "0 10px", borderRadius: 8,
-                display: "flex", alignItems: "center",
-                background: "var(--surface-2)", border: "1px solid var(--border)",
-                color: "#3b82f6", fontSize: 12, cursor: "pointer",
-                textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
-              }}
-            >Správa</a>
+            <>
+              <a
+                href="/admin"
+                style={{
+                  height: 28, padding: "0 10px", borderRadius: 8,
+                  display: "flex", alignItems: "center",
+                  background: "var(--surface-2)", border: "1px solid var(--border)",
+                  color: "#3b82f6", fontSize: 12, cursor: "pointer",
+                  textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
+                }}
+              >Správa</a>
+              <a
+                href="/reporty"
+                style={{
+                  height: 28, padding: "0 10px", borderRadius: 8,
+                  display: "flex", alignItems: "center",
+                  background: "var(--surface-2)", border: "1px solid var(--border)",
+                  color: "#10b981", fontSize: 12, cursor: "pointer",
+                  textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
+                }}
+              >Reporty</a>
+            </>
           )}
           {["ADMIN", "PLANOVAT", "OBCHODNIK"].includes(currentUser.role) && (
             <a
