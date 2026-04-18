@@ -170,6 +170,7 @@ function BarChart({ data, barKeys, colors, labels }: {
 }
 
 function RetroView({ data }: { data: RetroData }) {
+  if (!data.machines || !data.dailyUtilization) return null;
   const xl105 = data.machines["XL_105"];
   const xl106 = data.machines["XL_106"];
   const pipelineKeys = ["SUBMITTED", "ACCEPTED", "QUEUE_READY", "SCHEDULED", "REJECTED"] as const;
@@ -287,6 +288,7 @@ function RetroView({ data }: { data: RetroData }) {
 }
 
 function OutlookView({ data }: { data: OutlookData }) {
+  if (!data.dailyCapacity || !data.machines) return null;
   const xl105 = data.machines["XL_105"];
   const xl106 = data.machines["XL_106"];
   const machines = ["XL_105", "XL_106"] as const;
@@ -423,11 +425,6 @@ export default function ReportDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const { start, end } = computeRange(timeRange, today, customStart, customEnd);
-
-  // Vyčistit data při změně parametrů — zabrání renderování starých dat s novým režimem
-  useEffect(() => {
-    setData(null);
-  }, [mode, start, end]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
