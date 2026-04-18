@@ -27,6 +27,7 @@ type UpsertBody = {
   materialStatusId?: unknown;
   materialRequiredDateOffsetDays?: unknown;
   materialInStock?: unknown;
+  pantoneRequired?: unknown;
   pantoneRequiredDateOffsetDays?: unknown;
   barvyStatusId?: unknown;
   lakStatusId?: unknown;
@@ -111,6 +112,7 @@ function normalizeBody(body: UpsertBody) {
     materialStatusId: parseNullableInt(body.materialStatusId),
     materialRequiredDateOffsetDays: parseNullableInt(body.materialRequiredDateOffsetDays),
     materialInStock: parseNullableBool(body.materialInStock),
+    pantoneRequired: parseNullableBool(body.pantoneRequired),
     pantoneRequiredDateOffsetDays: parseNullableInt(body.pantoneRequiredDateOffsetDays),
     barvyStatusId: parseNullableInt(body.barvyStatusId),
     lakStatusId: parseNullableInt(body.lakStatusId),
@@ -119,7 +121,7 @@ function normalizeBody(body: UpsertBody) {
 
   if (!name) return { error: "Název presetu je povinný." } as const;
   if (machineConstraint === undefined) return { error: "Neplatné omezení stroje." } as const;
-  if (normalized.dataStatusId === undefined || normalized.dataRequiredDateOffsetDays === undefined || normalized.materialStatusId === undefined || normalized.materialRequiredDateOffsetDays === undefined || normalized.materialInStock === undefined || normalized.pantoneRequiredDateOffsetDays === undefined || normalized.barvyStatusId === undefined || normalized.lakStatusId === undefined || normalized.deadlineExpediceOffsetDays === undefined) {
+  if (normalized.dataStatusId === undefined || normalized.dataRequiredDateOffsetDays === undefined || normalized.materialStatusId === undefined || normalized.materialRequiredDateOffsetDays === undefined || normalized.materialInStock === undefined || normalized.pantoneRequired === undefined || normalized.pantoneRequiredDateOffsetDays === undefined || normalized.barvyStatusId === undefined || normalized.lakStatusId === undefined || normalized.deadlineExpediceOffsetDays === undefined) {
     return { error: "Některá číselná nebo boolean pole presetů mají neplatný formát." } as const;
   }
   if (!appliesToZakazka && !appliesToRezervace) {

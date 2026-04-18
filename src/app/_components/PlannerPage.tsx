@@ -1110,7 +1110,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   //  1. Překryv dozadu (přesunutý blok narazí na předchozí) → snap dopředu
   //  2. Překryv dopředu → auto-push navazující bloky
   // excludeIds = bloky které mají být při kontrole přeskočeny (přesouvané bloky ve skupině)
-  async function autoResolveOverlap(movedBlock: Block, excludeIds: Set<number> = new Set([movedBlock.id]), prevBlock?: Block, deleteBlockOnConflict = false): Promise<OverlapResult> {
+  async function autoResolveOverlap(movedBlock: Block, excludeIds: Set<number> = new Set([movedBlock.id]), prevBlock?: Block, deleteBlockOnConflict = false, movedSnapshots?: Map<number, { startTime: string; endTime: string; machine: string }>): Promise<OverlapResult> {
     const duration = new Date(movedBlock.endTime).getTime() - new Date(movedBlock.startTime).getTime();
     const otherBlocks = blocksRef.current.filter(b => !excludeIds.has(b.id));
     const sameMachine = otherBlocks
@@ -1194,95 +1194,83 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
     }
 
-    // ── Krok 2: Překryv dopředu → auto-push ──────────────────────────────────
+    // ── Krok 2: Překryv dopředu → auto-push (skip locked) ────────────────────
     const curEnd   = new Date(current.endTime).getTime();
     const curStart = new Date(current.startTime).getTime();
-    const firstFollowing = sameMachine.find(b =>
-      new Date(b.startTime).getTime() >= curStart && new Date(b.startTime).getTime() < curEnd
-    );
-    if (!firstFollowing) return "resolved";
 
-    const shiftMs = curEnd - new Date(firstFollowing.startTime).getTime();
-    if (shiftMs <= 0) return "resolved";
+    // Najít všechny bloky na stejném stroji, seřazené podle startTime
+    const candidates = sameMachine
+      .filter(b => new Date(b.startTime).getTime() >= curStart)
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
-    if (firstFollowing.locked) {
-      const result = await revertMovedBlock();
-      if (!deleteBlockOnConflict) setPushSuggestion({ chain: [], shiftMs, blockedByLock: true, lockedBlock: firstFollowing });
-      return result;
-    }
+    if (candidates.length === 0) return "resolved";
 
-    // Stavíme chain bloků které je potřeba posunout — a zároveň počítáme
-    // jejich nové pozice (každý blok se snapne za konec předchozího).
-    // Díky tomu detekujeme locked bloky na skutečných cílových pozicích.
-    const chain: Block[] = [firstFollowing];
-    let blockedByLocked = false;
-    let lockedBlockRef: Block | null = null;
-
-    // Předpočítat nové pozice chainu pro locked check
+    // Stavíme chain bloků k posunu — zamknuté přeskakujeme
+    const chain: Block[] = [];
     const chainPositions: { id: number; newStart: number; newEnd: number }[] = [];
-    {
-      let pEnd = curEnd;
-      for (const b of [firstFollowing]) {
-        const dur = new Date(b.endTime).getTime() - new Date(b.startTime).getTime();
-        let ns = new Date(pEnd);
-        if (workingTimeLockRef.current) {
-          ns = snapToNextValidStartWithTemplates(b.machine, ns, dur, machineWorkHoursTemplates, machineExceptions);
-        }
-        chainPositions.push({ id: b.id, newStart: ns.getTime(), newEnd: ns.getTime() + dur });
-        pEnd = ns.getTime() + dur;
-      }
-    }
+    let pEnd = curEnd; // "kurzor" — konec posledního umístěného bloku
 
     for (let i = 0; i < 200; i++) {
-      const cursor = chain[chain.length - 1];
-      const lastPos = chainPositions[chainPositions.length - 1];
-      // Hledáme blok, který koliduje s novou pozicí posledního bloku v chainu
-      const next = sameMachine.find(b =>
+      // Najít blok, jehož aktuální startTime < pEnd (koliduje)
+      const next = candidates.find(b =>
         !chain.find(c => c.id === b.id) &&
-        new Date(b.startTime).getTime() < lastPos.newEnd &&
-        new Date(b.endTime).getTime() > lastPos.newStart
+        !excludeIds.has(b.id) &&
+        new Date(b.startTime).getTime() < pEnd &&
+        new Date(b.endTime).getTime() > curStart
       );
       if (!next) break;
+
       if (next.locked) {
-        blockedByLocked = true;
-        lockedBlockRef = next;
-        break;
+        // Přeskočit zamknutý blok — posunout kurzor za jeho konec
+        const lockedEnd = new Date(next.endTime).getTime();
+        if (lockedEnd > pEnd) pEnd = lockedEnd;
+        continue;
       }
+
+      // Nezamknutý blok — přidat do chainu
       chain.push(next);
-      // Spočítat novou pozici pro nový blok v chainu
       const dur = new Date(next.endTime).getTime() - new Date(next.startTime).getTime();
-      let ns = new Date(lastPos.newEnd);
+      let ns = new Date(pEnd);
       if (workingTimeLockRef.current) {
         ns = snapToNextValidStartWithTemplates(next.machine, ns, dur, machineWorkHoursTemplates, machineExceptions);
       }
-      chainPositions.push({ id: next.id, newStart: ns.getTime(), newEnd: ns.getTime() + dur });
-    }
-
-    // Zkontrolovat, zda posunuté bloky nepřekryjí locked blok mimo chain
-    if (!blockedByLocked) {
-      const lockedOnMachine = sameMachine.filter(b => b.locked && !chain.find(c => c.id === b.id));
-      for (const pos of chainPositions) {
-        const hit = lockedOnMachine.find(l =>
-          new Date(l.startTime).getTime() < pos.newEnd && new Date(l.endTime).getTime() > pos.newStart
+      // Ověřit, že nová pozice nekoliduje s locked blokem
+      let nsMs = ns.getTime();
+      let nsEnd = nsMs + dur;
+      const lockedOnMachine = sameMachine.filter(b => b.locked);
+      let safetyCounter = 0;
+      while (safetyCounter < 50) {
+        const lockedHit = lockedOnMachine.find(l =>
+          new Date(l.startTime).getTime() < nsEnd && new Date(l.endTime).getTime() > nsMs
         );
-        if (hit) {
-          blockedByLocked = true;
-          lockedBlockRef = hit;
-          break;
+        if (!lockedHit) break;
+        // Přeskočit locked blok
+        const afterLocked = new Date(lockedHit.endTime).getTime();
+        let snapped = new Date(afterLocked);
+        if (workingTimeLockRef.current) {
+          snapped = snapToNextValidStartWithTemplates(next.machine, snapped, dur, machineWorkHoursTemplates, machineExceptions);
         }
+        nsMs = snapped.getTime();
+        nsEnd = nsMs + dur;
+        safetyCounter++;
       }
-    }
 
-    if (blockedByLocked) {
-      const result = await revertMovedBlock();
-      if (!deleteBlockOnConflict) setPushSuggestion({ chain, shiftMs, blockedByLock: true, lockedBlock: lockedBlockRef });
-      return result;
+      chainPositions.push({ id: next.id, newStart: nsMs, newEnd: nsEnd });
+      pEnd = nsEnd;
     }
 
     if (chain.length === 0) return "resolved";
 
-    // Použít předpočítané pozice z chainPositions — každý blok je snapnutý
-    // individuálně za konec předchozího, správně přeskakuje šrafování.
+    // Uložit snapshoty chain bloků pro undo
+    if (movedSnapshots) {
+      for (const b of chain) {
+        if (!movedSnapshots.has(b.id)) {
+          movedSnapshots.set(b.id, { startTime: b.startTime as string, endTime: b.endTime as string, machine: b.machine });
+        }
+      }
+    }
+
+    // Uložit chain přes batch API
     try {
       const batchUpdates = chain.map((b, idx) => ({
         id: b.id,
@@ -1309,11 +1297,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const results: Block[] = await batchRes.json();
       setBlocks(prev => prev.map(b => results.find(r => r.id === b.id) ?? b));
 
-      // Vždy rekurzivně vyřešit překryv posledního bloku chainu — mohl přistát
-      // na bloku který nebyl v původním chainu (za šrafováním apod.)
+      // Rekurzivně vyřešit překryv posledního bloku chainu
       const allExcluded = new Set([...Array.from(excludeIds), ...chain.map(b => b.id)]);
       const lastResult = results[results.length - 1];
-      if (lastResult) await autoResolveOverlap(lastResult, allExcluded);
+      if (lastResult) await autoResolveOverlap(lastResult, allExcluded, undefined, false, movedSnapshots);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Nepodařilo se automaticky posunout navazující bloky.";
       showToast(msg, "error");
@@ -1334,7 +1321,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
   ] as const;
 
-  function handleBlockUpdate(updated: Block, addToHistory = false) {
+  async function handleBlockUpdate(updated: Block, addToHistory = false) {
     if (typeof updated.id !== "number") return; // Guard against API error responses
     const prev = blocksRef.current.find(b => b.id === updated.id);
     setBlocks((arr) => arr.map((b) => (b.id === updated.id ? updated : b)));
@@ -1361,19 +1348,35 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         new Date(prev.endTime).getTime()   !== new Date(updated.endTime).getTime()   ||
         prev.machine !== updated.machine;
       if (timeOrMachineChanged) {
-        void autoResolveOverlap(updated, new Set([updated.id]), prev);
-        if (addToHistory) {
-          const bypassAtTime = !workingTimeLockRef.current;
-          const prevSnap = { startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine, bypassScheduleValidation: bypassAtTime, bypassOverlapCheck: true };
-          const nextSnap = { startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine, bypassScheduleValidation: bypassAtTime, bypassOverlapCheck: true };
+        const movedSnapshots = new Map<number, { startTime: string; endTime: string; machine: string }>();
+        // Snapshot přesunutého bloku
+        movedSnapshots.set(updated.id, { startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine });
+
+        // autoResolveOverlap naplní movedSnapshots chain bloky
+        await autoResolveOverlap(updated, new Set([updated.id]), prev, false, movedSnapshots);
+
+        if (addToHistory && movedSnapshots.size > 0) {
+          // Snapshot "po" — aktuální stav všech posunutých bloků
+          const afterSnapshots = new Map<number, { startTime: string; endTime: string; machine: string }>();
+          for (const [id] of movedSnapshots) {
+            const currentBlock = blocksRef.current.find(b => b.id === id);
+            if (currentBlock) afterSnapshots.set(id, { startTime: currentBlock.startTime as string, endTime: currentBlock.endTime as string, machine: currentBlock.machine });
+          }
+
           undoStack.current.push({
             undo: async () => {
-              const res = await fetch(`/api/blocks/${updated.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prevSnap) });
-              if (res.ok) { const b: Block = await res.json(); setBlocks(arr => arr.map(x => x.id === b.id ? b : x)); setSelectedBlock(sel => sel?.id === b.id ? b : sel); }
+              const updates = Array.from(movedSnapshots.entries()).map(([id, snap]) => ({
+                id, startTime: snap.startTime, endTime: snap.endTime, machine: snap.machine,
+              }));
+              const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
+              if (r.ok) { const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b)); }
             },
             redo: async () => {
-              const res = await fetch(`/api/blocks/${updated.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(nextSnap) });
-              if (res.ok) { const b: Block = await res.json(); setBlocks(arr => arr.map(x => x.id === b.id ? b : x)); setSelectedBlock(sel => sel?.id === b.id ? b : sel); }
+              const updates = Array.from(afterSnapshots.entries()).map(([id, snap]) => ({
+                id, startTime: snap.startTime, endTime: snap.endTime, machine: snap.machine,
+              }));
+              const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
+              if (r.ok) { const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b)); }
             },
           });
           if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
@@ -3270,28 +3273,26 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
                       {/* Pantone + Barvy + Lak — 3-sloupcový grid */}
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                        {/* Pantone — potřeba toggle + datepicker + OK */}
+                        {/* Pantone — datepicker + potřeba/OK vedle sebe */}
                         <div>
                           <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Pantone</label>
-                          <button type="button" onClick={() => {
-                            const next = !bPantoneRequired;
-                            setBPantoneRequired(next);
-                            if (!next) { setBPantoneRequiredDate(""); setBPantoneOk(false); }
-                          }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: bPantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: bPantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: bPantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms", marginBottom: 4, width: "100%" }}>
-                            {bPantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
-                          </button>
-                          {bPantoneRequired && (
-                            <>
-                              <DatePickerField value={bPantoneRequiredDate} onChange={setBPantoneRequiredDate} placeholder="Datum…" />
-                              <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: bPantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                                <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: bPantoneOk ? "var(--success)" : "transparent", border: bPantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
-                                  {bPantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                                </div>
-                                <input type="checkbox" checked={bPantoneOk} onChange={(e) => setBPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
-                                OK
-                              </label>
-                            </>
-                          )}
+                          <DatePickerField value={bPantoneRequiredDate} onChange={(v) => { setBPantoneRequiredDate(v); if (v) setBPantoneRequired(true); }} placeholder="Datum…" />
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+                            <button type="button" onClick={() => {
+                              const next = !bPantoneRequired;
+                              setBPantoneRequired(next);
+                              if (!next) { setBPantoneRequiredDate(""); setBPantoneOk(false); }
+                            }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: bPantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: bPantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: bPantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                              {bPantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
+                            </button>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: bPantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                              <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: bPantoneOk ? "var(--success)" : "transparent", border: bPantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                                {bPantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                              </div>
+                              <input type="checkbox" checked={bPantoneOk} onChange={(e) => setBPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                              OK
+                            </label>
+                          </div>
                         </div>
                         {/* Barvy + Lak */}
                         {([

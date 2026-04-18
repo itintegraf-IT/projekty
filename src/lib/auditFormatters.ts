@@ -15,12 +15,13 @@ export const FIELD_LABELS: Record<string, string> = {
   doprava: "Doprava",
   pantoneRequiredDate: "Pantone datum",
   pantoneOk: "Pantone OK",
+  pantoneRequired: "Pantone potřeba",
   blockVariant: "Stav zakázky",
 };
 
 export function fmtAuditVal(val: string | null, field: string | null): string {
   if (!val || val === "null") return "—";
-  if (field === "dataOk" || field === "materialOk") return val === "true" ? "✓ OK" : "✗ Ne";
+  if (field === "dataOk" || field === "materialOk" || field === "pantoneRequired") return val === "true" ? "✓ OK" : "✗ Ne";
   if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
     return formatCivilDate(val);
   }

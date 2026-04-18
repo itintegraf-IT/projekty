@@ -1,0 +1,138 @@
+<h2>Kde přesně umístit lock chip?</h2>
+<p class="subtitle">Zamknutý blok = nepřesouvá se automaticky. Chip by měl být viditelný na první pohled.</p>
+
+<div class="cards">
+  <!-- Option A: Na levém okraji místo/vedle accentBar -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #1a1a2e;">
+      <!-- Mock bloku s chipem vlevo -->
+      <div style="position: relative; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; padding: 0; height: 64px; display: flex; overflow: hidden;">
+        <!-- Lock chip na levém okraji -->
+        <div style="width: 22px; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 7px 0 0 7px; border-right: 1px solid rgba(255,255,255,0.1);">
+          <span style="font-size: 11px;">🔒</span>
+        </div>
+        <!-- Obsah bloku -->
+        <div style="padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display: flex; gap: 5px; align-items: center;">
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">D 15.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">M 18.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">E 22.4.</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fff;">248329</span>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Náhled tisku — Müller</span>
+          </div>
+        </div>
+      </div>
+      <!-- Normální blok pro srovnání -->
+      <div style="position: relative; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; padding: 0; height: 64px; display: flex; overflow: hidden; margin-top: 8px; opacity: 0.5;">
+        <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+        <div style="padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display: flex; gap: 5px; align-items: center;">
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">D 12.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">M —</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fff;">248330</span>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Běžná zakázka</span>
+          </div>
+        </div>
+      </div>
+      <p style="font-size: 10px; color: rgba(255,255,255,0.35); margin-top: 6px; text-align: center;">↑ zamknutý &nbsp;&nbsp; ↓ normální (pro srovnání)</p>
+    </div>
+    <div class="card-body">
+      <h3>A — Levý vertikální pruh (široký)</h3>
+      <p>Nahradí 3px accentBar širším pruhem (~22px) s ikonou zámku. Jasně odliší zamknutý blok. Podobný vzor jako badge stroje na odstávkách.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Malý chip/badge vedle accentBar -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #1a1a2e;">
+      <!-- Mock bloku s malým chipem -->
+      <div style="position: relative; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; padding: 0; height: 64px; display: flex; overflow: hidden;">
+        <!-- AccentBar zůstává -->
+        <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+        <!-- Lock badge overlay v levém horním rohu -->
+        <div style="position: absolute; left: 0; top: 0; width: 18px; height: 18px; background: rgba(251,191,36,0.9); border-radius: 0 0 6px 7px; display: flex; align-items: center; justify-content: center; z-index: 2;">
+          <span style="font-size: 9px;">🔒</span>
+        </div>
+        <!-- Obsah bloku -->
+        <div style="padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display: flex; gap: 5px; align-items: center;">
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">D 15.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">M 18.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">E 22.4.</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fff;">248329</span>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Náhled tisku — Müller</span>
+          </div>
+        </div>
+      </div>
+      <!-- Normální blok pro srovnání -->
+      <div style="position: relative; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; padding: 0; height: 64px; display: flex; overflow: hidden; margin-top: 8px; opacity: 0.5;">
+        <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+        <div style="padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display: flex; gap: 5px; align-items: center;">
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">D 12.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">M —</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fff;">248330</span>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Běžná zakázka</span>
+          </div>
+        </div>
+      </div>
+      <p style="font-size: 10px; color: rgba(255,255,255,0.35); margin-top: 6px; text-align: center;">↑ zamknutý &nbsp;&nbsp; ↓ normální</p>
+    </div>
+    <div class="card-body">
+      <h3>B — Corner badge (levý horní roh)</h3>
+      <p>AccentBar zůstává beze změny. Malý žlutý badge s ikonou zámku se překryje přes levý horní roh. Méně invazivní, ale může být hůře viditelný na malých blocích.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Celý levý pruh se změní na jinou barvu -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #1a1a2e;">
+      <!-- Mock bloku s barevným pruhem -->
+      <div style="position: relative; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; padding: 0; height: 64px; display: flex; overflow: hidden;">
+        <!-- AccentBar změněný na amber + ikona -->
+        <div style="width: 16px; background: linear-gradient(180deg, #fbbf24, #f59e0b); border-radius: 7px 0 0 7px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+          <span style="font-size: 9px; writing-mode: vertical-lr; transform: rotate(180deg); letter-spacing: 0.5px;">🔒</span>
+        </div>
+        <!-- Obsah bloku -->
+        <div style="padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display: flex; gap: 5px; align-items: center;">
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">D 15.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">M 18.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">E 22.4.</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fff;">248329</span>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Náhled tisku — Müller</span>
+          </div>
+        </div>
+      </div>
+      <!-- Normální blok pro srovnání -->
+      <div style="position: relative; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; padding: 0; height: 64px; display: flex; overflow: hidden; margin-top: 8px; opacity: 0.5;">
+        <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+        <div style="padding: 6px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px;">
+          <div style="display: flex; gap: 5px; align-items: center;">
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">D 12.4.</span>
+            <span style="font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px;">M —</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 6px;">
+            <span style="font-size: 12px; font-weight: 700; color: #fff;">248330</span>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Běžná zakázka</span>
+          </div>
+        </div>
+      </div>
+      <p style="font-size: 10px; color: rgba(255,255,255,0.35); margin-top: 6px; text-align: center;">↑ zamknutý &nbsp;&nbsp; ↓ normální</p>
+    </div>
+    <div class="card-body">
+      <h3>C — Rozšířený accentBar (amber)</h3>
+      <p>AccentBar se rozšíří z 3px na ~16px a změní barvu na amber/gold. Ikona zámku uvnitř pruhu. Kompromis — jasně viditelné, ale zabírá méně místa než varianta A.</p>
+    </div>
+  </div>
+</div>

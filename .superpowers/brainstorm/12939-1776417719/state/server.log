@@ -1,0 +1,4 @@
+{"type":"server-started","port":59515,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:59515","screen_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/12939-1776417719/content","state_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/12939-1776417719/state"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/12939-1776417719/content/lock-chip-position.html"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/12939-1776417719/content/lock-timeline-chip.html"}
+{"type":"server-stopped","reason":"idle timeout"}

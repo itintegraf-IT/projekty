@@ -151,6 +151,7 @@ type DragInternalState =
       originalMachine: string;
       startClientY: number;
       startClientX: number;
+      startScrollTop: number;
       originalStart: Date;
       originalEnd: Date;
     }
@@ -159,6 +160,7 @@ type DragInternalState =
       blocks: Array<{ id: number; machine: string; originalStart: Date; originalEnd: Date }>;
       startClientY: number;
       startClientX: number;
+      startScrollTop: number;
       anchorBlockId: number;
     }
   | {
@@ -169,6 +171,7 @@ type DragInternalState =
       originalBoundarySlot: number;
       otherBoundarySlot: number;
       startClientY: number;
+      startScrollTop: number;
       overlayKey: string;
     };
 
@@ -177,6 +180,8 @@ type DragPreview = {
   top: number;
   height: number;
   machine: string;
+  resizeEnd?: Date;
+  resizeStart?: Date;
 } | null;
 
 
@@ -598,9 +603,9 @@ function InlineDatePicker({
 
 // ─── DateBadge — klikatelná kolonka s datem + toggle OK ───────────────────────
 function DateBadge({
-  label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick, statusLabel, overrideText,
+  label, dateStr, ok, warn, danger, earlyStart, accent, onToggle, onDoubleClick, statusLabel, overrideText, customBg, customBorder, customTextColor,
 }: {
-  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle?: () => void; onDoubleClick?: (rect: DOMRect) => void; statusLabel?: string | null; overrideText?: string;
+  label: string; dateStr: string | null; ok: boolean; warn: boolean; danger: boolean; earlyStart?: boolean; accent?: string; onToggle?: () => void; onDoubleClick?: (rect: DOMRect) => void; statusLabel?: string | null; overrideText?: string; customBg?: string; customBorder?: string; customTextColor?: string;
 }) {
   const [loading, setLoading] = useState(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -609,10 +614,10 @@ function DateBadge({
 
   const neutralAccent = accent ?? "var(--text-muted)";
   const stateKey = empty ? "empty" : ok ? "ok" : danger ? "danger" : warn ? "warning" : earlyStart ? "earlyStart" : "neutral";
-  const bg          = DEADLINE_BG[stateKey];
-  const borderColor = DEADLINE_BORDER[stateKey];
-  const labelColor  = empty ? "var(--text-muted)" : "rgba(255,255,255,0.90)";
-  const dateColor   = empty ? "var(--text-muted)" : "#fff";
+  const bg          = customBg ?? DEADLINE_BG[stateKey];
+  const borderColor = customBorder ?? DEADLINE_BORDER[stateKey];
+  const labelColor  = customTextColor ?? (empty ? "var(--text-muted)" : "rgba(255,255,255,0.90)");
+  const dateColor   = customTextColor ?? (empty ? "var(--text-muted)" : "#fff");
 
   function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -981,11 +986,11 @@ function BlockCard({
         zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
         opacity, borderRadius: 7,
-        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : block.locked ? "1px solid rgba(251,191,36,0.4)" : `1px solid ${selected ? "#FFE600" : s.border}`,
+        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : block.locked ? "1.5px solid rgba(251,191,36,0.7)" : `1px solid ${selected ? "#FFE600" : s.border}`,
         outline: isCopied ? "1px solid rgba(59,130,246,0.3)" : undefined,
         outlineOffset: isCopied ? "2px" : undefined,
         boxShadow: block.locked
-          ? `${shadow}, 0 0 0 1px rgba(251,191,36,0.2)`
+          ? `${shadow}, 0 0 0 1px rgba(251,191,36,0.35)`
           : shadow,
         background: s.gradient,
         display: "flex", flexDirection: "column",
@@ -999,8 +1004,8 @@ function BlockCard({
     >
       {/* Levý barevný pruh — iOS Calendar style / amber lock strip */}
       {block.locked ? (
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 22, background: "rgba(251,191,36,0.25)", borderRadius: "7px 0 0 7px", borderRight: "1px solid rgba(251,191,36,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Lock size={11} strokeWidth={2} color="rgba(251,191,36,0.9)" />
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 22, background: "rgba(251,191,36,0.4)", borderRadius: "7px 0 0 7px", borderRight: "1px solid rgba(251,191,36,0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Lock size={11} strokeWidth={2} color="rgba(251,191,36,1)" />
         </div>
       ) : (
         <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
@@ -1035,7 +1040,10 @@ function BlockCard({
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
-                <span style={dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                <span style={{
+                    ...dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
+                    ...(block.dataStatusId && dataAccent !== s.accentBar ? { background: dataAccent, borderTop: `1px solid ${dataAccent}`, borderRight: `1px solid ${dataAccent}`, borderBottom: `1px solid ${dataAccent}`, color: dataText ?? "#fff" } : {}),
+                  }} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
                   onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar || dataCanOpenDtpPopover) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
                   onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => {
                     e.stopPropagation();
@@ -1068,7 +1076,7 @@ function BlockCard({
                 <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.6 }}><Lock size={9} strokeWidth={2} /></span>}
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}
                 {isPrintDone && <span style={{ marginLeft: 4, fontSize: 9, color: "#22c55e", fontWeight: 700 }}>✓</span>}
                 {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={11} strokeWidth={2.5} color="#f59e0b" /></span>}
               </span>
@@ -1134,7 +1142,10 @@ function BlockCard({
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
-                <span style={chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle)} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
+                <span style={{
+                    ...chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
+                    ...(block.dataStatusId && dataAccent !== s.accentBar ? { background: dataAccent, borderTop: `1px solid ${dataAccent}`, borderRight: `1px solid ${dataAccent}`, borderBottom: `1px solid ${dataAccent}`, color: dataText ?? "#fff" } : {}),
+                  }} title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
                   onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar || dataCanOpenDtpPopover) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
                   onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => {
                     e.stopPropagation();
@@ -1170,7 +1181,7 @@ function BlockCard({
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.6 }}><Lock size={8} strokeWidth={2} /></span>}
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={8} strokeWidth={2} /></span>}
               </span>
               {(block.description || block.specifikace) && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -1227,7 +1238,7 @@ function BlockCard({
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
               {block.orderNumber}
-              {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.6 }}><Lock size={9} strokeWidth={2} /></span>}
+              {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}
             </span>
             {showDesc && block.description && (
               <span style={{
@@ -1268,7 +1279,7 @@ function BlockCard({
           <DateBadge
             label="DATA" dateStr={block.dataStatusId ? null : block.dataRequiredDate}
             overrideText={block.dataStatusId ? dataDisplayLabel : undefined}
-            ok={dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
+            ok={block.dataStatusId ? true : dataDeadlineState === "ok"} warn={dataDeadlineState === "warning"} danger={dataDeadlineState === "danger"} earlyStart={dataDeadlineState === "earlyStart"}
             accent={FIELD_ACCENT.DATA}
             onToggle={undefined}
             onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (rect) => {
@@ -1276,6 +1287,9 @@ function BlockCard({
               else if (dataCanOpenDtpPopover) { onDataChipDoubleClick?.(block.id, rect); }
             } : undefined}
             statusLabel={block.dataStatusLabel}
+            customBg={block.dataStatusId && dataAccent !== s.accentBar ? dataAccent : undefined}
+            customBorder={block.dataStatusId && dataAccent !== s.accentBar ? dataAccent : undefined}
+            customTextColor={block.dataStatusId && dataAccent !== s.accentBar ? (dataText ?? "#fff") : undefined}
           />
           <MaterialNoteAffordance block={block}>
             <DateBadge
@@ -1327,7 +1341,10 @@ function BlockCard({
         const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
           <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden", alignItems: "center" }}>
-            <span style={cs(dSK, FIELD_ACCENT.DATA, dataCanToggle)}
+            <span style={{
+                ...cs(dSK, FIELD_ACCENT.DATA, dataCanToggle),
+                ...(block.dataStatusId && dataAccent !== s.accentBar ? { background: dataAccent, borderTop: `1px solid ${dataAccent}`, borderRight: `1px solid ${dataAccent}`, borderBottom: `1px solid ${dataAccent}`, color: dataText ?? "#fff" } : {}),
+              }}
               onClick={dataCanToggle ? (e) => { e.stopPropagation(); if (dataCanOpenCalendar || dataCanOpenDtpPopover) { if (compactDataTimerRef.current) clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = setTimeout(() => { compactDataTimerRef.current = null; toggleField("dataOk", block.dataOk); }, 350); } else { toggleField("dataOk", block.dataOk); } } : undefined}
               onDoubleClick={(dataCanOpenCalendar || dataCanOpenDtpPopover) ? (e) => { e.stopPropagation(); if (compactDataTimerRef.current) { clearTimeout(compactDataTimerRef.current); compactDataTimerRef.current = null; } if (dataCanOpenCalendar) { onInlineDatePick(block.id, "data", block.dataRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } else if (dataCanOpenDtpPopover) { onDataChipDoubleClick?.(block.id, e.currentTarget.getBoundingClientRect()); } } : undefined}>
               {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
@@ -1787,6 +1804,10 @@ export default function TimelineGrid({
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const blocksRef       = useRef(blocks);
   const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
+
+  // ── Edge auto-scroll při dragu ──────────────────────────────────────────────
+  const autoScrollRef = useRef({ active: false, speed: 0, rafId: 0 });
+  const lastMouseRef  = useRef({ clientX: 0, clientY: 0 });
   const workingTimeLockRef  = useRef(workingTimeLock);
   workingTimeLockRef.current = workingTimeLock;
   const machineWorkHoursRef = useRef(machineWorkHours);
@@ -1846,9 +1867,64 @@ export default function TimelineGrid({
     return visibleMachines[0];
   }
 
+  // ── Edge auto-scroll helpers ────────────────────────────────────────────────
+  const EDGE_ZONE = 60;       // px od okraje scroll kontejneru
+  const MAX_SCROLL_SPEED = 600; // px/s při kurzoru přímo na hraně
+
+  function stopAutoScroll() {
+    const as = autoScrollRef.current;
+    if (as.rafId) cancelAnimationFrame(as.rafId);
+    as.active = false;
+    as.speed = 0;
+    as.rafId = 0;
+  }
+
+  function autoScrollTick() {
+    const as = autoScrollRef.current;
+    if (!as.active) return;
+    const el = scrollRef.current;
+    if (!el) { stopAutoScroll(); return; }
+    el.scrollTop += as.speed / 60; // 60fps → px/frame
+    // Syntetický mousemove → přepočítá drag preview na nový scrollTop
+    const lm = lastMouseRef.current;
+    window.dispatchEvent(new MouseEvent("mousemove", { clientX: lm.clientX, clientY: lm.clientY, bubbles: true }));
+    as.rafId = requestAnimationFrame(autoScrollTick);
+  }
+
+  function updateAutoScroll(clientY: number) {
+    const el = scrollRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    let speed = 0;
+    if (clientY > rect.bottom - EDGE_ZONE) {
+      const proximity = Math.min(1, Math.max(0, 1 - (rect.bottom - clientY) / EDGE_ZONE));
+      speed = proximity * MAX_SCROLL_SPEED;
+    } else if (clientY < rect.top + EDGE_ZONE) {
+      const proximity = Math.min(1, Math.max(0, 1 - (clientY - rect.top) / EDGE_ZONE));
+      speed = -proximity * MAX_SCROLL_SPEED;
+    }
+    const as = autoScrollRef.current;
+    if (speed === 0) {
+      if (as.active) stopAutoScroll();
+    } else {
+      as.speed = speed;
+      if (!as.active) {
+        as.active = true;
+        as.rafId = requestAnimationFrame(autoScrollTick);
+      }
+    }
+  }
+
   // ── Globální mouse listenery ───────────────────────────────────────────────
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
+      lastMouseRef.current = { clientX: e.clientX, clientY: e.clientY };
+
+      // ── Edge auto-scroll — aktivní při jakémkoliv dragu ──
+      const isDragging = !!(queueDragItemRef.current || lassoRef.current?.active || dragStateRef.current);
+      if (isDragging) updateAutoScroll(e.clientY);
+      else if (autoScrollRef.current.active) stopAutoScroll();
+
       // ── Queue drag pohyb ──
       const qdItem = queueDragItemRef.current;
       if (qdItem) {
@@ -1901,7 +1977,8 @@ export default function TimelineGrid({
       const vs = viewStartRef.current;
       if (!ds || !vs) return;
 
-      const deltaY = e.clientY - ds.startClientY;
+      const scrollDelta = (scrollRef.current?.scrollTop ?? 0) - ds.startScrollTop;
+      const deltaY = e.clientY - ds.startClientY + scrollDelta;
       const deltaX = "startClientX" in ds ? e.clientX - ds.startClientX : 0;
       if (Math.abs(deltaY) + Math.abs(deltaX) > DRAG_THRESHOLD) dragDidMove.current = true;
 
@@ -1919,7 +1996,7 @@ export default function TimelineGrid({
         const rawEnd         = yToDate(originalTop + Math.max(sh, originalHeight + deltaY), vs, sh);
         const snappedEnd     = snapToSlot(rawEnd);
         const snappedHeight  = Math.max(sh, dateToY(snappedEnd, vs, sh) - originalTop);
-        setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine });
+        setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine, resizeEnd: snappedEnd, resizeStart: ds.originalStart });
       } else if (ds.type === "multi-move") {
         const deltaMs    = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
         const newMachine = clientXToMachine(e.clientX);
@@ -1938,6 +2015,7 @@ export default function TimelineGrid({
     }
 
     async function onMouseUp(e: MouseEvent) {
+      stopAutoScroll();
       // ── Queue drag drop ──
       const qdItem = queueDragItemRef.current;
       if (qdItem) {
@@ -2008,7 +2086,8 @@ export default function TimelineGrid({
       setDragPreview(null);
       if (!moved) return;
 
-      const deltaY = e.clientY - ds.startClientY;
+      const scrollDelta = (scrollRef.current?.scrollTop ?? 0) - ds.startScrollTop;
+      const deltaY = e.clientY - ds.startClientY + scrollDelta;
       const sh = slotHeightRef.current;
 
       if (ds.type === "move") {
@@ -2075,7 +2154,8 @@ export default function TimelineGrid({
         callbacksRef.current.onMultiBlockUpdate?.(updates);
       } else if (ds.type === "overlay-resize") {
         const sh2 = slotHeightRef.current;
-        const deltaSlots = Math.round((e.clientY - ds.startClientY) / sh2);
+        const overlayScrollDelta = (scrollRef.current?.scrollTop ?? 0) - ds.startScrollTop;
+        const deltaSlots = Math.round((e.clientY - ds.startClientY + overlayScrollDelta) / sh2);
         const newSlot = ds.edge === "start"
           ? Math.max(1, Math.min(ds.otherBoundarySlot - 1, ds.originalBoundarySlot + deltaSlots))
           : Math.max(ds.otherBoundarySlot + 1, Math.min(DAY_SLOT_COUNT - 1, ds.originalBoundarySlot + deltaSlots));
@@ -2094,6 +2174,7 @@ export default function TimelineGrid({
     window.addEventListener("mouseup", onMouseUp);
     window.addEventListener("selectstart", onSelectStart);
     return () => {
+      stopAutoScroll();
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       window.removeEventListener("selectstart", onSelectStart);
@@ -2113,16 +2194,17 @@ export default function TimelineGrid({
     const height = dateToY(new Date(block.endTime), vs, sh) - top;
     const ids    = selectedBlockIdsRef.current;
     const isMulti = ids.has(block.id) && ids.size > 1;
+    const sst = scrollRef.current?.scrollTop ?? 0;
     if (isMulti) {
       const selBlocks = blocksRef.current.filter(b => ids.has(b.id) && !b.locked);
       dragStateRef.current = {
         type: "multi-move",
         blocks: selBlocks.map(b => ({ id: b.id, machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
-        startClientY: e.clientY, startClientX: e.clientX,
+        startClientY: e.clientY, startClientX: e.clientX, startScrollTop: sst,
         anchorBlockId: block.id,
       };
     } else {
-      dragStateRef.current = { type: "move", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
+      dragStateRef.current = { type: "move", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, startScrollTop: sst, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
     }
     dragDidMove.current = false;
     setDragPreview({ blockId: block.id, top, height, machine: block.machine });
@@ -2133,7 +2215,7 @@ export default function TimelineGrid({
     e.preventDefault();
     const vs = viewStartRef.current;
     if (!vs) return;
-    dragStateRef.current = { type: "resize", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
+    dragStateRef.current = { type: "resize", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, startScrollTop: scrollRef.current?.scrollTop ?? 0, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
     dragDidMove.current  = false;
     const sh     = slotHeightRef.current;
     const top    = dateToY(new Date(block.startTime), vs, sh);
@@ -2401,6 +2483,12 @@ export default function TimelineGrid({
   const currentTimeY = now ? dateToY(now, viewStart, slotHeight) : null;
   const filter       = filterText.trim().toLowerCase();
 
+  // Zamknuté bloky per machine pro TIME sloupec overlay
+  const lockedBlocksByMachine = new Map<string, Block[]>();
+  for (const machine of visibleMachines) {
+    lockedBlocksByMachine.set(machine, blocks.filter(b => b.locked && b.machine === machine));
+  }
+
 
   // Multi-drag: odvozeno z dragPreview + selectedBlockIds (bez extra state)
   const isMultiDrag = !!dragPreview && !!selectedBlockIds && selectedBlockIds.size > 1 && selectedBlockIds.has(dragPreview.blockId);
@@ -2506,6 +2594,28 @@ export default function TimelineGrid({
                 </div>
               );
             })}
+            {/* Lock overlay — amber indikátor zamknutých bloků */}
+            {viewStart && (lockedBlocksByMachine.get(visibleMachines[0]) ?? []).map((lb) => {
+              const totalH = totalDays * dayHeight;
+              const top = dateToY(new Date(lb.startTime), viewStart, slotHeight);
+              const bottom = dateToY(new Date(lb.endTime), viewStart, slotHeight);
+              const clampedTop = Math.max(0, Math.min(top, totalH));
+              const clampedBottom = Math.max(0, Math.min(bottom, totalH));
+              const h = clampedBottom - clampedTop;
+              if (h <= 0) return null;
+              const startD = new Date(lb.startTime);
+              const timeStr = startD.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
+              return (
+                <div key={`lock-t0-${lb.id}`} style={{ position: "absolute", top: clampedTop, height: h, left: 0, right: 0, background: "rgba(251,191,36,0.15)", borderTop: "1.5px solid rgba(251,191,36,0.5)", borderBottom: "1.5px solid rgba(251,191,36,0.5)", pointerEvents: "none", overflow: "hidden" }}>
+                  {h >= 14 && (
+                    <div style={{ position: "absolute", top: 2, left: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                      <Lock size={9} strokeWidth={2.5} color="rgba(251,191,36,1)" />
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(251,191,36,1)", letterSpacing: "0.03em" }}>{timeStr}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
               <div
                 key={m.key}
@@ -2564,6 +2674,28 @@ export default function TimelineGrid({
                         </span>
                       </div>
                     ))}
+                    {/* Lock overlay — amber indikátor zamknutých bloků (druhý stroj) */}
+                    {viewStart && (lockedBlocksByMachine.get(visibleMachines[colIdx]) ?? []).map((lb) => {
+                      const totalH = totalDays * dayHeight;
+                      const top = dateToY(new Date(lb.startTime), viewStart, slotHeight);
+                      const bottom = dateToY(new Date(lb.endTime), viewStart, slotHeight);
+                      const clampedTop = Math.max(0, Math.min(top, totalH));
+                      const clampedBottom = Math.max(0, Math.min(bottom, totalH));
+                      const h = clampedBottom - clampedTop;
+                      if (h <= 0) return null;
+                      const startD = new Date(lb.startTime);
+                      const timeStr = startD.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
+                      return (
+                        <div key={`lock-t${colIdx}-${lb.id}`} style={{ position: "absolute", top: clampedTop, height: h, left: 0, right: 0, background: "rgba(251,191,36,0.15)", borderTop: "1.5px solid rgba(251,191,36,0.5)", borderBottom: "1.5px solid rgba(251,191,36,0.5)", pointerEvents: "none", overflow: "hidden" }}>
+                          {h >= 14 && (
+                            <div style={{ position: "absolute", top: 2, left: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                              <Lock size={9} strokeWidth={2.5} color="rgba(251,191,36,1)" />
+                              <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(251,191,36,1)", letterSpacing: "0.03em" }}>{timeStr}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               <div
@@ -2719,7 +2851,7 @@ export default function TimelineGrid({
                             const workStart = blockedOverlays[machine].find(
                               x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString()
                             )?.effectiveEndSlot ?? 0;
-                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundarySlot: n.effectiveStartSlot, otherBoundarySlot: workStart, startClientY: e.clientY, overlayKey: n.key };
+                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundarySlot: n.effectiveStartSlot, otherBoundarySlot: workStart, startClientY: e.clientY, startScrollTop: scrollRef.current?.scrollTop ?? 0, overlayKey: n.key };
                             dragDidMove.current = false;
                           }}
                         />
@@ -2735,7 +2867,7 @@ export default function TimelineGrid({
                             const workEnd = blockedOverlays[machine].find(
                               x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString()
                             )?.effectiveStartSlot ?? DAY_SLOT_COUNT;
-                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundarySlot: n.effectiveEndSlot, otherBoundarySlot: workEnd, startClientY: e.clientY, overlayKey: n.key };
+                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundarySlot: n.effectiveEndSlot, otherBoundarySlot: workEnd, startClientY: e.clientY, startScrollTop: scrollRef.current?.scrollTop ?? 0, overlayKey: n.key };
                             dragDidMove.current = false;
                           }}
                         />
@@ -2876,6 +3008,40 @@ export default function TimelineGrid({
                       pointerEvents: "none",
                       zIndex: 16,
                     }} />
+                  );
+                })()}
+
+                {/* Resize tooltip — koncový čas + délka tisku */}
+                {dragPreview && dragPreview.machine === machine && dragPreview.resizeEnd && dragPreview.resizeStart && (() => {
+                  const end = dragPreview.resizeEnd!;
+                  const start = dragPreview.resizeStart!;
+                  const fmtTime = end.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
+                  const totalMs = end.getTime() - start.getTime();
+                  const totalMin = Math.round(totalMs / 60000);
+                  const h = Math.floor(totalMin / 60);
+                  const m = totalMin % 60;
+                  const fmtDur = h > 0 ? (m > 0 ? `${h}h ${m}min` : `${h}h`) : `${m}min`;
+                  return (
+                    <div style={{
+                      position: "absolute",
+                      top: dragPreview.top + Math.max(dragPreview.height, slotHeight) + 4,
+                      left: 3,
+                      display: "flex", alignItems: "center", gap: 10,
+                      background: "rgba(0,0,0,0.85)",
+                      backdropFilter: "blur(12px)",
+                      WebkitBackdropFilter: "blur(12px)",
+                      border: "1px solid rgba(100,180,255,0.4)",
+                      borderRadius: 8,
+                      padding: "5px 10px",
+                      pointerEvents: "none",
+                      zIndex: 20,
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+                      whiteSpace: "nowrap",
+                    }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa", fontVariantNumeric: "tabular-nums" }}>→ {fmtTime}</span>
+                      <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>|</span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>{fmtDur}</span>
+                    </div>
                   );
                 })()}
 

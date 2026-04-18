@@ -58,6 +58,7 @@ model Block {
   blockVariant                                String       @default("STANDARD")
   splitGroupId                                Int?
   materialInStock                             Boolean      @default(false)
+  pantoneRequired                             Boolean      @default(false)
   pantoneOk                                   Boolean      @default(false)
   pantoneRequiredDate                         DateTime?
   reservationId                               Int?
@@ -146,6 +147,7 @@ model JobPreset {
   materialStatusId               Int?
   materialRequiredDateOffsetDays Int?
   materialInStock                Boolean?
+  pantoneRequired                Boolean?
   pantoneRequiredDateOffsetDays  Int?
   barvyStatusId                  Int?
   lakStatusId                    Int?

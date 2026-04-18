@@ -761,25 +761,23 @@ export function BlockEdit({
               {/* PANTONE */}
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <ColLabel>Pantone</ColLabel>
-                <button type="button" onClick={() => {
-                  const next = !pantoneRequired;
-                  setPantoneRequired(next);
-                  if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); }
-                }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms", marginBottom: 4, width: "100%" }}>
-                  {pantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
-                </button>
-                {pantoneRequired && (
-                  <>
-                    <DatePickerField value={pantoneRequiredDate} onChange={setPantoneRequiredDate} placeholder="Datum" />
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                      <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: pantoneOk ? "var(--success)" : "transparent", border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
-                        {pantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                      </div>
-                      <input type="checkbox" checked={pantoneOk} onChange={(e) => setPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
-                      OK
-                    </label>
-                  </>
-                )}
+                <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum" />
+                <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+                  <button type="button" onClick={() => {
+                    const next = !pantoneRequired;
+                    setPantoneRequired(next);
+                    if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); }
+                  }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                    {pantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
+                  </button>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                    <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: pantoneOk ? "var(--success)" : "transparent", border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                      {pantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    <input type="checkbox" checked={pantoneOk} onChange={(e) => setPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                    OK
+                  </label>
+                </div>
               </div>
               {/* EXPEDICE */}
               <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
@@ -826,13 +824,15 @@ export function BlockEdit({
           </div>
         )}
 
-        {/* Zamčeno */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
-          <Switch checked={locked} onCheckedChange={setLocked} />
-          <Label style={{ fontSize: 11, color: locked ? "var(--brand)" : "var(--text-muted)", cursor: "pointer" }}>
-            <Lock size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />Zamčený blok
-          </Label>
-        </div>
+        {/* Zamčeno — jen pro ADMIN a PLANOVAT (canEdit) */}
+        {canEdit && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
+            <Switch checked={locked} onCheckedChange={setLocked} />
+            <Label style={{ fontSize: 11, color: locked ? "var(--brand)" : "var(--text-muted)", cursor: "pointer" }}>
+              <Lock size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />Zamčený blok
+            </Label>
+          </div>
+        )}
 
         </div>{/* close: Hlavní pole disabled wrapper */}
 

@@ -1,0 +1,4 @@
+{"type":"server-started","port":53665,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:53665","screen_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/18498-1776423889/content","state_dir":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/18498-1776423889/state"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/18498-1776423889/content/resize-indicator-options.html"}
+{"type":"screen-added","file":"/Users/vojtatokan/Desktop/IG/projekty/.superpowers/brainstorm/18498-1776423889/content/waiting.html"}
+{"type":"server-stopped","reason":"owner process exited"}

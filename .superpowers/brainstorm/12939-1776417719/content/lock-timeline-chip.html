@@ -1,0 +1,256 @@
+<h2>Lock indikátor v časovém sloupci</h2>
+<p class="subtitle">Chip v TIME sloupci (72px) na pozici zamknutého bloku — viditelný na první pohled vedle hodinových labelů.</p>
+
+<div class="cards">
+  <!-- Option A: Malý amber chip s ikonou -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 0; background: #0f0f17; overflow: hidden;">
+      <!-- Celá timeline řada -->
+      <div style="display: flex; height: 280px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+        <!-- DATE sloupec (44px) -->
+        <div style="width: 44px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20,20,30,1); display: flex; flex-direction: column; align-items: center; padding-top: 12px;">
+          <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.05em; color: rgba(255,255,255,0.35);">ST</span>
+          <span style="font-size: 16px; font-weight: 800; color: rgba(255,255,255,0.8);">17</span>
+          <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.35);">DUB</span>
+        </div>
+        <!-- TIME sloupec (72px) -->
+        <div style="width: 72px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20,20,30,1); position: relative;">
+          <!-- Hodinové labely -->
+          <div style="position: absolute; top: 10px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">08:00</div>
+          <div style="position: absolute; top: 50px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">08:30</div>
+          <div style="position: absolute; top: 90px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">09:00</div>
+          <div style="position: absolute; top: 130px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">09:30</div>
+          <div style="position: absolute; top: 170px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">10:00</div>
+          <div style="position: absolute; top: 210px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">10:30</div>
+          <div style="position: absolute; top: 250px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">11:00</div>
+          <!-- LOCK CHIP — amber, na pozici zamknutého bloku -->
+          <div style="position: absolute; top: 85px; right: 4px; height: 16px; padding: 0 5px 0 4px; border-radius: 3px; background: rgba(251,191,36,0.85); display: flex; align-items: center; gap: 2px; z-index: 2;">
+            <span style="font-size: 8px;">&#x1F512;</span>
+            <span style="font-size: 8px; font-weight: 700; color: rgba(0,0,0,0.7); letter-spacing: 0.03em;">LOCK</span>
+          </div>
+        </div>
+        <!-- MACHINE sloupec -->
+        <div style="flex: 1; background: rgba(15,15,23,1); position: relative;">
+          <!-- Hodinové čáry -->
+          <div style="position: absolute; top: 10px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 50px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 90px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 130px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 170px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 210px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 250px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <!-- Normální blok -->
+          <div style="position: absolute; top: 14px; left: 6px; right: 6px; height: 62px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(59,130,246,0.35); display: flex; overflow: hidden;">
+            <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+            <div style="padding: 5px 8px; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D 12.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M —</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248330</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">Katalog Alza Q2</span>
+            </div>
+          </div>
+          <!-- ZAMKNUTÝ blok -->
+          <div style="position: absolute; top: 86px; left: 6px; right: 6px; height: 75px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(251,191,36,0.4); display: flex; overflow: hidden; box-shadow: 0 0 0 1px rgba(251,191,36,0.2);">
+            <!-- Široký amber pruh -->
+            <div style="width: 22px; background: rgba(251,191,36,0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 7px 0 0 7px; border-right: 1px solid rgba(251,191,36,0.2);">
+              <span style="font-size: 11px;">&#x1F512;</span>
+            </div>
+            <div style="padding: 5px 8px; flex: 1; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D 15.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M 18.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">E 22.4.</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248329 <span style="opacity: 0.6; font-size: 9px;">&#x1F512;</span></span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">Náhled tisku — Müller</span>
+            </div>
+          </div>
+          <!-- Další normální blok -->
+          <div style="position: absolute; top: 172px; left: 6px; right: 6px; height: 62px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(59,130,246,0.35); display: flex; overflow: hidden;">
+            <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+            <div style="padding: 5px 8px; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D OK</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M 20.4.</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248331</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">IML Kincl etikety</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Chip s textem "LOCK"</h3>
+      <p>Malý amber chip v TIME sloupci (vpravo, vedle hodinového labelu) na přesné vertikální pozici zamknutého bloku. Ikona zámku + text "LOCK". Podobný styl jako CompanyDay badge.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Jen ikona + vertikální čára -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 0; background: #0f0f17; overflow: hidden;">
+      <div style="display: flex; height: 280px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+        <!-- DATE sloupec -->
+        <div style="width: 44px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20,20,30,1); display: flex; flex-direction: column; align-items: center; padding-top: 12px;">
+          <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.05em; color: rgba(255,255,255,0.35);">ST</span>
+          <span style="font-size: 16px; font-weight: 800; color: rgba(255,255,255,0.8);">17</span>
+          <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.35);">DUB</span>
+        </div>
+        <!-- TIME sloupec -->
+        <div style="width: 72px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20,20,30,1); position: relative;">
+          <div style="position: absolute; top: 10px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">08:00</div>
+          <div style="position: absolute; top: 50px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">08:30</div>
+          <div style="position: absolute; top: 90px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">09:00</div>
+          <div style="position: absolute; top: 130px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">09:30</div>
+          <div style="position: absolute; top: 170px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">10:00</div>
+          <div style="position: absolute; top: 210px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">10:30</div>
+          <div style="position: absolute; top: 250px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">11:00</div>
+          <!-- LOCK indikátor — vertikální pruh + ikona nahoře -->
+          <div style="position: absolute; top: 85px; right: 0; width: 3px; height: 76px; background: linear-gradient(180deg, rgba(251,191,36,0.8), rgba(251,191,36,0.3)); border-radius: 2px 0 0 2px;"></div>
+          <div style="position: absolute; top: 81px; right: 0; width: 16px; height: 16px; border-radius: 4px 0 0 4px; background: rgba(251,191,36,0.85); display: flex; align-items: center; justify-content: center;">
+            <span style="font-size: 8px;">&#x1F512;</span>
+          </div>
+        </div>
+        <!-- MACHINE sloupec -->
+        <div style="flex: 1; background: rgba(15,15,23,1); position: relative;">
+          <div style="position: absolute; top: 10px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 50px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 90px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 130px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 170px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 210px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 250px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <!-- Normální blok -->
+          <div style="position: absolute; top: 14px; left: 6px; right: 6px; height: 62px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(59,130,246,0.35); display: flex; overflow: hidden;">
+            <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+            <div style="padding: 5px 8px; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D 12.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M —</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248330</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">Katalog Alza Q2</span>
+            </div>
+          </div>
+          <!-- ZAMKNUTÝ blok -->
+          <div style="position: absolute; top: 86px; left: 6px; right: 6px; height: 75px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(251,191,36,0.4); display: flex; overflow: hidden; box-shadow: 0 0 0 1px rgba(251,191,36,0.2);">
+            <div style="width: 22px; background: rgba(251,191,36,0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 7px 0 0 7px; border-right: 1px solid rgba(251,191,36,0.2);">
+              <span style="font-size: 11px;">&#x1F512;</span>
+            </div>
+            <div style="padding: 5px 8px; flex: 1; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D 15.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M 18.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">E 22.4.</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248329 <span style="opacity: 0.6; font-size: 9px;">&#x1F512;</span></span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">Náhled tisku — Müller</span>
+            </div>
+          </div>
+          <!-- Další normální blok -->
+          <div style="position: absolute; top: 172px; left: 6px; right: 6px; height: 62px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(59,130,246,0.35); display: flex; overflow: hidden;">
+            <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+            <div style="padding: 5px 8px; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D OK</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M 20.4.</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248331</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">IML Kincl etikety</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Vertikální pruh + ikona v rohu</h3>
+      <p>Tenký amber vertikální pruh na pravém okraji TIME sloupce (kopíruje výšku bloku) + malá ikona zámku nahoře. Subtilnější, ale stále viditelný ve scrollu.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Průhledný overlay přes celou šířku TIME sloupce -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 0; background: #0f0f17; overflow: hidden;">
+      <div style="display: flex; height: 280px; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+        <!-- DATE sloupec -->
+        <div style="width: 44px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20,20,30,1); display: flex; flex-direction: column; align-items: center; padding-top: 12px;">
+          <span style="font-size: 8px; font-weight: 700; letter-spacing: 0.05em; color: rgba(255,255,255,0.35);">ST</span>
+          <span style="font-size: 16px; font-weight: 800; color: rgba(255,255,255,0.8);">17</span>
+          <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.35);">DUB</span>
+        </div>
+        <!-- TIME sloupec -->
+        <div style="width: 72px; flex-shrink: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20,20,30,1); position: relative;">
+          <div style="position: absolute; top: 10px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">08:00</div>
+          <div style="position: absolute; top: 50px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">08:30</div>
+          <div style="position: absolute; top: 90px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">09:00</div>
+          <div style="position: absolute; top: 130px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">09:30</div>
+          <div style="position: absolute; top: 170px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">10:00</div>
+          <div style="position: absolute; top: 210px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.15); font-weight: 400;">10:30</div>
+          <div style="position: absolute; top: 250px; left: 8px; font-size: 9px; color: rgba(255,255,255,0.3); font-weight: 500;">11:00</div>
+          <!-- LOCK overlay — amber pozadí přes celou šířku TIME sloupce -->
+          <div style="position: absolute; top: 85px; left: 0; right: 0; height: 76px; background: rgba(251,191,36,0.08); border-top: 1px solid rgba(251,191,36,0.25); border-bottom: 1px solid rgba(251,191,36,0.25); pointer-events: none;">
+            <div style="position: absolute; top: 4px; left: 8px; display: flex; align-items: center; gap: 3px;">
+              <span style="font-size: 8px;">&#x1F512;</span>
+              <span style="font-size: 8px; font-weight: 700; color: rgba(251,191,36,0.9); letter-spacing: 0.03em;">09:00</span>
+            </div>
+          </div>
+        </div>
+        <!-- MACHINE sloupec -->
+        <div style="flex: 1; background: rgba(15,15,23,1); position: relative;">
+          <div style="position: absolute; top: 10px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 50px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 90px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 130px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 170px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <div style="position: absolute; top: 210px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.03);"></div>
+          <div style="position: absolute; top: 250px; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.06);"></div>
+          <!-- Normální blok -->
+          <div style="position: absolute; top: 14px; left: 6px; right: 6px; height: 62px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(59,130,246,0.35); display: flex; overflow: hidden;">
+            <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+            <div style="padding: 5px 8px; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D 12.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M —</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248330</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">Katalog Alza Q2</span>
+            </div>
+          </div>
+          <!-- ZAMKNUTÝ blok -->
+          <div style="position: absolute; top: 86px; left: 6px; right: 6px; height: 75px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(251,191,36,0.4); display: flex; overflow: hidden; box-shadow: 0 0 0 1px rgba(251,191,36,0.2);">
+            <div style="width: 22px; background: rgba(251,191,36,0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 7px 0 0 7px; border-right: 1px solid rgba(251,191,36,0.2);">
+              <span style="font-size: 11px;">&#x1F512;</span>
+            </div>
+            <div style="padding: 5px 8px; flex: 1; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D 15.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M 18.4.</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">E 22.4.</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248329 <span style="opacity: 0.6; font-size: 9px;">&#x1F512;</span></span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">Náhled tisku — Müller</span>
+            </div>
+          </div>
+          <!-- Další normální blok -->
+          <div style="position: absolute; top: 172px; left: 6px; right: 6px; height: 62px; background: linear-gradient(160deg, rgba(59,130,246,0.95), rgba(37,99,235,0.88)); border-radius: 7px; border: 1px solid rgba(59,130,246,0.35); display: flex; overflow: hidden;">
+            <div style="width: 3px; background: #3b82f6; border-radius: 7px 0 0 7px; flex-shrink: 0;"></div>
+            <div style="padding: 5px 8px; display: flex; flex-direction: column; gap: 2px;">
+              <div style="display: flex; gap: 4px;">
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">D OK</span>
+                <span style="font-size: 8px; font-weight: 600; color: rgba(255,255,255,0.9); background: rgba(0,0,0,0.3); border-radius: 2px; padding: 1px 4px;">M 20.4.</span>
+              </div>
+              <span style="font-size: 11px; font-weight: 700; color: #fff;">248331</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.5);">IML Kincl etikety</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Amber overlay přes TIME sloupec</h3>
+      <p>Celá oblast v TIME sloupci odpovídající výšce zamknutého bloku se podbarví amber + horní/dolní border. Uvnitř ikona zámku a čas startu. Nejvýraznější varianta — okamžitě viditelná i při rychlém scrollu.</p>
+    </div>
+  </div>
+</div>

@@ -22,6 +22,7 @@ export type JobPreset = {
   materialStatusId: number | null;
   materialRequiredDateOffsetDays: number | null;
   materialInStock: boolean | null;
+  pantoneRequired: boolean | null;
   pantoneRequiredDateOffsetDays: number | null;
   barvyStatusId: number | null;
   lakStatusId: number | null;
@@ -38,6 +39,7 @@ export type JobPresetDraftValues = {
   materialStatusId: string;
   materialRequiredDate: string;
   materialInStock: boolean;
+  pantoneRequired: boolean;
   pantoneRequiredDate: string;
   barvyStatusId: string;
   lakStatusId: string;
@@ -59,6 +61,7 @@ export type JobPresetUpsertInput = {
   materialStatusId: number | null;
   materialRequiredDateOffsetDays: number | null;
   materialInStock: boolean | null;
+  pantoneRequired: boolean | null;
   pantoneRequiredDateOffsetDays: number | null;
   barvyStatusId: number | null;
   lakStatusId: number | null;
@@ -146,10 +149,21 @@ export function applyJobPresetToDraft(
     next.materialRequiredDate = value;
   }
 
+  if (preset.pantoneRequired !== null) {
+    pushOverwrite(overwrittenFields, "pantoneRequired", current.pantoneRequired !== preset.pantoneRequired);
+    next.pantoneRequired = preset.pantoneRequired;
+    if (!preset.pantoneRequired) {
+      pushOverwrite(overwrittenFields, "pantoneRequiredDate", current.pantoneRequiredDate !== "");
+      next.pantoneRequiredDate = "";
+    }
+  }
+
   if (preset.pantoneRequiredDateOffsetDays !== null) {
     const value = resolvePresetDateOffset(preset.pantoneRequiredDateOffsetDays) ?? "";
     pushOverwrite(overwrittenFields, "pantoneRequiredDate", current.pantoneRequiredDate !== "" && current.pantoneRequiredDate !== value);
     next.pantoneRequiredDate = value;
+    // Setting a date implies pantone is required
+    if (value) next.pantoneRequired = true;
   }
 
   if (preset.barvyStatusId !== null) {
@@ -200,6 +214,7 @@ export function buildPresetInputFromDraft(
     materialStatusId: draft.materialStatusId ? Number(draft.materialStatusId) : null,
     materialRequiredDateOffsetDays: draft.materialInStock ? null : dateStrToOffsetDays(draft.materialRequiredDate),
     materialInStock: draft.materialInStock ? true : null,
+    pantoneRequired: draft.pantoneRequired ? true : null,
     pantoneRequiredDateOffsetDays: dateStrToOffsetDays(draft.pantoneRequiredDate),
     barvyStatusId: draft.barvyStatusId ? Number(draft.barvyStatusId) : null,
     lakStatusId: draft.lakStatusId ? Number(draft.lakStatusId) : null,
@@ -221,6 +236,7 @@ type PresetConfigShape = {
   materialStatusId?: number | null;
   materialRequiredDateOffsetDays?: number | null;
   materialInStock?: boolean | null;
+  pantoneRequired?: boolean | null;
   pantoneRequiredDateOffsetDays?: number | null;
   barvyStatusId?: number | null;
   lakStatusId?: number | null;
@@ -237,6 +253,7 @@ export function presetHasConfiguredValues(preset: PresetConfigShape): boolean {
     preset.materialStatusId,
     preset.materialRequiredDateOffsetDays,
     preset.materialInStock,
+    preset.pantoneRequired,
     preset.pantoneRequiredDateOffsetDays,
     preset.barvyStatusId,
     preset.lakStatusId,
@@ -264,6 +281,9 @@ export function summarizeJobPreset(
   }
   if (preset.lakStatusId !== null) {
     parts.push(`Lak${resolveLabel ? `: ${resolveLabel("LAK", preset.lakStatusId) ?? "vybráno"}` : ""}`);
+  }
+  if (preset.pantoneRequired === true) {
+    parts.push("Pantone");
   }
   if (preset.specifikace) {
     parts.push("Specifikace");

@@ -164,6 +164,7 @@ export default function JobPresetEditor({
   const [materialRequiredDateOffsetDays, setMaterialRequiredDateOffsetDays] = useState<number | null>(null);
   const [materialInStock, setMaterialInStock] = useState<boolean | null>(null);
   const [pantoneRequiredDateOffsetDays, setPantoneRequiredDateOffsetDays] = useState<number | null>(null);
+  const [pantoneRequired, setPantoneRequired] = useState<boolean | null>(null);
   const [barvyStatusId, setBarvyStatusId] = useState<number | null>(null);
   const [lakStatusId, setLakStatusId] = useState<number | null>(null);
   const [deadlineExpediceOffsetDays, setDeadlineExpediceOffsetDays] = useState<number | null>(null);
@@ -183,6 +184,7 @@ export default function JobPresetEditor({
     setMaterialRequiredDateOffsetDays(initialValue.materialRequiredDateOffsetDays ?? null);
     setMaterialInStock(initialValue.materialInStock ?? null);
     setPantoneRequiredDateOffsetDays(initialValue.pantoneRequiredDateOffsetDays ?? null);
+    setPantoneRequired(initialValue.pantoneRequired ?? null);
     setBarvyStatusId(initialValue.barvyStatusId ?? null);
     setLakStatusId(initialValue.lakStatusId ?? null);
     setDeadlineExpediceOffsetDays(initialValue.deadlineExpediceOffsetDays ?? null);
@@ -238,6 +240,7 @@ export default function JobPresetEditor({
     materialRequiredDateOffsetDays: materialInStock ? null : materialRequiredDateOffsetDays,
     materialInStock,
     pantoneRequiredDateOffsetDays,
+    pantoneRequired,
     barvyStatusId,
     lakStatusId,
     deadlineExpediceOffsetDays,
@@ -262,6 +265,7 @@ export default function JobPresetEditor({
     materialStatusId,
     name,
     pantoneRequiredDateOffsetDays,
+    pantoneRequired,
     resolveLabel,
     specifikace,
   ]);
@@ -286,6 +290,7 @@ export default function JobPresetEditor({
       materialRequiredDateOffsetDays: materialInStock ? null : materialRequiredDateOffsetDays,
       materialInStock,
       pantoneRequiredDateOffsetDays,
+      pantoneRequired,
       barvyStatusId,
       lakStatusId,
       deadlineExpediceOffsetDays,
@@ -441,6 +446,10 @@ export default function JobPresetEditor({
                   <OffsetField value={materialRequiredDateOffsetDays} onChange={setMaterialRequiredDateOffsetDays} label="Materiál datum" />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-muted)" }}>
+                    <Switch checked={pantoneRequired === true} onCheckedChange={(checked) => setPantoneRequired(checked ? true : null)} />
+                    Pantone potřeba
+                  </label>
                   <OffsetField value={pantoneRequiredDateOffsetDays} onChange={setPantoneRequiredDateOffsetDays} label="PANTONE datum" />
                   <div>
                     <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>BARVY</div>

@@ -103,16 +103,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
 
     // ── DATA chip auto-derivace ──
-    // Pravidlo 1: Změna data → vymazat chip + dataOk=false
-    if (allowed.dataRequiredDate !== undefined) {
-      allowed.dataStatusId = null;
-      allowed.dataStatusLabel = null;
-      allowed.dataOk = false;
-    }
-    // Pravidlo 2: Změna chipu → auto-derivovat dataOk
-    if (allowed.dataStatusId !== undefined && allowed.dataRequiredDate === undefined) {
-      allowed.dataOk = allowed.dataStatusId !== null;
-    }
+    // Pravidlo 1 a 2 se vyhodnocují uvnitř transakce (potřebují oldBlock pro porovnání).
+    // Viz komentář "DATA chip auto-derivace" níže.
 
     // Server-side validace pracovní doby:
     // Validujeme pokud se mění startTime/endTime/machine NEBO pokud se typ mění na ZAKAZKA
@@ -151,6 +143,24 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       const oldBlock = await tx.block.findUnique({ where: { id } });
       if (!oldBlock) {
         throw new AppError("NOT_FOUND", "Blok nenalezen");
+      }
+
+      // ── DATA chip auto-derivace (potřebuje oldBlock) ──
+      // Pravidlo 1: Změna dataRequiredDate → vymazat chip + dataOk=false
+      //   Spouští se JEN pokud se datum skutečně změnilo (ne jen proto, že ho klient poslal znovu).
+      if (allowed.dataRequiredDate !== undefined) {
+        const oldDateKey = oldBlock.dataRequiredDate?.toISOString().slice(0, 10) ?? null;
+        const newRaw = allowed.dataRequiredDate as string | null;
+        const newDateKey = newRaw ? new Date(newRaw + "T00:00:00.000Z").toISOString().slice(0, 10) : null;
+        if (newDateKey !== oldDateKey) {
+          allowed.dataStatusId = null;
+          allowed.dataStatusLabel = null;
+          allowed.dataOk = false;
+        }
+      }
+      // Pravidlo 2: Změna chipu → auto-derivovat dataOk
+      if (allowed.dataStatusId !== undefined && !(allowed.dataRequiredDate !== undefined && allowed.dataStatusId === null)) {
+        allowed.dataOk = allowed.dataStatusId !== null;
       }
 
       // Overlap check — pokud se mění čas nebo stroj (přeskočit při drag/resize, kde autoResolveOverlap řeší overlap)

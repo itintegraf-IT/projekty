@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
+import { checkBlockOverlap } from "@/lib/overlapCheck";
+import { isAppError } from "@/lib/errors";
 
 type BatchUpdate = {
   id: number;
@@ -21,6 +23,7 @@ export async function POST(request: NextRequest) {
 
   let updates: BatchUpdate[];
   let bypassScheduleValidation = false;
+  let bypassOverlapCheck = false;
   try {
     const body = await request.json();
     if (!Array.isArray(body.updates) || body.updates.length === 0) {
@@ -29,6 +32,7 @@ export async function POST(request: NextRequest) {
     updates = body.updates;
     // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
     bypassScheduleValidation = body.bypassScheduleValidation === true;
+    bypassOverlapCheck = body.bypassOverlapCheck === true;
   } catch {
     return NextResponse.json({ error: "Neplatný JSON" }, { status: 400 });
   }
@@ -73,18 +77,27 @@ export async function POST(request: NextRequest) {
 
   try {
     const results = await prisma.$transaction(async (tx) => {
-      const updated = await Promise.all(
-        updates.map((u) =>
-          tx.block.update({
-            where: { id: u.id },
-            data: {
-              startTime: new Date(u.startTime),
-              endTime: new Date(u.endTime),
-              machine: u.machine,
-            },
-          })
-        )
-      );
+      const updated: Awaited<ReturnType<typeof tx.block.update>>[] = [];
+
+      // Zpracovat v obráceném pořadí — při chain push (autoResolveOverlap) poslední blok
+      // v chainu se posouvá na volné místo jako první, čímž uvolní prostor pro předchozí.
+      // Pro lasso batch (bloky se nepřekrývají navzájem) pořadí nehraje roli.
+      const reversed = [...updates].reverse();
+      for (const u of reversed) {
+        if (!bypassOverlapCheck) {
+          await checkBlockOverlap(u.machine, new Date(u.startTime), new Date(u.endTime), u.id, tx);
+        }
+
+        const result = await tx.block.update({
+          where: { id: u.id },
+          data: {
+            startTime: new Date(u.startTime),
+            endTime: new Date(u.endTime),
+            machine: u.machine,
+          },
+        });
+        updated.push(result);
+      }
 
       const auditRows: {
         blockId: number;
@@ -121,6 +134,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(results.map(serializeBlock));
   } catch (error: unknown) {
+    if (isAppError(error)) {
+      return NextResponse.json(
+        { error: error.message, code: error.code },
+        { status: error.code === "OVERLAP" ? 409 : 400 }
+      );
+    }
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Jeden nebo více bloků nenalezeno" }, { status: 404 });
     }

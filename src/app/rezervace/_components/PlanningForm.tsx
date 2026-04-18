@@ -103,6 +103,7 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
     (existing?.pantoneRequiredDate as string | undefined) ?? ""
   );
   const [pantoneOk, setPantoneOk] = useState<boolean>(Boolean(existing?.pantoneOk));
+  const [pantoneRequired, setPantoneRequired] = useState<boolean>(Boolean(existing?.pantoneRequired));
   const [barvyStatusId, setBarvyStatusId] = useState<string>(
     existing?.barvyStatusId !== undefined && existing.barvyStatusId !== null
       ? String(existing.barvyStatusId) : ""
@@ -163,8 +164,9 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
         materialInStock,
         materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
         materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
-        pantoneRequiredDate: pantoneRequiredDate || null,
+        pantoneRequiredDate: pantoneRequired ? (pantoneRequiredDate || null) : null,
         pantoneOk,
+        pantoneRequired,
         barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
         barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
         lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
@@ -339,29 +341,38 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
           {/* Pantone */}
           <div>
             <label style={labelStyle}>Pantone</label>
-            <DatePickerField value={pantoneRequiredDate} onChange={setPantoneRequiredDate} placeholder="Datum…" asButton />
-            <label style={{
-              display: "flex", alignItems: "center", gap: 4, marginTop: 6,
-              fontSize: 10, fontWeight: 600, cursor: "pointer", letterSpacing: "0.04em",
-              color: pantoneOk ? "var(--success)" : "var(--text-muted)",
-            }}>
-              <div style={{
-                width: 15, height: 15, borderRadius: 4, flexShrink: 0,
-                background: pantoneOk ? "var(--success)" : "transparent",
-                border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all 120ms ease-out",
-              }}
-                onClick={() => setPantoneOk(!pantoneOk)}
-              >
-                {pantoneOk && (
-                  <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
-                    <path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                )}
-              </div>
-              OK
-            </label>
+            <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum…" asButton />
+            <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6 }}>
+              <button type="button" onClick={() => {
+                const next = !pantoneRequired;
+                setPantoneRequired(next);
+                if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); }
+              }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                {pantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
+              </button>
+              <label style={{
+                display: "flex", alignItems: "center", gap: 4,
+                fontSize: 10, fontWeight: 600, cursor: "pointer", letterSpacing: "0.04em",
+                color: pantoneOk ? "var(--success)" : "var(--text-muted)",
+              }}>
+                <div style={{
+                  width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+                  background: pantoneOk ? "var(--success)" : "transparent",
+                  border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "all 120ms ease-out",
+                }}
+                  onClick={() => setPantoneOk(!pantoneOk)}
+                >
+                  {pantoneOk && (
+                    <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                      <path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+                OK
+              </label>
+            </div>
           </div>
           {/* Barvy */}
           <div>

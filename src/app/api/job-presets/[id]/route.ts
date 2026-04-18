@@ -29,6 +29,7 @@ type PatchBody = {
   materialStatusId?: unknown;
   materialRequiredDateOffsetDays?: unknown;
   materialInStock?: unknown;
+  pantoneRequired?: unknown;
   pantoneRequiredDateOffsetDays?: unknown;
   barvyStatusId?: unknown;
   lakStatusId?: unknown;
@@ -167,6 +168,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       const parsed = parseNullableBool(body.materialInStock);
       if (parsed === undefined) return NextResponse.json({ error: "Neplatná hodnota pro materialInStock." }, { status: 400 });
       patch.materialInStock = parsed;
+    }
+
+    if (body.pantoneRequired !== undefined) {
+      const parsed = parseNullableBool(body.pantoneRequired);
+      if (parsed === undefined) return NextResponse.json({ error: "Neplatná hodnota pro pantoneRequired." }, { status: 400 });
+      patch.pantoneRequired = parsed;
     }
 
     const merged = { ...existing, ...patch };

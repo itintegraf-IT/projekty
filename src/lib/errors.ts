@@ -4,6 +4,7 @@ export type AppErrorCode =
   | "PRESET_INVALID"
   | "SCHEDULE_VIOLATION"
   | "CONFLICT"
+  | "OVERLAP"
   | "VALIDATION_ERROR";
 
 export class AppError extends Error {
