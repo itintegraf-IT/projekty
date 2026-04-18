@@ -424,6 +424,11 @@ export default function ReportDashboard() {
 
   const { start, end } = computeRange(timeRange, today, customStart, customEnd);
 
+  // Vyčistit data při změně parametrů — zabrání renderování starých dat s novým režimem
+  useEffect(() => {
+    setData(null);
+  }, [mode, start, end]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
