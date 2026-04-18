@@ -420,7 +420,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
   }
 }
 
-export async function DELETE(_: NextRequest, { params }: RouteContext) {
+export async function DELETE(request: NextRequest, { params }: RouteContext) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!["ADMIN", "PLANOVAT"].includes(session.role)) {
@@ -431,6 +431,17 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
   const id = parseInt(rawId, 10);
   if (isNaN(id)) {
     return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
+  }
+
+  // Volitelný důvod zamítnutí rezervace (z body)
+  let rejectionReason = "Blok vymazán z plánu";
+  try {
+    const body = await request.json();
+    if (body?.reason && typeof body.reason === "string" && body.reason.trim()) {
+      rejectionReason = body.reason.trim();
+    }
+  } catch {
+    // Bez body — použije se výchozí důvod
   }
 
   try {
@@ -452,19 +463,38 @@ export async function DELETE(_: NextRequest, { params }: RouteContext) {
 
       await tx.block.delete({ where: { id } });
 
-      // Pokud byl blok spojen s rezervací ve stavu SCHEDULED → revert na QUEUE_READY
+      // Pokud byl blok spojen s rezervací → zamítnout (REJECTED)
       if (blockToDelete?.reservationId) {
-        await tx.reservation.updateMany({
-          where: { id: blockToDelete.reservationId, status: "SCHEDULED" },
-          data: {
-            status: "QUEUE_READY",
-            scheduledBlockId: null,
-            scheduledMachine: null,
-            scheduledStartTime: null,
-            scheduledEndTime: null,
-            scheduledAt: null,
-          },
+        const reservation = await tx.reservation.findUnique({
+          where: { id: blockToDelete.reservationId },
+          select: { id: true, status: true, code: true, companyName: true, requestedByUserId: true },
         });
+        if (reservation && reservation.status !== "REJECTED" && reservation.status !== "WITHDRAWN") {
+          await tx.reservation.update({
+            where: { id: reservation.id },
+            data: {
+              status: "REJECTED",
+              plannerUserId: session.id,
+              plannerUsername: session.username,
+              plannerDecisionReason: rejectionReason,
+              scheduledBlockId: null,
+              scheduledMachine: null,
+              scheduledStartTime: null,
+              scheduledEndTime: null,
+              scheduledAt: null,
+            },
+          });
+          await tx.notification.create({
+            data: {
+              type: "RESERVATION_REJECTED",
+              message: `Rezervace ${reservation.code} (${reservation.companyName}) byla zamítnuta: ${rejectionReason}`,
+              reservationId: reservation.id,
+              targetUserId: reservation.requestedByUserId,
+              createdByUserId: session.id,
+              createdByUsername: session.username,
+            },
+          });
+        }
       }
     });
     return NextResponse.json({ success: true });

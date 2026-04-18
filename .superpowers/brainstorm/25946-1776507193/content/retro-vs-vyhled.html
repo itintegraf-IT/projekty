@@ -1,0 +1,227 @@
+<h2>Retrospektiva vs. Výhled — co zobrazit v každém režimu?</h2>
+<p class="subtitle">Obě záložky sdílejí horní KPI karty, ale liší se v obsahu pod nimi. Podívej se na oba pohledy.</p>
+
+<div class="split">
+
+  <div class="mockup">
+    <div class="mockup-header">Retrospektiva — „Jak jsme si vedli"</div>
+    <div class="mockup-body" style="padding:14px;font-family:system-ui;font-size:11px;background:#0d1117;color:#c9d1d9">
+
+      <!-- KPI karty -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px">
+          <div style="font-size:9px;color:#8b949e">Vytížení XL 105</div>
+          <div style="font-size:20px;font-weight:700;color:#3fb950">82%</div>
+          <div style="font-size:8px;color:#3fb950">▲ +3% vs min. období</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px">
+          <div style="font-size:9px;color:#8b949e">Vytížení XL 106</div>
+          <div style="font-size:20px;font-weight:700;color:#f0883e">71%</div>
+          <div style="font-size:8px;color:#f85149">▼ -5% vs min. období</div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:#58a6ff;font-weight:600;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px">VÝROBA</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:12px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:#8b949e">Průtok</div>
+          <div style="font-size:16px;font-weight:700">47</div>
+          <div style="font-size:8px;color:#8b949e">zakázek</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:#8b949e">Ø Lead time</div>
+          <div style="font-size:16px;font-weight:700">4.2d</div>
+          <div style="font-size:8px;color:#8b949e">plan → tisk</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:#8b949e">Údržba</div>
+          <div style="font-size:16px;font-weight:700">8.2%</div>
+          <div style="font-size:8px;color:#8b949e">z celkového času</div>
+        </div>
+      </div>
+
+      <!-- Graf vytížení -->
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:10px">
+        <div style="font-size:9px;color:#8b949e;font-weight:600;margin-bottom:6px">Vytížení denně</div>
+        <div style="display:flex;align-items:flex-end;gap:2px;height:40px">
+          <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:70%"></div>
+          <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:85%"></div>
+          <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:60%"></div>
+          <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:90%"></div>
+          <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:75%"></div>
+          <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:50%"></div>
+          <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:65%"></div>
+          <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:80%"></div>
+          <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:45%"></div>
+          <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:70%"></div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:#58a6ff;font-weight:600;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px">PLÁNOVÁNÍ</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:#8b949e">Přeplánování</div>
+          <div style="font-size:16px;font-weight:700;color:#f0883e">23×</div>
+          <div style="font-size:8px;color:#8b949e">bloky přesunuty</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:#8b949e">Stabilita plánu</div>
+          <div style="font-size:16px;font-weight:700;color:#3fb950">78%</div>
+          <div style="font-size:8px;color:#8b949e">bloků beze změny</div>
+        </div>
+      </div>
+
+      <!-- Aktivita plánovačů -->
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:10px">
+        <div style="font-size:9px;color:#8b949e;font-weight:600;margin-bottom:6px">Aktivita plánovačů</div>
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:10px">Jan Novák</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <div style="width:60px;height:5px;background:#21262d;border-radius:3px;overflow:hidden"><div style="width:75%;height:100%;background:#3b82f6;border-radius:3px"></div></div>
+              <span style="font-size:9px;color:#8b949e">142 akcí</span>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:10px">Petr Dvořák</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              <div style="width:60px;height:5px;background:#21262d;border-radius:3px;overflow:hidden"><div style="width:55%;height:100%;background:#3b82f6;border-radius:3px"></div></div>
+              <span style="font-size:9px;color:#8b949e">98 akcí</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:#58a6ff;font-weight:600;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px">OBCHOD</div>
+
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+        <div style="font-size:9px;color:#8b949e;font-weight:600;margin-bottom:6px">Pipeline rezervací</div>
+        <div style="display:flex;gap:4px;height:12px;border-radius:3px;overflow:hidden;margin-bottom:6px">
+          <div style="width:27%;background:#f0883e" title="Nové"></div>
+          <div style="width:17%;background:#3b82f6" title="Přijaté"></div>
+          <div style="width:10%;background:#a371f7" title="Ve frontě"></div>
+          <div style="width:40%;background:#3fb950" title="Naplánované"></div>
+          <div style="width:6%;background:#f85149" title="Zamítnuté"></div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:8px;color:#8b949e">
+          <span><span style="color:#f0883e">●</span> Nové 8</span>
+          <span><span style="color:#3b82f6">●</span> Přijaté 5</span>
+          <span><span style="color:#a371f7">●</span> Fronta 3</span>
+          <span><span style="color:#3fb950">●</span> Naplán. 12</span>
+          <span><span style="color:#f85149">●</span> Zamít. 2</span>
+        </div>
+        <div style="font-size:8px;color:#58a6ff;margin-top:4px">Konverze: 60%</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">Výhled — „Co nás čeká"</div>
+    <div class="mockup-body" style="padding:14px;font-family:system-ui;font-size:11px;background:#0d1117;color:#c9d1d9">
+
+      <!-- KPI karty -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px">
+          <div style="font-size:9px;color:#8b949e">Naplánovaná kapacita XL 105</div>
+          <div style="font-size:20px;font-weight:700;color:#3fb950">89%</div>
+          <div style="font-size:8px;color:#8b949e">příštích 7 dní</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px">
+          <div style="font-size:9px;color:#8b949e">Naplánovaná kapacita XL 106</div>
+          <div style="font-size:20px;font-weight:700;color:#f0883e">64%</div>
+          <div style="font-size:8px;color:#8b949e">příštích 7 dní</div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:#58a6ff;font-weight:600;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px">KAPACITA</div>
+
+      <!-- Kapacitní heatmapa -->
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:10px">
+        <div style="font-size:9px;color:#8b949e;font-weight:600;margin-bottom:6px">Obsazenost příštích 7 dní</div>
+        <div style="display:grid;grid-template-columns:40px repeat(7,1fr);gap:2px;font-size:8px">
+          <div></div>
+          <div style="text-align:center;color:#484f58">Po</div>
+          <div style="text-align:center;color:#484f58">Út</div>
+          <div style="text-align:center;color:#484f58">St</div>
+          <div style="text-align:center;color:#484f58">Čt</div>
+          <div style="text-align:center;color:#484f58">Pá</div>
+          <div style="text-align:center;color:#484f58">So</div>
+          <div style="text-align:center;color:#484f58">Ne</div>
+          <div style="color:#8b949e;font-size:9px">XL 105</div>
+          <div style="background:#3fb950;border-radius:3px;height:20px;opacity:0.9" title="95%"></div>
+          <div style="background:#3fb950;border-radius:3px;height:20px;opacity:0.8" title="88%"></div>
+          <div style="background:#3fb950;border-radius:3px;height:20px;opacity:0.9" title="92%"></div>
+          <div style="background:#f0883e;border-radius:3px;height:20px;opacity:0.8" title="78%"></div>
+          <div style="background:#3fb950;border-radius:3px;height:20px;opacity:0.9" title="90%"></div>
+          <div style="background:#21262d;border-radius:3px;height:20px" title="—"></div>
+          <div style="background:#21262d;border-radius:3px;height:20px" title="—"></div>
+          <div style="color:#8b949e;font-size:9px">XL 106</div>
+          <div style="background:#f0883e;border-radius:3px;height:20px;opacity:0.7" title="72%"></div>
+          <div style="background:#f0883e;border-radius:3px;height:20px;opacity:0.6" title="65%"></div>
+          <div style="background:#f85149;border-radius:3px;height:20px;opacity:0.5" title="40%"></div>
+          <div style="background:#f0883e;border-radius:3px;height:20px;opacity:0.7" title="70%"></div>
+          <div style="background:#f0883e;border-radius:3px;height:20px;opacity:0.8" title="78%"></div>
+          <div style="background:#21262d;border-radius:3px;height:20px" title="—"></div>
+          <div style="background:#21262d;border-radius:3px;height:20px" title="—"></div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:6px;font-size:7px;color:#484f58">
+          <span><span style="display:inline-block;width:8px;height:8px;background:#3fb950;border-radius:2px;vertical-align:middle;margin-right:2px"></span> 80%+</span>
+          <span><span style="display:inline-block;width:8px;height:8px;background:#f0883e;border-radius:2px;vertical-align:middle;margin-right:2px"></span> 50–79%</span>
+          <span><span style="display:inline-block;width:8px;height:8px;background:#f85149;border-radius:2px;vertical-align:middle;margin-right:2px"></span> pod 50%</span>
+          <span><span style="display:inline-block;width:8px;height:8px;background:#21262d;border-radius:2px;vertical-align:middle;margin-right:2px"></span> mimo provoz</span>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:#58a6ff;font-weight:600;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px">VOLNÁ KAPACITA</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:#8b949e">Volné hodiny XL 105</div>
+          <div style="font-size:16px;font-weight:700;color:#c9d1d9">12h</div>
+          <div style="font-size:8px;color:#8b949e">příštích 7 dní</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:8px;color:#8b949e">Volné hodiny XL 106</div>
+          <div style="font-size:16px;font-weight:700;color:#f0883e">38h</div>
+          <div style="font-size:8px;color:#8b949e">příštích 7 dní</div>
+        </div>
+      </div>
+
+      <div style="font-size:10px;color:#58a6ff;font-weight:600;margin-bottom:8px;border-bottom:1px solid #21262d;padding-bottom:4px">RIZIKA</div>
+
+      <!-- Blížící se údržby -->
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px;margin-bottom:10px">
+        <div style="font-size:9px;color:#8b949e;font-weight:600;margin-bottom:6px">Plánované údržby</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;justify-content:space-between;font-size:10px">
+            <span>XL 106 — servis válců</span>
+            <span style="color:#f0883e;font-weight:600">Čt 24.4.</span>
+          </div>
+          <div style="font-size:8px;color:#484f58">4h prostoj, 14:00–18:00</div>
+        </div>
+      </div>
+
+      <!-- Čekající rezervace -->
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px">
+        <div style="font-size:9px;color:#8b949e;font-weight:600;margin-bottom:6px">Čekající na zpracování</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;justify-content:space-between;font-size:10px">
+            <span style="color:#f0883e">8 nových rezervací</span>
+            <span style="font-size:9px;color:#8b949e">nejstarší: 3 dny</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10px">
+            <span style="color:#a371f7">3 ve frontě</span>
+            <span style="font-size:9px;color:#8b949e">čekají na slot</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;text-align:center">Oba pohledy žijí na stejné stránce — přepínáš tlačítkem Retrospektiva / Výhled nahoře.</p>

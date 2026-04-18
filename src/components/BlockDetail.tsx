@@ -62,11 +62,12 @@ export function BlockDetail({
 }: {
   block: Block;
   onClose: () => void;
-  onDelete: (id: number) => void;
+  onDelete: (id: number, rejectionReason?: string) => void;
   canEdit?: boolean;
   onBlockUpdate?: (updated: Block) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [detailRejectionReason, setDetailRejectionReason] = useState("");
   const [blockHistory, setBlockHistory] = useState<AuditLogEntry[]>([]);
   const [reservation, setReservation] = useState<{
     id: number;
@@ -434,11 +435,24 @@ export function BlockDetail({
         {confirming ? (
           <div className="space-y-2">
             <p className="text-[10px] text-slate-400 text-center">Opravdu smazat blok?</p>
+            {block.reservationId && (
+              <>
+                <p className="text-[10px] text-purple-400 text-center">Propojená rezervace bude zamítnuta</p>
+                <input
+                  type="text"
+                  placeholder="Důvod zamítnutí (nepovinné)"
+                  value={detailRejectionReason}
+                  onChange={(e) => setDetailRejectionReason(e.target.value)}
+                  autoFocus
+                  className="w-full px-2 py-1 text-xs rounded border border-purple-500/30 bg-purple-500/10 text-slate-200 outline-none"
+                />
+              </>
+            )}
             <div className="flex gap-2">
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => onDelete(block.id)}
+                onClick={() => { onDelete(block.id, detailRejectionReason || undefined); setDetailRejectionReason(""); }}
                 className="flex-1 text-xs"
               >
                 Smazat
@@ -446,7 +460,7 @@ export function BlockDetail({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setConfirming(false)}
+                onClick={() => { setConfirming(false); setDetailRejectionReason(""); }}
                 className="flex-1 text-xs border-slate-700 text-slate-300"
               >
                 Zrušit

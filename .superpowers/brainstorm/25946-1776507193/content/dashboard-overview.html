@@ -1,0 +1,236 @@
+<h2>Reporting Dashboard — CEO pohled</h2>
+<p class="subtitle">Návrh záložky "Reporty" v sekci Správa. Vyber layout, který ti dává největší smysl.</p>
+
+<div class="options">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>KPI karty + grafy pod sebou</h3>
+
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Reporty — Tento měsíc</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:12px;background:#0d1117;color:#c9d1d9">
+
+          <!-- Time range toggle -->
+          <div style="display:flex;gap:6px;margin-bottom:16px">
+            <span style="background:#1f2937;padding:4px 10px;border-radius:6px;font-size:11px;color:#9ca3af">Dnes</span>
+            <span style="background:#1f2937;padding:4px 10px;border-radius:6px;font-size:11px;color:#9ca3af">Týden</span>
+            <span style="background:#3b82f6;padding:4px 10px;border-radius:6px;font-size:11px;color:#fff;font-weight:600">Měsíc</span>
+            <span style="background:#1f2937;padding:4px 10px;border-radius:6px;font-size:11px;color:#9ca3af">Custom</span>
+          </div>
+
+          <!-- Retrospektiva / Výhled toggle -->
+          <div style="display:flex;gap:6px;margin-bottom:16px">
+            <span style="background:#3b82f6;padding:4px 12px;border-radius:6px;font-size:11px;color:#fff;font-weight:600">Retrospektiva</span>
+            <span style="background:#1f2937;padding:4px 12px;border-radius:6px;font-size:11px;color:#9ca3af">Výhled</span>
+          </div>
+
+          <!-- KPI karty -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:4px">Vytížení XL 105</div>
+              <div style="font-size:22px;font-weight:700;color:#3fb950">82%</div>
+              <div style="font-size:9px;color:#8b949e;margin-top:2px">+3% vs min. měsíc</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:4px">Vytížení XL 106</div>
+              <div style="font-size:22px;font-weight:700;color:#f0883e">71%</div>
+              <div style="font-size:9px;color:#8b949e;margin-top:2px">-5% vs min. měsíc</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:4px">Průtok zakázek</div>
+              <div style="font-size:22px;font-weight:700;color:#c9d1d9">47</div>
+              <div style="font-size:9px;color:#8b949e;margin-top:2px">dokončených tento měsíc</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:4px">Ø Lead time</div>
+              <div style="font-size:22px;font-weight:700;color:#c9d1d9">4.2 dní</div>
+              <div style="font-size:9px;color:#8b949e;margin-top:2px">od naplánování po tisk</div>
+            </div>
+          </div>
+
+          <!-- Grafy placeholder -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:8px;font-weight:600">Vytížení strojů (denně)</div>
+              <div style="display:flex;align-items:flex-end;gap:3px;height:60px">
+                <div style="width:12px;background:#3b82f6;border-radius:2px 2px 0 0;height:70%"></div>
+                <div style="width:12px;background:#3b82f6;border-radius:2px 2px 0 0;height:85%"></div>
+                <div style="width:12px;background:#3b82f6;border-radius:2px 2px 0 0;height:60%"></div>
+                <div style="width:12px;background:#3b82f6;border-radius:2px 2px 0 0;height:90%"></div>
+                <div style="width:12px;background:#3b82f6;border-radius:2px 2px 0 0;height:75%"></div>
+                <div style="width:12px;background:#f0883e;border-radius:2px 2px 0 0;height:50%"></div>
+                <div style="width:12px;background:#f0883e;border-radius:2px 2px 0 0;height:65%"></div>
+                <div style="width:12px;background:#f0883e;border-radius:2px 2px 0 0;height:80%"></div>
+                <div style="width:12px;background:#f0883e;border-radius:2px 2px 0 0;height:45%"></div>
+                <div style="width:12px;background:#f0883e;border-radius:2px 2px 0 0;height:70%"></div>
+              </div>
+              <div style="font-size:8px;color:#484f58;margin-top:4px;display:flex;justify-content:space-between">
+                <span>Po</span><span>Út</span><span>St</span><span>Čt</span><span>Pá</span>
+              </div>
+              <div style="display:flex;gap:12px;margin-top:6px">
+                <span style="font-size:8px;color:#3b82f6">■ XL 105</span>
+                <span style="font-size:8px;color:#f0883e">■ XL 106</span>
+              </div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:8px;font-weight:600">Průtok zakázek (týdně)</div>
+              <div style="display:flex;align-items:flex-end;gap:6px;height:60px">
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center">
+                  <div style="width:100%;background:#3fb950;border-radius:2px 2px 0 0;height:45px"></div>
+                  <div style="font-size:8px;color:#484f58;margin-top:3px">T1</div>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center">
+                  <div style="width:100%;background:#3fb950;border-radius:2px 2px 0 0;height:52px"></div>
+                  <div style="font-size:8px;color:#484f58;margin-top:3px">T2</div>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center">
+                  <div style="width:100%;background:#3fb950;border-radius:2px 2px 0 0;height:38px"></div>
+                  <div style="font-size:8px;color:#484f58;margin-top:3px">T3</div>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center">
+                  <div style="width:100%;background:#3fb950;border-radius:2px 2px 0 0;height:55px"></div>
+                  <div style="font-size:8px;color:#484f58;margin-top:3px">T4</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spodní sekce -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:8px;font-weight:600">Aktivita plánovačů</div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:11px;color:#c9d1d9">Jan Novák</span>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <div style="width:80px;height:6px;background:#21262d;border-radius:3px;overflow:hidden"><div style="width:75%;height:100%;background:#3b82f6;border-radius:3px"></div></div>
+                    <span style="font-size:10px;color:#8b949e;width:30px;text-align:right">142</span>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                  <span style="font-size:11px;color:#c9d1d9">Petr Dvořák</span>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <div style="width:80px;height:6px;background:#21262d;border-radius:3px;overflow:hidden"><div style="width:55%;height:100%;background:#3b82f6;border-radius:3px"></div></div>
+                    <span style="font-size:10px;color:#8b949e;width:30px;text-align:right">98</span>
+                  </div>
+                </div>
+              </div>
+              <div style="font-size:8px;color:#484f58;margin-top:6px">Počet akcí (přesuny, edity, splity)</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px">
+              <div style="font-size:10px;color:#8b949e;margin-bottom:8px;font-weight:600">Pipeline rezervací</div>
+              <div style="display:flex;flex-direction:column;gap:4px">
+                <div style="display:flex;justify-content:space-between;font-size:10px">
+                  <span style="color:#f0883e">● Nové</span><span style="color:#c9d1d9;font-weight:600">8</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px">
+                  <span style="color:#3b82f6">● Přijaté</span><span style="color:#c9d1d9;font-weight:600">5</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px">
+                  <span style="color:#a371f7">● Ve frontě</span><span style="color:#c9d1d9;font-weight:600">3</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px">
+                  <span style="color:#3fb950">● Naplánované</span><span style="color:#c9d1d9;font-weight:600">12</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;font-size:10px">
+                  <span style="color:#f85149">● Zamítnuté</span><span style="color:#c9d1d9;font-weight:600">2</span>
+                </div>
+              </div>
+              <div style="font-size:8px;color:#484f58;margin-top:6px">Konverze: 60% (nové → naplánované)</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <p style="margin-top:8px">Vertikální layout — KPI karty nahoře, grafy a detaily pod nimi. Scrollovatelné. Přehledné na první pohled.</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Tabbovaný dashboard — sekce po kartách</h3>
+
+      <div class="mockup" style="margin-top:12px">
+        <div class="mockup-header">Reporty — Stroje</div>
+        <div class="mockup-body" style="padding:16px;font-family:system-ui;font-size:12px;background:#0d1117;color:#c9d1d9">
+
+          <!-- Time range -->
+          <div style="display:flex;gap:6px;margin-bottom:12px">
+            <span style="background:#1f2937;padding:4px 10px;border-radius:6px;font-size:11px;color:#9ca3af">Dnes</span>
+            <span style="background:#1f2937;padding:4px 10px;border-radius:6px;font-size:11px;color:#9ca3af">Týden</span>
+            <span style="background:#3b82f6;padding:4px 10px;border-radius:6px;font-size:11px;color:#fff;font-weight:600">Měsíc</span>
+            <span style="background:#1f2937;padding:4px 10px;border-radius:6px;font-size:11px;color:#9ca3af">Custom</span>
+          </div>
+
+          <!-- Sub-taby -->
+          <div style="display:flex;gap:2px;margin-bottom:16px;border-bottom:1px solid #30363d;padding-bottom:0">
+            <span style="padding:6px 14px;font-size:11px;color:#fff;font-weight:600;border-bottom:2px solid #3b82f6">Stroje</span>
+            <span style="padding:6px 14px;font-size:11px;color:#8b949e">Pipeline</span>
+            <span style="padding:6px 14px;font-size:11px;color:#8b949e">Plánování</span>
+            <span style="padding:6px 14px;font-size:11px;color:#8b949e">Plánovači</span>
+          </div>
+
+          <!-- Obsah záložky Stroje -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <span style="font-size:13px;font-weight:700;color:#c9d1d9">XL 105</span>
+                <span style="font-size:20px;font-weight:700;color:#3fb950">82%</span>
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:2px;height:50px;margin-bottom:8px">
+                <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:70%"></div>
+                <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:85%"></div>
+                <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:60%"></div>
+                <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:90%"></div>
+                <div style="flex:1;background:#3b82f6;border-radius:2px 2px 0 0;height:75%"></div>
+              </div>
+              <div style="font-size:9px;color:#484f58;display:flex;justify-content:space-between">
+                <span>Výroba: 132h</span><span>Údržba: 8h</span><span>Prostoj: 20h</span>
+              </div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <span style="font-size:13px;font-weight:700;color:#c9d1d9">XL 106</span>
+                <span style="font-size:20px;font-weight:700;color:#f0883e">71%</span>
+              </div>
+              <div style="display:flex;align-items:flex-end;gap:2px;height:50px;margin-bottom:8px">
+                <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:50%"></div>
+                <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:65%"></div>
+                <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:80%"></div>
+                <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:45%"></div>
+                <div style="flex:1;background:#f0883e;border-radius:2px 2px 0 0;height:70%"></div>
+              </div>
+              <div style="font-size:9px;color:#484f58;display:flex;justify-content:space-between">
+                <span>Výroba: 114h</span><span>Údržba: 14h</span><span>Prostoj: 32h</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Spodní metriky -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:12px">
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:#8b949e">Průtok / měsíc</div>
+              <div style="font-size:18px;font-weight:700;color:#c9d1d9;margin-top:2px">47</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:#8b949e">Ø Lead time</div>
+              <div style="font-size:18px;font-weight:700;color:#c9d1d9;margin-top:2px">4.2d</div>
+            </div>
+            <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px;text-align:center">
+              <div style="font-size:9px;color:#8b949e">Údržba vs výroba</div>
+              <div style="font-size:18px;font-weight:700;color:#c9d1d9;margin-top:2px">8.2%</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <p style="margin-top:8px">Každá oblast (Stroje, Pipeline, Plánování, Plánovači) má vlastní záložku. Víc prostoru pro detail, ale musíš proklikávat.</p>
+    </div>
+  </div>
+
+</div>
