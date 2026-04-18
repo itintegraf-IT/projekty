@@ -1,10 +1,41 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { todayPragueDateStr } from "@/lib/dateUtils";
 
 type Mode = "retro" | "outlook";
 type TimeRange = "today" | "week" | "month" | "custom";
+
+interface RetroMachineData {
+  utilization: number;
+  productionHours: number;
+  maintenanceHours: number;
+  availableHours: number;
+}
+
+interface RetroData {
+  machines: Record<string, RetroMachineData>;
+  dailyUtilization: Array<{ date: string; XL_105: number; XL_106: number }>;
+  throughput: number;
+  avgLeadTimeDays: number;
+  maintenanceRatio: number;
+  planning: { rescheduleCount: number; stabilityPercent: number };
+  plannerActivity: Array<{ username: string; actionCount: number }>;
+  pipeline: { SUBMITTED: number; ACCEPTED: number; QUEUE_READY: number; SCHEDULED: number; REJECTED: number; conversionPercent: number };
+}
+
+interface OutlookMachineData {
+  plannedCapacity: number;
+  freeHours: number;
+  availableHours: number;
+}
+
+interface OutlookData {
+  machines: Record<string, OutlookMachineData>;
+  dailyCapacity: Array<{ date: string; XL_105: number; XL_106: number }>;
+  upcomingMaintenance: Array<{ machine: string; description: string; startTime: string; endTime: string }>;
+  pendingReservations: { newCount: number; queueCount: number; oldestWaitingDays: number };
+}
 
 function getWeekStart(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -74,6 +105,311 @@ const BTN_ACTIVE: React.CSSProperties = {
   color: "var(--brand-contrast)",
   border: "1px solid var(--brand)",
 };
+
+const DOW_LABELS = ["Ne","Po","Ut","St","Ct","Pa","So"];
+
+function KpiCard({ label, value, subtitle, color }: { label: string; value: string | number; subtitle?: string; color?: string }) {
+  return (
+    <div style={{
+      background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10,
+      padding: "14px 16px", flex: "1 1 0",
+    }}>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 26, fontWeight: 700, color: color ?? "var(--text)" }}>{value}</div>
+      {subtitle && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{subtitle}</div>}
+    </div>
+  );
+}
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <div style={{
+      fontSize: 12, color: "var(--brand)", fontWeight: 600,
+      borderBottom: "1px solid var(--border)", paddingBottom: 4, marginBottom: 12, marginTop: 24,
+    }}>
+      {label}
+    </div>
+  );
+}
+
+function BarChart({ data, barKeys, colors, labels }: {
+  data: Array<Record<string, number | string>>;
+  barKeys: string[];
+  colors: string[];
+  labels?: string[];
+}) {
+  const maxVal = Math.max(...data.flatMap((d) => barKeys.map((k) => (d[k] as number) ?? 0)), 1);
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 80 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ display: "flex", gap: 1, flex: 1 }}>
+            {barKeys.map((k, ki) => (
+              <div key={k} style={{
+                flex: 1, background: colors[ki],
+                borderRadius: "2px 2px 0 0",
+                height: `${Math.max(2, ((d[k] as number) ?? 0) / maxVal * 100)}%`,
+                minHeight: 2,
+              }} title={`${d.date ?? ""}: ${d[k]}%`} />
+            ))}
+          </div>
+        ))}
+      </div>
+      {labels && (
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+          {labels.map((l, i) => <span key={i} style={{ fontSize: 8, color: "var(--text-muted)" }}>{l}</span>)}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+        {barKeys.map((k, i) => (
+          <span key={k} style={{ fontSize: 9, color: colors[i] }}>&#9632; {k.replace("_", " ")}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RetroView({ data }: { data: RetroData }) {
+  const xl105 = data.machines["XL_105"];
+  const xl106 = data.machines["XL_106"];
+  const pipelineKeys = ["SUBMITTED", "ACCEPTED", "QUEUE_READY", "SCHEDULED", "REJECTED"] as const;
+  const pipelineColors: Record<string, string> = {
+    SUBMITTED: "#f0883e", ACCEPTED: "#3b82f6", QUEUE_READY: "#a371f7",
+    SCHEDULED: "#3fb950", REJECTED: "#f85149",
+  };
+  const pipelineLabels: Record<string, string> = {
+    SUBMITTED: "Nove", ACCEPTED: "Prijate", QUEUE_READY: "Ve fronte",
+    SCHEDULED: "Naplanovane", REJECTED: "Zamitnute",
+  };
+  const pipelineTotal = pipelineKeys.reduce((sum, k) => sum + (data.pipeline[k] ?? 0), 0);
+  const maxActivity = Math.max(...data.plannerActivity.map((a) => a.actionCount), 1);
+
+  const chartLabels = data.dailyUtilization.length > 0
+    ? [data.dailyUtilization[0].date.slice(5), data.dailyUtilization[data.dailyUtilization.length - 1].date.slice(5)]
+    : undefined;
+
+  return (
+    <>
+      {/* KPI row */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+        <KpiCard
+          label="Vytizeni XL 105"
+          value={`${xl105?.utilization ?? 0}%`}
+          subtitle={`${xl105?.productionHours ?? 0} hod. produkce`}
+          color={(xl105?.utilization ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+        />
+        <KpiCard
+          label="Vytizeni XL 106"
+          value={`${xl106?.utilization ?? 0}%`}
+          subtitle={`${xl106?.productionHours ?? 0} hod. produkce`}
+          color={(xl106?.utilization ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+        />
+        <KpiCard label="Prutok zakazek" value={data.throughput} subtitle="dokonceno v obdobi" />
+        <KpiCard label="Prumerna lead time" value={`${data.avgLeadTimeDays} d`} subtitle="od vytvoreni po dokonceni" />
+      </div>
+
+      {/* VYROBA */}
+      <SectionHeader label="VYROBA" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Denni vytizeni</div>
+          <BarChart
+            data={data.dailyUtilization}
+            barKeys={["XL_105", "XL_106"]}
+            colors={["#3b82f6", "#f0883e"]}
+            labels={chartLabels}
+          />
+        </div>
+        <div>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Udrzba ratio</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)" }}>{data.maintenanceRatio}%</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>cas udrzby / celkovy cas</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <KpiCard label="Produkce XL 105" value={`${xl105?.productionHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h dostupnych`} />
+            <KpiCard label="Produkce XL 106" value={`${xl106?.productionHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h dostupnych`} />
+          </div>
+        </div>
+      </div>
+
+      {/* PLANOVANI */}
+      <SectionHeader label="PLANOVANI" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ display: "flex", gap: 12 }}>
+          <KpiCard label="Preplanovani" value={data.planning.rescheduleCount} subtitle="bloky presunuty" />
+          <KpiCard label="Stabilita planu" value={`${data.planning.stabilityPercent}%`} subtitle="bloku beze zmeny" />
+        </div>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Aktivita planovacu</div>
+          {data.plannerActivity.map((a) => (
+            <div key={a.username} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 11, width: 80, flexShrink: 0, color: "var(--text)" }}>{a.username}</span>
+              <div style={{ flex: 1, height: 8, background: "var(--surface-2)", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${(a.actionCount / maxActivity) * 100}%`, height: "100%", background: "var(--brand)", borderRadius: 4 }} />
+              </div>
+              <span style={{ fontSize: 10, color: "var(--text-muted)", width: 32, textAlign: "right" }}>{a.actionCount}</span>
+            </div>
+          ))}
+          {data.plannerActivity.length === 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Zadna aktivita</div>}
+        </div>
+      </div>
+
+      {/* OBCHOD */}
+      <SectionHeader label="OBCHOD" />
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Pipeline rezervaci</div>
+        {/* Stacked bar */}
+        {pipelineTotal > 0 && (
+          <div style={{ display: "flex", height: 20, borderRadius: 4, overflow: "hidden", marginBottom: 10 }}>
+            {pipelineKeys.map((k) => {
+              const pct = (data.pipeline[k] ?? 0) / pipelineTotal * 100;
+              if (pct === 0) return null;
+              return <div key={k} style={{ width: `${pct}%`, background: pipelineColors[k], minWidth: 2 }} />;
+            })}
+          </div>
+        )}
+        {/* Legend */}
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
+          {pipelineKeys.map((k) => (
+            <span key={k} style={{ fontSize: 11, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: pipelineColors[k], display: "inline-block" }} />
+              {pipelineLabels[k]}: {data.pipeline[k] ?? 0}
+            </span>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          Konverze: <strong style={{ color: "var(--text)" }}>{data.pipeline.conversionPercent}%</strong> (prijate → naplanovane)
+        </div>
+      </div>
+    </>
+  );
+}
+
+function OutlookView({ data }: { data: OutlookData }) {
+  const xl105 = data.machines["XL_105"];
+  const xl106 = data.machines["XL_106"];
+  const machines = ["XL_105", "XL_106"] as const;
+  const days = data.dailyCapacity.slice(0, 14);
+
+  function heatColor(pct: number): string {
+    if (pct === 0) return "var(--surface-2)";
+    if (pct >= 80) return "#3fb950";
+    if (pct >= 50) return "#f0883e";
+    return "#f85149";
+  }
+
+  return (
+    <>
+      {/* KPI row */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+        <KpiCard
+          label="Kapacita XL 105"
+          value={`${xl105?.plannedCapacity ?? 0}%`}
+          subtitle={`${xl105?.freeHours ?? 0} h volnych`}
+          color={(xl105?.plannedCapacity ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+        />
+        <KpiCard
+          label="Kapacita XL 106"
+          value={`${xl106?.plannedCapacity ?? 0}%`}
+          subtitle={`${xl106?.freeHours ?? 0} h volnych`}
+          color={(xl106?.plannedCapacity ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+        />
+        <KpiCard label="Volne hod. XL 105" value={`${xl105?.freeHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h`} />
+        <KpiCard label="Volne hod. XL 106" value={`${xl106?.freeHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h`} />
+      </div>
+
+      {/* KAPACITA */}
+      <SectionHeader label="KAPACITA" />
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Heatmapa vytizeni</div>
+        <div style={{ display: "grid", gridTemplateColumns: `80px repeat(${days.length}, 1fr)`, gap: 2 }}>
+          {/* Header row */}
+          <div />
+          {days.map((d) => {
+            const dt = new Date(d.date + "T12:00:00Z");
+            const dow = DOW_LABELS[dt.getUTCDay()];
+            const dayNum = dt.getUTCDate();
+            return (
+              <div key={d.date} style={{ textAlign: "center", fontSize: 8, color: "var(--text-muted)", lineHeight: 1.2 }}>
+                {dow}<br/>{dayNum}
+              </div>
+            );
+          })}
+          {/* Machine rows */}
+          {machines.map((m) => (
+            <React.Fragment key={m}>
+              <div style={{ fontSize: 10, color: "var(--text)", display: "flex", alignItems: "center" }}>{m.replace("_", " ")}</div>
+              {days.map((d) => {
+                const val = (d[m] as number) ?? 0;
+                return (
+                  <div key={d.date} style={{
+                    height: 24, borderRadius: 3, background: heatColor(val),
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 8, color: val > 0 ? "#fff" : "var(--text-muted)", fontWeight: 600,
+                  }} title={`${d.date}: ${val}%`}>
+                    {val > 0 ? `${val}` : ""}
+                  </div>
+                );
+              })}
+            </React.Fragment>
+          ))}
+        </div>
+        {/* Legend */}
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <span style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#3fb950", display: "inline-block" }} /> 80%+
+          </span>
+          <span style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#f0883e", display: "inline-block" }} /> 50-79%
+          </span>
+          <span style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#f85149", display: "inline-block" }} /> &lt;50%
+          </span>
+        </div>
+      </div>
+
+      {/* RIZIKA */}
+      <SectionHeader label="RIZIKA" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Planned maintenance */}
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Planovane udrzby</div>
+          {data.upcomingMaintenance.slice(0, 5).map((m, i) => {
+            const startDt = new Date(m.startTime);
+            const endDt = new Date(m.endTime);
+            const hours = Math.round((endDt.getTime() - startDt.getTime()) / 3600000 * 10) / 10;
+            return (
+              <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: i < 4 ? "1px solid var(--border)" : "none" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{m.machine.replace("_", " ")}</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{m.description}</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                  {startDt.toISOString().slice(0, 10)} · {hours} h
+                </div>
+              </div>
+            );
+          })}
+          {data.upcomingMaintenance.length === 0 && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Zadne planovane udrzby</div>
+          )}
+        </div>
+        {/* Pending reservations */}
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Cekajici na zpracovani</div>
+          <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
+            <KpiCard label="Nove rezervace" value={data.pendingReservations.newCount} subtitle="ceka na prijeti" />
+            <KpiCard label="Ve fronte" value={data.pendingReservations.queueCount} subtitle="pripraveno k planovani" />
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+            Nejstarsi cekajici: <strong style={{ color: data.pendingReservations.oldestWaitingDays > 3 ? "#f85149" : "var(--text)" }}>
+              {data.pendingReservations.oldestWaitingDays} dni
+            </strong>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
 
 export default function ReportDashboard() {
   const today = todayPragueDateStr();
@@ -284,28 +620,12 @@ export default function ReportDashboard() {
           </div>
         )}
 
-        {!loading && !error && data !== null && (
-          <div
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: 16,
-              overflow: "auto",
-            }}
-          >
-            <pre
-              style={{
-                fontSize: 12,
-                color: "var(--text)",
-                margin: 0,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-all",
-              }}
-            >
-              {JSON.stringify(data, null, 2)}
-            </pre>
-          </div>
+        {!loading && !error && data !== null && mode === "retro" && (
+          <RetroView data={data as RetroData} />
+        )}
+
+        {!loading && !error && data !== null && mode === "outlook" && (
+          <OutlookView data={data as OutlookData} />
         )}
       </div>
     </div>
