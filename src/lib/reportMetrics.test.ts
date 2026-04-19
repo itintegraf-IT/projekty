@@ -29,6 +29,12 @@ function makeRow(machine: string, dayOfWeek: number, flags: ShiftFlags = {}): Ma
     morningOn: flags.morningOn ?? false,
     afternoonOn: flags.afternoonOn ?? false,
     nightOn: flags.nightOn ?? false,
+    morningStartMin: null,
+    morningEndMin: null,
+    afternoonStartMin: null,
+    afternoonEndMin: null,
+    nightStartMin: null,
+    nightEndMin: null,
   };
 }
 

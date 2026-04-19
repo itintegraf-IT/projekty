@@ -52,7 +52,14 @@ export function resolveScheduleRows(
  * `weekStart` je @db.Date → Date (UTC midnight) → YYYY-MM-DD.
  */
 export function serializeWeekShifts(
-  raw: { machine: string; weekStart: Date | string; dayOfWeek: number; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean; id?: number }[]
+  raw: {
+    machine: string; weekStart: Date | string; dayOfWeek: number;
+    isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean;
+    morningStartMin?: number | null; morningEndMin?: number | null;
+    afternoonStartMin?: number | null; afternoonEndMin?: number | null;
+    nightStartMin?: number | null; nightEndMin?: number | null;
+    id?: number;
+  }[]
 ): MachineWeekShiftsRow[] {
   return raw.map((w) => ({
     id: w.id,
@@ -63,6 +70,12 @@ export function serializeWeekShifts(
     morningOn: Boolean(w.morningOn),
     afternoonOn: Boolean(w.afternoonOn),
     nightOn: Boolean(w.nightOn),
+    morningStartMin: w.morningStartMin ?? null,
+    morningEndMin: w.morningEndMin ?? null,
+    afternoonStartMin: w.afternoonStartMin ?? null,
+    afternoonEndMin: w.afternoonEndMin ?? null,
+    nightStartMin: w.nightStartMin ?? null,
+    nightEndMin: w.nightEndMin ?? null,
   }));
 }
 

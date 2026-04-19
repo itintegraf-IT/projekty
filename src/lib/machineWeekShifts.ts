@@ -14,6 +14,12 @@ export type MachineWeekShiftsRow = {
   morningOn: boolean;
   afternoonOn: boolean;
   nightOn: boolean;
+  morningStartMin: number | null;
+  morningEndMin: number | null;
+  afternoonStartMin: number | null;
+  afternoonEndMin: number | null;
+  nightStartMin: number | null;
+  nightEndMin: number | null;
 };
 
 /**

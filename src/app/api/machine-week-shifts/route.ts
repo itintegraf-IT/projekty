@@ -34,6 +34,12 @@ type DbRow = {
   morningOn: boolean;
   afternoonOn: boolean;
   nightOn: boolean;
+  morningStartMin: number | null;
+  morningEndMin: number | null;
+  afternoonStartMin: number | null;
+  afternoonEndMin: number | null;
+  nightStartMin: number | null;
+  nightEndMin: number | null;
 };
 
 function serializeRow(r: DbRow): MachineWeekShiftsRow {
@@ -46,6 +52,12 @@ function serializeRow(r: DbRow): MachineWeekShiftsRow {
     morningOn: r.morningOn,
     afternoonOn: r.afternoonOn,
     nightOn: r.nightOn,
+    morningStartMin: r.morningStartMin,
+    morningEndMin: r.morningEndMin,
+    afternoonStartMin: r.afternoonStartMin,
+    afternoonEndMin: r.afternoonEndMin,
+    nightStartMin: r.nightStartMin,
+    nightEndMin: r.nightEndMin,
   };
 }
 

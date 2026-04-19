@@ -18,6 +18,12 @@ function makeRow(machine: string, o: RowOverride): MachineWeekShiftsRow {
     morningOn: o.morningOn ?? false,
     afternoonOn: o.afternoonOn ?? false,
     nightOn: o.nightOn ?? false,
+    morningStartMin: o.morningStartMin ?? null,
+    morningEndMin: o.morningEndMin ?? null,
+    afternoonStartMin: o.afternoonStartMin ?? null,
+    afternoonEndMin: o.afternoonEndMin ?? null,
+    nightStartMin: o.nightStartMin ?? null,
+    nightEndMin: o.nightEndMin ?? null,
   };
 }
 
