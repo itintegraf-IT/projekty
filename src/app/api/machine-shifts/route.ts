@@ -8,7 +8,7 @@ import {
   slotToHour,
 } from "@/lib/timeSlots";
 import { emitSSE } from "@/lib/eventBus";
-import { activeShiftsForDay } from "@/lib/shifts";
+import { activeShiftsForDay, type ShiftType } from "@/lib/shifts";
 
 function serializeTemplate(t: {
   id: number;
@@ -154,7 +154,7 @@ export async function PUT(req: Request) {
   if (!["ADMIN", "PLANOVAT"].includes(session.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body: { machine: string; days: DayInput[] } =
+  const body: { machine: string; days: DayInput[]; force?: boolean } =
     await req.json();
 
   if (!body.machine || !Array.isArray(body.days))
@@ -176,12 +176,97 @@ export async function PUT(req: Request) {
 
   const defaultTemplate = await prisma.machineWorkHoursTemplate.findFirst({
     where: { machine: body.machine, isDefault: true },
+    include: { days: true },
   });
   if (!defaultTemplate)
     return NextResponse.json({ error: "Výchozí šablona nenalezena — spusťte bootstrap." }, { status: 404 });
 
-  await prisma.$transaction(
-    normalizedDays.map((d) =>
+  // Cascade detection: které směny se vypínají, které měly dříve přiřazení
+  const shiftsBeingDisabled: Array<{ dayOfWeek: number; shift: ShiftType }> = [];
+  for (const newDay of normalizedDays) {
+    const oldDay = defaultTemplate.days.find((d) => d.dayOfWeek === newDay.dayOfWeek);
+    if (!oldDay) continue;
+    const checks: Array<[ShiftType, boolean, boolean]> = [
+      ["MORNING", oldDay.morningOn, newDay.morningOn],
+      ["AFTERNOON", oldDay.afternoonOn, newDay.afternoonOn],
+      ["NIGHT", oldDay.nightOn, newDay.nightOn],
+    ];
+    for (const [shift, oldOn, newOn] of checks) {
+      if (oldOn && !newOn) shiftsBeingDisabled.push({ dayOfWeek: newDay.dayOfWeek, shift });
+    }
+  }
+
+  let affectedIdsToDelete: number[] = [];
+  let affectedAuditPayload: string | null = null;
+
+  if (shiftsBeingDisabled.length > 0) {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    const futureAssignments = await prisma.shiftAssignment.findMany({
+      where: {
+        machine: body.machine,
+        date: { gte: today },
+        shift: { in: Array.from(new Set(shiftsBeingDisabled.map((s) => s.shift))) },
+      },
+      include: { printer: true },
+    });
+
+    const affected = futureAssignments.filter((a) => {
+      const dow = new Date(a.date).getUTCDay();
+      return shiftsBeingDisabled.some((s) => s.dayOfWeek === dow && s.shift === a.shift);
+    });
+
+    if (affected.length > 0 && !body.force) {
+      return NextResponse.json(
+        {
+          error: "Vypínané směny mají přiřazená obsazení.",
+          needsConfirmation: true,
+          affectedCount: affected.length,
+          affected: affected.slice(0, 20).map((a) => ({
+            id: a.id,
+            date: a.date.toISOString().slice(0, 10),
+            shift: a.shift,
+            printerName: a.printer.name,
+          })),
+        },
+        { status: 409 }
+      );
+    }
+
+    if (affected.length > 0 && body.force) {
+      affectedIdsToDelete = affected.map((a) => a.id);
+      affectedAuditPayload = JSON.stringify(
+        affected.map((a) => ({
+          id: a.id,
+          date: a.date.toISOString().slice(0, 10),
+          shift: a.shift,
+          printer: a.printer.name,
+        }))
+      );
+    }
+  }
+
+  await prisma.$transaction([
+    ...(affectedIdsToDelete.length > 0
+      ? [
+          prisma.shiftAssignment.deleteMany({
+            where: { id: { in: affectedIdsToDelete } },
+          }),
+          prisma.auditLog.create({
+            data: {
+              blockId: 0,
+              userId: session.id,
+              username: session.username,
+              action: "CASCADE_DELETE_SHIFT_ASSIGNMENTS",
+              field: "ShiftAssignment",
+              oldValue: affectedAuditPayload,
+              newValue: null,
+            },
+          }),
+        ]
+      : []),
+    ...normalizedDays.map((d) =>
       prisma.machineWorkHoursTemplateDay.updateMany({
         where: { templateId: defaultTemplate.id, dayOfWeek: d.dayOfWeek },
         data: {
@@ -195,8 +280,8 @@ export async function PUT(req: Request) {
           nightOn: d.nightOn,
         },
       })
-    )
-  );
+    ),
+  ]);
 
   // Vrátit aktualizovanou šablonu
   const updated = await prisma.machineWorkHoursTemplate.findUnique({
