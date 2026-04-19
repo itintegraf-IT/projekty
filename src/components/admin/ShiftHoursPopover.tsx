@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SHIFT_HOURS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts";
 
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";
-const AMBER_TEXT = "#f59e0b";
 const AMBER_BG = "#d97706";
 
 const SHIFT_RANGES: Record<ShiftType, { start: [number, number]; end: [number, number] }> = {

@@ -6,6 +6,7 @@ import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shif
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
 import { ShiftHoursPopover } from "@/components/admin/ShiftHoursPopover";
+import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 
 type WeekShiftsRow = {
   id?: number;
@@ -25,7 +26,6 @@ type WeekShiftsRow = {
 };
 
 const AMBER_TEXT = "#f59e0b";
-const AMBER_BG = "#d97706";
 
 function fmtHHMM(min: number): string {
   const h = Math.floor(min / 60);
@@ -208,6 +208,7 @@ export function MachineWorkHoursWeek() {
   const [busy, setBusy] = useState(false);
   const [editingOverride, setEditingOverride] = useState<{ machine: string; dow: number; shift: ShiftType } | null>(null);
   const [popoverAnchor, setPopoverAnchor] = useState<DOMRect | null>(null);
+  const [cascadeBlocks, setCascadeBlocks] = useState<ConflictingBlock[] | null>(null);
   const { toasts, showToast, dismissToast } = useToast();
   const savingRef = useRef(false);
 
@@ -309,39 +310,57 @@ export function MachineWorkHoursWeek() {
     });
   };
 
-  const save = async () => {
+  const submitSave = async (force: boolean): Promise<{ ok: boolean; cascade?: ConflictingBlock[] }> => {
+    for (const machine of MACHINES) {
+      const machineRows = rows[machine];
+      if (!machineRows) continue;
+      const url = force
+        ? "/api/machine-week-shifts?force=1"
+        : "/api/machine-week-shifts";
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          machine,
+          weekStart: weekStartStr,
+          days: machineRows.map((r) => ({
+            dayOfWeek: r.dayOfWeek,
+            isActive: r.isActive,
+            morningOn: r.morningOn,
+            afternoonOn: r.afternoonOn,
+            nightOn: r.nightOn,
+            morningStartMin: r.morningStartMin,
+            morningEndMin: r.morningEndMin,
+            afternoonStartMin: r.afternoonStartMin,
+            afternoonEndMin: r.afternoonEndMin,
+            nightStartMin: r.nightStartMin,
+            nightEndMin: r.nightEndMin,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          conflictingBlocks?: ConflictingBlock[];
+        };
+        if (res.status === 409 && body.error === "SHIFT_SHRINK_CASCADE" && Array.isArray(body.conflictingBlocks)) {
+          return { ok: false, cascade: body.conflictingBlocks };
+        }
+        throw new Error(body.error ?? `Chyba ukládání (${machine})`);
+      }
+    }
+    return { ok: true };
+  };
+
+  const runSave = async (force: boolean) => {
     setBusy(true);
     setError(null);
     savingRef.current = true;
     try {
-      for (const machine of MACHINES) {
-        const machineRows = rows[machine];
-        if (!machineRows) continue;
-        const res = await fetch("/api/machine-week-shifts", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            machine,
-            weekStart: weekStartStr,
-            days: machineRows.map((r) => ({
-              dayOfWeek: r.dayOfWeek,
-              isActive: r.isActive,
-              morningOn: r.morningOn,
-              afternoonOn: r.afternoonOn,
-              nightOn: r.nightOn,
-              morningStartMin: r.morningStartMin,
-              morningEndMin: r.morningEndMin,
-              afternoonStartMin: r.afternoonStartMin,
-              afternoonEndMin: r.afternoonEndMin,
-              nightStartMin: r.nightStartMin,
-              nightEndMin: r.nightEndMin,
-            })),
-          }),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? `Chyba ukládání (${machine})`);
-        }
+      const result = await submitSave(force);
+      if (!result.ok && result.cascade) {
+        setCascadeBlocks(result.cascade);
+        return;
       }
       await load();
       showToast("Pracovní doba uložena.", "success");
@@ -353,6 +372,17 @@ export function MachineWorkHoursWeek() {
       setBusy(false);
       setTimeout(() => { savingRef.current = false; }, 500);
     }
+  };
+
+  const save = () => runSave(false);
+
+  const confirmCascade = async () => {
+    setCascadeBlocks(null);
+    await runSave(true);
+  };
+
+  const cancelCascade = () => {
+    setCascadeBlocks(null);
   };
 
   const copyFromPrev = async () => {
@@ -643,6 +673,15 @@ export function MachineWorkHoursWeek() {
           />
         );
       })()}
+
+      {cascadeBlocks && (
+        <ShiftCascadeDialog
+          conflictingBlocks={cascadeBlocks}
+          onCancel={cancelCascade}
+          onConfirm={() => void confirmCascade()}
+          busy={busy}
+        />
+      )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
