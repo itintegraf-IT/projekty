@@ -51,6 +51,30 @@ export function activeShiftsForDay(flags: ShiftFlags): ShiftType[] {
   return out;
 }
 
+import type { MachineWeekShiftsRow } from "./machineWeekShifts";
+
+/** Vrátí efektivní hranice směny (null = směna OFF pro den). */
+export function resolveShiftBounds(
+  row: MachineWeekShiftsRow,
+  shift: ShiftType
+): { startMin: number; endMin: number } | null {
+  const flagOn = shift === "MORNING" ? row.morningOn
+               : shift === "AFTERNOON" ? row.afternoonOn
+               : row.nightOn;
+  if (!flagOn) return null;
+  const def = SHIFT_HOURS[shift];
+  const defStart = def.start * 60;
+  const defEnd = (def.end < def.start ? def.end + 24 : def.end) * 60; // NIGHT: 6 → 30*60=1800? no: 6*60=360
+  const override = shift === "MORNING"
+    ? { s: row.morningStartMin, e: row.morningEndMin }
+    : shift === "AFTERNOON"
+    ? { s: row.afternoonStartMin, e: row.afternoonEndMin }
+    : { s: row.nightStartMin, e: row.nightEndMin };
+  const startMin = override.s ?? defStart;
+  const endMin = override.e ?? (shift === "NIGHT" ? def.end * 60 : defEnd);
+  return { startMin, endMin };
+}
+
 /** Derive legacy startHour/endHour from shift flags.
  *  Used both on client (grid UI) and server (normalizeDayInput).
  *  Represents the spanning interval from earliest active shift's start to latest active shift's end.
