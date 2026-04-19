@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SHIFTS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts";
+import { SHIFTS, SHIFT_HOURS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts";
 import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shiftRoster";
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
@@ -15,7 +15,27 @@ type WeekShiftsRow = {
   morningOn: boolean;
   afternoonOn: boolean;
   nightOn: boolean;
+  morningStartMin: number | null;
+  morningEndMin: number | null;
+  afternoonStartMin: number | null;
+  afternoonEndMin: number | null;
+  nightStartMin: number | null;
+  nightEndMin: number | null;
 };
+
+const AMBER_TEXT = "#f59e0b";
+const AMBER_BG = "#d97706";
+
+function fmtHHMM(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${h}:${String(m).padStart(2, "0")}`;
+}
+
+function defaultShiftMin(shift: ShiftType): { startMin: number; endMin: number } {
+  const def = SHIFT_HOURS[shift];
+  return { startMin: def.start * 60, endMin: def.end * 60 };
+}
 
 const MACHINES = ["XL_105", "XL_106"] as const;
 const MACHINE_LABELS: Record<string, string> = { XL_105: "XL 105", XL_106: "XL 106" };
@@ -74,6 +94,12 @@ function emptyWeek(machine: string, weekStart: string): WeekShiftsRow[] {
     morningOn: false,
     afternoonOn: false,
     nightOn: false,
+    morningStartMin: null,
+    morningEndMin: null,
+    afternoonStartMin: null,
+    afternoonEndMin: null,
+    nightStartMin: null,
+    nightEndMin: null,
   }));
 }
 
@@ -81,6 +107,94 @@ function shiftFlagKey(shift: ShiftType): "morningOn" | "afternoonOn" | "nightOn"
   if (shift === "MORNING") return "morningOn";
   if (shift === "AFTERNOON") return "afternoonOn";
   return "nightOn";
+}
+
+function shiftStartKey(shift: ShiftType): "morningStartMin" | "afternoonStartMin" | "nightStartMin" {
+  if (shift === "MORNING") return "morningStartMin";
+  if (shift === "AFTERNOON") return "afternoonStartMin";
+  return "nightStartMin";
+}
+
+function shiftEndKey(shift: ShiftType): "morningEndMin" | "afternoonEndMin" | "nightEndMin" {
+  if (shift === "MORNING") return "morningEndMin";
+  if (shift === "AFTERNOON") return "afternoonEndMin";
+  return "nightEndMin";
+}
+
+function ShiftHoursLabel({
+  shift,
+  startMin,
+  endMin,
+  onEdit,
+  onReset,
+}: {
+  shift: ShiftType;
+  startMin: number | null;
+  endMin: number | null;
+  onEdit: () => void;
+  onReset: () => void;
+}) {
+  const def = defaultShiftMin(shift);
+  const effStart = startMin ?? def.startMin;
+  const effEnd = endMin ?? def.endMin;
+  const isOverride = startMin !== null || endMin !== null;
+  const color = isOverride ? AMBER_TEXT : TEXT_SECONDARY;
+  return (
+    <div
+      style={{
+        marginTop: 4,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontFamily: FONT_STACK,
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onEdit();
+        }}
+        style={{
+          background: "transparent",
+          border: "none",
+          color,
+          fontSize: 10,
+          fontWeight: isOverride ? 600 : 400,
+          cursor: "pointer",
+          padding: "1px 2px",
+          fontFamily: FONT_STACK,
+          textDecoration: "underline dotted",
+          textUnderlineOffset: 2,
+        }}
+      >
+        {fmtHHMM(effStart)}–{fmtHHMM(effEnd)}
+      </button>
+      {isOverride && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReset();
+          }}
+          title="Vrátit na výchozí hodiny"
+          style={{
+            background: "transparent",
+            border: "none",
+            color: AMBER_TEXT,
+            fontSize: 11,
+            cursor: "pointer",
+            padding: "0 2px",
+            lineHeight: 1,
+            fontFamily: FONT_STACK,
+          }}
+        >
+          ↺
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function MachineWorkHoursWeek() {
@@ -149,6 +263,23 @@ export function MachineWorkHoursWeek() {
     },
   });
 
+  const saveOverride = (machine: string, dow: number, shift: ShiftType, startMin: number | null, endMin: number | null) => {
+    setRows((prev) => {
+      const machineRows = prev[machine] ?? emptyWeek(machine, weekStartStr);
+      const startKey = shiftStartKey(shift);
+      const endKey = shiftEndKey(shift);
+      const next = machineRows.map((r) => {
+        if (r.dayOfWeek !== dow) return r;
+        return { ...r, [startKey]: startMin, [endKey]: endMin };
+      });
+      return { ...prev, [machine]: next };
+    });
+  };
+
+  const resetOverride = (machine: string, dow: number, shift: ShiftType) => {
+    saveOverride(machine, dow, shift, null, null);
+  };
+
   const toggleShift = (machine: string, dow: number, shift: ShiftType) => {
     setRows((prev) => {
       const machineRows = prev[machine] ?? emptyWeek(machine, weekStartStr);
@@ -184,6 +315,12 @@ export function MachineWorkHoursWeek() {
               morningOn: r.morningOn,
               afternoonOn: r.afternoonOn,
               nightOn: r.nightOn,
+              morningStartMin: r.morningStartMin,
+              morningEndMin: r.morningEndMin,
+              afternoonStartMin: r.afternoonStartMin,
+              afternoonEndMin: r.afternoonEndMin,
+              nightStartMin: r.nightStartMin,
+              nightEndMin: r.nightEndMin,
             })),
           }),
         });
@@ -394,6 +531,11 @@ export function MachineWorkHoursWeek() {
                       {weekDates.map((d) => {
                         const dow = d.getUTCDay();
                         const on = isShiftOn(machine, dow, shift);
+                        const row = rows[machine]?.find((r) => r.dayOfWeek === dow);
+                        const startKey = shiftStartKey(shift);
+                        const endKey = shiftEndKey(shift);
+                        const startMin = row ? row[startKey] : null;
+                        const endMin = row ? row[endKey] : null;
                         return (
                           <td
                             key={`${machine}-${shift}-${isoDateStr(d)}`}
@@ -411,13 +553,26 @@ export function MachineWorkHoursWeek() {
                               userSelect: "none",
                             }}
                           >
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              onChange={() => toggleShift(machine, dow, shift)}
-                              onClick={(e) => e.stopPropagation()}
-                              style={{ cursor: "pointer", width: 16, height: 16 }}
-                            />
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                onChange={() => toggleShift(machine, dow, shift)}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ cursor: "pointer", width: 16, height: 16 }}
+                              />
+                              {on && (
+                                <ShiftHoursLabel
+                                  shift={shift}
+                                  startMin={startMin}
+                                  endMin={endMin}
+                                  onEdit={() => {
+                                    /* E2: opens popover */
+                                  }}
+                                  onReset={() => resetOverride(machine, dow, shift)}
+                                />
+                              )}
+                            </div>
                           </td>
                         );
                       })}
