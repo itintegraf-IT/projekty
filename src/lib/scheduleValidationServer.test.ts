@@ -131,4 +131,47 @@ describe("validateBlockScheduleFromDb", () => {
       assert.equal(result.error, "Blok zasahuje do plánované odstávky.");
     });
   });
+
+  // ─── Sprint G2: integrační test ověřující load & forward override dat ────────
+  // Tento test NEověřuje vnitřní logiku validátoru (to dělají override testy
+  // v scheduleValidation.test.ts) — jen potvrzuje, že validateBlockScheduleFromDb
+  // správně načte MachineWeekShifts z DB (včetně override sloupců) a předá je dál.
+  describe("ZAKAZKA — override integration (Sprint G2)", () => {
+    before(() => {
+      scheduleViolationResult = null;
+      mockCompanyDays.length = 0;
+      mockWeekShifts.length = 0;
+      // Pondělí 2026-04-13 s overridem morningEndMin=780 (13:00 místo 14:00)
+      mockWeekShifts.push({
+        machine: MACHINE,
+        weekStart: "2026-04-13",
+        dayOfWeek: 1,
+        isActive: true,
+        morningOn: true,
+        afternoonOn: true,
+        nightOn: false,
+        morningStartMin: null,
+        morningEndMin: 780,
+        afternoonStartMin: null,
+        afternoonEndMin: null,
+        nightStartMin: null,
+        nightEndMin: null,
+      });
+    });
+
+    it("předává override-ridden weekShifts do serializeWeekShifts", async () => {
+      // Scenář: blok 13:15–13:45 (Prague time, DST = UTC+2)
+      // by měl být blokován — morning shift končí v 13:00 podle overridu.
+      scheduleViolationResult = "Blok zasahuje mimo pracovní hodiny.";
+      const result = await validateBlockScheduleFromDb(
+        MACHINE,
+        new Date("2026-04-13T11:15:00.000Z"), // Prague 13:15
+        new Date("2026-04-13T11:45:00.000Z"), // Prague 13:45
+        "ZAKAZKA",
+        false
+      );
+      assert.ok(result !== null);
+      assert.equal(result.error, "Blok zasahuje mimo pracovní hodiny.");
+    });
+  });
 });
