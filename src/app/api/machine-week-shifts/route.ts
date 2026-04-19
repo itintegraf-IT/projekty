@@ -312,14 +312,35 @@ export async function PUT(req: Request) {
     });
 
     // Kompaktní kódování: jeden znak na směnu (M/A/N pokud zapnutá, - jinak),
-    // prefix "x" pokud day !isActive. Formát: "po:mAN|út:---|...".
+    // prefix "x" pokud day !isActive. Override hodnoty v závorce, např. "po:M--(Ms7:00,Me13:00)".
     const DAY_CODES = ["ne", "po", "út", "st", "čt", "pá", "so"];
-    const encodeDay = (r: { dayOfWeek: number; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean }) => {
-      const flags = (r.morningOn ? "M" : "-") + (r.afternoonOn ? "A" : "-") + (r.nightOn ? "N" : "-");
-      return `${DAY_CODES[r.dayOfWeek]}:${r.isActive ? flags : "xxx"}`;
+    const fmtHHMM = (m: number | null | undefined): string => {
+      if (m === null || m === undefined) return "";
+      return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+    };
+    const encodeDay = (r: {
+      dayOfWeek: number; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean;
+      morningStartMin?: number | null; morningEndMin?: number | null;
+      afternoonStartMin?: number | null; afternoonEndMin?: number | null;
+      nightStartMin?: number | null; nightEndMin?: number | null;
+    }) => {
+      const shifts = (r.morningOn ? "M" : "-") + (r.afternoonOn ? "A" : "-") + (r.nightOn ? "N" : "-");
+      const overrides = [
+        r.morningStartMin !== null && r.morningStartMin !== undefined ? `Ms${fmtHHMM(r.morningStartMin)}` : "",
+        r.morningEndMin !== null && r.morningEndMin !== undefined ? `Me${fmtHHMM(r.morningEndMin)}` : "",
+        r.afternoonStartMin !== null && r.afternoonStartMin !== undefined ? `As${fmtHHMM(r.afternoonStartMin)}` : "",
+        r.afternoonEndMin !== null && r.afternoonEndMin !== undefined ? `Ae${fmtHHMM(r.afternoonEndMin)}` : "",
+        r.nightStartMin !== null && r.nightStartMin !== undefined ? `Ns${fmtHHMM(r.nightStartMin)}` : "",
+        r.nightEndMin !== null && r.nightEndMin !== undefined ? `Ne${fmtHHMM(r.nightEndMin)}` : "",
+      ].filter(Boolean).join(",");
+      const base = r.isActive ? shifts : "xxx";
+      return `${DAY_CODES[r.dayOfWeek]}:${base}${overrides ? `(${overrides})` : ""}`;
     };
     const emptyDays = Array.from({ length: 7 }, (_, dow) => ({
       dayOfWeek: dow, isActive: false, morningOn: false, afternoonOn: false, nightOn: false,
+      morningStartMin: null, morningEndMin: null,
+      afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null,
     }));
     const beforeSorted = (existing.length > 0 ? existing : emptyDays)
       .slice()
