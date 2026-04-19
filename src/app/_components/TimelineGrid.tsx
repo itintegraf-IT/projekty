@@ -24,6 +24,7 @@ import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { resolveScheduleRows } from "@/lib/scheduleValidation";
+import { SHIFT_HOURS } from "@/lib/shifts";
 import {
   HoverCard,
   HoverCardContent,
@@ -154,7 +155,30 @@ type DragInternalState =
       startClientX: number;
       startScrollTop: number;
       anchorBlockId: number;
+    }
+  | {
+      type: "shift-edge-resize";
+      machine: string;
+      date: Date;
+      shift: "MORNING" | "AFTERNOON";
+      edge: "start" | "end";
+      origMin: number;
+      startClientY: number;
+      startScrollTop: number;
+      jointDrag: boolean;
     };
+
+// Validation ranges for shift-edge handles (in minutes from midnight)
+function rangeFor(shift: "MORNING" | "AFTERNOON", edge: "start" | "end"): [number, number] {
+  if (shift === "MORNING") return edge === "start" ? [240, 480] : [720, 960];
+  return edge === "start" ? [720, 960] : [1200, 1440];
+}
+
+function formatHHMM(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
 
 type DragPreview = {
   blockId: number;
@@ -206,6 +230,14 @@ interface TimelineGridProps {
   onBlockVariantChange?: (blockId: number, variant: BlockVariant) => void;
   onExpeditionPublish?:   (blockId: number) => Promise<void>;
   onExpeditionUnpublish?: (blockId: number) => Promise<void>;
+  onShiftBoundsChange?: (
+    machine: string,
+    date: Date,
+    shift: "MORNING" | "AFTERNOON",
+    edge: "start" | "end",
+    newMin: number | null,
+    joint?: boolean,
+  ) => Promise<void>;
 }
 
 type QueueDropPreview = {
@@ -1756,6 +1788,7 @@ export default function TimelineGrid({
   onBlockVariantChange,
   onExpeditionPublish,
   onExpeditionUnpublish,
+  onShiftBoundsChange,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -1770,12 +1803,17 @@ export default function TimelineGrid({
   const queuePreviewRefs = useRef<(HTMLDivElement | null)[]>([null, null]);
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material" | "pantone"; currentValue: string; x: number; y: number } | null>(null);
+  const [shiftEdgePreview, setShiftEdgePreview] = useState<{
+    machine: string; date: Date; shift: "MORNING" | "AFTERNOON"; edge: "start" | "end";
+    previewMin: number;
+  } | null>(null);
+  const shiftEdgePreviewRef = useRef(shiftEdgePreview);
   const dragStateRef    = useRef<DragInternalState | null>(null);
   const dragDidMove     = useRef(false);
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel, onShiftBoundsChange });
   const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -1795,8 +1833,10 @@ export default function TimelineGrid({
   useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel };
-  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel, onShiftBoundsChange };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel, onShiftBoundsChange]);
+
+  useEffect(() => { shiftEdgePreviewRef.current = shiftEdgePreview; }, [shiftEdgePreview]);
 
   useEffect(() => { queueDragItemRef.current = queueDragItem ?? null; }, [queueDragItem]);
 
