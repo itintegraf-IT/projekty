@@ -2018,6 +2018,15 @@ export default function TimelineGrid({
         const newStart   = new Date(anchor.originalStart.getTime() + deltaMs);
         const newEnd     = new Date(anchor.originalEnd.getTime() + deltaMs);
         setDragPreview({ blockId: ds.anchorBlockId, top: dateToY(newStart, vs, sh), height: dateToY(newEnd, vs, sh) - dateToY(newStart, vs, sh), machine: newMachine });
+      } else if (ds.type === "shift-edge-resize") {
+        const scrollDeltaLocal = (scrollRef.current?.scrollTop ?? 0) - ds.startScrollTop;
+        const dy = e.clientY - ds.startClientY + scrollDeltaLocal;
+        const deltaMin = Math.round(dy / sh) * 30;
+        const newMinRaw = ds.origMin + deltaMin;
+        const range = rangeFor(ds.shift, ds.edge);
+        const newMin = Math.max(range[0], Math.min(range[1], newMinRaw));
+        if (Math.abs(dy) > DRAG_THRESHOLD) dragDidMove.current = true;
+        setShiftEdgePreview({ machine: ds.machine, date: ds.date, shift: ds.shift, edge: ds.edge, previewMin: newMin });
       }
     }
 
@@ -2091,6 +2100,28 @@ export default function TimelineGrid({
       dragStateRef.current = null;
       dragDidMove.current  = false;
       setDragPreview(null);
+      // Clear shift-edge preview unconditionally (no-op for other drag types)
+      setShiftEdgePreview(null);
+
+      // shift-edge-resize handles own commit, with moved==false allowed fall-through
+      if (ds.type === "shift-edge-resize") {
+        if (!moved) return;
+        const preview = shiftEdgePreviewRef.current;
+        if (!preview || preview.previewMin === ds.origMin) return;
+        const def = SHIFT_HOURS[ds.shift];
+        const defaultMin = ds.edge === "start" ? def.start * 60 : def.end * 60;
+        const valueToSend = preview.previewMin === defaultMin ? null : preview.previewMin;
+        try {
+          await callbacksRef.current.onShiftBoundsChange?.(
+            ds.machine, ds.date, ds.shift, ds.edge, valueToSend, ds.jointDrag
+          );
+        } catch (err) {
+          console.error("shift-edge-resize commit failed", err);
+          callbacksRef.current.onError?.("Nepodařilo se upravit pracovní dobu.");
+        }
+        return;
+      }
+
       if (!moved) return;
 
       const scrollDelta = (scrollRef.current?.scrollTop ?? 0) - ds.startScrollTop;

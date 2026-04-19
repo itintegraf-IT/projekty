@@ -12,13 +12,15 @@ import {
   formatPragueDateTime,
   formatPragueTime,
   normalizeCivilDateInput,
+  pragueOf,
   pragueToUTC,
   todayPragueDateStr,
   utcToPragueDateStr,
   utcToPragueHour,
 } from "@/lib/dateUtils";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
-import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
 import { Label }     from "@/components/ui/label";
@@ -513,6 +515,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
   const [machineWeekShifts, setMachineWeekShifts] = useState<MachineWeekShiftsRow[]>(initialMachineWeekShifts);
+  const [plannerCascade, setPlannerCascade] = useState<{
+    conflicts: ConflictingBlock[];
+    pendingPayload: { machine: string; weekStart: string; days: unknown[] };
+  } | null>(null);
   const [showShutdowns, setShowShutdowns] = useState(false);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [todayAuditLogs, setTodayAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -847,20 +853,93 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   // Refresh MachineWeekShifts při návratu do okna —
   // zajišťuje, že klientský snap používá aktuální data i po změně v jiné relaci
-  useEffect(() => {
-    async function refreshSchedule() {
-      try {
-        const res = await fetch("/api/machine-week-shifts");
-        if (res.ok) setMachineWeekShifts(await res.json());
-      } catch (e) { console.debug("[schedule refresh]", e); }
-    }
-    window.addEventListener("focus", refreshSchedule);
-    window.addEventListener("machineScheduleUpdated", refreshSchedule);
-    return () => {
-      window.removeEventListener("focus", refreshSchedule);
-      window.removeEventListener("machineScheduleUpdated", refreshSchedule);
-    };
+  const refetchWeekShifts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/machine-week-shifts");
+      if (res.ok) setMachineWeekShifts(await res.json());
+    } catch (e) { console.debug("[schedule refresh]", e); }
   }, []);
+
+  useEffect(() => {
+    window.addEventListener("focus", refetchWeekShifts);
+    window.addEventListener("machineScheduleUpdated", refetchWeekShifts);
+    return () => {
+      window.removeEventListener("focus", refetchWeekShifts);
+      window.removeEventListener("machineScheduleUpdated", refetchWeekShifts);
+    };
+  }, [refetchWeekShifts]);
+
+  // ── Shift-edge handle commit (Sprint F) ─────────────────────────────────
+  const updateShiftBounds = useCallback(
+    async (
+      machine: string,
+      date: Date,
+      shift: "MORNING" | "AFTERNOON",
+      edge: "start" | "end",
+      newMin: number | null,
+      joint: boolean = false,
+    ) => {
+      const { dateStr, dayOfWeek } = pragueOf(date);
+      const weekStart = weekStartStrFromDateStr(dateStr);
+      const current = machineWeekShifts.filter((r) => r.machine === machine && r.weekStart === weekStart);
+      const byDow = new Map(current.map((r) => [r.dayOfWeek, r]));
+      const fieldName = (s: "MORNING" | "AFTERNOON", ed: "start" | "end") => {
+        const prefix = s === "MORNING" ? "morning" : "afternoon";
+        return ed === "start" ? `${prefix}StartMin` : `${prefix}EndMin`;
+      };
+      const days: Record<string, unknown>[] = [];
+      for (let dow = 0; dow < 7; dow++) {
+        const r = byDow.get(dow);
+        const base: Record<string, unknown> = {
+          dayOfWeek: dow,
+          isActive: r?.isActive ?? false,
+          morningOn: r?.morningOn ?? false,
+          afternoonOn: r?.afternoonOn ?? false,
+          nightOn: r?.nightOn ?? false,
+          morningStartMin: r?.morningStartMin ?? null,
+          morningEndMin: r?.morningEndMin ?? null,
+          afternoonStartMin: r?.afternoonStartMin ?? null,
+          afternoonEndMin: r?.afternoonEndMin ?? null,
+          nightStartMin: r?.nightStartMin ?? null,
+          nightEndMin: r?.nightEndMin ?? null,
+        };
+        if (dow === dayOfWeek) {
+          base[fieldName(shift, edge)] = newMin;
+          if (joint) {
+            // MORNING end shared with AFTERNOON start — update both
+            if (shift === "MORNING" && edge === "end") base.afternoonStartMin = newMin;
+            if (shift === "AFTERNOON" && edge === "start") base.morningEndMin = newMin;
+          }
+        }
+        days.push(base);
+      }
+      const payload = { machine, weekStart, days };
+      try {
+        const res = await fetch("/api/machine-week-shifts", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (res.status === 409) {
+          const data = await res.json().catch(() => ({}));
+          if (data?.error === "SHIFT_SHRINK_CASCADE" && Array.isArray(data.conflictingBlocks)) {
+            setPlannerCascade({ conflicts: data.conflictingBlocks, pendingPayload: payload });
+            return;
+          }
+        }
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          showToast(body.error ?? "Chyba úpravy pracovní doby", "error");
+          return;
+        }
+        await refetchWeekShifts();
+      } catch (err) {
+        console.error("[updateShiftBounds] failed", err);
+        showToast("Chyba úpravy pracovní doby", "error");
+      }
+    },
+    [machineWeekShifts, refetchWeekShifts, showToast],
+  );
 
   // ── SSE real-time sync ─────────────────────────────────────────────────
   const handleSSEEvent = useCallback((msg: SSEMessage) => {
@@ -2913,6 +2992,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onExpeditionPublish={canEdit ? handleExpeditionPublish : undefined}
             onExpeditionUnpublish={canEdit ? handleExpeditionUnpublish : undefined}
             onDataChipDoubleClick={canEditData && !canEditDataDate ? handleDataChipDoubleClick : undefined}
+            onShiftBoundsChange={canEdit ? updateShiftBounds : undefined}
           />
         </div>
 
