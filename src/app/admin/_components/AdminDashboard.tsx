@@ -6,6 +6,7 @@ import ThemeToggle from "@/app/_components/ThemeToggle";
 import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
 import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
+import { PrinterCodebook } from "@/components/admin/PrinterCodebook";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { summarizeJobPreset, type JobPreset } from "@/lib/jobPresets";
 import { durationHoursFromSlots, formatSlot, getSlotRange } from "@/lib/timeSlots";
@@ -162,11 +163,11 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
   }
-  const visibleTabs = (["users", "codebook", "presets", "audit", "shifts"] as const).filter((tab) => {
-    if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts";
+  const visibleTabs = (["users", "codebook", "presets", "audit", "shifts", "tiskari"] as const).filter((tab) => {
+    if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts" || tab === "tiskari";
     return true;
   });
-  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "shifts">(
+  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "shifts" | "tiskari">(
     isPlanovat ? "presets" : "users"
   );
 
@@ -246,7 +247,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
                 color: activeTab === tab ? TEXT_PRIMARY : TEXT_SECONDARY,
               }}
             >
-              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "presets" ? "Presety" : tab === "audit" ? "Audit log" : "Pracovní doba"}
+              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "presets" ? "Presety" : tab === "audit" ? "Audit log" : tab === "shifts" ? "Pracovní doba" : "Tiskaři"}
             </button>
           ))}
         </div>
@@ -264,6 +265,8 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           <AuditLogSection />
         ) : activeTab === "shifts" ? (
           <WorkShiftsSection />
+        ) : activeTab === "tiskari" ? (
+          <PrinterCodebook />
         ) : null}
       </div>
     </div>
