@@ -1,5 +1,6 @@
 import { normalizeCivilDateInput, pragueOf } from "./dateUtils";
 import type { MachineWorkHours, MachineWorkHoursTemplate } from "./machineWorkHours";
+import { shiftFromHour } from "./shifts";
 import { getSlotRange, slotFromHourBoundary, slotToHour } from "./timeSlots";
 
 /**
@@ -13,7 +14,7 @@ export function resolveScheduleRows(
   machine: string,
   date: Date,
   templates: MachineWorkHoursTemplate[]
-): Array<{ machine: string; dayOfWeek: number; startHour: number; endHour: number; startSlot: number; endSlot: number; isActive: boolean }> {
+): Array<{ machine: string; dayOfWeek: number; startHour: number; endHour: number; startSlot: number; endSlot: number; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean }> {
   const dateStr = pragueOf(date).dateStr; // Europe/Prague datum — nikdy UTC slice (off-by-one v noci)
   const machineTemplates = templates.filter((t) => t.machine === machine);
 
@@ -35,6 +36,9 @@ export function resolveScheduleRows(
     startSlot: getSlotRange(d).startSlot,
     endSlot: getSlotRange(d).endSlot,
     isActive: d.isActive,
+    morningOn: Boolean(d.morningOn),
+    afternoonOn: Boolean(d.afternoonOn),
+    nightOn: Boolean(d.nightOn),
   }));
 }
 
@@ -107,7 +111,7 @@ export function checkScheduleViolationWithTemplates(
   const scheduleCache = new Map<string, ReturnType<typeof resolveScheduleRows>>();
   let cur = new Date(startTime);
   while (cur < endTime) {
-    const { slot, dayOfWeek, dateStr } = pragueOf(cur);
+    const { slot, dayOfWeek, dateStr, hour, minute } = pragueOf(cur);
     if (!scheduleCache.has(dateStr)) {
       scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, templates));
     }
@@ -115,7 +119,7 @@ export function checkScheduleViolationWithTemplates(
     const exc = exceptions.find(
       (e) => (!e.machine || e.machine === machine) && normalizeCivilDateInput(e.date) === dateStr
     );
-    // Exception přebíjí template
+    // Exception přebíjí template (zachovává hour-based semantiku pro výjimky)
     if (exc) {
       const excRange = getSlotRange(exc);
       if (!exc.isActive || slot < excRange.startSlot || slot >= excRange.endSlot) {
@@ -130,8 +134,13 @@ export function checkScheduleViolationWithTemplates(
           return "Blok zasahuje do doby mimo provoz stroje.";
         }
       } else {
-        const rowRange = getSlotRange(row);
-        if (!row.isActive || slot < rowRange.startSlot || slot >= rowRange.endSlot) {
+        // Validace podle směnných flagů: zjisti kam slot patří (MORNING/AFTERNOON/NIGHT)
+        // a zkontroluj odpovídající flag. hour+minute/60 pokrývá i druhou půlku slotu.
+        const shift = shiftFromHour(hour + minute / 60);
+        const shiftOn = shift === "MORNING" ? row.morningOn
+                      : shift === "AFTERNOON" ? row.afternoonOn
+                      : row.nightOn;
+        if (!row.isActive || !shiftOn) {
           return "Blok zasahuje do doby mimo provoz stroje.";
         }
       }
