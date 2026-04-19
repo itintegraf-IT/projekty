@@ -1,5 +1,5 @@
 import { pragueOf } from "./dateUtils";
-import { deriveHoursFromShifts, shiftFromHour, resolveShiftBounds } from "./shifts";
+import { deriveHoursFromShifts, resolveShiftBounds, isHourActive } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 import { slotFromHourBoundary } from "./timeSlots";
 
@@ -113,6 +113,7 @@ export function checkScheduleViolationWithTemplates(
   weekShifts: MachineWeekShiftsRow[]
 ): string | null {
   const SLOT_MS = 30 * 60 * 1000;
+  const rowCache = new Map<string, MachineWeekShiftsRow | null>();
   const scheduleCache = new Map<string, DayScheduleRow[]>();
   let cur = new Date(startTime);
   while (cur < endTime) {
@@ -121,19 +122,22 @@ export function checkScheduleViolationWithTemplates(
       scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, weekShifts));
     }
     const schedule = scheduleCache.get(dateStr)!;
-    const row = schedule.find((r) => r.dayOfWeek === dayOfWeek);
-    if (!row) {
+    const cacheKey = `${machine}|${dateStr}`;
+    if (!rowCache.has(cacheKey)) {
+      const weekStart = weekStartStrFromDateStr(dateStr);
+      const row = weekShifts.find((w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek) ?? null;
+      rowCache.set(cacheKey, row);
+    }
+    const weekRow = rowCache.get(cacheKey);
+    if (!weekRow) {
       // Chybí řádek pro tento den. Pokud weekShifts vůbec nic pro stroj+týden nemají,
       // fallback na hardcoded. Pokud řádky existují ale chybí ten náš → den je mimo provoz.
       if (schedule.length > 0 || isHardcodedBlocked(machine, dayOfWeek, slot)) {
         return "Blok zasahuje do doby mimo provoz stroje.";
       }
     } else {
-      const shift = shiftFromHour(hour + minute / 60);
-      const shiftOn = shift === "MORNING" ? row.morningOn
-                    : shift === "AFTERNOON" ? row.afternoonOn
-                    : row.nightOn;
-      if (!row.isActive || !shiftOn) {
+      if (!weekRow.isActive) return "Blok zasahuje do doby mimo provoz stroje.";
+      if (!isHourActive(hour + minute / 60, weekRow)) {
         return "Blok zasahuje do doby mimo provoz stroje.";
       }
     }
