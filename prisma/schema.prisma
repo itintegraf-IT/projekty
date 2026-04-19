@@ -179,6 +179,13 @@ model MachineWeekShifts {
   morningOn   Boolean  @default(false)
   afternoonOn Boolean  @default(false)
   nightOn     Boolean  @default(false)
+  // Override hodin per směna (null = default z SHIFT_HOURS). Minuty od půlnoci, snap 30.
+  morningStartMin   Int?
+  morningEndMin     Int?
+  afternoonStartMin Int?
+  afternoonEndMin   Int?
+  nightStartMin     Int?
+  nightEndMin       Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
