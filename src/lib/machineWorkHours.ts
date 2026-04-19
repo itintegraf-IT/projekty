@@ -18,6 +18,9 @@ export type MachineWorkHoursTemplateDay = {
   startSlot?: number | null;
   endSlot?: number | null;
   isActive: boolean;
+  morningOn: boolean;
+  afternoonOn: boolean;
+  nightOn: boolean;
   // Nemá pole `machine` — machine se přidává při mapování v resolveScheduleRows
 };
 
