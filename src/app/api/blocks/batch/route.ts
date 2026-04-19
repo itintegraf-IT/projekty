@@ -5,13 +5,15 @@ import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap } from "@/lib/overlapCheck";
-import { isAppError } from "@/lib/errors";
+import { AppError, isAppError } from "@/lib/errors";
+import { emitSSE } from "@/lib/eventBus";
 
 type BatchUpdate = {
   id: number;
   startTime: string;
   endTime: string;
   machine: string;
+  expectedUpdatedAt?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -46,37 +48,55 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fetch existing blocks — needed for type check (only ZAKAZKA validated) and orderNumber for audit.
-  const existingBlocks = await prisma.block.findMany({
-    where: { id: { in: updates.map((u) => u.id) } },
-    select: {
-      id: true,
-      type: true,
-      machine: true,
-      startTime: true,
-      endTime: true,
-      orderNumber: true,
-    },
-  });
-
-  // Validate schedule — only for ZAKAZKA blocks (mirrors single-block PUT behaviour)
-  const zakazkaUpdates = updates.filter((u) => {
-    const existing = existingBlocks.find((b) => b.id === u.id);
-    return existing?.type === "ZAKAZKA";
-  });
-
-  if (zakazkaUpdates.length > 0) {
-    const validationResults = await Promise.all(
-      zakazkaUpdates.map((u) =>
-        validateBlockScheduleFromDb(u.machine, new Date(u.startTime), new Date(u.endTime), "ZAKAZKA", bypassScheduleValidation)
-      )
-    );
-    const firstError = validationResults.find((r) => r !== null);
-    if (firstError) return NextResponse.json({ error: firstError.error }, { status: 422 });
-  }
-
   try {
     const results = await prisma.$transaction(async (tx) => {
+      // Fetch UVNITŘ transakce — eliminuje TOCTOU gap
+      const existingBlocks = await tx.block.findMany({
+        where: { id: { in: updates.map((u) => u.id) } },
+        select: {
+          id: true,
+          type: true,
+          machine: true,
+          startTime: true,
+          endTime: true,
+          orderNumber: true,
+          updatedAt: true,
+        },
+      });
+
+      // Optimistic locking — per-block check
+      const staleBlockIds: number[] = [];
+      for (const u of updates) {
+        if (!u.expectedUpdatedAt) continue;
+        const existing = existingBlocks.find((b) => b.id === u.id);
+        if (!existing) continue;
+        const expected = new Date(u.expectedUpdatedAt);
+        if (isNaN(expected.getTime())) continue;
+        if (existing.updatedAt.getTime() !== expected.getTime()) {
+          staleBlockIds.push(u.id);
+        }
+      }
+      if (staleBlockIds.length > 0) {
+        throw new AppError("CONFLICT", `Bloky byly mezitím změněny jiným uživatelem: ${staleBlockIds.join(", ")}`);
+      }
+
+      // Validate schedule — only for ZAKAZKA blocks (mirrors single-block PUT behaviour)
+      const zakazkaUpdates = updates.filter((u) => {
+        const existing = existingBlocks.find((b) => b.id === u.id);
+        return existing?.type === "ZAKAZKA";
+      });
+
+      if (zakazkaUpdates.length > 0) {
+        for (const u of zakazkaUpdates) {
+          const scheduleError = await validateBlockScheduleFromDb(
+            u.machine, new Date(u.startTime), new Date(u.endTime), "ZAKAZKA", bypassScheduleValidation
+          );
+          if (scheduleError) {
+            throw new AppError("SCHEDULE_VIOLATION", scheduleError.error);
+          }
+        }
+      }
+
       const updated: Awaited<ReturnType<typeof tx.block.update>>[] = [];
 
       // Zpracovat v obráceném pořadí — při chain push (autoResolveOverlap) poslední blok
@@ -132,12 +152,24 @@ export async function POST(request: NextRequest) {
       return updated;
     });
 
-    return NextResponse.json(results.map(serializeBlock));
+    // Refetch s Reservation include pro reservationConfirmedAt
+    const resultsWithRes = await prisma.block.findMany({
+      where: { id: { in: results.map(r => r.id) } },
+      include: { Reservation: { select: { confirmedAt: true } } },
+    });
+
+    emitSSE("block:batch-updated", { blocks: resultsWithRes.map(serializeBlock), sourceUserId: session.id });
+    return NextResponse.json(resultsWithRes.map(serializeBlock));
   } catch (error: unknown) {
     if (isAppError(error)) {
+      const statusMap: Record<string, number> = {
+        OVERLAP: 409,
+        CONFLICT: 409,
+        SCHEDULE_VIOLATION: 422,
+      };
       return NextResponse.json(
         { error: error.message, code: error.code },
-        { status: error.code === "OVERLAP" ? 409 : 400 }
+        { status: statusMap[error.code] ?? 400 }
       );
     }
     if (isPrismaNotFound(error)) {

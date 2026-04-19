@@ -21,12 +21,14 @@ type SerializableBlock = {
   expeditionPublishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  Reservation?: { confirmedAt: Date | null } | null;
   [key: string]: unknown;
 };
 
 export function serializeBlock<T extends SerializableBlock>(block: T) {
+  const { Reservation, ...rest } = block;
   return {
-    ...block,
+    ...rest,
     blockVariant: normalizeBlockVariant(block.blockVariant as string | null | undefined, block.type),
     startTime: block.startTime.toISOString(),
     endTime: block.endTime.toISOString(),
@@ -38,6 +40,7 @@ export function serializeBlock<T extends SerializableBlock>(block: T) {
     expeditionPublishedAt: block.expeditionPublishedAt?.toISOString() ?? null,
     createdAt: block.createdAt.toISOString(),
     updatedAt: block.updatedAt.toISOString(),
+    reservationConfirmedAt: Reservation?.confirmedAt?.toISOString() ?? null,
   };
 }
 

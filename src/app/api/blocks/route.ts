@@ -8,6 +8,7 @@ import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap } from "@/lib/overlapCheck";
 import { isAppError } from "@/lib/errors";
+import { emitSSE } from "@/lib/eventBus";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -35,6 +36,9 @@ export async function GET(req: NextRequest) {
     const blocks = await prisma.block.findMany({
       where: machineFilter ? { machine: machineFilter } : undefined,
       orderBy: { startTime: "asc" },
+      include: {
+        Reservation: { select: { confirmedAt: true } },
+      },
     });
     return NextResponse.json(blocks.map(serializeBlock));
   } catch (error) {
@@ -208,6 +212,7 @@ export async function POST(request: NextRequest) {
       return newBlock;
     });
 
+    emitSSE("block:created", { block: serializeBlock(block), machine: block.machine, sourceUserId: session.id });
     return NextResponse.json(serializeBlock(block), { status: 201 });
   } catch (error: unknown) {
     if (isAppError(error)) {

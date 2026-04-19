@@ -22,6 +22,7 @@ export default async function HomePage({
   const blocks = await prisma.block.findMany({
     where: isTiskar && session.assignedMachine ? { machine: session.assignedMachine } : undefined,
     orderBy: { startTime: "asc" },
+    include: { Reservation: { select: { confirmedAt: true } } },
   });
 
   // QUEUE_READY rezervace — jen pro PLANOVAT/ADMIN (OBCHODNIK na plánovači nemá přístup k drag&drop)

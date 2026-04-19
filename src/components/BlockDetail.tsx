@@ -126,6 +126,10 @@ export function BlockDetail({
       setCounterExpDate("");
       setCounterDataDate("");
       setCounterReason("");
+      // Aktualizovat blok v PlannerPage — SSE neposílá event zpět autorovi změny
+      if ((action === "confirm" || action === "accept-counter") && updated.confirmedAt && onBlockUpdate) {
+        onBlockUpdate({ ...block, reservationConfirmedAt: updated.confirmedAt });
+      }
     } catch (err: unknown) {
       setResError(err instanceof Error ? err.message : "Chyba");
     } finally {

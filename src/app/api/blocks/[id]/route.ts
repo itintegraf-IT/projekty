@@ -9,6 +9,7 @@ import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expeditio
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap } from "@/lib/overlapCheck";
+import { emitSSE } from "@/lib/eventBus";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -23,7 +24,10 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    const block = await prisma.block.findUnique({ where: { id } });
+    const block = await prisma.block.findUnique({
+      where: { id },
+      include: { Reservation: { select: { confirmedAt: true } } },
+    });
     if (!block) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
     }
@@ -99,6 +103,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     delete (allowed as Record<string, unknown>).bypassOverlapCheck;
     delete (allowed as Record<string, unknown>).expeditionPublishedAt;
     delete (allowed as Record<string, unknown>).expeditionSortOrder;
+    delete (allowed as Record<string, unknown>).expectedUpdatedAt;
     // Remove undefined values
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
 
@@ -143,6 +148,18 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       const oldBlock = await tx.block.findUnique({ where: { id } });
       if (!oldBlock) {
         throw new AppError("NOT_FOUND", "Blok nenalezen");
+      }
+
+      // Optimistic locking — ověřit, že blok se nezměnil od načtení klientem
+      const expectedUpdatedAt = (body as Record<string, unknown>).expectedUpdatedAt as string | undefined;
+      if (expectedUpdatedAt) {
+        const expected = new Date(expectedUpdatedAt);
+        if (isNaN(expected.getTime())) {
+          throw new AppError("VALIDATION_ERROR", "expectedUpdatedAt není platný timestamp.");
+        }
+        if (oldBlock.updatedAt.getTime() !== expected.getTime()) {
+          throw new AppError("CONFLICT", "Blok byl mezitím změněn jiným uživatelem.");
+        }
       }
 
       // ── DATA chip auto-derivace (potřebuje oldBlock) ──
@@ -396,7 +413,14 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       return updated;
     });
 
-    return NextResponse.json(serializeBlock(block));
+    // Refetch s Reservation include pro reservationConfirmedAt
+    const blockWithRes = await prisma.block.findUnique({
+      where: { id: block.id },
+      include: { Reservation: { select: { confirmedAt: true } } },
+    }) ?? block;
+
+    emitSSE("block:updated", { block: serializeBlock(blockWithRes), machine: block.machine, sourceUserId: session.id });
+    return NextResponse.json(serializeBlock(blockWithRes));
   } catch (error: unknown) {
     if (isAppError(error)) {
       const statusMap: Record<string, number> = {
@@ -445,11 +469,13 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
   }
 
   try {
+    let deletedMachine = "";
     await prisma.$transaction(async (tx) => {
       const blockToDelete = await tx.block.findUnique({
         where: { id },
-        select: { orderNumber: true, reservationId: true },
+        select: { orderNumber: true, reservationId: true, machine: true },
       });
+      deletedMachine = blockToDelete?.machine ?? "";
 
       await tx.auditLog.create({
         data: {
@@ -497,6 +523,7 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
         }
       }
     });
+    emitSSE("block:deleted", { blockId: id, machine: deletedMachine, sourceUserId: session.id });
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     if (isPrismaNotFound(error)) {

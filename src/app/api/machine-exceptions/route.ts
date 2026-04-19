@@ -8,6 +8,7 @@ import {
   legacyHoursFromSlots,
   slotToHour,
 } from "@/lib/timeSlots";
+import { emitSSE } from "@/lib/eventBus";
 
 function serializeException(e: {
   id: number;
@@ -101,5 +102,6 @@ export async function POST(req: Request) {
     },
   });
 
+  emitSSE("schedule:changed", { sourceUserId: session.id });
   return NextResponse.json(serializeException(exception));
 }

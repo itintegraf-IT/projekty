@@ -61,9 +61,18 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
+    // Přečtené notifikace starší než 1 hodinu skrýt
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const readFilter = {
+      OR: [
+        { isRead: false },
+        { isRead: true, readAt: { gte: oneHourAgo } },
+      ],
+    };
+
     if (["MTZ", "DTP"].includes(session.role)) {
       const notifications = await prisma.notification.findMany({
-        where: { targetRole: session.role },
+        where: { targetRole: session.role, ...readFilter },
         orderBy: [{ isRead: "asc" }, { createdAt: "desc" }],
         take: 50,
       });
@@ -71,7 +80,7 @@ export async function GET() {
     }
     if (session.role === "OBCHODNIK") {
       const notifications = await prisma.notification.findMany({
-        where: { targetUserId: session.id },
+        where: { targetUserId: session.id, ...readFilter },
         orderBy: [{ isRead: "asc" }, { createdAt: "desc" }],
         take: 50,
       });
@@ -79,6 +88,7 @@ export async function GET() {
     }
     if (["ADMIN", "PLANOVAT"].includes(session.role)) {
       const notifications = await prisma.notification.findMany({
+        where: readFilter,
         orderBy: { createdAt: "desc" },
         take: 50,
       });

@@ -8,6 +8,7 @@ import {
   legacyHoursFromSlots,
   slotToHour,
 } from "@/lib/timeSlots";
+import { emitSSE } from "@/lib/eventBus";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -141,6 +142,7 @@ export async function PUT(
     });
 
     if (!updated) return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
+    emitSSE("schedule:changed", { sourceUserId: session.id });
     return NextResponse.json(serializeTemplate(updated));
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -177,5 +179,6 @@ export async function DELETE(
     return NextResponse.json({ error: "Výchozí šablonu nelze smazat" }, { status: 403 });
 
   await prisma.machineWorkHoursTemplate.delete({ where: { id } });
+  emitSSE("schedule:changed", { sourceUserId: session.id });
   return new NextResponse(null, { status: 204 });
 }

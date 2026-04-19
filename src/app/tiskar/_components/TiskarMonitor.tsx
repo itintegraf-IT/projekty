@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { addDaysToCivilDate, diffCivilDateDays, pragueOf, pragueToUTC, utcToPragueDateStr } from "@/lib/dateUtils";
+import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 
 // ─── Typy ────────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ const SLOT_HEIGHT = 26;
 const TIME_COL_W  = 72;
 const HEADER_H    = 52;
 const DAYS_AHEAD  = 7;
-const POLL_INTERVAL = 30_000;
+const POLL_INTERVAL = 300_000;
 
 const MACHINE_LABELS: Record<string, string> = {
   XL_105: "XL 105",
@@ -230,6 +231,53 @@ export default function TiskarMonitor({ initialBlocks, machine, username }: Prop
     const t = setInterval(fetchBlocks, POLL_INTERVAL);
     return () => clearInterval(t);
   }, [fetchBlocks]);
+
+  // SSE real-time sync
+  const handleSSEEvent = useCallback((msg: SSEMessage) => {
+    const { type, payload } = msg;
+
+    if (type === "block:updated" || type === "block:print-completed" || type === "block:expedition-changed") {
+      const serverBlock = payload.block as TiskarBlock;
+      if (!serverBlock?.id) return;
+      setBlocks((prev) => prev.map((b) => b.id === serverBlock.id ? { ...b, ...serverBlock } : b));
+    }
+
+    if (type === "block:created") {
+      const serverBlock = payload.block as TiskarBlock;
+      if (!serverBlock?.id) return;
+      if (serverBlock.machine !== machine) return;
+      setBlocks((prev) => {
+        if (prev.some((b) => b.id === serverBlock.id)) return prev;
+        return [...prev, serverBlock];
+      });
+    }
+
+    if (type === "block:deleted") {
+      const blockId = payload.blockId as number;
+      setBlocks((prev) => prev.filter((b) => b.id !== blockId));
+    }
+
+    if (type === "block:batch-updated") {
+      const serverBlocks = payload.blocks as TiskarBlock[];
+      if (!Array.isArray(serverBlocks)) return;
+      const serverMap = new Map(serverBlocks.map((b) => [b.id, b]));
+      setBlocks((prev) =>
+        prev.map((b) => {
+          const updated = serverMap.get(b.id);
+          return updated ? { ...b, ...updated } : b;
+        })
+      );
+    }
+  }, [machine]);
+
+  const handleSSEReconnect = useCallback(() => {
+    fetchBlocks();
+  }, [fetchBlocks]);
+
+  useSSE({
+    onEvent: handleSSEEvent,
+    onReconnect: handleSSEReconnect,
+  });
 
   // Potvrzení / vrácení tisku
   async function handleComplete(blockId: number, completed: boolean) {

@@ -4,6 +4,7 @@ import type { ExpediceData, ExpediceItem, ExpediceManualItem } from "@/lib/exped
 import { ExpediceTimeline, type ExpediceTimelineHandle } from "./ExpediceTimeline";
 import { ExpediceAside, type AsidePanelMode } from "./ExpediceAside";
 import DatePickerField from "@/app/_components/DatePickerField";
+import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 
 type DaysRange = 7 | 14 | 30;
 type Filter   = "all" | "block" | "manual" | "internal";
@@ -173,6 +174,21 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
     setLoading(true);
     fetchData();
   }, [fetchData]);
+
+  // ─── SSE — real-time aktualizace ───────────────────────────────────────────
+  const handleSSEEvent = useCallback((msg: SSEMessage) => {
+    const relevant: SSEMessage["type"][] = [
+      "block:expedition-changed",
+      "block:updated",
+      "block:deleted",
+      "block:created",
+    ];
+    if (relevant.includes(msg.type)) {
+      fetchData();
+    }
+  }, [fetchData]);
+
+  useSSE({ onEvent: handleSSEEvent, onReconnect: fetchData });
 
   // ─── Helpers pro refetch po akci ───────────────────────────────────────────
   const pendingSelectedIdRef = useRef<{ sourceType: string; id: number } | null>(null);

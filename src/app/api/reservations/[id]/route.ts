@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { serializeReservation } from "@/lib/reservationSerialization";
+import { serializeBlock } from "@/lib/blockSerialization";
 import { parseCivilDateForDb } from "@/lib/dateUtils";
+import { AppError, isAppError } from "@/lib/errors";
+import { emitSSE } from "@/lib/eventBus";
 
 const ALLOWED_ROLES = ["ADMIN", "PLANOVAT", "OBCHODNIK"];
 const PLANNER_ROLES = ["ADMIN", "PLANOVAT"];
@@ -80,6 +83,21 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     const reservation = await prisma.reservation.findUnique({ where: { id } });
     if (!reservation) return NextResponse.json({ error: "Rezervace nenalezena" }, { status: 404 });
 
+    // Optimistic locking — ověřit, že rezervace se nezměnila od načtení klientem
+    const expectedUpdatedAt = body.expectedUpdatedAt as string | undefined;
+    if (expectedUpdatedAt) {
+      const expected = new Date(expectedUpdatedAt);
+      if (isNaN(expected.getTime())) {
+        return NextResponse.json({ error: "expectedUpdatedAt není platný timestamp." }, { status: 400 });
+      }
+      if (reservation.updatedAt.getTime() !== expected.getTime()) {
+        return NextResponse.json(
+          { error: "Rezervace byla mezitím změněna jiným uživatelem.", code: "CONFLICT", currentUpdatedAt: reservation.updatedAt.toISOString() },
+          { status: 409 }
+        );
+      }
+    }
+
     // ── accept: SUBMITTED → ACCEPTED ──────────────────────────────────────────
     if (action === "accept") {
       if (!isPlanner) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -97,6 +115,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           plannerUsername: session.username,
         },
       });
+      emitSSE("reservation:updated", { reservation: { id, status: updated.status }, sourceUserId: session.id });
       return NextResponse.json(serializeReservation(updated));
     }
 
@@ -136,6 +155,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         });
         return r;
       });
+      emitSSE("reservation:updated", { reservation: { id, status: updated.status }, sourceUserId: session.id });
       return NextResponse.json(serializeReservation(updated));
     }
 
@@ -162,6 +182,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           plannerUsername: session.username,
         },
       });
+      emitSSE("reservation:updated", { reservation: { id, status: updated.status }, sourceUserId: session.id });
       return NextResponse.json(serializeReservation(updated));
     }
 
@@ -196,6 +217,15 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         });
         return r;
       });
+      emitSSE("reservation:updated", { reservation: { id, status: updated.status }, sourceUserId: session.id });
+      // Aktualizovat propojený blok na timeline (hourglass → confirmed)
+      const linkedBlock = await prisma.block.findFirst({
+        where: { reservationId: id },
+        include: { Reservation: { select: { confirmedAt: true } } },
+      });
+      if (linkedBlock) {
+        emitSSE("block:updated", { block: serializeBlock(linkedBlock), sourceUserId: session.id });
+      }
       return NextResponse.json(serializeReservation(updated));
     }
 
@@ -249,6 +279,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         });
         return r;
       });
+      emitSSE("reservation:updated", { reservation: { id, status: updated.status }, sourceUserId: session.id });
       return NextResponse.json(serializeReservation(updated));
     }
 
@@ -290,6 +321,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         }
         return r;
       });
+      emitSSE("reservation:updated", { reservation: { id, status: updated.status }, sourceUserId: session.id });
       return NextResponse.json(serializeReservation(updated));
     }
 
@@ -329,6 +361,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         }
         return r;
       });
+      emitSSE("reservation:updated", { reservation: { id, status: updated.status }, sourceUserId: session.id });
       return NextResponse.json(serializeReservation(updated));
     }
 

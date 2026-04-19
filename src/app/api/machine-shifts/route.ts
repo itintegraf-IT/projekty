@@ -8,6 +8,7 @@ import {
   legacyHoursFromSlots,
   slotToHour,
 } from "@/lib/timeSlots";
+import { emitSSE } from "@/lib/eventBus";
 
 function serializeTemplate(t: {
   id: number;
@@ -111,6 +112,7 @@ export async function PUT(req: Request) {
     where: { id: defaultTemplate.id },
     include: { days: { orderBy: { dayOfWeek: "asc" } } },
   });
+  emitSSE("schedule:changed", { sourceUserId: session.id });
   return NextResponse.json(updated ? serializeTemplate(updated) : null);
 }
 
@@ -211,6 +213,7 @@ export async function POST(req: Request) {
         include: { days: { orderBy: { dayOfWeek: "asc" } } },
       });
     });
+    emitSSE("schedule:changed", { sourceUserId: session.id });
     return NextResponse.json(serializeTemplate(created), { status: 201 });
   } catch (e: unknown) {
     if ((e as { code?: string }).code === "OVERLAP")

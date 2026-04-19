@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { emitSSE } from "@/lib/eventBus";
 
 // DELETE — ADMIN nebo PLANOVAT — smaže výjimku (den se vrátí k šabloně)
 export async function DELETE(
@@ -28,5 +29,6 @@ export async function DELETE(
 
   await prisma.machineScheduleException.delete({ where: { id: exceptionId } });
 
+  emitSSE("schedule:changed", { sourceUserId: session.id });
   return NextResponse.json({ ok: true });
 }

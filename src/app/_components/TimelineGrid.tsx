@@ -21,7 +21,7 @@ import {
 import { badgeColorVar } from "@/lib/badgeColors";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
-import { Lock, Clock } from "lucide-react";
+import { Lock, Clock, Hourglass } from "lucide-react";
 import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import { resolveScheduleRows } from "@/lib/scheduleValidation";
 import type { MachineScheduleException } from "@/lib/machineScheduleException";
@@ -119,6 +119,7 @@ export type Block = {
   printCompletedByUserId: number | null;
   printCompletedByUsername: string | null;
   reservationId: number | null;
+  reservationConfirmedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -838,6 +839,7 @@ function BlockCard({
 
   const isPrintDone   = block.printCompletedAt != null;
   const isPozastaveno = block.type === "ZAKAZKA" && block.blockVariant === "POZASTAVENO";
+  const isUnconfirmedReservation = block.type === "REZERVACE" && block.reservationId != null && !block.reservationConfirmedAt;
   const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
   const clampedHeight = Math.max(height, 20);
 
@@ -986,7 +988,7 @@ function BlockCard({
         zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
         opacity, borderRadius: 7,
-        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : block.locked ? "1.5px solid rgba(251,191,36,0.7)" : `1px solid ${selected ? "#FFE600" : s.border}`,
+        border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : block.locked ? "1.5px solid rgba(251,191,36,0.7)" : isUnconfirmedReservation ? "1.5px dashed rgba(168,85,247,0.7)" : `1px solid ${selected ? "#FFE600" : s.border}`,
         outline: isCopied ? "1px solid rgba(59,130,246,0.3)" : undefined,
         outlineOffset: isCopied ? "2px" : undefined,
         boxShadow: block.locked
@@ -1006,6 +1008,10 @@ function BlockCard({
       {block.locked ? (
         <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 22, background: "rgba(251,191,36,0.4)", borderRadius: "7px 0 0 7px", borderRight: "1px solid rgba(251,191,36,0.35)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           <Lock size={11} strokeWidth={2} color="rgba(251,191,36,1)" />
+        </div>
+      ) : isUnconfirmedReservation ? (
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 22, background: "rgba(168,85,247,0.35)", borderRadius: "7px 0 0 7px", borderRight: "1px solid rgba(168,85,247,0.3)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Hourglass size={11} strokeWidth={2} color="rgba(168,85,247,1)" />
         </div>
       ) : (
         <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
@@ -1036,7 +1042,7 @@ function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: block.locked ? 28 : 8, paddingRight: 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
@@ -1076,7 +1082,7 @@ function BlockCard({
                 <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
                 {isPrintDone && <span style={{ marginLeft: 4, fontSize: 9, color: "#22c55e", fontWeight: 700 }}>✓</span>}
                 {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={11} strokeWidth={2.5} color="#f59e0b" /></span>}
               </span>
@@ -1138,7 +1144,7 @@ function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: block.locked ? 28 : 8, paddingRight: 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
@@ -1181,7 +1187,7 @@ function BlockCard({
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={8} strokeWidth={2} /></span>}
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={8} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
               </span>
               {(block.description || block.specifikace) && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -1227,7 +1233,7 @@ function BlockCard({
       {/* ── Řádek 1: Číslo zakázky + popis + chips vpravo (FULL mode) ── */}
       {MODE_FULL && (
         <div style={{
-          paddingTop: 5, paddingBottom: 3, paddingLeft: block.locked ? 28 : 9, paddingRight: 9, display: "flex", alignItems: "flex-start",
+          paddingTop: 5, paddingBottom: 3, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 9, paddingRight: 9, display: "flex", alignItems: "flex-start",
           gap: 4, minWidth: 0, flexShrink: 0,
         }}>
           {/* Levá část: číslo + popis */}
@@ -1238,7 +1244,7 @@ function BlockCard({
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
               {block.orderNumber}
-              {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}
+              {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
             </span>
             {showDesc && block.description && (
               <span style={{
@@ -2489,6 +2495,9 @@ export default function TimelineGrid({
     lockedBlocksByMachine.set(machine, blocks.filter(b => b.locked && b.machine === machine));
   }
 
+  const unconfirmedResByMachine = new Map<string, Block[]>();
+  for (const machine of visibleMachines)
+    unconfirmedResByMachine.set(machine, blocks.filter(b => b.type === "REZERVACE" && b.reservationId != null && !b.reservationConfirmedAt && b.machine === machine));
 
   // Multi-drag: odvozeno z dragPreview + selectedBlockIds (bez extra state)
   const isMultiDrag = !!dragPreview && !!selectedBlockIds && selectedBlockIds.size > 1 && selectedBlockIds.has(dragPreview.blockId);
@@ -2616,6 +2625,28 @@ export default function TimelineGrid({
                 </div>
               );
             })}
+            {/* Hourglass overlay — fialový indikátor nepotvrzených rezervací */}
+            {viewStart && (unconfirmedResByMachine.get(visibleMachines[0]) ?? []).map((ub) => {
+              const totalH = totalDays * dayHeight;
+              const top = dateToY(new Date(ub.startTime), viewStart, slotHeight);
+              const bottom = dateToY(new Date(ub.endTime), viewStart, slotHeight);
+              const clampedTop = Math.max(0, Math.min(top, totalH));
+              const clampedBottom = Math.max(0, Math.min(bottom, totalH));
+              const h = clampedBottom - clampedTop;
+              if (h <= 0) return null;
+              const startD = new Date(ub.startTime);
+              const timeStr = startD.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
+              return (
+                <div key={`hg-t0-${ub.id}`} style={{ position: "absolute", top: clampedTop, height: h, left: 0, right: 0, background: "rgba(168,85,247,0.12)", borderTop: "1.5px solid rgba(168,85,247,0.4)", borderBottom: "1.5px solid rgba(168,85,247,0.4)", pointerEvents: "none", overflow: "hidden" }}>
+                  {h >= 14 && (
+                    <div style={{ position: "absolute", top: 2, left: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                      <Hourglass size={9} strokeWidth={2.5} color="rgba(168,85,247,0.9)" />
+                      <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(168,85,247,0.9)", letterSpacing: "0.03em" }}>{timeStr}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
               <div
                 key={m.key}
@@ -2691,6 +2722,28 @@ export default function TimelineGrid({
                             <div style={{ position: "absolute", top: 2, left: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
                               <Lock size={9} strokeWidth={2.5} color="rgba(251,191,36,1)" />
                               <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(251,191,36,1)", letterSpacing: "0.03em" }}>{timeStr}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {/* Hourglass overlay — fialový indikátor nepotvrzených rezervací (druhý stroj) */}
+                    {viewStart && (unconfirmedResByMachine.get(visibleMachines[colIdx]) ?? []).map((ub) => {
+                      const totalH = totalDays * dayHeight;
+                      const top = dateToY(new Date(ub.startTime), viewStart, slotHeight);
+                      const bottom = dateToY(new Date(ub.endTime), viewStart, slotHeight);
+                      const clampedTop = Math.max(0, Math.min(top, totalH));
+                      const clampedBottom = Math.max(0, Math.min(bottom, totalH));
+                      const h = clampedBottom - clampedTop;
+                      if (h <= 0) return null;
+                      const startD = new Date(ub.startTime);
+                      const timeStr = startD.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
+                      return (
+                        <div key={`hg-t${colIdx}-${ub.id}`} style={{ position: "absolute", top: clampedTop, height: h, left: 0, right: 0, background: "rgba(168,85,247,0.12)", borderTop: "1.5px solid rgba(168,85,247,0.4)", borderBottom: "1.5px solid rgba(168,85,247,0.4)", pointerEvents: "none", overflow: "hidden" }}>
+                          {h >= 14 && (
+                            <div style={{ position: "absolute", top: 2, left: 0, right: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                              <Hourglass size={9} strokeWidth={2.5} color="rgba(168,85,247,0.9)" />
+                              <span style={{ fontSize: 9, fontWeight: 700, color: "rgba(168,85,247,0.9)", letterSpacing: "0.03em" }}>{timeStr}</span>
                             </div>
                           )}
                         </div>

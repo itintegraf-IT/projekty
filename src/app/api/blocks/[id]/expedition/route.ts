@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { prisma } from "@/lib/prisma";
+import { emitSSE } from "@/lib/eventBus";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -62,11 +63,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           data: { expeditionSortOrder: newSortOrder },
         });
 
-        const updated = await tx.block.findUnique({ where: { id } });
+        const updated = await tx.block.findUnique({ where: { id }, include: { Reservation: { select: { confirmedAt: true } } } });
         if (!updated) throw new Error("NOT_FOUND");
         return updated;
       });
 
+      emitSSE("block:expedition-changed", { sourceUserId: session.id });
       return NextResponse.json(serializeBlock(updatedBlock));
     } catch (error: unknown) {
       if (error instanceof Error) {
@@ -192,7 +194,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
       }
 
-      const updated = await tx.block.findUnique({ where: { id } });
+      const updated = await tx.block.findUnique({ where: { id }, include: { Reservation: { select: { confirmedAt: true } } } });
       if (!updated) {
         throw new Error("NOT_FOUND");
       }
@@ -200,6 +202,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       return updated;
     });
 
+    emitSSE("block:expedition-changed", { sourceUserId: session.id });
     return NextResponse.json(serializeBlock(updatedBlock));
   } catch (error: unknown) {
     if (error instanceof Error) {

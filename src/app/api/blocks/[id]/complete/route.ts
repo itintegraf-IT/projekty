@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { serializeBlock } from "@/lib/blockSerialization";
+import { emitSSE } from "@/lib/eventBus";
 
 // POST /api/blocks/[id]/complete — potvrzení nebo vrácení tisku
 export async function POST(
@@ -69,5 +71,12 @@ export async function POST(
     }),
   ]);
 
-  return NextResponse.json(updatedBlock);
+  // Refetch s Reservation include pro reservationConfirmedAt
+  const blockWithRes = await prisma.block.findUnique({
+    where: { id: blockId },
+    include: { Reservation: { select: { confirmedAt: true } } },
+  }) ?? updatedBlock;
+
+  emitSSE("block:print-completed", { block: serializeBlock(blockWithRes), machine: updatedBlock.machine, sourceUserId: session.id });
+  return NextResponse.json(serializeBlock(blockWithRes));
 }

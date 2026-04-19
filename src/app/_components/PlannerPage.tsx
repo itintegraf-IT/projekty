@@ -46,6 +46,7 @@ import { BlockDetail } from "@/components/BlockDetail";
 import { BlockEdit } from "@/components/BlockEdit";
 import { DtpPanel } from "@/components/DtpPanel";
 import { DtpDataPopover } from "@/components/DtpDataPopover";
+import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 import {
   type CodebookOption,
   TYPE_LABELS,
@@ -619,6 +620,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   blocksRef.current = blocks;
   const selectedBlockIdsRef = useRef<Set<number>>(new Set());
   selectedBlockIdsRef.current = selectedBlockIds;
+  const editingBlockIdsRef = useRef<Set<number>>(new Set());
+  const dragInProgressRef = useRef(false);
+  const [sseOffline, setSseOffline] = useState(false);
+
+  useEffect(() => {
+    editingBlockIdsRef.current.clear();
+    if (editingBlock) {
+      editingBlockIdsRef.current.add(editingBlock.id);
+    }
+  }, [editingBlock]);
   const [isCut, setIsCut] = useState(false);
   const [pasteTarget, setPasteTarget] = useState<{ machine: string; time: Date } | null>(null);
   const copiedBlockRef = useRef<Block | null>(null);
@@ -857,7 +868,88 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     };
   }, []);
 
-  // Polling bloků každých 30 s — merge jen printCompleted* pole
+  // ── SSE real-time sync ─────────────────────────────────────────────────
+  const handleSSEEvent = useCallback((msg: SSEMessage) => {
+    const { type, payload } = msg;
+
+    if (type === "block:updated" || type === "block:print-completed" || type === "block:expedition-changed") {
+      const serverBlock = payload.block as Block;
+      if (!serverBlock?.id) return;
+
+      // Ochrana editovaných / dragovaných bloků
+      if (editingBlockIdsRef.current.has(serverBlock.id) || dragInProgressRef.current) {
+        showToast(`Blok ${serverBlock.orderNumber ?? serverBlock.id} byl změněn jiným uživatelem.`, "info");
+        return;
+      }
+
+      setBlocks((prev) => prev.map((b) => b.id === serverBlock.id ? serverBlock : b));
+      setSelectedBlock((sel) => sel?.id === serverBlock.id ? serverBlock : sel);
+    }
+
+    if (type === "block:created") {
+      const serverBlock = payload.block as Block;
+      if (!serverBlock?.id) return;
+      setBlocks((prev) => {
+        if (prev.some((b) => b.id === serverBlock.id)) return prev;
+        return [...prev, serverBlock];
+      });
+    }
+
+    if (type === "block:deleted") {
+      const blockId = payload.blockId as number;
+      setBlocks((prev) => prev.filter((b) => b.id !== blockId));
+      setSelectedBlock((sel) => sel?.id === blockId ? null : sel);
+    }
+
+    if (type === "block:batch-updated") {
+      const serverBlocks = payload.blocks as Block[];
+      if (!Array.isArray(serverBlocks)) return;
+      const serverMap = new Map(serverBlocks.map((b) => [b.id, b]));
+      setBlocks((prev) =>
+        prev.map((b) => {
+          if (editingBlockIdsRef.current.has(b.id) || dragInProgressRef.current) return b;
+          return serverMap.get(b.id) ?? b;
+        })
+      );
+    }
+
+    if (type === "schedule:changed") {
+      // Refresh šablon a výjimek
+      Promise.all([
+        fetch("/api/machine-shifts").then((r) => r.ok ? r.json() : null),
+        fetch("/api/machine-exceptions").then((r) => r.ok ? r.json() : null),
+      ]).then(([shifts, exceptions]) => {
+        if (shifts) setMachineWorkHoursTemplates(shifts);
+        if (exceptions) setMachineExceptions(exceptions);
+      }).catch(() => {});
+    }
+  }, [showToast]);
+
+  const handleSSEReconnect = useCallback(() => {
+    // Po reconnectu: full fetch bloků
+    fetch("/api/blocks")
+      .then((r) => r.ok ? r.json() : null)
+      .then((freshBlocks: Block[] | null) => {
+        if (freshBlocks) setBlocks(freshBlocks);
+      })
+      .catch(() => {});
+  }, []);
+
+  const { getSecondsSinceLastHeartbeat } = useSSE({
+    onEvent: handleSSEEvent,
+    onReconnect: handleSSEReconnect,
+  });
+
+  // Offline banner — check heartbeat každých 10s
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const seconds = getSecondsSinceLastHeartbeat();
+      setSseOffline(seconds > 60);
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [getSecondsSinceLastHeartbeat]);
+
+  // Polling bloků každých 300 s (5 min fallback) — full merge s ochranou editovaných bloků
   useEffect(() => {
     const pollBlocks = async () => {
       try {
@@ -865,39 +957,31 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         if (!res.ok) return;
         const fresh: Block[] = await res.json();
         const freshById = new Map(fresh.map((block) => [block.id, block]));
-        const mergePrintCompleted = (b: Block): Block => {
+        const mergeFromServer = (b: Block): Block => {
           const f = freshById.get(b.id);
           if (!f) return b;
-          if (
-            b.printCompletedAt === f.printCompletedAt &&
-            b.printCompletedByUserId === f.printCompletedByUserId &&
-            b.printCompletedByUsername === f.printCompletedByUsername
-          ) {
-            return b;
-          }
-          return {
-            ...b,
-            printCompletedAt: f.printCompletedAt,
-            printCompletedByUserId: f.printCompletedByUserId,
-            printCompletedByUsername: f.printCompletedByUsername,
-          };
+          // Chránit editované bloky
+          if (editingBlockIdsRef.current.has(b.id)) return b;
+          // Porovnat updatedAt — pokud server novější, nahradit
+          if (f.updatedAt !== b.updatedAt) return f;
+          return b;
         };
         setBlocks((prev) => {
           let changed = false;
           const next = prev.map((block) => {
-            const merged = mergePrintCompleted(block);
+            const merged = mergeFromServer(block);
             if (merged !== block) changed = true;
             return merged;
           });
           return changed ? next : prev;
         });
-        setSelectedBlock((sel) => sel ? mergePrintCompleted(sel) : null);
-        setEditingBlock((eb) => eb ? mergePrintCompleted(eb) : null);
+        setSelectedBlock((sel) => sel ? mergeFromServer(sel) : null);
+        setEditingBlock((eb) => eb ? mergeFromServer(eb) : null);
       } catch {
         // tiché selhání — zachovat aktuální stav
       }
     };
-    const t = setInterval(pollBlocks, 30_000);
+    const t = setInterval(pollBlocks, 300_000);
     return () => clearInterval(t);
   }, []);
 
@@ -2413,6 +2497,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   return (
     <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-background text-foreground">
+      {sseOffline && (
+        <div className="bg-yellow-600 text-white text-center text-sm py-1 px-4">
+          Spojení se serverem přerušeno. Data nemusí být aktuální.
+        </div>
+      )}
       {/* ── Confirm smazání přes klávesnici ── */}
       {keyDeletePending && selectedBlock && (
         <div

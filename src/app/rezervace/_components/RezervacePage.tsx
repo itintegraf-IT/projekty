@@ -7,6 +7,7 @@ import ReservationList from "./ReservationList";
 import ReservationDetail from "./ReservationDetail";
 import ThemeToggle from "@/app/_components/ThemeToggle";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 
 export interface Reservation {
   id: number;
@@ -117,6 +118,24 @@ export default function RezervacePage({ currentUser, initialSelectedId }: Props)
       setLoading(false);
     }
   }, []);
+
+  // SSE — real-time aktualizace rezervací
+  const activeTabRef = useRef<AnyTab>(activeTab);
+  activeTabRef.current = activeTab;
+
+  const handleSSEEvent = useCallback((msg: SSEMessage) => {
+    if (msg.type === "reservation:updated" && activeTabRef.current !== "nova") {
+      fetchReservations(activeTabRef.current);
+    }
+  }, [fetchReservations]);
+
+  const handleSSEReconnect = useCallback(() => {
+    if (activeTabRef.current !== "nova") {
+      fetchReservations(activeTabRef.current);
+    }
+  }, [fetchReservations]);
+
+  useSSE({ onEvent: handleSSEEvent, onReconnect: handleSSEReconnect });
 
   useEffect(() => {
     if (activeTab !== "nova") {
