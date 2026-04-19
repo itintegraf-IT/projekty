@@ -8,6 +8,7 @@ import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
 import { PrinterCodebook } from "@/components/admin/PrinterCodebook";
 import { ShiftRoster } from "@/components/admin/ShiftRoster";
+import { DisableShiftCascadeDialog, type CascadeAffected } from "@/components/admin/DisableShiftCascadeDialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { summarizeJobPreset, type JobPreset } from "@/lib/jobPresets";
 import { durationHoursFromSlots, formatSlot, getSlotRange } from "@/lib/timeSlots";
@@ -1868,6 +1869,14 @@ function WorkShiftsSection() {
     blocks: Array<{ id: number; orderNumber: string; startTime: string }>;
   } | null>(null);
 
+  // Cascade dialog state (vypnutí směny s obsazením)
+  const [cascadeData, setCascadeData] = useState<{
+    machine: string;
+    affectedCount: number;
+    affected: CascadeAffected[];
+    payload: unknown;
+  } | null>(null);
+
   useEffect(() => {
     fetch("/api/machine-shifts")
       .then((r) => r.ok ? r.json() : [])
@@ -1884,41 +1893,69 @@ function WorkShiftsSection() {
     setDefaultError("");
   }
 
-  async function handleSaveDefault(machine: string) {
-    const tmpl = templates.find((t) => t.machine === machine && t.isDefault);
-    if (!tmpl) return;
+  async function submitDefault(machine: string, payload: unknown, force: boolean) {
     setDefaultSaving(true);
     setDefaultError("");
     try {
       const res = await fetch("/api/machine-shifts", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          machine,
-          days: tmpl.days.map((d) => {
-            const dd = d as typeof d & { morningOn?: boolean; afternoonOn?: boolean; nightOn?: boolean };
-            return {
-              dayOfWeek: d.dayOfWeek,
-              isActive: d.isActive,
-              morningOn: Boolean(dd.morningOn),
-              afternoonOn: Boolean(dd.afternoonOn),
-              nightOn: Boolean(dd.nightOn),
-            };
-          }),
-        }),
+        body: JSON.stringify({ ...(payload as object), force }),
       });
+      if (res.status === 409) {
+        const body = await res.json().catch(() => ({}));
+        if (body?.needsConfirmation) {
+          setCascadeData({
+            machine,
+            affectedCount: body.affectedCount,
+            affected: body.affected,
+            payload,
+          });
+          return false;
+        }
+        setDefaultError(body?.error ?? "Konflikt při ukládání.");
+        return false;
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setDefaultError(body.error ?? "Chyba při ukládání.");
-      } else {
-        setDefaultDirty(false);
-        window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
+        return false;
       }
+      setDefaultDirty(false);
+      window.dispatchEvent(new CustomEvent("machineScheduleUpdated"));
+      return true;
     } catch {
       setDefaultError("Síťová chyba.");
+      return false;
     } finally {
       setDefaultSaving(false);
     }
+  }
+
+  async function handleSaveDefault(machine: string) {
+    const tmpl = templates.find((t) => t.machine === machine && t.isDefault);
+    if (!tmpl) return;
+    const payload = {
+      machine,
+      days: tmpl.days.map((d) => {
+        const dd = d as typeof d & { morningOn?: boolean; afternoonOn?: boolean; nightOn?: boolean };
+        return {
+          dayOfWeek: d.dayOfWeek,
+          isActive: d.isActive,
+          morningOn: Boolean(dd.morningOn),
+          afternoonOn: Boolean(dd.afternoonOn),
+          nightOn: Boolean(dd.nightOn),
+        };
+      }),
+    };
+    await submitDefault(machine, payload, false);
+  }
+
+  async function handleCascadeConfirm() {
+    if (!cascadeData) return;
+    const { machine, payload } = cascadeData;
+    const ok = await submitDefault(machine, payload, true);
+    if (ok) setCascadeData(null);
   }
 
   async function handleAddTemplate() {
@@ -2373,6 +2410,16 @@ function WorkShiftsSection() {
           </button>
         )}
       </div>
+
+      {cascadeData && (
+        <DisableShiftCascadeDialog
+          affectedCount={cascadeData.affectedCount}
+          affected={cascadeData.affected}
+          saving={defaultSaving}
+          onConfirm={handleCascadeConfirm}
+          onCancel={() => setCascadeData(null)}
+        />
+      )}
     </div>
   );
 }
