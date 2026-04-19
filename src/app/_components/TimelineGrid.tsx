@@ -2417,12 +2417,56 @@ export default function TimelineGrid({
       } else if (!row.isActive) {
         blockedOverlays[machine].push({ top: dayY, height: dayHeight, key: `b-${machine}-off-${di}`, date: day, machine, overlayType: "full-block", effectiveStartSlot: 0, effectiveEndSlot: DAY_SLOT_COUNT, isException, exceptionId: excId });
       } else {
-        const rowRange = getSlotRange(row);
-        if (rowRange.startSlot > 0) {
-          blockedOverlays[machine].push({ top: dayY, height: rowRange.startSlot * slotHeight, key: `b-${machine}-ns-${di}`, date: day, machine, overlayType: "start-block", effectiveStartSlot: 0, effectiveEndSlot: rowRange.startSlot, isException, exceptionId: excId });
+        // Sprint D1: interval-based blocked overlays — respektuje overrides a mezery mezi směnami.
+        // Cross-midnight NIGHT (endMin < startMin) se rozdělí na [start, 48) a [0, end) pro daný den.
+        const activeSpans: Array<[number, number]> = [];
+        for (const iv of row.intervals) {
+          const s = Math.round(iv.startMin / 30);
+          const e = Math.round(iv.endMin / 30);
+          if (iv.endMin < iv.startMin) {
+            activeSpans.push([s, DAY_SLOT_COUNT]);
+            if (e > 0) activeSpans.push([0, e]);
+          } else if (e > s) {
+            activeSpans.push([s, e]);
+          }
         }
-        if (rowRange.endSlot < DAY_SLOT_COUNT) {
-          blockedOverlays[machine].push({ top: dayY + rowRange.endSlot * slotHeight, height: (DAY_SLOT_COUNT - rowRange.endSlot) * slotHeight, key: `b-${machine}-ne-${di}`, date: day, machine, overlayType: "end-block", effectiveStartSlot: rowRange.endSlot, effectiveEndSlot: DAY_SLOT_COUNT, isException, exceptionId: excId });
+        // Sort + merge překrývajících se / sousedících span.
+        activeSpans.sort((a, b) => a[0] - b[0]);
+        const merged: Array<[number, number]> = [];
+        for (const [s, e] of activeSpans) {
+          if (merged.length && merged[merged.length - 1][1] >= s) {
+            merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], e);
+          } else {
+            merged.push([s, e]);
+          }
+        }
+        // Komplement = blocked spans.
+        let cursor = 0;
+        const blockedSpans: Array<[number, number]> = [];
+        for (const [s, e] of merged) {
+          if (s > cursor) blockedSpans.push([cursor, s]);
+          cursor = Math.max(cursor, e);
+        }
+        if (cursor < DAY_SLOT_COUNT) blockedSpans.push([cursor, DAY_SLOT_COUNT]);
+        // Emit jeden BlockedOverlay per blocked span.
+        for (let bi = 0; bi < blockedSpans.length; bi++) {
+          const [bs, be] = blockedSpans[bi];
+          const startsAtZero = bs === 0;
+          const endsAtDay = be === DAY_SLOT_COUNT;
+          const overlayType: "start-block" | "end-block" | "full-block" =
+            startsAtZero && endsAtDay ? "full-block" : startsAtZero ? "start-block" : "end-block";
+          blockedOverlays[machine].push({
+            top: dayY + bs * slotHeight,
+            height: (be - bs) * slotHeight,
+            key: `b-${machine}-iv${bi}-${di}`,
+            date: day,
+            machine,
+            overlayType,
+            effectiveStartSlot: bs,
+            effectiveEndSlot: be,
+            isException,
+            exceptionId: excId,
+          });
         }
       }
     }
