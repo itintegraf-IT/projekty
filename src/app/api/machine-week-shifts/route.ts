@@ -23,7 +23,30 @@ type DayInput = {
   morningOn?: boolean;
   afternoonOn?: boolean;
   nightOn?: boolean;
+  morningStartMin?: number | null;
+  morningEndMin?: number | null;
+  afternoonStartMin?: number | null;
+  afternoonEndMin?: number | null;
+  nightStartMin?: number | null;
+  nightEndMin?: number | null;
 };
+
+const SHIFT_RANGES = {
+  MORNING:   { start: [240, 480] as const, end: [720, 960] as const },
+  AFTERNOON: { start: [720, 960] as const, end: [1200, 1440] as const },
+  NIGHT:     { start: [1200, 1440] as const, end: [240, 480] as const },
+};
+
+function validateOverrideMin(value: number | null | undefined, range: readonly [number, number], label: string): number | null {
+  if (value === null || value === undefined) return null;
+  if (!Number.isInteger(value)) throw new AppError("VALIDATION_ERROR", `${label} musí být celé číslo minut`);
+  if (value % 30 !== 0) throw new AppError("VALIDATION_ERROR", `${label} musí být zarovnán na 30 min`);
+  if (value < range[0] || value > range[1]) {
+    const hh = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+    throw new AppError("VALIDATION_ERROR", `${label} musí být v rozsahu ${hh(range[0])}–${hh(range[1])}`);
+  }
+  return value;
+}
 
 type DbRow = {
   id: number;
@@ -185,12 +208,33 @@ export async function PUT(req: Request) {
       const morningOn = Boolean(d.morningOn);
       const afternoonOn = Boolean(d.afternoonOn);
       const nightOn = Boolean(d.nightOn);
+
+      const morningStartMin   = validateOverrideMin(d.morningStartMin, SHIFT_RANGES.MORNING.start, "Ranní start");
+      const morningEndMin     = validateOverrideMin(d.morningEndMin, SHIFT_RANGES.MORNING.end, "Ranní konec");
+      const afternoonStartMin = validateOverrideMin(d.afternoonStartMin, SHIFT_RANGES.AFTERNOON.start, "Odpolední start");
+      const afternoonEndMin   = validateOverrideMin(d.afternoonEndMin, SHIFT_RANGES.AFTERNOON.end, "Odpolední konec");
+      const nightStartMin     = validateOverrideMin(d.nightStartMin, SHIFT_RANGES.NIGHT.start, "Noční start");
+      const nightEndMin       = validateOverrideMin(d.nightEndMin, SHIFT_RANGES.NIGHT.end, "Noční konec");
+
+      // Sanity: MORNING/AFTERNOON start < end
+      if (morningStartMin !== null && morningEndMin !== null && morningStartMin >= morningEndMin)
+        throw new AppError("VALIDATION_ERROR", `Ranní start (${morningStartMin}) musí být před koncem (${morningEndMin})`);
+      if (afternoonStartMin !== null && afternoonEndMin !== null && afternoonStartMin >= afternoonEndMin)
+        throw new AppError("VALIDATION_ERROR", `Odpolední start musí být před koncem`);
+      // NIGHT: startMin > endMin (cross midnight) — neověřujeme, validace rozsahy to garantuje
+
       return {
         dayOfWeek: d.dayOfWeek,
         isActive: morningOn || afternoonOn || nightOn,
         morningOn,
         afternoonOn,
         nightOn,
+        morningStartMin,
+        morningEndMin,
+        afternoonStartMin,
+        afternoonEndMin,
+        nightStartMin,
+        nightEndMin,
       };
     });
     if (seenDow.size !== 7) throw new AppError("VALIDATION_ERROR", "Musí být všech 7 dayOfWeek (0–6)");
@@ -237,12 +281,24 @@ export async function PUT(req: Request) {
             morningOn: d.morningOn,
             afternoonOn: d.afternoonOn,
             nightOn: d.nightOn,
+            morningStartMin: d.morningStartMin,
+            morningEndMin: d.morningEndMin,
+            afternoonStartMin: d.afternoonStartMin,
+            afternoonEndMin: d.afternoonEndMin,
+            nightStartMin: d.nightStartMin,
+            nightEndMin: d.nightEndMin,
           },
           update: {
             isActive: d.isActive,
             morningOn: d.morningOn,
             afternoonOn: d.afternoonOn,
             nightOn: d.nightOn,
+            morningStartMin: d.morningStartMin,
+            morningEndMin: d.morningEndMin,
+            afternoonStartMin: d.afternoonStartMin,
+            afternoonEndMin: d.afternoonEndMin,
+            nightStartMin: d.nightStartMin,
+            nightEndMin: d.nightEndMin,
           },
         })
       ),
