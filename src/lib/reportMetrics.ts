@@ -4,7 +4,7 @@
  */
 
 import { addDaysToCivilDate } from "./dateUtils";
-import { deriveHoursFromShifts } from "./shifts";
+import { SHIFTS, resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
@@ -49,8 +49,16 @@ export function computeAvailableHours(
       (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek
     );
     if (row && row.isActive) {
-      const { startHour, endHour } = deriveHoursFromShifts(row);
-      total += Math.max(0, endHour - startHour);
+      let dayMinutes = 0;
+      for (const shift of SHIFTS) {
+        const b = resolveShiftBounds(row, shift);
+        if (!b) continue;
+        const span = b.endMin < b.startMin
+          ? (1440 - b.startMin) + b.endMin   // cross midnight NIGHT
+          : b.endMin - b.startMin;
+        dayMinutes += span;
+      }
+      total += dayMinutes / 60;
     }
     cur = addDaysToCivilDate(cur, 1);
   }

@@ -99,6 +99,32 @@ describe("computeAvailableHours", () => {
     const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
     assert.equal(result, 16);
   });
+
+  it("respects morningEnd override (13:00) — 7h + 8h = 15h/day", () => {
+    // Sprint G1: override-aware computation via resolveShiftBounds.
+    // Monday with morning shortened to end at 13:00 instead of 14:00.
+    const shifts = make16hShifts();
+    const monIdx = shifts.findIndex((r) => r.dayOfWeek === 1);
+    shifts[monIdx] = {
+      ...makeRow("XL_105", 1, { morningOn: true, afternoonOn: true }),
+      morningEndMin: 780, // 13:00
+    };
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
+    assert.equal(result, 15);
+  });
+
+  it("respects morningStart override (7:00) — 7h + 8h = 15h/day", () => {
+    // Sprint G1: override-aware computation via resolveShiftBounds.
+    // Monday with morning starting at 7:00 instead of 6:00.
+    const shifts = make16hShifts();
+    const monIdx = shifts.findIndex((r) => r.dayOfWeek === 1);
+    shifts[monIdx] = {
+      ...makeRow("XL_105", 1, { morningOn: true, afternoonOn: true }),
+      morningStartMin: 420, // 7:00
+    };
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
+    assert.equal(result, 15);
+  });
 });
 
 // ---------------------------------------------------------------------------
