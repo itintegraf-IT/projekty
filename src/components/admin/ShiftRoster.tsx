@@ -232,10 +232,10 @@ export function ShiftRoster() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => void copyFromPrev()} style={btnSecondary} disabled={busy}>
-            📋 Zkopírovat z {prevKt}. KT
+            Zkopírovat z {prevKt}. KT
           </button>
           <button onClick={() => void publish()} style={btnPrimary} disabled={busy}>
-            ✓ Publikovat
+            Publikovat
           </button>
         </div>
       </div>
@@ -328,7 +328,7 @@ export function ShiftRoster() {
                       borderTop: `1px solid ${SEPARATOR}`,
                       borderBottom: `1px solid ${SEPARATOR}`,
                     }}>
-                      🖨 {MACHINE_LABELS[machine]}
+                      {MACHINE_LABELS[machine]}
                     </td>
                   </tr>
                   {SHIFTS.map((shift, shiftIdx) => (

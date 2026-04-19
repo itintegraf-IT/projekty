@@ -125,11 +125,11 @@ export function ShiftRosterCell({ machine, date, shift, enabled, assignments, pr
               color: TEXT_PRIMARY,
               outline: "none",
             }}
-            title={isEmpty ? "⚠ Chybí obsazení — kliknutím přiřadíš tiskaře" : "Kliknutím upravit přiřazení"}
+            title={isEmpty ? "Chybí obsazení — kliknutím přiřadíš tiskaře" : "Kliknutím upravit přiřazení"}
           >
             {isEmpty ? (
               <div style={{ color: "var(--warning, #f59e0b)", fontStyle: "italic", fontSize: 12 }}>
-                ⚠ prázdné
+                prázdné
               </div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
