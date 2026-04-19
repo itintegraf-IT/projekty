@@ -2878,6 +2878,160 @@ export default function TimelineGrid({
                   />
                 ))}
 
+                {/* Shift-edge handles — drag pro úpravu hranic ranní/odpolední směny */}
+                {canEdit && onShiftBoundsChange && machineWeekShifts && viewStart && days.map((d) => {
+                  const rows = resolveScheduleRows(machine, d.date, machineWeekShifts);
+                  const row = rows.find((r) => r.dayOfWeek === d.dayOfWeek);
+                  if (!row || !row.isActive) return null;
+                  const handles: React.ReactNode[] = [];
+                  for (const iv of row.intervals) {
+                    if (iv.shift === "NIGHT") continue;
+                    const shift = iv.shift as "MORNING" | "AFTERNOON";
+                    // Shared-boundary detection
+                    const sharedStart = row.intervals.some((o) => o !== iv && o.endMin === iv.startMin);
+                    const sharedEnd = row.intervals.some((o) => o !== iv && o.startMin === iv.endMin);
+                    // Live preview override
+                    const preview = shiftEdgePreview;
+                    const sameDay = preview &&
+                      preview.machine === machine &&
+                      preview.shift === shift &&
+                      utcToPragueDateStr(preview.date) === d.dateStr;
+                    const effectiveStartMin = sameDay && preview.edge === "start" ? preview.previewMin : iv.startMin;
+                    const effectiveEndMin = sameDay && preview.edge === "end" ? preview.previewMin : iv.endMin;
+
+                    const startTime = new Date(d.date.getTime() + effectiveStartMin * 60 * 1000);
+                    const endTime = new Date(d.date.getTime() + effectiveEndMin * 60 * 1000);
+                    const startY = dateToY(startTime, viewStart, slotHeight);
+                    const endY = dateToY(endTime, viewStart, slotHeight);
+
+                    const colorRgba = shift === "MORNING" ? "rgba(251,191,36,0.85)" : "rgba(56,189,248,0.85)";
+                    const tooltipShift = shift === "MORNING" ? "Ranní" : "Odpolední";
+
+                    // Staggering when two handles occupy the same boundary
+                    const staggerLeftStart = sharedStart
+                      ? (shift === "MORNING" ? "calc(50% - 18px)" : "calc(50% + 18px)")
+                      : "50%";
+                    const staggerLeftEnd = sharedEnd
+                      ? (shift === "MORNING" ? "calc(50% - 18px)" : "calc(50% + 18px)")
+                      : "50%";
+
+                    // START handle
+                    handles.push(
+                      <div
+                        key={`shift-${machine}-${d.dateStr}-${shift}-start`}
+                        title={`${tooltipShift} start — táhni pro úpravu, pravý klik = reset`}
+                        onMouseDown={(e) => {
+                          if (e.button !== 0) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          dragStateRef.current = {
+                            type: "shift-edge-resize",
+                            machine,
+                            date: d.date,
+                            shift,
+                            edge: "start",
+                            origMin: iv.startMin,
+                            startClientY: e.clientY,
+                            startScrollTop: scrollRef.current?.scrollTop ?? 0,
+                            jointDrag: e.shiftKey,
+                          };
+                          dragDidMove.current = false;
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "start", null, false);
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: startY + 2,
+                          left: staggerLeftStart,
+                          transform: "translateX(-50%)",
+                          width: 28,
+                          height: 8,
+                          borderRadius: 4,
+                          background: colorRgba,
+                          cursor: "ns-resize",
+                          zIndex: 30,
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                        }}
+                      />,
+                    );
+
+                    // END handle
+                    handles.push(
+                      <div
+                        key={`shift-${machine}-${d.dateStr}-${shift}-end`}
+                        title={`${tooltipShift} konec — táhni pro úpravu, pravý klik = reset`}
+                        onMouseDown={(e) => {
+                          if (e.button !== 0) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          dragStateRef.current = {
+                            type: "shift-edge-resize",
+                            machine,
+                            date: d.date,
+                            shift,
+                            edge: "end",
+                            origMin: iv.endMin,
+                            startClientY: e.clientY,
+                            startScrollTop: scrollRef.current?.scrollTop ?? 0,
+                            jointDrag: e.shiftKey,
+                          };
+                          dragDidMove.current = false;
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "end", null, false);
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: endY - 10,
+                          left: staggerLeftEnd,
+                          transform: "translateX(-50%)",
+                          width: 28,
+                          height: 8,
+                          borderRadius: 4,
+                          background: colorRgba,
+                          cursor: "ns-resize",
+                          zIndex: 30,
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                        }}
+                      />,
+                    );
+
+                    // Live preview tooltip showing HH:MM
+                    if (sameDay) {
+                      const previewY = preview.edge === "start" ? startY : endY;
+                      handles.push(
+                        <div
+                          key={`shift-${machine}-${d.dateStr}-${shift}-preview`}
+                          style={{
+                            position: "absolute",
+                            top: previewY - 10,
+                            left: preview.edge === "start" ? "calc(50% + 22px)" : "calc(50% + 22px)",
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: "rgba(0,0,0,0.85)",
+                            color: "#fff",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            fontVariantNumeric: "tabular-nums",
+                            pointerEvents: "none",
+                            zIndex: 31,
+                            whiteSpace: "nowrap",
+                            boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                          }}
+                        >
+                          {formatHHMM(preview.previewMin)}
+                        </div>,
+                      );
+                    }
+                  }
+                  return <Fragment key={`shift-handles-${d.dateStr}`}>{handles}</Fragment>;
+                })}
+
                 {/* Denní oddělovače — skryté jen když je červené šrafování na OBOU stranách přechodu */}
                 {days.map((d, di) => {
                   const prevEndsHere  = di > 0 && blockedOverlays[machine]?.some(n => n.top + n.height === d.y);
