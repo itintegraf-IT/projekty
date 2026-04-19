@@ -209,6 +209,9 @@ model MachineWorkHoursTemplateDay {
   isActive                 Boolean                  @default(true)
   startSlot                Int?
   endSlot                  Int?
+  morningOn                Boolean                  @default(true)
+  afternoonOn              Boolean                  @default(true)
+  nightOn                  Boolean                  @default(false)
   template                 MachineWorkHoursTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
 
   @@unique([templateId, dayOfWeek])
@@ -311,6 +314,36 @@ model UserPreference {
 
   @@unique([userId, key])
   @@index([userId])
+}
+
+model Printer {
+  id          Int               @id @default(autoincrement())
+  name        String
+  isActive    Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  assignments ShiftAssignment[]
+
+  @@index([isActive, sortOrder])
+}
+
+model ShiftAssignment {
+  id          Int       @id @default(autoincrement())
+  machine     String
+  date        DateTime
+  shift       String
+  printerId   Int
+  note        String?
+  sortOrder   Int       @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  printer     Printer   @relation(fields: [printerId], references: [id])
+
+  @@unique([machine, date, shift, printerId])
+  @@index([date, machine])
+  @@index([publishedAt])
 }
 
 enum ExpeditionManualItem_kind {
