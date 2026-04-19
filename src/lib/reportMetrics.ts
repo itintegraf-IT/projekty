@@ -3,23 +3,13 @@
  * Čisté funkce bez DB závislostí — snadno testovatelné.
  */
 
-import { resolveScheduleRows } from "./scheduleValidation";
-import { pragueToUTC, addDaysToCivilDate } from "./dateUtils";
-import type { MachineWorkHoursTemplate } from "./machineWorkHours";
+import { addDaysToCivilDate } from "./dateUtils";
+import { deriveHoursFromShifts } from "./shifts";
+import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-type ExceptionInput = {
-  machine: string;
-  date: string;
-  startHour: number;
-  endHour: number;
-  isActive: boolean;
-  startSlot: number;
-  endSlot: number;
-};
 
 type BlockInput = {
   type: string;
@@ -41,42 +31,27 @@ type AuditLogInput = {
 
 /**
  * Spočítá dostupné pracovní hodiny stroje v rozsahu civil date (inclusive).
- * Precedence: exception → template.
+ * Zdroj: MachineWeekShifts (flags + fixní časy směn 6/14/22).
  */
 export function computeAvailableHours(
   machine: string,
   rangeStart: string,
   rangeEnd: string,
-  templates: MachineWorkHoursTemplate[],
-  exceptions: ExceptionInput[],
+  weekShifts: MachineWeekShiftsRow[],
 ): number {
   let total = 0;
   let cur = rangeStart;
 
   while (cur <= rangeEnd) {
-    // Check for exception first
-    const exc = exceptions.find((e) => e.machine === machine && e.date === cur);
-
-    if (exc) {
-      if (exc.isActive) {
-        total += exc.endHour - exc.startHour;
-      }
-      // isActive=false → 0 hours, nothing to add
-    } else {
-      // Use template via resolveScheduleRows
-      const dateAsUtc = pragueToUTC(cur, 12, 0);
-      const rows = resolveScheduleRows(machine, dateAsUtc, templates);
-      const dayOfWeek = dateAsUtc.getUTCDay();
-      // Note: pragueToUTC(cur, 12, 0) may shift the UTC day, use pragueOf instead
-      // But resolveScheduleRows uses pragueOf internally, so we just need to find the row for the right dayOfWeek
-      // Actually, resolveScheduleRows returns ALL days of the template, we need to pick the right one
-      for (const row of rows) {
-        if (row.dayOfWeek === new Date(cur + "T12:00:00Z").getUTCDay() && row.isActive) {
-          total += row.endHour - row.startHour;
-        }
-      }
+    const weekStart = weekStartStrFromDateStr(cur);
+    const dayOfWeek = new Date(cur + "T12:00:00Z").getUTCDay();
+    const row = weekShifts.find(
+      (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek
+    );
+    if (row && row.isActive) {
+      const { startHour, endHour } = deriveHoursFromShifts(row);
+      total += Math.max(0, endHour - startHour);
     }
-
     cur = addDaysToCivilDate(cur, 1);
   }
 

@@ -128,61 +128,59 @@ async function main() {
   // Poznámka: účty tiskařů (role TISKAR) zakládej ručně přes Admin dashboard.
   // Bootstrap záměrně nevytváří žádné testovací účty.
 
-  // 4. Default templates z MachineWorkHours — vytvořit pokud neexistují
-  //    Pro fresh install bez MachineWorkHours dat použije hardcoded defaults (Po–Pá 6–22).
-  const HARDCODED_DEFAULT_DAYS_105 = [
-    { dayOfWeek: 0, startHour: 0,  endHour: 24, isActive: false }, // neděle
-    { dayOfWeek: 1, startHour: 6,  endHour: 22, isActive: true  }, // pondělí
-    { dayOfWeek: 2, startHour: 6,  endHour: 22, isActive: true  }, // úterý
-    { dayOfWeek: 3, startHour: 6,  endHour: 22, isActive: true  }, // středa
-    { dayOfWeek: 4, startHour: 6,  endHour: 22, isActive: true  }, // čtvrtek
-    { dayOfWeek: 5, startHour: 6,  endHour: 22, isActive: true  }, // pátek
-    { dayOfWeek: 6, startHour: 0,  endHour: 24, isActive: false }, // sobota
-  ];
-  const HARDCODED_DEFAULT_DAYS_106 = [
-    { dayOfWeek: 0, startHour: 22, endHour: 24, isActive: true  }, // neděle
-    { dayOfWeek: 1, startHour: 0,  endHour: 24, isActive: true  }, // pondělí
-    { dayOfWeek: 2, startHour: 0,  endHour: 24, isActive: true  }, // úterý
-    { dayOfWeek: 3, startHour: 0,  endHour: 24, isActive: true  }, // středa
-    { dayOfWeek: 4, startHour: 0,  endHour: 24, isActive: true  }, // čtvrtek
-    { dayOfWeek: 5, startHour: 0,  endHour: 22, isActive: true  }, // pátek
-    { dayOfWeek: 6, startHour: 0,  endHour: 24, isActive: false }, // sobota
-  ];
-  const hardcodedDefaults: Record<string, typeof HARDCODED_DEFAULT_DAYS_105> = {
-    XL_105: HARDCODED_DEFAULT_DAYS_105,
-    XL_106: HARDCODED_DEFAULT_DAYS_106,
+  // 4. Default MachineWeekShifts pro aktuální týden — seed pokud chybí.
+  //    Další týdny se auto-seedují z předchozího při prvním GET /api/machine-week-shifts.
+  //    Flag-only model: morningOn (6–14) / afternoonOn (14–22) / nightOn (22 → +1d 6).
+  const WEEK_SHIFTS_DEFAULTS: Record<string, Array<{ dayOfWeek: number; morningOn: boolean; afternoonOn: boolean; nightOn: boolean }>> = {
+    XL_105: [
+      { dayOfWeek: 0, morningOn: false, afternoonOn: false, nightOn: false }, // neděle
+      { dayOfWeek: 1, morningOn: true,  afternoonOn: true,  nightOn: false }, // pondělí
+      { dayOfWeek: 2, morningOn: true,  afternoonOn: true,  nightOn: false }, // úterý
+      { dayOfWeek: 3, morningOn: true,  afternoonOn: true,  nightOn: false }, // středa
+      { dayOfWeek: 4, morningOn: true,  afternoonOn: true,  nightOn: false }, // čtvrtek
+      { dayOfWeek: 5, morningOn: true,  afternoonOn: true,  nightOn: false }, // pátek
+      { dayOfWeek: 6, morningOn: false, afternoonOn: false, nightOn: false }, // sobota
+    ],
+    XL_106: [
+      { dayOfWeek: 0, morningOn: false, afternoonOn: false, nightOn: true  }, // neděle (Ne 22 → Po 06)
+      { dayOfWeek: 1, morningOn: true,  afternoonOn: true,  nightOn: true  }, // pondělí
+      { dayOfWeek: 2, morningOn: true,  afternoonOn: true,  nightOn: true  }, // úterý
+      { dayOfWeek: 3, morningOn: true,  afternoonOn: true,  nightOn: true  }, // středa
+      { dayOfWeek: 4, morningOn: true,  afternoonOn: true,  nightOn: true  }, // čtvrtek
+      { dayOfWeek: 5, morningOn: true,  afternoonOn: true,  nightOn: false }, // pátek (bez noční)
+      { dayOfWeek: 6, morningOn: false, afternoonOn: false, nightOn: false }, // sobota
+    ],
   };
 
+  // Aktuální pondělí 00:00 UTC
+  const now = new Date();
+  const dow = now.getUTCDay();
+  const daysToMonday = dow === 0 ? -6 : 1 - dow;
+  const weekStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + daysToMonday));
+
   for (const machine of ["XL_105", "XL_106"]) {
-    const exists = await prisma.machineWorkHoursTemplate.findFirst({
-      where: { machine, isDefault: true },
+    const existing = await prisma.machineWeekShifts.findMany({
+      where: { machine, weekStart },
+      select: { dayOfWeek: true },
     });
-    if (!exists) {
-      const flat = await prisma.machineWorkHours.findMany({ where: { machine } });
-      const days = flat.length > 0
-        ? flat.map((r) => ({ dayOfWeek: r.dayOfWeek, startHour: r.startHour, endHour: r.endHour, isActive: r.isActive }))
-        : hardcodedDefaults[machine];
-      await prisma.machineWorkHoursTemplate.create({
-        data: {
-          machine,
-          label: null,
-          validFrom: new Date("1970-01-01T00:00:00.000Z"),
-          validTo: null,
-          isDefault: true,
-          days: {
-            create: days.map((d) => ({
-              ...d,
-              startSlot: d.startHour * 2,
-              endSlot: d.endHour * 2,
-            })),
-          },
-        },
-      });
-      const src = flat.length > 0 ? "MachineWorkHours" : "hardcoded defaults";
-      console.log(`✅ Default template vytvořena pro ${machine} (${days.length} dnů, zdroj: ${src})`);
-    } else {
-      console.log(`ℹ️  Template pro ${machine}: výchozí šablona již existuje — přeskočeno.`);
+    if (existing.length === 7) {
+      console.log(`ℹ️  MachineWeekShifts pro ${machine} (${weekStart.toISOString().slice(0, 10)}): kompletní — přeskočeno.`);
+      continue;
     }
+    const days = WEEK_SHIFTS_DEFAULTS[machine]!;
+    await prisma.machineWeekShifts.createMany({
+      data: days.map((d) => ({
+        machine,
+        weekStart,
+        dayOfWeek: d.dayOfWeek,
+        isActive: d.morningOn || d.afternoonOn || d.nightOn,
+        morningOn: d.morningOn,
+        afternoonOn: d.afternoonOn,
+        nightOn: d.nightOn,
+      })),
+      skipDuplicates: true,
+    });
+    console.log(`✅ MachineWeekShifts naseedovány pro ${machine} (${weekStart.toISOString().slice(0, 10)})`);
   }
 
   // 5. Systémové presety job builderu — vytvořit pouze pokud chybí

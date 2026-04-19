@@ -1,32 +1,10 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SHIFTS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts";
 import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shiftRoster";
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
-import { ShiftRosterCell } from "./ShiftRosterCell";
-import type { Printer } from "./PrinterCodebook";
-
-export type ShiftAssignment = {
-  id: number;
-  machine: string;
-  date: string;
-  shift: ShiftType;
-  printerId: number;
-  printer: Printer;
-  note: string | null;
-  sortOrder: number;
-  publishedAt: string | null;
-};
-
-type DayScheduleRow = {
-  dayOfWeek: number;
-  morningOn: boolean;
-  afternoonOn: boolean;
-  nightOn: boolean;
-  isActive: boolean;
-};
 
 type WeekShiftsRow = {
   id?: number;
@@ -74,19 +52,6 @@ const btnPrimary: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const btnSuccess: React.CSSProperties = {
-  background: "color-mix(in oklab, var(--success, #22c55e) 90%, transparent)",
-  color: "#fff",
-  border: "none",
-  borderRadius: 8,
-  padding: "7px 14px",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: FONT_STACK,
-  whiteSpace: "nowrap",
-};
-
 function isoDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
@@ -100,15 +65,33 @@ function formatCzechDate(d: Date): string {
   return `${d.getUTCDate()}. ${CZ_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
-export function ShiftRoster() {
+function emptyWeek(machine: string, weekStart: string): WeekShiftsRow[] {
+  return Array.from({ length: 7 }, (_, dow) => ({
+    machine,
+    weekStart,
+    dayOfWeek: dow,
+    isActive: false,
+    morningOn: false,
+    afternoonOn: false,
+    nightOn: false,
+  }));
+}
+
+function shiftFlagKey(shift: ShiftType): "morningOn" | "afternoonOn" | "nightOn" {
+  if (shift === "MORNING") return "morningOn";
+  if (shift === "AFTERNOON") return "afternoonOn";
+  return "nightOn";
+}
+
+export function MachineWorkHoursWeek() {
   const [weekStart, setWeekStart] = useState<Date>(() => weekStartFromDate(new Date()));
-  const [assignments, setAssignments] = useState<ShiftAssignment[]>([]);
-  const [printers, setPrinters] = useState<Printer[]>([]);
-  const [scheduleRows, setScheduleRows] = useState<Record<string, DayScheduleRow[]>>({});
+  const [rows, setRows] = useState<Record<string, WeekShiftsRow[]>>({});
+  const [original, setOriginal] = useState<Record<string, WeekShiftsRow[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { toasts, showToast, dismissToast } = useToast();
+  const savingRef = useRef(false);
 
   const weekDates = useMemo(() => weekDatesFromStart(weekStart), [weekStart]);
   const weekStartStr = useMemo(() => isoDateStr(weekStart), [weekStart]);
@@ -129,34 +112,16 @@ export function ShiftRoster() {
     setLoading(true);
     setError(null);
     try {
-      const [assignRes, printerRes, scheduleRes] = await Promise.all([
-        fetch(`/api/shift-assignments?weekStart=${weekStartStr}`),
-        fetch("/api/printers"),
-        fetch(`/api/machine-week-shifts?weekStart=${weekStartStr}`),
-      ]);
-      if (!assignRes.ok) throw new Error("Chyba načtení přiřazení");
-      if (!printerRes.ok) throw new Error("Chyba načtení tiskařů");
-      if (!scheduleRes.ok) throw new Error("Chyba načtení pracovní doby");
-
-      const assignData = (await assignRes.json()) as ShiftAssignment[];
-      const printerData = (await printerRes.json()) as Printer[];
-      const scheduleData = (await scheduleRes.json()) as WeekShiftsRow[];
-
-      const byMachine: Record<string, DayScheduleRow[]> = {};
-      for (const r of scheduleData) {
-        if (!byMachine[r.machine]) byMachine[r.machine] = [];
-        byMachine[r.machine].push({
-          dayOfWeek: r.dayOfWeek,
-          morningOn: r.morningOn,
-          afternoonOn: r.afternoonOn,
-          nightOn: r.nightOn,
-          isActive: r.isActive,
-        });
+      const res = await fetch(`/api/machine-week-shifts?weekStart=${weekStartStr}`);
+      if (!res.ok) throw new Error("Chyba načtení pracovní doby");
+      const data = (await res.json()) as WeekShiftsRow[];
+      const byMachine: Record<string, WeekShiftsRow[]> = {};
+      for (const machine of MACHINES) {
+        const machineRows = data.filter((r) => r.machine === machine).sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+        byMachine[machine] = machineRows.length === 7 ? machineRows : emptyWeek(machine, weekStartStr);
       }
-
-      setAssignments(assignData);
-      setPrinters(printerData);
-      setScheduleRows(byMachine);
+      setRows(byMachine);
+      setOriginal(JSON.parse(JSON.stringify(byMachine)));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Chyba");
     } finally {
@@ -168,49 +133,106 @@ export function ShiftRoster() {
     void load();
   }, [load]);
 
+  const dirty = useMemo(() => JSON.stringify(rows) !== JSON.stringify(original), [rows, original]);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
   useSSE({
     onEvent: (msg) => {
-      if (msg.type === "schedule:changed") void load();
+      if (msg.type !== "schedule:changed") return;
+      if (savingRef.current) return;
+      if (dirtyRef.current) {
+        showToast("Pracovní doba byla upravena jiným uživatelem. Tvoje rozdělané změny zůstanou — uložení je přepíše.", "info");
+        return;
+      }
+      void load();
     },
   });
 
-  const shiftEnabled = (machine: string, date: Date, shift: ShiftType): boolean => {
-    const dayOfWeek = date.getUTCDay();
-    const row = scheduleRows[machine]?.find((r) => r.dayOfWeek === dayOfWeek);
-    if (!row || !row.isActive) return false;
-    return shift === "MORNING" ? row.morningOn : shift === "AFTERNOON" ? row.afternoonOn : row.nightOn;
+  const toggleShift = (machine: string, dow: number, shift: ShiftType) => {
+    setRows((prev) => {
+      const machineRows = prev[machine] ?? emptyWeek(machine, weekStartStr);
+      const next = machineRows.map((r) => {
+        if (r.dayOfWeek !== dow) return r;
+        const key = shiftFlagKey(shift);
+        const newVal = !r[key];
+        const updated = { ...r, [key]: newVal };
+        updated.isActive = updated.morningOn || updated.afternoonOn || updated.nightOn;
+        return updated;
+      });
+      return { ...prev, [machine]: next };
+    });
   };
 
-  const cellAssignments = (machine: string, date: Date, shift: ShiftType): ShiftAssignment[] => {
-    const dateStr = isoDateStr(date);
-    return assignments.filter(
-      (a) => a.machine === machine && a.shift === shift && a.date.slice(0, 10) === dateStr
-    );
-  };
-
-  const emptyShifts = useMemo(() => {
-    if (loading) return [];
-    const empties: Array<{ machine: string; date: Date; shift: ShiftType }> = [];
-    for (const machine of MACHINES) {
-      for (const d of weekDates) {
-        for (const shift of SHIFTS) {
-          const dayOfWeek = d.getUTCDay();
-          const row = scheduleRows[machine]?.find((r) => r.dayOfWeek === dayOfWeek);
-          if (!row || !row.isActive) continue;
-          const on = shift === "MORNING" ? row.morningOn : shift === "AFTERNOON" ? row.afternoonOn : row.nightOn;
-          if (!on) continue;
-          const dateStr = isoDateStr(d);
-          const has = assignments.some(
-            (a) => a.machine === machine && a.shift === shift && a.date.slice(0, 10) === dateStr
-          );
-          if (!has) empties.push({ machine, date: d, shift });
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    savingRef.current = true;
+    try {
+      for (const machine of MACHINES) {
+        const machineRows = rows[machine];
+        if (!machineRows) continue;
+        const res = await fetch("/api/machine-week-shifts", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            machine,
+            weekStart: weekStartStr,
+            days: machineRows.map((r) => ({
+              dayOfWeek: r.dayOfWeek,
+              isActive: r.isActive,
+              morningOn: r.morningOn,
+              afternoonOn: r.afternoonOn,
+              nightOn: r.nightOn,
+            })),
+          }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `Chyba ukládání (${machine})`);
         }
       }
+      await load();
+      showToast("Pracovní doba uložena.", "success");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Chyba ukládání";
+      setError(msg);
+      showToast(msg, "error");
+    } finally {
+      setBusy(false);
+      setTimeout(() => { savingRef.current = false; }, 500);
     }
-    return empties;
-  }, [loading, scheduleRows, assignments, weekDates]);
+  };
+
+  const copyFromPrev = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/machine-week-shifts?weekStart=${prevWeekStartStr}`);
+      if (!res.ok) throw new Error("Chyba načtení předchozího týdne");
+      const data = (await res.json()) as WeekShiftsRow[];
+      const copied: Record<string, WeekShiftsRow[]> = {};
+      for (const machine of MACHINES) {
+        const machineRows = data.filter((r) => r.machine === machine).sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+        copied[machine] = (machineRows.length === 7 ? machineRows : emptyWeek(machine, weekStartStr)).map((r) => ({
+          ...r,
+          id: undefined,
+          weekStart: weekStartStr,
+        }));
+      }
+      setRows(copied);
+      showToast(`Zkopírováno z ${prevKt}. KT — zkontroluj a ulož.`, "info");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Chyba kopírování";
+      setError(msg);
+      showToast(msg, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const navigateWeek = (delta: number) => {
+    if (dirty && !confirm("Máš neuložené změny. Opravdu přepnout týden?")) return;
     const next = new Date(weekStart);
     next.setUTCDate(next.getUTCDate() + delta * 7);
     setWeekStart(weekStartFromDate(next));
@@ -218,65 +240,21 @@ export function ShiftRoster() {
 
   const goToCurrentWeek = () => {
     if (isCurrentWeek) return;
+    if (dirty && !confirm("Máš neuložené změny. Opravdu přepnout týden?")) return;
     setWeekStart(currentWeekStart);
   };
 
-  const copyFromPrev = async () => {
-    setBusy(true);
-    try {
-      let res = await fetch("/api/shift-assignments/copy-week", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fromWeekStart: prevWeekStartStr, toWeekStart: weekStartStr }),
-      });
-      if (res.status === 409) {
-        const body = (await res.json()) as { existingCount?: number; error?: string };
-        const cnt = body.existingCount ?? 0;
-        if (!confirm(`Cílový týden už má ${cnt} přiřazení. Přepsat?`)) return;
-        res = await fetch("/api/shift-assignments/copy-week", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fromWeekStart: prevWeekStartStr, toWeekStart: weekStartStr, overwrite: true }),
-        });
-      }
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        showToast(body.error ?? "Chyba při kopírování.", "error");
-        return;
-      }
-      await load();
-      showToast(`Rozpis zkopírován z ${prevKt}. KT.`, "success");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const publish = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch("/api/shift-assignments/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weekStart: weekStartStr }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        showToast(body.error ?? "Chyba při publikaci.", "error");
-        return;
-      }
-      const data = (await res.json()) as { published: number };
-      showToast(`Publikováno ${data.published} přiřazení.`, "success");
-      await load();
-    } finally {
-      setBusy(false);
-    }
+  const isShiftOn = (machine: string, dow: number, shift: ShiftType): boolean => {
+    const row = rows[machine]?.find((r) => r.dayOfWeek === dow);
+    if (!row || !row.isActive) return false;
+    return row[shiftFlagKey(shift)];
   };
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 12 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-          ROZPIS SMĚN
+          PRACOVNÍ DOBA
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button onClick={() => navigateWeek(-1)} style={btnSecondary} disabled={busy}>
@@ -296,8 +274,8 @@ export function ShiftRoster() {
           <button onClick={() => void copyFromPrev()} style={btnSecondary} disabled={busy}>
             Zkopírovat z {prevKt}. KT
           </button>
-          <button onClick={() => void publish()} style={btnPrimary} disabled={busy}>
-            Publikovat
+          <button onClick={() => void save()} style={btnPrimary} disabled={busy || !dirty}>
+            Uložit změny
           </button>
         </div>
       </div>
@@ -313,34 +291,6 @@ export function ShiftRoster() {
           marginBottom: 12,
         }}>
           {error}
-        </div>
-      )}
-
-      {!loading && emptyShifts.length > 0 && (
-        <div style={{
-          background: "color-mix(in oklab, var(--warning, #f59e0b) 12%, transparent)",
-          border: "1px solid color-mix(in oklab, var(--warning, #f59e0b) 35%, transparent)",
-          borderLeft: "4px solid var(--warning, #f59e0b)",
-          borderRadius: 8,
-          padding: "10px 14px",
-          fontSize: 13,
-          marginBottom: 12,
-          color: TEXT_PRIMARY,
-          fontFamily: FONT_STACK,
-        }}>
-          <div style={{ fontWeight: 600, color: "var(--warning, #f59e0b)", marginBottom: 6 }}>
-            ⚠ {emptyShifts.length} {emptyShifts.length === 1 ? "prázdná směna" : emptyShifts.length < 5 ? "prázdné směny" : "prázdných směn"} v tomto týdnu
-          </div>
-          <ul style={{ margin: 0, paddingLeft: 20, color: TEXT_SECONDARY, fontSize: 12 }}>
-            {emptyShifts.slice(0, 5).map((e) => (
-              <li key={`${e.machine}-${isoDateStr(e.date)}-${e.shift}`}>
-                {MACHINE_LABELS[e.machine]} — {DAY_LABELS[e.date.getUTCDay()]} {e.date.getUTCDate()}.{e.date.getUTCMonth() + 1}. · {SHIFT_LABELS[e.shift]}
-              </li>
-            ))}
-            {emptyShifts.length > 5 && (
-              <li style={{ fontStyle: "italic" }}>…a dalších {emptyShifts.length - 5}</li>
-            )}
-          </ul>
         </div>
       )}
 
@@ -429,12 +379,12 @@ export function ShiftRoster() {
                       {MACHINE_LABELS[machine]}
                     </td>
                   </tr>
-                  {SHIFTS.map((shift, shiftIdx) => (
+                  {SHIFTS.map((shift) => (
                     <tr key={`${machine}-${shift}`}>
                       <td style={{
                         padding: "8px 12px",
                         background: "var(--surface-2)",
-                        borderBottom: shiftIdx === SHIFTS.length - 1 ? `1px solid ${SEPARATOR}` : `1px solid ${SEPARATOR}`,
+                        borderBottom: `1px solid ${SEPARATOR}`,
                         fontWeight: 600,
                         fontSize: 12,
                         color: TEXT_PRIMARY,
@@ -442,19 +392,33 @@ export function ShiftRoster() {
                         {SHIFT_LABELS[shift]}
                       </td>
                       {weekDates.map((d) => {
-                        const enabled = shiftEnabled(machine, d, shift);
-                        const items = cellAssignments(machine, d, shift);
+                        const dow = d.getUTCDay();
+                        const on = isShiftOn(machine, dow, shift);
                         return (
-                          <ShiftRosterCell
+                          <td
                             key={`${machine}-${shift}-${isoDateStr(d)}`}
-                            machine={machine}
-                            date={d}
-                            shift={shift}
-                            enabled={enabled}
-                            assignments={items}
-                            printers={printers}
-                            onChange={load}
-                          />
+                            onClick={() => toggleShift(machine, dow, shift)}
+                            style={{
+                              padding: "10px 8px",
+                              borderBottom: `1px solid ${SEPARATOR}`,
+                              borderLeft: `1px solid ${SEPARATOR}`,
+                              textAlign: "center",
+                              cursor: "pointer",
+                              background: on
+                                ? "color-mix(in oklab, var(--success, #22c55e) 18%, transparent)"
+                                : "transparent",
+                              transition: "background 120ms",
+                              userSelect: "none",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() => toggleShift(machine, dow, shift)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ cursor: "pointer", width: 16, height: 16 }}
+                            />
+                          </td>
                         );
                       })}
                     </tr>
@@ -464,6 +428,32 @@ export function ShiftRoster() {
             </tbody>
           </table>
         )}
+      </div>
+
+      <div style={{
+        marginTop: 14,
+        padding: "12px 14px",
+        background: "var(--surface)",
+        border: `1px solid ${BORDER_SUBTLE}`,
+        borderRadius: 10,
+        fontSize: 12,
+        lineHeight: 1.6,
+        color: TEXT_SECONDARY,
+        fontFamily: FONT_STACK,
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: TEXT_SECONDARY, marginBottom: 6 }}>
+          Vysvětlivky
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          <div><strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>Ranní</strong> · 6:00 – 14:00</div>
+          <div><strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>Odpolední</strong> · 14:00 – 22:00</div>
+          <div>
+            <strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>Noční</strong> · 22:00 – 6:00 (přes půlnoc)
+          </div>
+          <div style={{ marginTop: 4, fontStyle: "italic" }}>
+            Noční směna je vedena pod dnem, kdy začíná. Např. zaškrtnutí „Noční“ v <strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>neděli</strong> znamená směnu od <strong style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>ne 22:00 do po 6:00</strong>.
+          </div>
+        </div>
       </div>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />

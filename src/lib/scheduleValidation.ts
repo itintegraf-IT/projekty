@@ -1,79 +1,74 @@
-import { normalizeCivilDateInput, pragueOf } from "./dateUtils";
-import type { MachineWorkHours, MachineWorkHoursTemplate } from "./machineWorkHours";
-import { shiftFromHour } from "./shifts";
-import { getSlotRange, slotFromHourBoundary, slotToHour } from "./timeSlots";
+import { pragueOf } from "./dateUtils";
+import { deriveHoursFromShifts, shiftFromHour } from "./shifts";
+import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
+import { slotFromHourBoundary } from "./timeSlots";
+
+export type DayScheduleRow = {
+  machine: string;
+  dayOfWeek: number;
+  startHour: number;
+  endHour: number;
+  startSlot: number;
+  endSlot: number;
+  isActive: boolean;
+  morningOn: boolean;
+  afternoonOn: boolean;
+  nightOn: boolean;
+};
 
 /**
- * Vrátí MachineWorkHours-kompatibilní řádky pro konkrétní datum z pole šablon.
- * Precedence: dočasná šablona (validFrom ≤ datum ≤ validTo) → výchozí šablona.
+ * Vrátí 7 řádků provozu pro týden obsahující `date` (nebo méně, pokud některé chybí).
+ * Datum se interpretuje v Europe/Prague timezone; weekStart je pondělí toho týdne.
  *
- * validFrom/validTo jsou YYYY-MM-DD stringy (nebo ISO s časem — vždy slicujeme na 10 znaků).
- * Vrácené objekty mají pole `machine` přidané, i když MachineWorkHoursTemplateDay ho nemá.
+ * Výstup má stejnou strukturu jako staré MachineWorkHours — callerům stačí filtr podle dayOfWeek.
  */
 export function resolveScheduleRows(
   machine: string,
   date: Date,
-  templates: MachineWorkHoursTemplate[]
-): Array<{ machine: string; dayOfWeek: number; startHour: number; endHour: number; startSlot: number; endSlot: number; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean }> {
-  const dateStr = pragueOf(date).dateStr; // Europe/Prague datum — nikdy UTC slice (off-by-one v noci)
-  const machineTemplates = templates.filter((t) => t.machine === machine);
+  weekShifts: MachineWeekShiftsRow[]
+): DayScheduleRow[] {
+  const { dateStr } = pragueOf(date);
+  const weekStart = weekStartStrFromDateStr(dateStr);
+  const weekRows = weekShifts.filter((w) => w.machine === machine && w.weekStart === weekStart);
+  return weekRows.map((w) => {
+    const { startHour, endHour } = deriveHoursFromShifts(w);
+    return {
+      machine,
+      dayOfWeek: w.dayOfWeek,
+      startHour,
+      endHour,
+      startSlot: slotFromHourBoundary(startHour),
+      endSlot: slotFromHourBoundary(endHour),
+      isActive: w.isActive,
+      morningOn: w.morningOn,
+      afternoonOn: w.afternoonOn,
+      nightOn: w.nightOn,
+    };
+  });
+}
 
-  const active =
-    machineTemplates.find(
-      (t) =>
-        !t.isDefault &&
-        t.validFrom.slice(0, 10) <= dateStr &&
-        (t.validTo === null || t.validTo.slice(0, 10) >= dateStr)
-    ) ?? machineTemplates.find((t) => t.isDefault);
-
-  if (!active) return [];
-
-  return active.days.map((d) => ({
-    machine,
-    dayOfWeek: d.dayOfWeek,
-    startHour: d.startHour,
-    endHour: d.endHour,
-    startSlot: getSlotRange(d).startSlot,
-    endSlot: getSlotRange(d).endSlot,
-    isActive: d.isActive,
-    morningOn: Boolean(d.morningOn),
-    afternoonOn: Boolean(d.afternoonOn),
-    nightOn: Boolean(d.nightOn),
+/**
+ * Serializuje Prisma MachineWeekShifts objekty na MachineWeekShiftsRow[].
+ * `weekStart` je @db.Date → Date (UTC midnight) → YYYY-MM-DD.
+ */
+export function serializeWeekShifts(
+  raw: { machine: string; weekStart: Date | string; dayOfWeek: number; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean; id?: number }[]
+): MachineWeekShiftsRow[] {
+  return raw.map((w) => ({
+    id: w.id,
+    machine: w.machine,
+    weekStart: typeof w.weekStart === "string" ? w.weekStart.slice(0, 10) : w.weekStart.toISOString().slice(0, 10),
+    dayOfWeek: w.dayOfWeek,
+    isActive: w.isActive,
+    morningOn: Boolean(w.morningOn),
+    afternoonOn: Boolean(w.afternoonOn),
+    nightOn: Boolean(w.nightOn),
   }));
 }
 
 /**
- * Serializuje Prisma DateTime validFrom/validTo pole na YYYY-MM-DD stringy.
- * Použít v route souborech místo inline `.map(t => ({ ...t, validFrom: t.validFrom.toISOString()... }))`.
- */
-export function serializeTemplates(
-  raw: { validFrom: Date; validTo: Date | null; [key: string]: unknown }[]
-): MachineWorkHoursTemplate[] {
-  return raw.map((t) => ({
-    ...t,
-    validFrom: normalizeCivilDateInput(t.validFrom as Date)!,
-    validTo: normalizeCivilDateInput(t.validTo as Date | null) ?? null,
-    days: Array.isArray(t.days)
-      ? (t.days as MachineWorkHoursTemplate["days"]).map((d) => {
-          const { startSlot, endSlot } = getSlotRange(d);
-          return {
-            ...d,
-            startSlot,
-            endSlot,
-            startHour: slotToHour(startSlot),
-            endHour: slotToHour(endSlot),
-            morningOn: Boolean(d.morningOn),
-            afternoonOn: Boolean(d.afternoonOn),
-            nightOn: Boolean(d.nightOn),
-          };
-        })
-      : [],
-  })) as MachineWorkHoursTemplate[];
-}
-
-/**
- * Hardcoded pravidla pro bloky mimo provoz — fallback když schedule neobsahuje
- * řádek pro daný dayOfWeek. Parametry jsou v Europe/Prague timezone.
+ * Hardcoded pravidla pro bloky mimo provoz — fallback když weekShifts neobsahují
+ * řádek pro daný den. Parametry jsou v Europe/Prague timezone.
  */
 export function isHardcodedBlocked(machine: string, dayOfWeek: number, slot: number): boolean {
   if (dayOfWeek === 6) return true;                                     // sobota — oba stroje
@@ -83,66 +78,42 @@ export function isHardcodedBlocked(machine: string, dayOfWeek: number, slot: num
   return false;
 }
 
-// `date` je string na klientu (serialized JSON), ale Date z Prisma na serveru — oba fungují s new Date()
-// `machine` je optional pro zpětnou kompatibilitu — pokud chybí, filtr se přeskočí
-type ExceptionSlim = {
-  machine?: string;
-  date: Date | string;
-  startHour: number;
-  endHour: number;
-  startSlot?: number | null;
-  endSlot?: number | null;
-  isActive: boolean;
-};
-
 /**
- * Validace bloku vůči provozním hodinám s per-slot template resolve.
- * Správně zpracovává bloky překračující hranice platnosti šablon (multi-day bloky).
- * Cache per-den eliminuje opakované resolveScheduleRows pro každý 30min slot.
+ * Validace bloku vůči provozním hodinám z MachineWeekShifts.
+ * Per-slot resolve s cache po dnech — správně zpracovává bloky přes víkend
+ * a hranice týdnů.
+ *
+ * Název ponechán (historický důvod) — přijímá weekShifts místo templates+exceptions.
  */
 export function checkScheduleViolationWithTemplates(
   machine: string,
   startTime: Date,
   endTime: Date,
-  templates: MachineWorkHoursTemplate[],
-  exceptions: ExceptionSlim[]
+  weekShifts: MachineWeekShiftsRow[]
 ): string | null {
   const SLOT_MS = 30 * 60 * 1000;
-  const scheduleCache = new Map<string, ReturnType<typeof resolveScheduleRows>>();
+  const scheduleCache = new Map<string, DayScheduleRow[]>();
   let cur = new Date(startTime);
   while (cur < endTime) {
     const { slot, dayOfWeek, dateStr, hour, minute } = pragueOf(cur);
     if (!scheduleCache.has(dateStr)) {
-      scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, templates));
+      scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, weekShifts));
     }
     const schedule = scheduleCache.get(dateStr)!;
-    const exc = exceptions.find(
-      (e) => (!e.machine || e.machine === machine) && normalizeCivilDateInput(e.date) === dateStr
-    );
-    // Exception přebíjí template (zachovává hour-based semantiku pro výjimky)
-    if (exc) {
-      const excRange = getSlotRange(exc);
-      if (!exc.isActive || slot < excRange.startSlot || slot >= excRange.endSlot) {
+    const row = schedule.find((r) => r.dayOfWeek === dayOfWeek);
+    if (!row) {
+      // Chybí řádek pro tento den. Pokud weekShifts vůbec nic pro stroj+týden nemají,
+      // fallback na hardcoded. Pokud řádky existují ale chybí ten náš → den je mimo provoz.
+      if (schedule.length > 0 || isHardcodedBlocked(machine, dayOfWeek, slot)) {
         return "Blok zasahuje do doby mimo provoz stroje.";
       }
     } else {
-      const row = schedule.find((r) => r.dayOfWeek === dayOfWeek);
-      if (!row) {
-        // Template pro stroj existuje, ale chybí řádek pro tento den → den je mimo provoz.
-        // Fallback na hardcoded pravidla jen pokud template vůbec neexistuje (schedule.length === 0).
-        if (schedule.length > 0 || isHardcodedBlocked(machine, dayOfWeek, slot)) {
-          return "Blok zasahuje do doby mimo provoz stroje.";
-        }
-      } else {
-        // Validace podle směnných flagů: zjisti kam slot patří (MORNING/AFTERNOON/NIGHT)
-        // a zkontroluj odpovídající flag. hour+minute/60 pokrývá i druhou půlku slotu.
-        const shift = shiftFromHour(hour + minute / 60);
-        const shiftOn = shift === "MORNING" ? row.morningOn
-                      : shift === "AFTERNOON" ? row.afternoonOn
-                      : row.nightOn;
-        if (!row.isActive || !shiftOn) {
-          return "Blok zasahuje do doby mimo provoz stroje.";
-        }
+      const shift = shiftFromHour(hour + minute / 60);
+      const shiftOn = shift === "MORNING" ? row.morningOn
+                    : shift === "AFTERNOON" ? row.afternoonOn
+                    : row.nightOn;
+      if (!row.isActive || !shiftOn) {
+        return "Blok zasahuje do doby mimo provoz stroje.";
       }
     }
     cur = new Date(cur.getTime() + SLOT_MS);

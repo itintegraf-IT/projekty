@@ -3,18 +3,14 @@ import { before, describe, it, mock } from "node:test";
 
 // ─── Mocky (musí být před prvním importem testované funkce) ───────────────────
 // Prisma mock — nahradí DB volání testovými daty
-const mockTemplates: unknown[] = [];
-const mockExceptions: unknown[] = [];
+const mockWeekShifts: unknown[] = [];
 const mockCompanyDays: unknown[] = [];
 
 await mock.module("@/lib/prisma", {
   namedExports: {
     prisma: {
-      machineWorkHoursTemplate: {
-        findMany: mock.fn(async () => mockTemplates),
-      },
-      machineScheduleException: {
-        findMany: mock.fn(async () => mockExceptions),
+      machineWeekShifts: {
+        findMany: mock.fn(async () => mockWeekShifts),
       },
       companyDay: {
         findMany: mock.fn(async () => mockCompanyDays),
@@ -28,7 +24,7 @@ let scheduleViolationResult: string | null = null;
 
 await mock.module("@/lib/scheduleValidation", {
   namedExports: {
-    serializeTemplates: mock.fn(() => []),
+    serializeWeekShifts: mock.fn(() => []),
     checkScheduleViolationWithTemplates: mock.fn(() => scheduleViolationResult),
   },
 });

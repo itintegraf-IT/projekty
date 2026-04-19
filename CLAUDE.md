@@ -31,8 +31,8 @@ Pozor: `scheduleValidationServer.test.ts` vyžaduje flag `--experimental-test-mo
 - hlavní planner běží na `/`
 - timeline pro stroje `XL_105` a `XL_106`
 - drag & drop z fronty, resize, split zakázek, batch přesuny, copy/paste
-- provozní hodiny přes šablony a výjimky
-- odstávky přes `CompanyDay` a `MachineScheduleException`
+- provozní hodiny per-týden přes `MachineWeekShifts` (flag-only model)
+- odstávky přes `CompanyDay`
 - audit změn bloků
 - potvrzení tisku
 
@@ -107,16 +107,16 @@ Důležité modely:
 - `CodebookOption`
 - `CompanyDay`
 - `MachineWorkHours`
-- `MachineWorkHoursTemplate`
-- `MachineWorkHoursTemplateDay`
-- `MachineScheduleException`
+- `MachineWeekShifts`
 - `User`
 - `AuditLog`
 
 Repo-truth k pracovní době:
 
-- runtime planneru pracuje hlavně s `MachineWorkHoursTemplate`, `MachineWorkHoursTemplateDay` a `MachineScheduleException`
-- starší tabulka `MachineWorkHours` v projektu zůstává kvůli bootstrapu a kompatibilitě starších dat
+- runtime planneru pracuje s `MachineWeekShifts` (per-týden grid, flag-only model: morningOn/afternoonOn/nightOn + isActive derivované)
+- fixní časy směn: MORNING 6–14, AFTERNOON 14–22, NIGHT 22–6 (viz `src/lib/shifts.ts`)
+- původní modely `MachineWorkHoursTemplate`, `MachineWorkHoursTemplateDay` a `MachineScheduleException` byly zrušeny ve Sprintu E (2026-04-19) — data migrována přes `scripts/migrate-to-week-shifts.ts`
+- tabulka `MachineWorkHours` v projektu zůstává kvůli bootstrapu a kompatibilitě starších dat
 
 ## Bezpečné a nebezpečné příkazy
 
@@ -143,13 +143,11 @@ Kanonické názvy relací v tomto projektu (kód je na nich závislý):
 
 | Model | Pole | Typ |
 | --- | --- | --- |
-| `MachineWorkHoursTemplate` | `days` | `MachineWorkHoursTemplateDay[]` |
-| `MachineWorkHoursTemplateDay` | `template` | `MachineWorkHoursTemplate` |
 | `Reservation` | `blocks` | `Block[]` |
 | `Reservation` | `attachments` | `ReservationAttachment[]` |
 | `ReservationAttachment` | `reservation` | `Reservation` |
 
-Pokud Prisma VS Code extension po uložení přepíše tato pole na `Block`, `ReservationAttachment`, `Reservation`, `MachineWorkHoursTemplateDay` — je to chyba formátovače. Vrátit zpět na výše uvedené názvy.
+Pokud Prisma VS Code extension po uložení přepíše tato pole na `Block`, `ReservationAttachment`, `Reservation` — je to chyba formátovače. Vrátit zpět na výše uvedené názvy.
 
 Po každé změně schématu spustit `npm run build` lokálně před pushem — build zachytí TypeScript chyby dřív než server.
 
@@ -310,8 +308,9 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/app/admin/_components/AdminDashboard.tsx`
 - `src/components/job-presets/JobPresetEditor.tsx`
 - `src/app/api/job-presets/route.ts`
-- `src/app/api/machine-shifts/route.ts`
-- `src/app/api/machine-exceptions/route.ts`
+- `src/app/api/machine-week-shifts/route.ts`
+- `src/components/admin/MachineWorkHoursWeek.tsx`
+- `src/components/admin/ShiftRoster.tsx`
 
 ### Auth
 

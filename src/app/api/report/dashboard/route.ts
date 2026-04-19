@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { isCivilDateString, addDaysToCivilDate, pragueToUTC, utcToPragueDateStr } from "@/lib/dateUtils";
-import { serializeTemplates } from "@/lib/scheduleValidation";
+import { isCivilDateString, addDaysToCivilDate, pragueToUTC } from "@/lib/dateUtils";
+import { serializeWeekShifts } from "@/lib/scheduleValidation";
 import {
   computeAvailableHours,
   computeBlockHours,
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
 // ---------------------------------------------------------------------------
 
 async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date, endUtc: Date) {
-  const [blocks, auditLogs, rawTemplates, rawExceptions, reservations, _companyDays] = await Promise.all([
+  const [blocks, auditLogs, rawWeekShifts, reservations, _companyDays] = await Promise.all([
     prisma.block.findMany({
       where: { startTime: { lt: endUtc }, endTime: { gt: startUtc } },
       select: { id: true, machine: true, type: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true },
@@ -73,9 +73,8 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       where: { createdAt: { gte: startUtc, lt: endUtc }, action: "UPDATE" },
       select: { blockId: true, field: true, username: true },
     }),
-    prisma.machineWorkHoursTemplate.findMany({ include: { days: true } }),
-    prisma.machineScheduleException.findMany({
-      where: { date: { gte: startUtc, lt: endUtc } },
+    prisma.machineWeekShifts.findMany({
+      where: { weekStart: { gte: new Date(new Date(startUtc).setUTCDate(startUtc.getUTCDate() - 7)), lt: endUtc } },
     }),
     prisma.reservation.findMany({
       where: {
@@ -91,16 +90,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     }),
   ]);
 
-  const templates = serializeTemplates(rawTemplates);
-  const exceptions = rawExceptions.map((e) => ({
-    machine: e.machine,
-    date: utcToPragueDateStr(e.date),
-    startHour: e.startHour,
-    endHour: e.endHour,
-    isActive: e.isActive,
-    startSlot: e.startSlot ?? e.startHour * 2,
-    endSlot: e.endSlot ?? e.endHour * 2,
-  }));
+  const weekShifts = serializeWeekShifts(rawWeekShifts);
 
   const blockInputs = blocks.map((b) => ({
     type: b.type,
@@ -117,7 +107,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   let totalMaintenance = 0;
 
   for (const machine of MACHINES) {
-    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, templates, exceptions);
+    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts);
     const productionHours = Math.round(computeBlockHours(blockInputs, machine, "ZAKAZKA") * 100) / 100;
     const maintenanceHours = Math.round(computeBlockHours(blockInputs, machine, "UDRZBA") * 100) / 100;
     const utilization = computeUtilization(productionHours, availableHours);
@@ -136,7 +126,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 
     const entry: { date: string; XL_105: number; XL_106: number } = { date: cur, XL_105: 0, XL_106: 0 };
     for (const machine of MACHINES) {
-      const avail = computeAvailableHours(machine, cur, cur, templates, exceptions);
+      const avail = computeAvailableHours(machine, cur, cur, weekShifts);
       const prod = computeBlockHours(dayBlocks, machine, "ZAKAZKA");
       entry[machine] = computeUtilization(prod, avail);
     }
@@ -191,14 +181,13 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 // ---------------------------------------------------------------------------
 
 async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Date, endUtc: Date) {
-  const [blocks, rawTemplates, rawExceptions, reservations] = await Promise.all([
+  const [blocks, rawWeekShifts, reservations] = await Promise.all([
     prisma.block.findMany({
       where: { startTime: { lt: endUtc }, endTime: { gt: startUtc } },
       select: { id: true, machine: true, type: true, description: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true },
     }),
-    prisma.machineWorkHoursTemplate.findMany({ include: { days: true } }),
-    prisma.machineScheduleException.findMany({
-      where: { date: { gte: startUtc, lt: endUtc } },
+    prisma.machineWeekShifts.findMany({
+      where: { weekStart: { gte: new Date(new Date(startUtc).setUTCDate(startUtc.getUTCDate() - 7)), lt: endUtc } },
     }),
     prisma.reservation.findMany({
       where: { status: { in: ["SUBMITTED", "QUEUE_READY"] } },
@@ -206,16 +195,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     }),
   ]);
 
-  const templates = serializeTemplates(rawTemplates);
-  const exceptions = rawExceptions.map((e) => ({
-    machine: e.machine,
-    date: utcToPragueDateStr(e.date),
-    startHour: e.startHour,
-    endHour: e.endHour,
-    isActive: e.isActive,
-    startSlot: e.startSlot ?? e.startHour * 2,
-    endSlot: e.endSlot ?? e.endHour * 2,
-  }));
+  const weekShifts = serializeWeekShifts(rawWeekShifts);
 
   const blockInputs = blocks.map((b) => ({
     type: b.type,
@@ -230,7 +210,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
   const machines: Record<string, { plannedCapacity: number; freeHours: number; availableHours: number }> = {};
 
   for (const machine of MACHINES) {
-    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, templates, exceptions);
+    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts);
     // All block types count as planned
     const plannedHours = blocks
       .filter((b) => b.machine === machine)
@@ -250,7 +230,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
 
     const entry: { date: string; XL_105: number; XL_106: number } = { date: cur, XL_105: 0, XL_106: 0 };
     for (const machine of MACHINES) {
-      const avail = computeAvailableHours(machine, cur, cur, templates, exceptions);
+      const avail = computeAvailableHours(machine, cur, cur, weekShifts);
       const planned = dayBlocks
         .filter((b) => b.machine === machine)
         .reduce((sum, b) => sum + (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60), 0);

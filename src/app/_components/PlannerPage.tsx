@@ -18,8 +18,7 @@ import {
   utcToPragueHour,
 } from "@/lib/dateUtils";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
-import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
-import type { MachineScheduleException } from "@/lib/machineScheduleException";
+import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
 import { Label }     from "@/components/ui/label";
@@ -503,7 +502,7 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
 }
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
-export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWorkHoursTemplates, initialMachineExceptions, currentUser, initialQueueReservations = [], initialFilterText }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWorkHoursTemplates: MachineWorkHoursTemplate[]; initialMachineExceptions: MachineScheduleException[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[]; initialFilterText?: string }) {
+export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWeekShifts, currentUser, initialQueueReservations = [], initialFilterText }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWeekShifts: MachineWeekShiftsRow[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[]; initialFilterText?: string }) {
   // Role-based permissions
   const canEdit         = ["ADMIN", "PLANOVAT"].includes(currentUser.role);
   const canEditData     = canEdit || currentUser.role === "DTP";
@@ -513,8 +512,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
-  const [machineWorkHoursTemplates, setMachineWorkHoursTemplates] = useState<MachineWorkHoursTemplate[]>(initialMachineWorkHoursTemplates);
-  const [machineExceptions, setMachineExceptions] = useState<MachineScheduleException[]>(initialMachineExceptions);
+  const [machineWeekShifts, setMachineWeekShifts] = useState<MachineWeekShiftsRow[]>(initialMachineWeekShifts);
   const [showShutdowns, setShowShutdowns] = useState(false);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
   const [todayAuditLogs, setTodayAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -847,18 +845,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     return () => clearInterval(interval);
   }, [fetchTodayAudit, fetchNotifications]);
 
-  // Refresh schedule (machineWorkHours + exceptions) při návratu do okna —
+  // Refresh MachineWeekShifts při návratu do okna —
   // zajišťuje, že klientský snap používá aktuální data i po změně v jiné relaci
   useEffect(() => {
     async function refreshSchedule() {
       try {
-        const [shiftsRes, exceptionsRes] = await Promise.all([
-          fetch("/api/machine-shifts"),
-          fetch("/api/machine-exceptions"),
-        ]);
-        if (shiftsRes.ok) setMachineWorkHoursTemplates(await shiftsRes.json());
-        if (exceptionsRes.ok) setMachineExceptions(await exceptionsRes.json());
-      } catch (e) { console.debug("[schedule refresh]", e); /* tiché — stale data jsou lepší než error toast */ }
+        const res = await fetch("/api/machine-week-shifts");
+        if (res.ok) setMachineWeekShifts(await res.json());
+      } catch (e) { console.debug("[schedule refresh]", e); }
     }
     window.addEventListener("focus", refreshSchedule);
     window.addEventListener("machineScheduleUpdated", refreshSchedule);
@@ -914,14 +908,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
 
     if (type === "schedule:changed") {
-      // Refresh šablon a výjimek
-      Promise.all([
-        fetch("/api/machine-shifts").then((r) => r.ok ? r.json() : null),
-        fetch("/api/machine-exceptions").then((r) => r.ok ? r.json() : null),
-      ]).then(([shifts, exceptions]) => {
-        if (shifts) setMachineWorkHoursTemplates(shifts);
-        if (exceptions) setMachineExceptions(exceptions);
-      }).catch(() => {});
+      // Refresh MachineWeekShifts
+      fetch("/api/machine-week-shifts")
+        .then((r) => r.ok ? r.json() : null)
+        .then((shifts) => { if (shifts) setMachineWeekShifts(shifts); })
+        .catch(() => {});
     }
   }, [showToast]);
 
@@ -1257,7 +1248,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // Pokud je lock zapnutý, snapneme výslednou pozici přes blokované časy
       // (preceding.endTime může ležet uvnitř šrafování — např. blok přesahující přes noc)
       if (workingTimeLockRef.current) {
-        rawStart = snapToNextValidStartWithTemplates(current.machine, rawStart, duration, machineWorkHoursTemplates, machineExceptions);
+        rawStart = snapToNextValidStartWithTemplates(current.machine, rawStart, duration, machineWeekShifts);
       }
       const newStart = rawStart.getTime();
       try {
@@ -1317,7 +1308,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const dur = new Date(next.endTime).getTime() - new Date(next.startTime).getTime();
       let ns = new Date(pEnd);
       if (workingTimeLockRef.current) {
-        ns = snapToNextValidStartWithTemplates(next.machine, ns, dur, machineWorkHoursTemplates, machineExceptions);
+        ns = snapToNextValidStartWithTemplates(next.machine, ns, dur, machineWeekShifts);
       }
       // Ověřit, že nová pozice nekoliduje s locked blokem
       let nsMs = ns.getTime();
@@ -1333,7 +1324,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const afterLocked = new Date(lockedHit.endTime).getTime();
         let snapped = new Date(afterLocked);
         if (workingTimeLockRef.current) {
-          snapped = snapToNextValidStartWithTemplates(next.machine, snapped, dur, machineWorkHoursTemplates, machineExceptions);
+          snapped = snapToNextValidStartWithTemplates(next.machine, snapped, dur, machineWeekShifts);
         }
         nsMs = snapped.getTime();
         nsEnd = nsMs + dur;
@@ -2052,41 +2043,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bRecurrenceType, bRecurrenceCount, bSeriesFirstDate, bSeriesFirstHour]);
 
-  async function handleExceptionUpsert(machine: string, date: Date, startSlot: number, endSlot: number, isActive: boolean) {
-    try {
-      const res = await fetch("/api/machine-exceptions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Datum posíláme jako YYYY-MM-DD lokálního (CZ) kalendářního dne — bez UTC posunu
-        body: JSON.stringify({
-          machine,
-          date: utcToPragueDateStr(date),
-          startSlot,
-          endSlot,
-          isActive,
-        }),
-      });
-      if (!res.ok) { showToast("Nepodařilo se uložit výjimku.", "error"); return; }
-      const exc: MachineScheduleException = await res.json();
-      setMachineExceptions((prev) => {
-        const filtered = prev.filter((e) => !(e.machine === exc.machine && e.date.slice(0, 10) === exc.date.slice(0, 10)));
-        return [...filtered, exc];
-      });
-    } catch {
-      showToast("Chyba při ukládání výjimky.", "error");
-    }
-  }
-
-  async function handleExceptionDelete(id: number) {
-    try {
-      const res = await fetch(`/api/machine-exceptions/${id}`, { method: "DELETE" });
-      if (!res.ok) { showToast("Nepodařilo se smazat výjimku.", "error"); return; }
-      setMachineExceptions((prev) => prev.filter((e) => e.id !== id));
-    } catch {
-      showToast("Chyba při mazání výjimky.", "error");
-    }
-  }
-
   async function handleBlockVariantChange(blockId: number, variant: BlockVariant) {
     try {
       const res = await fetch(`/api/blocks/${blockId}`, {
@@ -2135,7 +2091,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const durationMs = item.durationHours * 60 * 60 * 1000;
     // Snap na pracovní dobu — kontrolujeme celou délku bloku, ne jen 30 min.
     const rawSnapped = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(machine, rawStartTime, durationMs, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(machine, rawStartTime, durationMs, machineWeekShifts)
       : rawStartTime;
     const startTime = rawSnapped;
     if (workingTimeLockRef.current && rawSnapped.getTime() !== rawStartTime.getTime()) {
@@ -2266,7 +2222,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
     const newStart = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, rawStart, durationMs, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, rawStart, durationMs, machineWeekShifts)
       : rawStart;
     const newEnd = new Date(newStart.getTime() + durationMs);
     try {
@@ -2328,7 +2284,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const anchorDuration = new Date(anchorBlock.endTime).getTime() - anchorMs;
     // Snap anchor pokud je lock zapnutý — kontrolujeme celou délku anchor bloku
     const snappedTarget = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, target.time, anchorDuration, machineWorkHoursTemplates, machineExceptions)
+      ? snapToNextValidStartWithTemplates(target.machine, target.time, anchorDuration, machineWeekShifts)
       : target.time;
     const pasteMs = snappedTarget.getTime();
 
@@ -2948,10 +2904,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onInfo={(msg) => showToast(msg, "info")}
             workingTimeLock={workingTimeLock}
             badgeColorMap={badgeColorMap}
-            machineWorkHours={machineWorkHoursTemplates}
-            machineExceptions={machineExceptions}
-            onExceptionUpsert={canEdit ? handleExceptionUpsert : undefined}
-            onExceptionDelete={canEdit ? handleExceptionDelete : undefined}
+            machineWeekShifts={machineWeekShifts}
             isTiskar={isTiskar}
             onPrintComplete={isTiskar || canEdit ? handlePrintComplete : undefined}
             assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}

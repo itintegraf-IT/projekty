@@ -2,12 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import PlannerPage from "./_components/PlannerPage";
-import { normalizeCivilDateInput } from "@/lib/dateUtils";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { serializeCompanyDay } from "@/lib/companyDaySerialization";
 import { serializeReservation } from "@/lib/reservationSerialization";
-import { serializeTemplates } from "@/lib/scheduleValidation";
-import { getSlotRange, slotToHour } from "@/lib/timeSlots";
+import { serializeWeekShifts } from "@/lib/scheduleValidation";
 
 export default async function HomePage({
   searchParams,
@@ -35,27 +33,12 @@ export default async function HomePage({
 
   const serialized = blocks.map(serializeBlock);
 
-  const [companyDays, rawMachineWorkHoursTemplates, machineExceptions] = await Promise.all([
+  const [companyDays, rawWeekShifts] = await Promise.all([
     prisma.companyDay.findMany({ orderBy: { startDate: "asc" } }),
-    prisma.machineWorkHoursTemplate.findMany({
-      include: { days: { orderBy: { dayOfWeek: "asc" } } },
-      orderBy: [{ machine: "asc" }, { isDefault: "desc" }, { validFrom: "asc" }],
-    }),
-    prisma.machineScheduleException.findMany({ orderBy: [{ date: "asc" }, { machine: "asc" }] }),
+    prisma.machineWeekShifts.findMany({ orderBy: [{ machine: "asc" }, { weekStart: "asc" }, { dayOfWeek: "asc" }] }),
   ]);
   const serializedCompanyDays = companyDays.map(serializeCompanyDay);
-
-  const serializedMachineExceptions = machineExceptions.map((e) => ({
-    ...e,
-    startHour: slotToHour(getSlotRange(e).startSlot),
-    endHour: slotToHour(getSlotRange(e).endSlot),
-    startSlot: getSlotRange(e).startSlot,
-    endSlot: getSlotRange(e).endSlot,
-    date: normalizeCivilDateInput(e.date)!,
-    createdAt: e.createdAt.toISOString(),
-  }));
-
-  const initialMachineWorkHoursTemplates = serializeTemplates(rawMachineWorkHoursTemplates);
+  const initialMachineWeekShifts = serializeWeekShifts(rawWeekShifts);
 
   const params = await searchParams;
   const highlightBlockId = params.highlight ? parseInt(params.highlight, 10) : undefined;
@@ -69,5 +52,5 @@ export default async function HomePage({
     planningPayload: r.planningPayload as Record<string, unknown> | null,
   }));
 
-  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWorkHoursTemplates={initialMachineWorkHoursTemplates} initialMachineExceptions={serializedMachineExceptions} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} initialQueueReservations={serializedQueueReservations} initialFilterText={highlightOrderNumber} />;
+  return <PlannerPage initialBlocks={serialized} initialCompanyDays={serializedCompanyDays} initialMachineWeekShifts={initialMachineWeekShifts} currentUser={{ id: session.id, username: session.username, role: session.role, assignedMachine: session.assignedMachine ?? null }} initialQueueReservations={serializedQueueReservations} initialFilterText={highlightOrderNumber} />;
 }

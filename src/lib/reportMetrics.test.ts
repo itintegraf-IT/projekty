@@ -9,123 +9,88 @@ import {
   computePlanStability,
   computeBlockHours,
 } from "./reportMetrics";
-import type { MachineWorkHoursTemplate } from "./machineWorkHours";
+import type { MachineWeekShiftsRow } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Mon-Fri 6-22 (16h/day) default template for XL_105 */
-function make16hTemplate(): MachineWorkHoursTemplate {
+// 2026-04-13 is Monday; weekStart for that week = 2026-04-13
+const WEEK_START = "2026-04-13";
+
+type ShiftFlags = { morningOn?: boolean; afternoonOn?: boolean; nightOn?: boolean; isActive?: boolean };
+
+function makeRow(machine: string, dayOfWeek: number, flags: ShiftFlags = {}): MachineWeekShiftsRow {
   return {
-    id: 1,
-    machine: "XL_105",
-    label: null,
-    validFrom: "2020-01-01",
-    validTo: null,
-    isDefault: true,
-    days: Array.from({ length: 7 }, (_, i) => ({
-      id: i + 1,
-      dayOfWeek: i,
-      startHour: 6,
-      endHour: 22,
-      startSlot: null,
-      endSlot: null,
-      isActive: i >= 1 && i <= 5, // Mon-Fri active
-    })),
+    machine,
+    weekStart: WEEK_START,
+    dayOfWeek,
+    isActive: flags.isActive ?? true,
+    morningOn: flags.morningOn ?? false,
+    afternoonOn: flags.afternoonOn ?? false,
+    nightOn: flags.nightOn ?? false,
   };
 }
 
-type ExceptionInput = {
-  machine: string;
-  date: string;
-  startHour: number;
-  endHour: number;
-  isActive: boolean;
-  startSlot: number;
-  endSlot: number;
-};
+/** Mon-Fri 6-22 (16h/day), weekend off — default XL_105 weekShifts. */
+function make16hShifts(machine = "XL_105"): MachineWeekShiftsRow[] {
+  return [
+    makeRow(machine, 0, { isActive: false }),                    // Sun
+    makeRow(machine, 1, { morningOn: true, afternoonOn: true }), // Mon
+    makeRow(machine, 2, { morningOn: true, afternoonOn: true }), // Tue
+    makeRow(machine, 3, { morningOn: true, afternoonOn: true }), // Wed
+    makeRow(machine, 4, { morningOn: true, afternoonOn: true }), // Thu
+    makeRow(machine, 5, { morningOn: true, afternoonOn: true }), // Fri
+    makeRow(machine, 6, { isActive: false }),                    // Sat
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // computeAvailableHours
 // ---------------------------------------------------------------------------
 describe("computeAvailableHours", () => {
-  it("Mon-Fri 16h template over a full work week → 80h", () => {
-    // 2026-04-13 is Monday, 2026-04-17 is Friday
-    const result = computeAvailableHours(
-      "XL_105",
-      "2026-04-13",
-      "2026-04-17",
-      [make16hTemplate()],
-      [],
-    );
+  it("Mon-Fri 16h shifts over a full work week → 80h", () => {
+    // 2026-04-13 Mon .. 2026-04-17 Fri
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", make16hShifts());
     assert.equal(result, 80);
   });
 
   it("weekend only → 0h", () => {
-    // 2026-04-18 is Saturday, 2026-04-19 is Sunday
-    const result = computeAvailableHours(
-      "XL_105",
-      "2026-04-18",
-      "2026-04-19",
-      [make16hTemplate()],
-      [],
-    );
+    // 2026-04-18 Sat, 2026-04-19 Sun
+    const result = computeAvailableHours("XL_105", "2026-04-18", "2026-04-19", make16hShifts());
     assert.equal(result, 0);
   });
 
-  it("exception shortens a day from 16h to 8h", () => {
-    const exceptions: ExceptionInput[] = [
-      { machine: "XL_105", date: "2026-04-13", startHour: 6, endHour: 14, isActive: true, startSlot: 12, endSlot: 28 },
-    ];
-    // Mon shortened to 8h, Tue-Fri normal = 4 * 16 = 64, total 72
-    const result = computeAvailableHours(
-      "XL_105",
-      "2026-04-13",
-      "2026-04-17",
-      [make16hTemplate()],
-      exceptions,
-    );
+  it("single day with morning-only shift → 8h (6-14)", () => {
+    const shifts = make16hShifts();
+    // Mon: only morning instead of morning+afternoon
+    const monIdx = shifts.findIndex((r) => r.dayOfWeek === 1);
+    shifts[monIdx] = makeRow("XL_105", 1, { morningOn: true });
+    // Mon 8h + Tue-Fri 16h*4 = 72
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", shifts);
     assert.equal(result, 72);
   });
 
-  it("exception isActive=false → 0h for that day", () => {
-    const exceptions: ExceptionInput[] = [
-      { machine: "XL_105", date: "2026-04-14", startHour: 0, endHour: 0, isActive: false, startSlot: 0, endSlot: 0 },
-    ];
-    // Tue disabled = 0h, Mon + Wed-Fri = 4 * 16 = 64
-    const result = computeAvailableHours(
-      "XL_105",
-      "2026-04-13",
-      "2026-04-17",
-      [make16hTemplate()],
-      exceptions,
-    );
+  it("day isActive=false → 0h for that day", () => {
+    const shifts = make16hShifts();
+    const tueIdx = shifts.findIndex((r) => r.dayOfWeek === 2);
+    shifts[tueIdx] = makeRow("XL_105", 2, { isActive: false, morningOn: true, afternoonOn: true });
+    // Tue disabled, Mon + Wed-Fri = 4 * 16 = 64
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", shifts);
     assert.equal(result, 64);
   });
 
   it("single day", () => {
-    const result = computeAvailableHours(
-      "XL_105",
-      "2026-04-13",
-      "2026-04-13",
-      [make16hTemplate()],
-      [],
-    );
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", make16hShifts());
     assert.equal(result, 16);
   });
 
-  it("ignores exceptions for other machines", () => {
-    const exceptions: ExceptionInput[] = [
-      { machine: "XL_106", date: "2026-04-13", startHour: 0, endHour: 0, isActive: false, startSlot: 0, endSlot: 0 },
+  it("ignores rows for other machines", () => {
+    const shifts = [
+      ...make16hShifts("XL_106"),
+      makeRow("XL_105", 1, { morningOn: true, afternoonOn: true }),
     ];
-    const result = computeAvailableHours(
-      "XL_105",
-      "2026-04-13",
-      "2026-04-13",
-      [make16hTemplate()],
-      exceptions,
-    );
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
     assert.equal(result, 16);
   });
 });

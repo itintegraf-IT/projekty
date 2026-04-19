@@ -22,9 +22,8 @@ import { badgeColorVar } from "@/lib/badgeColors";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
-import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
+import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { resolveScheduleRows } from "@/lib/scheduleValidation";
-import type { MachineScheduleException } from "@/lib/machineScheduleException";
 import {
   HoverCard,
   HoverCardContent,
@@ -137,14 +136,6 @@ type BlockedOverlay = {
   exceptionId: number | null;
 };
 
-type OverlayDragPreview = {
-  machine: string;
-  date: Date;
-  edge: "start" | "end";
-  slot: number;
-  overlayKey: string;
-} | null;
-
 type DragInternalState =
   | {
       type: "move" | "resize";
@@ -163,17 +154,6 @@ type DragInternalState =
       startClientX: number;
       startScrollTop: number;
       anchorBlockId: number;
-    }
-  | {
-      type: "overlay-resize";
-      machine: string;
-      date: Date;
-      edge: "start" | "end";
-      originalBoundarySlot: number;
-      otherBoundarySlot: number;
-      startClientY: number;
-      startScrollTop: number;
-      overlayKey: string;
     };
 
 type DragPreview = {
@@ -218,10 +198,7 @@ interface TimelineGridProps {
   onInfo?: (msg: string) => void;
   workingTimeLock?: boolean;
   badgeColorMap?: Record<number, string | null>;
-  machineWorkHours?: MachineWorkHoursTemplate[];
-  machineExceptions?: MachineScheduleException[];
-  onExceptionUpsert?: (machine: string, date: Date, startSlot: number, endSlot: number, isActive: boolean) => Promise<void>;
-  onExceptionDelete?: (id: number) => Promise<void>;
+  machineWeekShifts?: MachineWeekShiftsRow[];
   isTiskar?: boolean;
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
   assignedMachine?: string | null;
@@ -1771,10 +1748,7 @@ export default function TimelineGrid({
   onInfo,
   workingTimeLock = true,
   badgeColorMap = {},
-  machineWorkHours,
-  machineExceptions,
-  onExceptionUpsert,
-  onExceptionDelete,
+  machineWeekShifts,
   isTiskar,
   onPrintComplete,
   assignedMachine,
@@ -1796,9 +1770,6 @@ export default function TimelineGrid({
   const queuePreviewRefs = useRef<(HTMLDivElement | null)[]>([null, null]);
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material" | "pantone"; currentValue: string; x: number; y: number } | null>(null);
-  const [overlayDragPreview, setOverlayDragPreview] = useState<OverlayDragPreview>(null);
-  const [hoveredOverlayKey, setHoveredOverlayKey] = useState<string | null>(null);
-
   const dragStateRef    = useRef<DragInternalState | null>(null);
   const dragDidMove     = useRef(false);
   const viewStartRef    = useRef<Date | null>(null);
@@ -1816,12 +1787,8 @@ export default function TimelineGrid({
   const lastMouseRef  = useRef({ clientX: 0, clientY: 0 });
   const workingTimeLockRef  = useRef(workingTimeLock);
   workingTimeLockRef.current = workingTimeLock;
-  const machineWorkHoursRef = useRef(machineWorkHours);
-  machineWorkHoursRef.current = machineWorkHours;
-  const machineExceptionsRef = useRef(machineExceptions);
-  machineExceptionsRef.current = machineExceptions;
-  const exceptionCallbacksRef = useRef({ onExceptionUpsert, onExceptionDelete });
-  exceptionCallbacksRef.current = { onExceptionUpsert, onExceptionDelete };
+  const machineWeekShiftsRef = useRef(machineWeekShifts);
+  machineWeekShiftsRef.current = machineWeekShifts;
 
   useEffect(() => { slotHeightRef.current = slotHeight; }, [slotHeight]);
   useEffect(() => { blocksRef.current = blocks; }, [blocks]);
@@ -2011,12 +1978,6 @@ export default function TimelineGrid({
         const newStart   = new Date(anchor.originalStart.getTime() + deltaMs);
         const newEnd     = new Date(anchor.originalEnd.getTime() + deltaMs);
         setDragPreview({ blockId: ds.anchorBlockId, top: dateToY(newStart, vs, sh), height: dateToY(newEnd, vs, sh) - dateToY(newStart, vs, sh), machine: newMachine });
-      } else if (ds.type === "overlay-resize") {
-        const deltaSlots = Math.round(deltaY / sh);
-        const newSlot = ds.edge === "start"
-          ? Math.max(1, Math.min(ds.otherBoundarySlot - 1, ds.originalBoundarySlot + deltaSlots))
-          : Math.max(ds.otherBoundarySlot + 1, Math.min(DAY_SLOT_COUNT - 1, ds.originalBoundarySlot + deltaSlots));
-        setOverlayDragPreview({ machine: ds.machine, date: ds.date, edge: ds.edge, slot: newSlot, overlayKey: ds.overlayKey });
       }
     }
 
@@ -2103,7 +2064,7 @@ export default function TimelineGrid({
         const requestedStart = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         let newStart = requestedStart;
         if (workingTimeLockRef.current) {
-          newStart = snapToNextValidStartWithTemplates(newMachine, requestedStart, duration, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
+          newStart = snapToNextValidStartWithTemplates(newMachine, requestedStart, duration, machineWeekShiftsRef.current ?? []);
           if (newStart.getTime() !== requestedStart.getTime()) {
             callbacksRef.current.onInfo?.("Blok přesunut mimo pracovní dobu — automaticky umístěn do nejbližšího dostupného slotu.");
           }
@@ -2147,7 +2108,7 @@ export default function TimelineGrid({
         const newMachine = clientXToMachine(e.clientX);
         if (workingTimeLockRef.current) {
           const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
-          const { deltaMs: snapped, wasSnapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWorkHoursRef.current ?? [], machineExceptionsRef.current);
+          const { deltaMs: snapped, wasSnapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWeekShiftsRef.current ?? []);
           deltaMs = snapped;
           if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
         }
@@ -2158,17 +2119,6 @@ export default function TimelineGrid({
           endTime:   new Date(b.originalEnd.getTime()   + deltaMs),
         }));
         callbacksRef.current.onMultiBlockUpdate?.(updates);
-      } else if (ds.type === "overlay-resize") {
-        const sh2 = slotHeightRef.current;
-        const overlayScrollDelta = (scrollRef.current?.scrollTop ?? 0) - ds.startScrollTop;
-        const deltaSlots = Math.round((e.clientY - ds.startClientY + overlayScrollDelta) / sh2);
-        const newSlot = ds.edge === "start"
-          ? Math.max(1, Math.min(ds.otherBoundarySlot - 1, ds.originalBoundarySlot + deltaSlots))
-          : Math.max(ds.otherBoundarySlot + 1, Math.min(DAY_SLOT_COUNT - 1, ds.originalBoundarySlot + deltaSlots));
-        const newStartSlot = ds.edge === "start" ? newSlot : ds.otherBoundarySlot;
-        const newEndSlot   = ds.edge === "end"   ? newSlot : ds.otherBoundarySlot;
-        setOverlayDragPreview(null);
-        await exceptionCallbacksRef.current.onExceptionUpsert?.(ds.machine, ds.date, newStartSlot, newEndSlot, true);
       }
     }
 
@@ -2439,15 +2389,12 @@ export default function TimelineGrid({
       isCompanyDay: !!companyDayMatch,
       companyDayLabel: companyDayMatch?.label,
     });
-    // Blocked overlays — výjimka přebíjí šablonu, fallback na hardcoded
+    // Blocked overlays — pracovní doba per-týden
     for (const machine of visibleMachines) {
-      const exc = machineExceptions?.find(
-        (e) => e.machine === machine && normalizeCivilDateInput(e.date) === dateStr
-      );
-      const resolvedRows = machineWorkHours ? resolveScheduleRows(machine, day, machineWorkHours) : [];
-      const row = exc ?? resolvedRows.find((r) => r.dayOfWeek === dow);
-      const isException = !!exc;
-      const excId = exc?.id ?? null;
+      const resolvedRows = machineWeekShifts ? resolveScheduleRows(machine, day, machineWeekShifts) : [];
+      const row = resolvedRows.find((r) => r.dayOfWeek === dow);
+      const isException = false;
+      const excId = null;
 
       if (!row) {
         // Fallback: původní hardcoded logika (bez interakce)
@@ -2779,8 +2726,8 @@ export default function TimelineGrid({
                   const hpx = slotHeight * 2; // px na hodinu
                   const dow = d.dayOfWeek;
                   // Dynamické hranice ze schedule (union přes oba stroje) — per-datum resolve
-                  const allResolvedRows = machineWorkHours
-                    ? visibleMachines.flatMap((m) => resolveScheduleRows(m, d.date, machineWorkHours))
+                  const allResolvedRows = machineWeekShifts
+                    ? visibleMachines.flatMap((m) => resolveScheduleRows(m, d.date, machineWeekShifts))
                     : [];
                   const activeMachines = allResolvedRows.filter((r) => r.dayOfWeek === dow && r.isActive);
                   const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => slotToHour(getSlotRange(r).startSlot))) : WORK_START_H;
@@ -2839,95 +2786,13 @@ export default function TimelineGrid({
                   );
                 })}
 
-                {/* Blokované časy — víkendy + noční XL_105 (červená, interaktivní) */}
-                {blockedOverlays[machine]?.map((n) => {
-                  const borderStyle = n.isException ? "2px dashed rgba(56,189,248,0.7)" : "none";
-                  // Live drag preview — pokud táhneme hranu tohoto overlaye
-                  const isBeingDragged = overlayDragPreview?.overlayKey === n.key;
-                  let renderTop = n.top;
-                  let renderHeight = n.height;
-                  if (isBeingDragged && overlayDragPreview) {
-                    const dayYforOverlay = n.top - n.effectiveStartSlot * slotHeight;
-                    if (overlayDragPreview.edge === "start") {
-                      // spodní handle: blok 0..dragSlot
-                      renderTop = dayYforOverlay;
-                      renderHeight = overlayDragPreview.slot * slotHeight;
-                    } else {
-                      // horní handle: blok dragSlot..24h
-                      renderTop = dayYforOverlay + overlayDragPreview.slot * slotHeight;
-                      renderHeight = (DAY_SLOT_COUNT - overlayDragPreview.slot) * slotHeight;
-                    }
-                  }
-                  return (
-                    <div
-                      key={n.key}
-                      style={{ position: "absolute", top: renderTop, height: renderHeight, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", border: borderStyle, boxSizing: "border-box", transition: isBeingDragged ? "none" : "opacity 100ms", zIndex: 2 }}
-                    >
-                      {/* × tlačítko */}
-                      {canEdit && (
-                        <button
-                          style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(239,68,68,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1, zIndex: 10, pointerEvents: "auto" }}
-                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
-                          onMouseLeave={() => setHoveredOverlayKey(null)}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            if (n.isException && n.exceptionId) {
-                              await exceptionCallbacksRef.current.onExceptionDelete?.(n.exceptionId);
-                            } else {
-                              if (n.overlayType === "full-block") {
-                                // Celý den byl blokovaný — výjimka: celý den provoz
-                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, DAY_SLOT_COUNT, true);
-                              } else if (n.overlayType === "start-block") {
-                                // Odstraň ranní blokaci: work starts at 0, endSlot = z end-block (nebo konec dne)
-                                const endPartner = blockedOverlays[machine].find(x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString());
-                                const endSlot = endPartner?.effectiveStartSlot ?? DAY_SLOT_COUNT;
-                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, 0, endSlot, true);
-                              } else {
-                                // Odstraň noční blokaci: work ends at konec dne, startSlot = ze start-block (nebo 0)
-                                const startPartner = blockedOverlays[machine].find(x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString());
-                                const startSlot = startPartner?.effectiveEndSlot ?? 0;
-                                await exceptionCallbacksRef.current.onExceptionUpsert?.(n.machine, n.date, startSlot, DAY_SLOT_COUNT, true);
-                              }
-                            }
-                          }}
-                        >×</button>
-                      )}
-                      {/* Horní handle — jen pro end-block (táhne workEnd nahoru/dolů) */}
-                      {canEdit && n.overlayType === "end-block" && (
-                        <div
-                          style={{ position: "absolute", top: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10, pointerEvents: "auto" }}
-                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
-                          onMouseLeave={() => setHoveredOverlayKey(null)}
-                          onMouseDown={(e) => {
-                            e.preventDefault(); e.stopPropagation();
-                            const workStart = blockedOverlays[machine].find(
-                              x => x.overlayType === "start-block" && x.date.toDateString() === n.date.toDateString()
-                            )?.effectiveEndSlot ?? 0;
-                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "end", originalBoundarySlot: n.effectiveStartSlot, otherBoundarySlot: workStart, startClientY: e.clientY, startScrollTop: scrollRef.current?.scrollTop ?? 0, overlayKey: n.key };
-                            dragDidMove.current = false;
-                          }}
-                        />
-                      )}
-                      {/* Spodní handle — jen pro start-block (táhne workStart nahoru/dolů) */}
-                      {canEdit && n.overlayType === "start-block" && (
-                        <div
-                          style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 28, height: 8, borderRadius: 4, background: "rgba(239,68,68,0.7)", cursor: "ns-resize", zIndex: 10, pointerEvents: "auto" }}
-                          onMouseEnter={() => setHoveredOverlayKey(n.key)}
-                          onMouseLeave={() => setHoveredOverlayKey(null)}
-                          onMouseDown={(e) => {
-                            e.preventDefault(); e.stopPropagation();
-                            const workEnd = blockedOverlays[machine].find(
-                              x => x.overlayType === "end-block" && x.date.toDateString() === n.date.toDateString()
-                            )?.effectiveStartSlot ?? DAY_SLOT_COUNT;
-                            dragStateRef.current = { type: "overlay-resize", machine: n.machine, date: n.date, edge: "start", originalBoundarySlot: n.effectiveEndSlot, otherBoundarySlot: workEnd, startClientY: e.clientY, startScrollTop: scrollRef.current?.scrollTop ?? 0, overlayKey: n.key };
-                            dragDidMove.current = false;
-                          }}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
+                {/* Blokované časy — víkendy + noční XL_105 (červená, read-only) */}
+                {blockedOverlays[machine]?.map((n) => (
+                  <div
+                    key={n.key}
+                    style={{ position: "absolute", top: n.top, height: n.height, left: 0, right: 0, backgroundColor: "rgba(220,38,38,0.18)", backgroundImage: "repeating-linear-gradient(-45deg, rgba(185,28,28,0.38) 0px, rgba(185,28,28,0.38) 4px, transparent 4px, transparent 9px)", pointerEvents: "none", boxSizing: "border-box", zIndex: 2 }}
+                  />
+                ))}
 
                 {/* Denní oddělovače — skryté jen když je červené šrafování na OBOU stranách přechodu */}
                 {days.map((d, di) => {
