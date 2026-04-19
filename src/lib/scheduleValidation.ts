@@ -1,12 +1,12 @@
 import { pragueOf } from "./dateUtils";
-import { deriveHoursFromShifts, shiftFromHour } from "./shifts";
+import { deriveHoursFromShifts, shiftFromHour, resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 import { slotFromHourBoundary } from "./timeSlots";
 
 export type DayScheduleRow = {
   machine: string;
   dayOfWeek: number;
-  startHour: number;
+  startHour: number;    // legacy union (earliest start .. latest end)
   endHour: number;
   startSlot: number;
   endSlot: number;
@@ -14,6 +14,8 @@ export type DayScheduleRow = {
   morningOn: boolean;
   afternoonOn: boolean;
   nightOn: boolean;
+  // NEW — multi-interval (v minutách od půlnoci, cross-midnight pro NIGHT povolené)
+  intervals: Array<{ shift: "MORNING" | "AFTERNOON" | "NIGHT"; startMin: number; endMin: number }>;
 };
 
 /**
@@ -32,6 +34,11 @@ export function resolveScheduleRows(
   const weekRows = weekShifts.filter((w) => w.machine === machine && w.weekStart === weekStart);
   return weekRows.map((w) => {
     const { startHour, endHour } = deriveHoursFromShifts(w);
+    const intervals: DayScheduleRow["intervals"] = [];
+    for (const shift of ["MORNING", "AFTERNOON", "NIGHT"] as const) {
+      const b = resolveShiftBounds(w, shift);
+      if (b) intervals.push({ shift, startMin: b.startMin, endMin: b.endMin });
+    }
     return {
       machine,
       dayOfWeek: w.dayOfWeek,
@@ -43,6 +50,7 @@ export function resolveScheduleRows(
       morningOn: w.morningOn,
       afternoonOn: w.afternoonOn,
       nightOn: w.nightOn,
+      intervals,
     };
   });
 }
