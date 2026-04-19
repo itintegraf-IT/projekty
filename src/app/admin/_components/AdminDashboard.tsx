@@ -7,6 +7,7 @@ import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/
 import type { MachineWorkHoursTemplate } from "@/lib/machineWorkHours";
 import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
 import { PrinterCodebook } from "@/components/admin/PrinterCodebook";
+import { ShiftRoster } from "@/components/admin/ShiftRoster";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { summarizeJobPreset, type JobPreset } from "@/lib/jobPresets";
 import { durationHoursFromSlots, formatSlot, getSlotRange } from "@/lib/timeSlots";
@@ -163,11 +164,11 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
   }
-  const visibleTabs = (["users", "codebook", "presets", "audit", "shifts", "tiskari"] as const).filter((tab) => {
-    if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts" || tab === "tiskari";
+  const visibleTabs = (["users", "codebook", "presets", "audit", "shifts", "tiskari", "rozpis"] as const).filter((tab) => {
+    if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts" || tab === "tiskari" || tab === "rozpis";
     return true;
   });
-  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "shifts" | "tiskari">(
+  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "shifts" | "tiskari" | "rozpis">(
     isPlanovat ? "presets" : "users"
   );
 
@@ -247,14 +248,14 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
                 color: activeTab === tab ? TEXT_PRIMARY : TEXT_SECONDARY,
               }}
             >
-              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "presets" ? "Presety" : tab === "audit" ? "Audit log" : tab === "shifts" ? "Pracovní doba" : "Tiskaři"}
+              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "presets" ? "Presety" : tab === "audit" ? "Audit log" : tab === "shifts" ? "Pracovní doba" : tab === "tiskari" ? "Tiskaři" : "Rozpis směn"}
             </button>
           ))}
         </div>
       </div>
 
       {/* Content */}
-      <div style={{ maxWidth: 680, margin: "0 auto", padding: "20px" }}>
+      <div style={{ maxWidth: activeTab === "rozpis" ? 1280 : 680, margin: "0 auto", padding: "20px" }}>
         {activeTab === "users" && !isPlanovat ? (
           <UsersSection currentUserId={currentUser.id} />
         ) : activeTab === "codebook" ? (
@@ -267,6 +268,8 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           <WorkShiftsSection />
         ) : activeTab === "tiskari" ? (
           <PrinterCodebook />
+        ) : activeTab === "rozpis" ? (
+          <ShiftRoster />
         ) : null}
       </div>
     </div>
