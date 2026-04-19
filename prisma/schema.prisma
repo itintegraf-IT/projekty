@@ -217,6 +217,23 @@ model MachineWorkHoursTemplateDay {
   @@unique([templateId, dayOfWeek])
 }
 
+model MachineWeekShifts {
+  id          Int      @id @default(autoincrement())
+  machine     String   @db.VarChar(20)
+  weekStart   DateTime @db.Date
+  dayOfWeek   Int
+  isActive    Boolean  @default(true)
+  morningOn   Boolean  @default(false)
+  afternoonOn Boolean  @default(false)
+  nightOn     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([machine, weekStart, dayOfWeek])
+  @@index([machine, weekStart])
+  @@index([weekStart])
+}
+
 model Notification {
   id                Int       @id @default(autoincrement())
   blockId           Int?
