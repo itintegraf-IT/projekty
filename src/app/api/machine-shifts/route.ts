@@ -5,10 +5,10 @@ import { civilDateToUTCMidnight, normalizeCivilDateInput, parseCivilDateWriteInp
 import {
   getSlotRange,
   isValidSlotWindow,
-  legacyHoursFromSlots,
   slotToHour,
 } from "@/lib/timeSlots";
 import { emitSSE } from "@/lib/eventBus";
+import { activeShiftsForDay } from "@/lib/shifts";
 
 function serializeTemplate(t: {
   id: number;
@@ -17,7 +17,7 @@ function serializeTemplate(t: {
   validFrom: Date;
   validTo: Date | null;
   isDefault: boolean;
-  days: { id: number; dayOfWeek: number; startHour: number; endHour: number; startSlot: number | null; endSlot: number | null; isActive: boolean }[];
+  days: { id: number; dayOfWeek: number; startHour: number; endHour: number; startSlot: number | null; endSlot: number | null; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean }[];
 }) {
   return {
     ...t,
@@ -31,8 +31,109 @@ function serializeTemplate(t: {
         endHour: slotToHour(endSlot),
         startSlot,
         endSlot,
+        morningOn: Boolean(d.morningOn),
+        afternoonOn: Boolean(d.afternoonOn),
+        nightOn: Boolean(d.nightOn),
       };
     }),
+  };
+}
+
+type DayInput = {
+  dayOfWeek: number;
+  startHour?: number;
+  endHour?: number;
+  startSlot?: number;
+  endSlot?: number;
+  isActive?: boolean;
+  morningOn?: boolean;
+  afternoonOn?: boolean;
+  nightOn?: boolean;
+};
+
+type NormalizedDay = {
+  dayOfWeek: number;
+  startHour: number;
+  endHour: number;
+  startSlot: number;
+  endSlot: number;
+  isActive: boolean;
+  morningOn: boolean;
+  afternoonOn: boolean;
+  nightOn: boolean;
+};
+
+function normalizeDayInput(day: DayInput): NormalizedDay | { error: string } {
+  if (!Number.isInteger(day.dayOfWeek) || day.dayOfWeek < 0 || day.dayOfWeek > 6) {
+    return { error: "dayOfWeek musí být celé číslo 0–6" };
+  }
+
+  // Prefer explicit shift flags if provided
+  const hasShiftFlags =
+    typeof day.morningOn === "boolean" ||
+    typeof day.afternoonOn === "boolean" ||
+    typeof day.nightOn === "boolean";
+
+  let morningOn: boolean;
+  let afternoonOn: boolean;
+  let nightOn: boolean;
+  let startHour: number;
+  let endHour: number;
+
+  if (hasShiftFlags) {
+    morningOn = Boolean(day.morningOn);
+    afternoonOn = Boolean(day.afternoonOn);
+    nightOn = Boolean(day.nightOn);
+    const actives = activeShiftsForDay({ morningOn, afternoonOn, nightOn });
+    if (actives.length === 0) {
+      startHour = 0;
+      endHour = 0;
+    } else {
+      // Start = nejranější aktivní směna, End = nejpozdější
+      // MORNING (6-14), AFTERNOON (14-22), NIGHT (22-24 zapsáno jako 24, přes půlnoc se zatím neřeší)
+      startHour = morningOn ? 6 : afternoonOn ? 14 : 22;
+      endHour = afternoonOn ? 22 : morningOn ? 14 : 24;
+      // Pokud nightOn ale ne ranní/odpolední → 22-24 (pokrývá jen před půlnocí; validátor v Sprintu 4 to opraví)
+      if (nightOn && !afternoonOn && !morningOn) {
+        startHour = 22;
+        endHour = 24;
+      }
+      // Pokud noční + odpolední bez ranní: 14-24
+      if (nightOn && afternoonOn && !morningOn) {
+        startHour = 14;
+        endHour = 24;
+      }
+      // Pokud noční + ranní: úsek 22-24 se nepokrývá startHour/endHour souvisle — reprezentujeme jako plný den 0-24
+      if (nightOn && morningOn) {
+        startHour = 0;
+        endHour = 24;
+      }
+    }
+  } else {
+    // Fallback: derive shift flags from legacy startHour/endHour
+    startHour = day.startHour ?? 0;
+    endHour = day.endHour ?? 0;
+    morningOn = startHour <= 6 && endHour >= 14;
+    afternoonOn = startHour <= 14 && endHour >= 22;
+    nightOn = (startHour <= 22 && endHour >= 24) || (startHour === 0 && endHour >= 6);
+  }
+
+  const isActive = day.isActive ?? (morningOn || afternoonOn || nightOn);
+
+  // Převod na sloty
+  const startSlot = startHour * 2;
+  const endSlot = endHour * 2;
+
+  return {
+    dayOfWeek: day.dayOfWeek,
+    startHour,
+    endHour,
+    startSlot,
+    endSlot,
+    isActive,
+    morningOn,
+    afternoonOn,
+    nightOn,
   };
 }
 
@@ -53,7 +154,7 @@ export async function PUT(req: Request) {
   if (!["ADMIN", "PLANOVAT"].includes(session.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body: { machine: string; days: { dayOfWeek: number; startHour?: number; endHour?: number; startSlot?: number; endSlot?: number; isActive: boolean }[] } =
+  const body: { machine: string; days: DayInput[] } =
     await req.json();
 
   if (!body.machine || !Array.isArray(body.days))
@@ -64,26 +165,13 @@ export async function PUT(req: Request) {
   if (JSON.stringify(sortedDays) !== "[0,1,2,3,4,5,6]")
     return NextResponse.json({ error: "days musí obsahovat každý dayOfWeek 0–6 právě jednou" }, { status: 400 });
 
-  const normalizedDays: Array<{
-    dayOfWeek: number;
-    startHour: number;
-    endHour: number;
-    startSlot: number;
-    endSlot: number;
-    isActive: boolean;
-  }> = [];
+  const normalizedDays: NormalizedDay[] = [];
   for (const d of body.days) {
-    if (!Number.isInteger(d.dayOfWeek) || d.dayOfWeek < 0 || d.dayOfWeek > 6)
-      return NextResponse.json({ error: "dayOfWeek musí být celé číslo 0–6" }, { status: 400 });
-    let range;
-    try {
-      range = getSlotRange(d);
-    } catch {
-      return NextResponse.json({ error: "Chybí startSlot/endSlot nebo startHour/endHour" }, { status: 400 });
-    }
-    if (!isValidSlotWindow(range.startSlot, range.endSlot))
+    const result = normalizeDayInput(d as DayInput);
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.isActive && !isValidSlotWindow(result.startSlot, result.endSlot))
       return NextResponse.json({ error: "Neplatný rozsah startSlot/endSlot" }, { status: 400 });
-    normalizedDays.push({ ...d, ...range, ...legacyHoursFromSlots(range.startSlot, range.endSlot) });
+    normalizedDays.push(result);
   }
 
   const defaultTemplate = await prisma.machineWorkHoursTemplate.findFirst({
@@ -102,6 +190,9 @@ export async function PUT(req: Request) {
           startSlot: d.startSlot,
           endSlot: d.endSlot,
           isActive: d.isActive,
+          morningOn: d.morningOn,
+          afternoonOn: d.afternoonOn,
+          nightOn: d.nightOn,
         },
       })
     )
@@ -127,7 +218,7 @@ export async function POST(req: Request) {
     label?: string;
     validFrom: string; // YYYY-MM-DD
     validTo?: string;  // YYYY-MM-DD nebo chybí
-    days: { dayOfWeek: number; startHour?: number; endHour?: number; startSlot?: number; endSlot?: number; isActive: boolean }[];
+    days: DayInput[];
   } = await req.json();
 
   if (!body.machine || !body.validFrom || !Array.isArray(body.days))
@@ -149,26 +240,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "validFrom musí být před validTo" }, { status: 400 });
 
   // Validace hodin + dayOfWeek
-  const normalizedDays: Array<{
-    dayOfWeek: number;
-    startHour: number;
-    endHour: number;
-    startSlot: number;
-    endSlot: number;
-    isActive: boolean;
-  }> = [];
+  const normalizedDays: NormalizedDay[] = [];
   for (const d of body.days) {
-    if (!Number.isInteger(d.dayOfWeek) || d.dayOfWeek < 0 || d.dayOfWeek > 6)
-      return NextResponse.json({ error: "dayOfWeek musí být celé číslo 0–6" }, { status: 400 });
-    let range;
-    try {
-      range = getSlotRange(d);
-    } catch {
-      return NextResponse.json({ error: "Chybí startSlot/endSlot nebo startHour/endHour" }, { status: 400 });
-    }
-    if (!isValidSlotWindow(range.startSlot, range.endSlot))
+    const result = normalizeDayInput(d as DayInput);
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 });
+    if (result.isActive && !isValidSlotWindow(result.startSlot, result.endSlot))
       return NextResponse.json({ error: "Neplatný rozsah startSlot/endSlot" }, { status: 400 });
-    normalizedDays.push({ ...d, ...range, ...legacyHoursFromSlots(range.startSlot, range.endSlot) });
+    normalizedDays.push(result);
   }
 
   // Overlap check + create v jedné transakci — prevence race condition při souběžných POST
@@ -207,6 +285,9 @@ export async function POST(req: Request) {
               startSlot: d.startSlot,
               endSlot: d.endSlot,
               isActive: d.isActive,
+              morningOn: d.morningOn,
+              afternoonOn: d.afternoonOn,
+              nightOn: d.nightOn,
             })),
           },
         },
