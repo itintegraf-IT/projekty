@@ -1,16 +1,18 @@
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import { weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
 import { pragueOf } from "@/lib/dateUtils";
 import { isHardcodedBlocked, resolveScheduleRows, type DayScheduleRow } from "@/lib/scheduleValidation";
-import { shiftFromHour } from "@/lib/shifts";
+import { isHourActive } from "@/lib/shifts";
 
 const SLOT_MS = 30 * 60 * 1000;
 
 function isBlockedSlotDynamic(
   machine: string,
   date: Date,
-  schedule: DayScheduleRow[]
+  schedule: DayScheduleRow[],
+  weekShifts: MachineWeekShiftsRow[]
 ): boolean {
-  const { slot, dayOfWeek, hour, minute } = pragueOf(date);
+  const { slot, dayOfWeek, dateStr, hour, minute } = pragueOf(date);
   const row = schedule.find((r) => r.machine === machine && r.dayOfWeek === dayOfWeek);
   if (!row) {
     // Pokud pro stroj nejsou žádné řádky v týdnu → hardcoded fallback.
@@ -18,11 +20,10 @@ function isBlockedSlotDynamic(
     return isHardcodedBlocked(machine, dayOfWeek, slot);
   }
   if (!row.isActive) return true;
-  const shift = shiftFromHour(hour + minute / 60);
-  const shiftOn = shift === "MORNING" ? row.morningOn
-                : shift === "AFTERNOON" ? row.afternoonOn
-                : row.nightOn;
-  return !shiftOn;
+  const weekStart = weekStartStrFromDateStr(dateStr);
+  const ws = weekShifts.find((w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek);
+  if (!ws) return true;
+  return !isHourActive(hour + minute / 60, ws);
 }
 
 type BlockRef = { machine: string; originalStart: Date; originalEnd: Date };
@@ -39,7 +40,7 @@ function blockOverlapsBlockedTimeWithTemplates(
   while (cur < end) {
     const { dateStr } = pragueOf(cur);
     if (!scheduleCache.has(dateStr)) scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, weekShifts));
-    if (isBlockedSlotDynamic(machine, cur, scheduleCache.get(dateStr)!)) return true;
+    if (isBlockedSlotDynamic(machine, cur, scheduleCache.get(dateStr)!, weekShifts)) return true;
     cur = new Date(cur.getTime() + SLOT_MS);
   }
   return false;
@@ -56,7 +57,7 @@ function getBlockedPeriodEndWithTemplates(
   while (true) {
     const { dateStr } = pragueOf(cur);
     if (!scheduleCache.has(dateStr)) scheduleCache.set(dateStr, resolveScheduleRows(machine, cur, weekShifts));
-    if (!isBlockedSlotDynamic(machine, cur, scheduleCache.get(dateStr)!)) break;
+    if (!isBlockedSlotDynamic(machine, cur, scheduleCache.get(dateStr)!, weekShifts)) break;
     cur = new Date(cur.getTime() + SLOT_MS);
   }
   return cur;
@@ -77,7 +78,7 @@ export function snapToNextValidStartWithTemplates(
     while (blocked < end) {
       const { dateStr } = pragueOf(blocked);
       if (!scheduleCache.has(dateStr)) scheduleCache.set(dateStr, resolveScheduleRows(machine, blocked, weekShifts));
-      if (isBlockedSlotDynamic(machine, blocked, scheduleCache.get(dateStr)!)) break;
+      if (isBlockedSlotDynamic(machine, blocked, scheduleCache.get(dateStr)!, weekShifts)) break;
       blocked = new Date(blocked.getTime() + SLOT_MS);
     }
     if (blocked >= end) break;
