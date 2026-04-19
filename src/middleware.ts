@@ -44,18 +44,16 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(new URL("/", req.url));
     }
 
-    // /reporty — jen ADMIN, PLANOVAT
+    // /reporty — jen ADMIN
     if (pathname.startsWith("/reporty") && !pathname.startsWith("/api/")) {
-      const allowed = ["ADMIN", "PLANOVAT"];
-      if (!role || !allowed.includes(role)) {
+      if (role !== "ADMIN") {
         return NextResponse.redirect(new URL("/", req.url));
       }
     }
 
-    // /api/report/dashboard — jen ADMIN, PLANOVAT
+    // /api/report/dashboard — jen ADMIN
     if (pathname.startsWith("/api/report/dashboard")) {
-      const allowed = ["ADMIN", "PLANOVAT"];
-      if (!role || !allowed.includes(role)) {
+      if (role !== "ADMIN") {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }

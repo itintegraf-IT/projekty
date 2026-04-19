@@ -2774,17 +2774,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                   textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
                 }}
               >Správa</a>
-              <a
-                href="/reporty"
-                style={{
-                  height: 28, padding: "0 10px", borderRadius: 8,
-                  display: "flex", alignItems: "center",
-                  background: "var(--surface-2)", border: "1px solid var(--border)",
-                  color: "#10b981", fontSize: 12, cursor: "pointer",
-                  textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
-                }}
-              >Reporty</a>
             </>
+          )}
+          {currentUser.role === "ADMIN" && (
+            <a
+              href="/reporty"
+              style={{
+                height: 28, padding: "0 10px", borderRadius: 8,
+                display: "flex", alignItems: "center",
+                background: "var(--surface-2)", border: "1px solid var(--border)",
+                color: "#10b981", fontSize: 12, cursor: "pointer",
+                textDecoration: "none", whiteSpace: "nowrap", transition: "all 120ms ease-out",
+              }}
+            >Reporty</a>
           )}
           {["ADMIN", "PLANOVAT", "OBCHODNIK"].includes(currentUser.role) && (
             <a
@@ -2812,31 +2814,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           >Expedice</a>
 
           <ThemeToggle />
-
-          {/* DTP panel toggle — jen pro PLANOVAT */}
-          {currentUser.role === "PLANOVAT" && (
-            <button
-              onClick={() => setShowDtpPanel((v) => !v)}
-              title="DTP přehled"
-              style={{
-                width: 28, height: 28, borderRadius: 8,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: showDtpPanel ? "rgba(37,99,235,0.14)" : "var(--surface-2)",
-                border: `1px solid ${showDtpPanel ? "rgba(37,99,235,0.35)" : "var(--border)"}`,
-                color: showDtpPanel ? "#2563eb" : "var(--text-muted)",
-                cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="8" y1="6" x2="21" y2="6"/>
-                <line x1="8" y1="12" x2="21" y2="12"/>
-                <line x1="8" y1="18" x2="21" y2="18"/>
-                <line x1="3" y1="6" x2="3.01" y2="6"/>
-                <line x1="3" y1="12" x2="3.01" y2="12"/>
-                <line x1="3" y1="18" x2="3.01" y2="18"/>
-              </svg>
-            </button>
-          )}
 
           {/* Bell — audit (ADMIN/PLANOVAT) */}
           {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (

@@ -15,7 +15,7 @@ import {
 } from "@/lib/reportMetrics";
 
 const MACHINES = ["XL_105", "XL_106"] as const;
-const ALLOWED_ROLES = new Set(["ADMIN", "PLANOVAT"]);
+const ALLOWED_ROLES = new Set(["ADMIN"]);
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
