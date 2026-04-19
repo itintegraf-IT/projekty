@@ -31,6 +31,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Superpowers brainstorming mockups (local only)
+.superpowers/
+
 # Reservation attachments storage (filesystem, not in git)
 data/
 !data/reservation-attachments/.gitkeep
