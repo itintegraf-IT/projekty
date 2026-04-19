@@ -146,6 +146,60 @@ async function ensureWeekSeeded(weekStartStr: string): Promise<void> {
   logger.info("[machine-week-shifts] auto-seeded week", { weekStart: weekStartStr, count: seeds.length });
 }
 
+type ConflictingBlock = { id: number; orderNumber: string; description: string | null; startTime: string; endTime: string };
+
+/**
+ * Najde bloky typu ZAKAZKA/DATA/MATERIAL, které po změně pracovní doby
+ * spadnou mimo aktivní intervaly. Používá isHourActive per slot.
+ */
+async function findConflictingBlocks(
+  machine: string,
+  weekStartStr: string,
+  newRows: Array<{ dayOfWeek: number; morningOn: boolean; afternoonOn: boolean; nightOn: boolean;
+    morningStartMin: number | null; morningEndMin: number | null;
+    afternoonStartMin: number | null; afternoonEndMin: number | null;
+    nightStartMin: number | null; nightEndMin: number | null; isActive: boolean; }>
+): Promise<ConflictingBlock[]> {
+  const weekStartDate = civilDateToUTCMidnight(weekStartStr);
+  const weekEnd = new Date(weekStartDate);
+  weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+
+  // Fetch bloky v rozsahu týdne.
+  const blocks = await prisma.block.findMany({
+    where: {
+      machine,
+      startTime: { gte: weekStartDate, lt: weekEnd },
+    },
+    select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
+  });
+
+  // Emulovat weekShifts rows pro isHourActive.
+  const synthRows: MachineWeekShiftsRow[] = newRows.map((r) => ({
+    machine, weekStart: weekStartStr, dayOfWeek: r.dayOfWeek,
+    isActive: r.isActive,
+    morningOn: r.morningOn, afternoonOn: r.afternoonOn, nightOn: r.nightOn,
+    morningStartMin: r.morningStartMin, morningEndMin: r.morningEndMin,
+    afternoonStartMin: r.afternoonStartMin, afternoonEndMin: r.afternoonEndMin,
+    nightStartMin: r.nightStartMin, nightEndMin: r.nightEndMin,
+  }));
+
+  const { checkScheduleViolationWithTemplates } = await import("@/lib/scheduleValidation");
+  const conflicts: ConflictingBlock[] = [];
+  for (const b of blocks) {
+    const violation = checkScheduleViolationWithTemplates(machine, b.startTime, b.endTime, synthRows);
+    if (violation) {
+      conflicts.push({
+        id: b.id,
+        orderNumber: b.orderNumber,
+        description: b.description,
+        startTime: b.startTime.toISOString(),
+        endTime: b.endTime.toISOString(),
+      });
+    }
+  }
+  return conflicts;
+}
+
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -241,6 +295,17 @@ export async function PUT(req: Request) {
 
     const machine = body.machine;
     const weekStartDate = civilDateToUTCMidnight(parsedWeek);
+
+    const force = new URL(req.url).searchParams.get("force") === "1";
+    if (!force) {
+      const conflicts = await findConflictingBlocks(machine, parsedWeek, normalized);
+      if (conflicts.length > 0) {
+        return NextResponse.json(
+          { error: "SHIFT_SHRINK_CASCADE", conflictingBlocks: conflicts },
+          { status: 409 }
+        );
+      }
+    }
 
     const existing = await prisma.machineWeekShifts.findMany({
       where: { machine, weekStart: weekStartDate },
