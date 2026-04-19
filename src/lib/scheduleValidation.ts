@@ -58,6 +58,9 @@ export function serializeTemplates(
             endSlot,
             startHour: slotToHour(startSlot),
             endHour: slotToHour(endSlot),
+            morningOn: Boolean(d.morningOn),
+            afternoonOn: Boolean(d.afternoonOn),
+            nightOn: Boolean(d.nightOn),
           };
         })
       : [],
