@@ -157,6 +157,28 @@ export function ShiftRoster() {
     );
   };
 
+  const emptyShifts = useMemo(() => {
+    if (loading) return [];
+    const empties: Array<{ machine: string; date: Date; shift: ShiftType }> = [];
+    for (const machine of MACHINES) {
+      for (const d of weekDates) {
+        for (const shift of SHIFTS) {
+          const dayOfWeek = d.getUTCDay();
+          const row = scheduleRows[machine]?.find((r) => r.dayOfWeek === dayOfWeek);
+          if (!row || !row.isActive) continue;
+          const on = shift === "MORNING" ? row.morningOn : shift === "AFTERNOON" ? row.afternoonOn : row.nightOn;
+          if (!on) continue;
+          const dateStr = isoDateStr(d);
+          const has = assignments.some(
+            (a) => a.machine === machine && a.shift === shift && a.date.slice(0, 10) === dateStr
+          );
+          if (!has) empties.push({ machine, date: d, shift });
+        }
+      }
+    }
+    return empties;
+  }, [loading, scheduleRows, assignments, weekDates]);
+
   const navigateWeek = (delta: number) => {
     const next = new Date(weekStart);
     next.setUTCDate(next.getUTCDate() + delta * 7);
@@ -251,6 +273,34 @@ export function ShiftRoster() {
           marginBottom: 12,
         }}>
           {error}
+        </div>
+      )}
+
+      {!loading && emptyShifts.length > 0 && (
+        <div style={{
+          background: "color-mix(in oklab, var(--warning, #f59e0b) 12%, transparent)",
+          border: "1px solid color-mix(in oklab, var(--warning, #f59e0b) 35%, transparent)",
+          borderLeft: "4px solid var(--warning, #f59e0b)",
+          borderRadius: 8,
+          padding: "10px 14px",
+          fontSize: 13,
+          marginBottom: 12,
+          color: TEXT_PRIMARY,
+          fontFamily: FONT_STACK,
+        }}>
+          <div style={{ fontWeight: 600, color: "var(--warning, #f59e0b)", marginBottom: 6 }}>
+            ⚠ {emptyShifts.length} {emptyShifts.length === 1 ? "prázdná směna" : emptyShifts.length < 5 ? "prázdné směny" : "prázdných směn"} v tomto týdnu
+          </div>
+          <ul style={{ margin: 0, paddingLeft: 20, color: TEXT_SECONDARY, fontSize: 12 }}>
+            {emptyShifts.slice(0, 5).map((e) => (
+              <li key={`${e.machine}-${isoDateStr(e.date)}-${e.shift}`}>
+                {MACHINE_LABELS[e.machine]} — {DAY_LABELS[e.date.getUTCDay()]} {e.date.getUTCDate()}.{e.date.getUTCMonth() + 1}. · {SHIFT_LABELS[e.shift]}
+              </li>
+            ))}
+            {emptyShifts.length > 5 && (
+              <li style={{ fontStyle: "italic" }}>…a dalších {emptyShifts.length - 5}</li>
+            )}
+          </ul>
         </div>
       )}
 
