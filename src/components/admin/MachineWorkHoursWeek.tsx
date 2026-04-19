@@ -5,6 +5,7 @@ import { SHIFTS, SHIFT_HOURS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts"
 import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shiftRoster";
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
+import { ShiftHoursPopover } from "@/components/admin/ShiftHoursPopover";
 
 type WeekShiftsRow = {
   id?: number;
@@ -131,7 +132,7 @@ function ShiftHoursLabel({
   shift: ShiftType;
   startMin: number | null;
   endMin: number | null;
-  onEdit: () => void;
+  onEdit: (rect: DOMRect) => void;
   onReset: () => void;
 }) {
   const def = defaultShiftMin(shift);
@@ -154,7 +155,8 @@ function ShiftHoursLabel({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onEdit();
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          onEdit(rect);
         }}
         style={{
           background: "transparent",
@@ -204,6 +206,8 @@ export function MachineWorkHoursWeek() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editingOverride, setEditingOverride] = useState<{ machine: string; dow: number; shift: ShiftType } | null>(null);
+  const [popoverAnchor, setPopoverAnchor] = useState<DOMRect | null>(null);
   const { toasts, showToast, dismissToast } = useToast();
   const savingRef = useRef(false);
 
@@ -278,6 +282,16 @@ export function MachineWorkHoursWeek() {
 
   const resetOverride = (machine: string, dow: number, shift: ShiftType) => {
     saveOverride(machine, dow, shift, null, null);
+  };
+
+  const openEditor = (machine: string, dow: number, shift: ShiftType, rect: DOMRect) => {
+    setEditingOverride({ machine, dow, shift });
+    setPopoverAnchor(rect);
+  };
+
+  const closeEditor = () => {
+    setEditingOverride(null);
+    setPopoverAnchor(null);
   };
 
   const toggleShift = (machine: string, dow: number, shift: ShiftType) => {
@@ -566,9 +580,7 @@ export function MachineWorkHoursWeek() {
                                   shift={shift}
                                   startMin={startMin}
                                   endMin={endMin}
-                                  onEdit={() => {
-                                    /* E2: opens popover */
-                                  }}
+                                  onEdit={(rect) => openEditor(machine, dow, shift, rect)}
                                   onReset={() => resetOverride(machine, dow, shift)}
                                 />
                               )}
@@ -610,6 +622,27 @@ export function MachineWorkHoursWeek() {
           </div>
         </div>
       </div>
+
+      {editingOverride && popoverAnchor && (() => {
+        const row = rows[editingOverride.machine]?.find((r) => r.dayOfWeek === editingOverride.dow);
+        const sKey = shiftStartKey(editingOverride.shift);
+        const eKey = shiftEndKey(editingOverride.shift);
+        const cs = row ? row[sKey] : null;
+        const ce = row ? row[eKey] : null;
+        return (
+          <ShiftHoursPopover
+            shift={editingOverride.shift}
+            anchor={popoverAnchor}
+            currentStartMin={cs}
+            currentEndMin={ce}
+            onSave={(startMin, endMin) => {
+              saveOverride(editingOverride.machine, editingOverride.dow, editingOverride.shift, startMin, endMin);
+              closeEditor();
+            }}
+            onCancel={closeEditor}
+          />
+        );
+      })()}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
