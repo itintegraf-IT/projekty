@@ -3887,6 +3887,33 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         />
       )}
 
+      {plannerCascade && (
+        <ShiftCascadeDialog
+          conflictingBlocks={plannerCascade.conflicts}
+          onCancel={() => setPlannerCascade(null)}
+          onConfirm={async () => {
+            const payload = plannerCascade.pendingPayload;
+            setPlannerCascade(null);
+            try {
+              const res = await fetch("/api/machine-week-shifts?force=1", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+              if (!res.ok) {
+                const body = (await res.json().catch(() => ({}))) as { error?: string };
+                showToast(body.error ?? "Chyba úpravy pracovní doby", "error");
+                return;
+              }
+              await refetchWeekShifts();
+            } catch (err) {
+              console.error("[plannerCascade confirm] failed", err);
+              showToast("Chyba úpravy pracovní doby", "error");
+            }
+          }}
+        />
+      )}
+
     </main>
   );
 }
