@@ -50,3 +50,20 @@ export function activeShiftsForDay(flags: ShiftFlags): ShiftType[] {
   if (flags.nightOn) out.push("NIGHT");
   return out;
 }
+
+/** Derive legacy startHour/endHour from shift flags.
+ *  Used both on client (grid UI) and server (normalizeDayInput).
+ *  Represents the spanning interval from earliest active shift's start to latest active shift's end.
+ *  If morning+night both on (non-contiguous), span = 0..24 as a simple cover.
+ */
+export function deriveHoursFromShifts(flags: ShiftFlags): { startHour: number; endHour: number } {
+  const { morningOn, afternoonOn, nightOn } = flags;
+  if (!morningOn && !afternoonOn && !nightOn) return { startHour: 0, endHour: 0 };
+  if (morningOn && nightOn) return { startHour: 0, endHour: 24 };
+  if (nightOn && afternoonOn) return { startHour: 14, endHour: 24 };
+  if (nightOn) return { startHour: 22, endHour: 24 };
+  if (morningOn && afternoonOn) return { startHour: 6, endHour: 22 };
+  if (afternoonOn) return { startHour: 14, endHour: 22 };
+  // morningOn only
+  return { startHour: 6, endHour: 14 };
+}
