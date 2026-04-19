@@ -104,8 +104,15 @@ export function ShiftRosterCell({ machine, date, shift, enabled, assignments, pr
     >
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setOpen(true);
+              }
+            }}
             style={{
               display: "block",
               width: "100%",
@@ -113,10 +120,10 @@ export function ShiftRosterCell({ machine, date, shift, enabled, assignments, pr
               padding: "6px 8px",
               textAlign: "left",
               background: "transparent",
-              border: "none",
               cursor: "pointer",
               fontFamily: FONT_STACK,
               color: TEXT_PRIMARY,
+              outline: "none",
             }}
             title={isEmpty ? "⚠ Chybí obsazení — kliknutím přiřadíš tiskaře" : "Kliknutím upravit přiřazení"}
           >
@@ -157,7 +164,7 @@ export function ShiftRosterCell({ machine, date, shift, enabled, assignments, pr
                 ))}
               </div>
             )}
-          </button>
+          </div>
         </PopoverTrigger>
 
         <PopoverContent
