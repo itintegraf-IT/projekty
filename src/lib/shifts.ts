@@ -1,0 +1,52 @@
+export type ShiftType = "MORNING" | "AFTERNOON" | "NIGHT";
+
+export const SHIFTS: readonly ShiftType[] = ["MORNING", "AFTERNOON", "NIGHT"] as const;
+
+export const SHIFT_HOURS: Record<ShiftType, { start: number; end: number }> = {
+  MORNING: { start: 6, end: 14 },
+  AFTERNOON: { start: 14, end: 22 },
+  NIGHT: { start: 22, end: 6 }, // přes půlnoc
+};
+
+export const SHIFT_LABELS: Record<ShiftType, string> = {
+  MORNING: "Ranní",
+  AFTERNOON: "Odpolední",
+  NIGHT: "Noční",
+};
+
+export type ShiftFlags = {
+  morningOn: boolean;
+  afternoonOn: boolean;
+  nightOn: boolean;
+};
+
+/**
+ * Vrátí typ směny pro danou hodinu (0-24).
+ * Noční pokrývá 22-06 včetně půlnoci.
+ */
+export function shiftFromHour(hour: number): ShiftType {
+  if (hour >= 6 && hour < 14) return "MORNING";
+  if (hour >= 14 && hour < 22) return "AFTERNOON";
+  return "NIGHT"; // 22-24 a 0-6
+}
+
+/**
+ * Zda slot (0-47, 30min) patří do dané směny.
+ * Slot n odpovídá hodině n/2.
+ */
+export function isSlotInShift(slot: number, shift: ShiftType): boolean {
+  const hour = slot / 2;
+  return shiftFromHour(hour) === shift;
+}
+
+/**
+ * Vrátí seznam zapnutých směn pro den (podle flagů).
+ * Pořadí: MORNING → AFTERNOON → NIGHT.
+ */
+export function activeShiftsForDay(flags: ShiftFlags): ShiftType[] {
+  const out: ShiftType[] = [];
+  if (flags.morningOn) out.push("MORNING");
+  if (flags.afternoonOn) out.push("AFTERNOON");
+  if (flags.nightOn) out.push("NIGHT");
+  return out;
+}
