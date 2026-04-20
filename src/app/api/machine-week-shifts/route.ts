@@ -283,7 +283,18 @@ export async function PUT(req: Request) {
         throw new AppError("VALIDATION_ERROR", `Ranní start (${morningStartMin}) musí být před koncem (${morningEndMin})`);
       if (afternoonStartMin !== null && afternoonEndMin !== null && afternoonStartMin >= afternoonEndMin)
         throw new AppError("VALIDATION_ERROR", `Odpolední start musí být před koncem`);
-      // NIGHT: startMin > endMin (cross midnight) — neověřujeme, validace rozsahy to garantuje
+      // NIGHT: startMin > endMin (cross midnight) — rozsahy hlídá validateOverrideMin.
+      // NIGHT: cross-midnight. Start > end. Trvání = (1440 - start) + end.
+      // Rozsah 360 min (6h) až 600 min (10h) — typická noční směna.
+      if (nightStartMin !== null && nightEndMin !== null) {
+        const duration = (1440 - nightStartMin) + nightEndMin;
+        if (duration < 360 || duration > 600) {
+          throw new AppError(
+            "VALIDATION_ERROR",
+            `Noční směna musí trvat 6–10 hodin (zadáno ${Math.floor(duration / 60)}h ${duration % 60}m)`,
+          );
+        }
+      }
 
       return {
         dayOfWeek: d.dayOfWeek,
