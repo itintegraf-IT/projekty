@@ -92,6 +92,59 @@ export function isHourActive(hour: number, row: MachineWeekShiftsRow): boolean {
   return false;
 }
 
+import { weekStartStrFromDateStr } from "./machineWeekShifts";
+
+/**
+ * Je daný okamžik aktivní podle forward semantic?
+ *
+ * Forward semantic: NIGHT flag dne X znamená směnu od X 22:00 do X+1 06:00.
+ * Takže pondělí 00–06 je aktivní PRÁVĚ TEHDY, když neděle měla NIGHT ✓.
+ * Pondělí 22–24 je aktivní právě tehdy, když PONDĚLÍ má NIGHT ✓.
+ *
+ * @param machine  stroj
+ * @param dateStr  civil date YYYY-MM-DD (Europe/Prague)
+ * @param hourMin  minuta od půlnoci dne `dateStr` (0–1439)
+ * @param weekShifts  sjednocený seznam řádků přes týdny (client-side cache)
+ */
+export function isDateTimeActive(
+  machine: string,
+  dateStr: string,
+  hourMin: number,
+  weekShifts: MachineWeekShiftsRow[],
+): boolean {
+  const dow = new Date(dateStr + "T12:00:00Z").getUTCDay();
+  const weekStart = weekStartStrFromDateStr(dateStr);
+  const row = weekShifts.find(
+    (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dow,
+  );
+  if (row && row.isActive) {
+    // MORNING + AFTERNOON: neprekračují půlnoc.
+    for (const shift of ["MORNING", "AFTERNOON"] as const) {
+      const b = resolveShiftBounds(row, shift);
+      if (b && hourMin >= b.startMin && hourMin < b.endMin) return true;
+    }
+    // NIGHT dne X pokrývá jen [startMin, 1440) na dni X.
+    const night = resolveShiftBounds(row, "NIGHT");
+    if (night && night.endMin < night.startMin && hourMin >= night.startMin) return true;
+  }
+  // Tail z předchozího dne: NIGHT(X-1) pokrývá [0, prevNightEnd) na dni X.
+  const prevDateStr = (() => {
+    const d = new Date(dateStr + "T12:00:00Z");
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  })();
+  const prevDow = new Date(prevDateStr + "T12:00:00Z").getUTCDay();
+  const prevWeekStart = weekStartStrFromDateStr(prevDateStr);
+  const prev = weekShifts.find(
+    (w) => w.machine === machine && w.weekStart === prevWeekStart && w.dayOfWeek === prevDow,
+  );
+  if (prev && prev.isActive && prev.nightOn) {
+    const b = resolveShiftBounds(prev, "NIGHT");
+    if (b && b.endMin < b.startMin && hourMin < b.endMin) return true;
+  }
+  return false;
+}
+
 /** Derive legacy startHour/endHour from shift flags.
  *  Used both on client (grid UI) and server (normalizeDayInput).
  *  Represents the spanning interval from earliest active shift's start to latest active shift's end.

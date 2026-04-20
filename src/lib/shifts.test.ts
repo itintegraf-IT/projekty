@@ -8,7 +8,7 @@ import {
   activeShiftsForDay,
   resolveShiftBounds,
   isHourActive,
-  type ShiftType,
+  isDateTimeActive,
   type ShiftFlags,
 } from "./shifts";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
@@ -152,4 +152,68 @@ test("isHourActive — night active, hour 7 → inactive (after night end)", () 
 test("isHourActive — all shifts off, any hour → inactive", () => {
   const row = makeRow({ morningOn: false, afternoonOn: false, nightOn: false });
   assert.equal(isHourActive(10, row), false);
+});
+
+// --- isDateTimeActive — forward semantic NIGHT wrap ---
+
+function mkRow(dow: number, flags: Partial<MachineWeekShiftsRow> = {}): MachineWeekShiftsRow {
+  return {
+    id: undefined,
+    machine: "XL_106",
+    weekStart: "2026-04-20",
+    dayOfWeek: dow,
+    isActive: Boolean(flags.morningOn || flags.afternoonOn || flags.nightOn),
+    morningOn: false, afternoonOn: false, nightOn: false,
+    morningStartMin: null, morningEndMin: null,
+    afternoonStartMin: null, afternoonEndMin: null,
+    nightStartMin: null, nightEndMin: null,
+    ...flags,
+  };
+}
+
+test("isDateTimeActive — MORNING+AFTERNOON, po 10:00 → active", () => {
+  const rows = [mkRow(1, { morningOn: true, afternoonOn: true })]; // 2026-04-20 = pondělí
+  assert.equal(isDateTimeActive("XL_106", "2026-04-20", 10 * 60, rows), true);
+});
+
+test("isDateTimeActive — MORNING only, po 15:00 → inactive", () => {
+  const rows = [mkRow(1, { morningOn: true })];
+  assert.equal(isDateTimeActive("XL_106", "2026-04-20", 15 * 60, rows), false);
+});
+
+test("isDateTimeActive — Ne NIGHT ✓, Po vše ✗ → Po 02:00 active (tail z neděle)", () => {
+  const sunday = mkRow(0, { nightOn: true });        // 2026-04-19 neděle
+  const monday = mkRow(1);                            // 2026-04-20 pondělí, vše off
+  const rows = [
+    { ...sunday, weekStart: "2026-04-13" },           // neděle patří do týdne začínajícího pondělím 2026-04-13
+    { ...monday, weekStart: "2026-04-20" },
+  ];
+  // Pondělí 02:00 = 120 minut
+  assert.equal(isDateTimeActive("XL_106", "2026-04-20", 120, rows), true);
+});
+
+test("isDateTimeActive — Ne NIGHT ✓, Po vše ✗ → Ne 02:00 NEactive (not same-day wrap)", () => {
+  const sunday = mkRow(0, { nightOn: true });
+  const rows = [{ ...sunday, weekStart: "2026-04-13" }];
+  // Neděle 02:00
+  assert.equal(isDateTimeActive("XL_106", "2026-04-19", 120, rows), false);
+});
+
+test("isDateTimeActive — Ne NIGHT ✗, Po MORNING ✓ → Po 02:00 NEactive (gap)", () => {
+  const monday = mkRow(1, { morningOn: true });
+  const rows = [{ ...monday, weekStart: "2026-04-20" }];
+  assert.equal(isDateTimeActive("XL_106", "2026-04-20", 120, rows), false);
+});
+
+test("isDateTimeActive — Po NIGHT ✓, Po 22:30 → active (NIGHT startMin je 22:00)", () => {
+  const monday = mkRow(1, { nightOn: true });
+  const rows = [{ ...monday, weekStart: "2026-04-20" }];
+  assert.equal(isDateTimeActive("XL_106", "2026-04-20", 22 * 60 + 30, rows), true);
+});
+
+test("isDateTimeActive — override NIGHT end na 05:00, pátek NIGHT ✓ → sobota 05:30 inactive", () => {
+  const friday = mkRow(5, { nightOn: true, nightEndMin: 300 }); // end 05:00
+  const rows = [{ ...friday, weekStart: "2026-04-20" }];
+  // 2026-04-25 = sobota
+  assert.equal(isDateTimeActive("XL_106", "2026-04-25", 5 * 60 + 30, rows), false);
 });
