@@ -86,7 +86,8 @@ test("checkScheduleViolationWithTemplates — blok přes půlnoc (22 po → 05 �
   assert.equal(result, null);
 });
 
-test("checkScheduleViolationWithTemplates — blok přes půlnoc, noční zapnutá jen v pondělí → violation v úterý", () => {
+test("checkScheduleViolationWithTemplates — blok přes půlnoc, noční zapnutá jen v pondělí → valid v úterý tailu (forward)", () => {
+  // Forward semantic: Po NIGHT ✓ pokrývá Po 22:00 → Út 06:00, bez ohledu na Út stav.
   const shifts = [
     makeRow("XL_106", { dayOfWeek: 1, nightOn: true }),
     makeRow("XL_106", { dayOfWeek: 2, isActive: false }),
@@ -95,6 +96,20 @@ test("checkScheduleViolationWithTemplates — blok přes půlnoc, noční zapnut
     "XL_106",
     pragueToUTC("2026-05-11", 22),
     pragueToUTC("2026-05-12", 5),
+    shifts,
+  );
+  assert.equal(result, null, "Po NIGHT ✓ tail pokrývá Út 00–06, blok projde");
+});
+
+test("checkScheduleViolationWithTemplates — blok Po 22 → Út 07, Po NIGHT ✓ Út vše ✗ → VIOLATION (7:00 už tail nepokrývá)", () => {
+  const shifts = [
+    makeRow("XL_106", { dayOfWeek: 1, nightOn: true }),
+    makeRow("XL_106", { dayOfWeek: 2, isActive: false }),
+  ];
+  const result = checkScheduleViolationWithTemplates(
+    "XL_106",
+    pragueToUTC("2026-05-11", 22),
+    pragueToUTC("2026-05-12", 7),
     shifts,
   );
   assert.equal(result, "Blok zasahuje do doby mimo provoz stroje.");
@@ -192,4 +207,40 @@ test("checkSchedule — override morningStart=7:00, blok 6:15–6:45 → VIOLATI
   const end = new Date("2026-04-13T04:45:00.000Z");   // 6:45 Prague
   const result = checkScheduleViolationWithTemplates("XL_105", start, end, rows);
   assert.equal(result, "Blok zasahuje do doby mimo provoz stroje.");
+});
+
+// --- Forward-semantic NIGHT wrap (Task 1.2) ---
+
+test("checkScheduleViolationWithTemplates — Ne NIGHT ✓, Po vše ✗, blok Ne 22:00 → Po 05:00 → valid (forward)", () => {
+  const rows: MachineWeekShiftsRow[] = [
+    { id: undefined, machine: "XL_106", weekStart: "2026-04-13", dayOfWeek: 0, isActive: true,
+      morningOn: false, afternoonOn: false, nightOn: true,
+      morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null },
+    { id: undefined, machine: "XL_106", weekStart: "2026-04-20", dayOfWeek: 1, isActive: false,
+      morningOn: false, afternoonOn: false, nightOn: false,
+      morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null },
+  ];
+  const start = new Date("2026-04-19T20:00:00.000Z"); // Ne 22:00 Prague (CEST je UTC+2)
+  const end = new Date("2026-04-20T03:00:00.000Z");   // Po 05:00 Prague
+  const result = checkScheduleViolationWithTemplates("XL_106", start, end, rows);
+  assert.equal(result, null, "Blok přes půlnoc z Ne NIGHT na Po tail musí projít");
+});
+
+test("checkScheduleViolationWithTemplates — Po NIGHT ✓, Ne vše ✗, blok Ne 23:00 → Po 02:00 → VIOLATION", () => {
+  const rows: MachineWeekShiftsRow[] = [
+    { id: undefined, machine: "XL_106", weekStart: "2026-04-13", dayOfWeek: 0, isActive: false,
+      morningOn: false, afternoonOn: false, nightOn: false,
+      morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null },
+    { id: undefined, machine: "XL_106", weekStart: "2026-04-20", dayOfWeek: 1, isActive: true,
+      morningOn: false, afternoonOn: false, nightOn: true,
+      morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null },
+  ];
+  const start = new Date("2026-04-19T21:00:00.000Z"); // Ne 23:00 Prague
+  const end = new Date("2026-04-20T00:00:00.000Z");   // Po 02:00 Prague
+  const result = checkScheduleViolationWithTemplates("XL_106", start, end, rows);
+  assert.notEqual(result, null, "Ne NIGHT ✗ → 23:00 musí být VIOLATION i když Po NIGHT ✓");
 });
