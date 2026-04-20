@@ -24,7 +24,7 @@ import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { resolveScheduleRows, resolveDayIntervals } from "@/lib/scheduleValidation";
-import { SHIFT_HOURS } from "@/lib/shifts";
+import { SHIFT_HOURS, fmtHHMM } from "@/lib/shifts";
 import {
   HoverCard,
   HoverCardContent,
@@ -174,12 +174,6 @@ function rangeFor(shift: "MORNING" | "AFTERNOON" | "NIGHT", edge: "start" | "end
   if (shift === "AFTERNOON") return edge === "start" ? [720, 960] : [1200, 1440];
   // NIGHT
   return edge === "start" ? [1200, 1440] : [240, 480];
-}
-
-function formatHHMM(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 type DragPreview = {
@@ -3130,7 +3124,7 @@ export default function TimelineGrid({
                             boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
                           }}
                         >
-                          {formatHHMM(preview.previewMin)}
+                          {fmtHHMM(preview.previewMin)}
                         </div>,
                       );
                     }

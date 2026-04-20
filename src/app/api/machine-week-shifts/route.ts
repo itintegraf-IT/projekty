@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { civilDateToUTCMidnight, parseCivilDateWriteInput, normalizeCivilDateInput } from "@/lib/dateUtils";
 import { emitSSE } from "@/lib/eventBus";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import { SHIFT_EDIT_RANGES, fmtHHMM } from "@/lib/shifts";
 
 function errorStatus(code: string): number {
   if (code === "FORBIDDEN") return 403;
@@ -31,19 +32,12 @@ type DayInput = {
   nightEndMin?: number | null;
 };
 
-const SHIFT_RANGES = {
-  MORNING:   { start: [240, 480] as const, end: [720, 960] as const },
-  AFTERNOON: { start: [720, 960] as const, end: [1200, 1440] as const },
-  NIGHT:     { start: [1200, 1440] as const, end: [240, 480] as const },
-};
-
 function validateOverrideMin(value: number | null | undefined, range: readonly [number, number], label: string): number | null {
   if (value === null || value === undefined) return null;
   if (!Number.isInteger(value)) throw new AppError("VALIDATION_ERROR", `${label} musí být celé číslo minut`);
   if (value % 30 !== 0) throw new AppError("VALIDATION_ERROR", `${label} musí být zarovnán na 30 min`);
   if (value < range[0] || value > range[1]) {
-    const hh = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
-    throw new AppError("VALIDATION_ERROR", `${label} musí být v rozsahu ${hh(range[0])}–${hh(range[1])}`);
+    throw new AppError("VALIDATION_ERROR", `${label} musí být v rozsahu ${fmtHHMM(range[0])}–${fmtHHMM(range[1])}`);
   }
   return value;
 }
@@ -271,12 +265,12 @@ export async function PUT(req: Request) {
       const afternoonOn = Boolean(d.afternoonOn);
       const nightOn = Boolean(d.nightOn);
 
-      const morningStartMin   = validateOverrideMin(d.morningStartMin, SHIFT_RANGES.MORNING.start, "Ranní start");
-      const morningEndMin     = validateOverrideMin(d.morningEndMin, SHIFT_RANGES.MORNING.end, "Ranní konec");
-      const afternoonStartMin = validateOverrideMin(d.afternoonStartMin, SHIFT_RANGES.AFTERNOON.start, "Odpolední start");
-      const afternoonEndMin   = validateOverrideMin(d.afternoonEndMin, SHIFT_RANGES.AFTERNOON.end, "Odpolední konec");
-      const nightStartMin     = validateOverrideMin(d.nightStartMin, SHIFT_RANGES.NIGHT.start, "Noční start");
-      const nightEndMin       = validateOverrideMin(d.nightEndMin, SHIFT_RANGES.NIGHT.end, "Noční konec");
+      const morningStartMin   = validateOverrideMin(d.morningStartMin, SHIFT_EDIT_RANGES.MORNING.start, "Ranní start");
+      const morningEndMin     = validateOverrideMin(d.morningEndMin, SHIFT_EDIT_RANGES.MORNING.end, "Ranní konec");
+      const afternoonStartMin = validateOverrideMin(d.afternoonStartMin, SHIFT_EDIT_RANGES.AFTERNOON.start, "Odpolední start");
+      const afternoonEndMin   = validateOverrideMin(d.afternoonEndMin, SHIFT_EDIT_RANGES.AFTERNOON.end, "Odpolední konec");
+      const nightStartMin     = validateOverrideMin(d.nightStartMin, SHIFT_EDIT_RANGES.NIGHT.start, "Noční start");
+      const nightEndMin       = validateOverrideMin(d.nightEndMin, SHIFT_EDIT_RANGES.NIGHT.end, "Noční konec");
 
       // Sanity: MORNING/AFTERNOON start < end
       if (morningStartMin !== null && morningEndMin !== null && morningStartMin >= morningEndMin)
@@ -333,10 +327,6 @@ export async function PUT(req: Request) {
     // Kompaktní kódování: jeden znak na směnu (M/A/N pokud zapnutá, - jinak),
     // prefix "x" pokud day !isActive. Override hodnoty v závorce, např. "po:M--(Ms7:00,Me13:00)".
     const DAY_CODES = ["ne", "po", "út", "st", "čt", "pá", "so"];
-    const fmtHHMM = (m: number | null | undefined): string => {
-      if (m === null || m === undefined) return "";
-      return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
-    };
     const encodeDay = (r: {
       dayOfWeek: number; isActive: boolean; morningOn: boolean; afternoonOn: boolean; nightOn: boolean;
       morningStartMin?: number | null; morningEndMin?: number | null;

@@ -1,3 +1,6 @@
+import type { MachineWeekShiftsRow } from "./machineWeekShifts";
+import { weekStartStrFromDateStr } from "./machineWeekShifts";
+
 export type ShiftType = "MORNING" | "AFTERNOON" | "NIGHT";
 
 export const SHIFTS: readonly ShiftType[] = ["MORNING", "AFTERNOON", "NIGHT"] as const;
@@ -51,8 +54,6 @@ export function activeShiftsForDay(flags: ShiftFlags): ShiftType[] {
   return out;
 }
 
-import type { MachineWeekShiftsRow } from "./machineWeekShifts";
-
 /** Vrátí efektivní hranice směny (null = směna OFF pro den). */
 export function resolveShiftBounds(
   row: MachineWeekShiftsRow,
@@ -63,19 +64,18 @@ export function resolveShiftBounds(
                : row.nightOn;
   if (!flagOn) return null;
   const def = SHIFT_HOURS[shift];
-  const defStart = def.start * 60;
-  const defEnd = (def.end < def.start ? def.end + 24 : def.end) * 60; // NIGHT: 6 → 30*60=1800? no: 6*60=360
   const override = shift === "MORNING"
     ? { s: row.morningStartMin, e: row.morningEndMin }
     : shift === "AFTERNOON"
     ? { s: row.afternoonStartMin, e: row.afternoonEndMin }
     : { s: row.nightStartMin, e: row.nightEndMin };
-  const startMin = override.s ?? defStart;
-  const endMin = override.e ?? (shift === "NIGHT" ? def.end * 60 : defEnd);
-  return { startMin, endMin };
+  // Pro NIGHT: def.end = 6 = 360 min (záměrně — cross-midnight rozpoznává volající
+  // přes porovnání endMin < startMin).
+  return {
+    startMin: override.s ?? def.start * 60,
+    endMin:   override.e ?? def.end * 60,
+  };
 }
-
-import { weekStartStrFromDateStr } from "./machineWeekShifts";
 
 /**
  * Je daný okamžik aktivní podle forward semantic?
@@ -143,4 +143,26 @@ export function deriveHoursFromShifts(flags: ShiftFlags): { startHour: number; e
   if (afternoonOn) return { startHour: 14, endHour: 22 };
   // morningOn only
   return { startHour: 6, endHour: 14 };
+}
+
+/**
+ * Editační rozsahy pro override polí v minutách od půlnoci.
+ * Uživatel může posunout hranici směny v tomto okně — mimo něj validace odmítne.
+ */
+export const SHIFT_EDIT_RANGES: Record<ShiftType, { start: readonly [number, number]; end: readonly [number, number] }> = {
+  MORNING:   { start: [240, 480],  end: [720, 960] },
+  AFTERNOON: { start: [720, 960],  end: [1200, 1440] },
+  NIGHT:     { start: [1200, 1440], end: [240, 480] },
+};
+
+/** "630" → "10:30". Null/undefined → "". */
+export function fmtHHMM(m: number | null | undefined): string {
+  if (m === null || m === undefined) return "";
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+}
+
+/** Výchozí minuty pro směnu (start/end). */
+export function defaultShiftMin(shift: ShiftType, edge: "start" | "end"): number {
+  const def = SHIFT_HOURS[shift];
+  return (edge === "start" ? def.start : def.end) * 60;
 }

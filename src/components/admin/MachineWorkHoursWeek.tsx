@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SHIFTS, SHIFT_HOURS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts";
+import { SHIFTS, SHIFT_LABELS, fmtHHMM, defaultShiftMin, type ShiftType } from "@/lib/shifts";
 import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shiftRoster";
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
@@ -27,15 +27,8 @@ type WeekShiftsRow = {
 
 const AMBER_TEXT = "#f59e0b";
 
-function fmtHHMM(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${h}:${String(m).padStart(2, "0")}`;
-}
-
-function defaultShiftMin(shift: ShiftType): { startMin: number; endMin: number } {
-  const def = SHIFT_HOURS[shift];
-  return { startMin: def.start * 60, endMin: def.end * 60 };
+function defaultShiftBounds(shift: ShiftType): { startMin: number; endMin: number } {
+  return { startMin: defaultShiftMin(shift, "start"), endMin: defaultShiftMin(shift, "end") };
 }
 
 const MACHINES = ["XL_105", "XL_106"] as const;
@@ -135,7 +128,7 @@ function ShiftHoursLabel({
   onEdit: (rect: DOMRect) => void;
   onReset: () => void;
 }) {
-  const def = defaultShiftMin(shift);
+  const def = defaultShiftBounds(shift);
   const effStart = startMin ?? def.startMin;
   const effEnd = endMin ?? def.endMin;
   const isOverride = startMin !== null || endMin !== null;

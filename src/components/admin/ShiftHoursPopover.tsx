@@ -1,32 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SHIFT_HOURS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts";
+import { SHIFT_LABELS, SHIFT_EDIT_RANGES, fmtHHMM, defaultShiftMin, type ShiftType } from "@/lib/shifts";
 
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";
 const AMBER_BG = "#d97706";
 
-const SHIFT_RANGES: Record<ShiftType, { start: [number, number]; end: [number, number] }> = {
-  MORNING:   { start: [240, 480],  end: [720, 960] },
-  AFTERNOON: { start: [720, 960],  end: [1200, 1440] },
-  NIGHT:     { start: [1200, 1440], end: [240, 480] },
-};
-
-function fmtHHMM(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${h}:${String(m).padStart(2, "0")}`;
-}
-
-function rangeOptions(range: [number, number]): number[] {
+function rangeOptions(range: readonly [number, number]): number[] {
   const out: number[] = [];
   for (let m = range[0]; m <= range[1]; m += 30) out.push(m);
   return out;
 }
 
-function defaultShiftMin(shift: ShiftType): { startMin: number; endMin: number } {
-  const def = SHIFT_HOURS[shift];
-  return { startMin: def.start * 60, endMin: def.end * 60 };
+function defaultShiftBounds(shift: ShiftType): { startMin: number; endMin: number } {
+  return { startMin: defaultShiftMin(shift, "start"), endMin: defaultShiftMin(shift, "end") };
 }
 
 export function ShiftHoursPopover({
@@ -44,13 +31,13 @@ export function ShiftHoursPopover({
   onSave: (startMin: number | null, endMin: number | null) => void;
   onCancel: () => void;
 }) {
-  const def = defaultShiftMin(shift);
+  const def = defaultShiftBounds(shift);
   const [startMin, setStartMin] = useState<number>(currentStartMin ?? def.startMin);
   const [endMin, setEndMin] = useState<number>(currentEndMin ?? def.endMin);
   const [err, setErr] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
-  const range = SHIFT_RANGES[shift];
+  const range = SHIFT_EDIT_RANGES[shift];
   const startOpts = useMemo(() => rangeOptions(range.start), [range]);
   const endOpts = useMemo(() => rangeOptions(range.end), [range]);
 
