@@ -7,7 +7,6 @@ import {
   isSlotInShift,
   activeShiftsForDay,
   resolveShiftBounds,
-  isHourActive,
   isDateTimeActive,
   type ShiftFlags,
 } from "./shifts";
@@ -121,37 +120,6 @@ test("resolveShiftBounds — shift OFF → null (ignore override)", () => {
 test("resolveShiftBounds — NIGHT override (cross midnight, 20:00–7:00)", () => {
   const row = makeRow({ nightStartMin: 1200, nightEndMin: 420 });
   assert.deepEqual(resolveShiftBounds(row, "NIGHT"), { startMin: 1200, endMin: 420 });
-});
-
-// isHourActive tests
-test("isHourActive — default morning+afternoon, hour 10 → active", () => {
-  const row = makeRow({ nightOn: false });
-  assert.equal(isHourActive(10, row), true);
-});
-
-test("isHourActive — morning only, hour 15 → inactive", () => {
-  const row = makeRow({ afternoonOn: false, nightOn: false });
-  assert.equal(isHourActive(15, row), false);
-});
-
-test("isHourActive — override morning end 13:00, hour 13.5 → inactive (in gap)", () => {
-  const row = makeRow({ nightOn: false, morningEndMin: 780 }); // 13:00
-  assert.equal(isHourActive(13.5, row), false);
-});
-
-test("isHourActive — night active, hour 0.5 → active (cross midnight)", () => {
-  const row = makeRow({ morningOn: false, afternoonOn: false });
-  assert.equal(isHourActive(0.5, row), true);
-});
-
-test("isHourActive — night active, hour 7 → inactive (after night end)", () => {
-  const row = makeRow({ morningOn: false, afternoonOn: false });
-  assert.equal(isHourActive(7, row), false);
-});
-
-test("isHourActive — all shifts off, any hour → inactive", () => {
-  const row = makeRow({ morningOn: false, afternoonOn: false, nightOn: false });
-  assert.equal(isHourActive(10, row), false);
 });
 
 // --- isDateTimeActive — forward semantic NIGHT wrap ---

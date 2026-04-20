@@ -75,23 +75,6 @@ export function resolveShiftBounds(
   return { startMin, endMin };
 }
 
-/** Je hodina (0–24) v některém aktivním intervalu? */
-export function isHourActive(hour: number, row: MachineWeekShiftsRow): boolean {
-  const h = ((hour % 24) + 24) % 24;
-  const hMin = h * 60;
-  for (const shift of SHIFTS) {
-    const b = resolveShiftBounds(row, shift);
-    if (!b) continue;
-    if (b.endMin < b.startMin) {
-      // cross midnight (NIGHT): [startMin..1440) ∪ [0..endMin)
-      if (hMin >= b.startMin || hMin < b.endMin) return true;
-    } else {
-      if (hMin >= b.startMin && hMin < b.endMin) return true;
-    }
-  }
-  return false;
-}
-
 import { weekStartStrFromDateStr } from "./machineWeekShifts";
 
 /**

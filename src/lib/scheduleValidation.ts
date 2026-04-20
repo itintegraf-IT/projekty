@@ -1,5 +1,5 @@
 import { pragueOf } from "./dateUtils";
-import { deriveHoursFromShifts, resolveShiftBounds, isHourActive, isDateTimeActive } from "./shifts";
+import { deriveHoursFromShifts, resolveShiftBounds, isDateTimeActive } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 import { slotFromHourBoundary } from "./timeSlots";
 

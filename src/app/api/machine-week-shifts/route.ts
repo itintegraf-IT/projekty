@@ -150,7 +150,8 @@ type ConflictingBlock = { id: number; orderNumber: string; description: string |
 
 /**
  * Najde bloky typu ZAKAZKA/DATA/MATERIAL, které po změně pracovní doby
- * spadnou mimo aktivní intervaly. Používá isHourActive per slot.
+ * spadnou mimo aktivní intervaly. Používá checkScheduleViolationWithTemplates
+ * (forward-semantic NIGHT wrap) pro detekci.
  */
 async function findConflictingBlocks(
   machine: string,
@@ -173,7 +174,7 @@ async function findConflictingBlocks(
     select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
   });
 
-  // Emulovat weekShifts rows pro isHourActive.
+  // Emulovat weekShifts rows pro validátor.
   const synthRows: MachineWeekShiftsRow[] = newRows.map((r) => ({
     machine, weekStart: weekStartStr, dayOfWeek: r.dayOfWeek,
     isActive: r.isActive,
@@ -207,17 +208,24 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const weekStartParam = url.searchParams.get("weekStart");
-    if (!weekStartParam) throw new AppError("VALIDATION_ERROR", "Chybí parametr weekStart (YYYY-MM-DD)");
-    const parsed = parseCivilDateWriteInput(weekStartParam);
-    if (!parsed) throw new AppError("VALIDATION_ERROR", "Neplatný weekStart");
-    if (parsed !== weekStartStrFromDateStr(parsed))
-      throw new AppError("VALIDATION_ERROR", "weekStart musí být pondělí");
+    if (weekStartParam) {
+      const parsed = parseCivilDateWriteInput(weekStartParam);
+      if (!parsed) throw new AppError("VALIDATION_ERROR", "Neplatný weekStart");
+      if (parsed !== weekStartStrFromDateStr(parsed))
+        throw new AppError("VALIDATION_ERROR", "weekStart musí být pondělí");
 
-    await ensureWeekSeeded(parsed);
+      await ensureWeekSeeded(parsed);
 
+      const rows = await prisma.machineWeekShifts.findMany({
+        where: { weekStart: civilDateToUTCMidnight(parsed) },
+        orderBy: [{ machine: "asc" }, { dayOfWeek: "asc" }],
+      });
+      return NextResponse.json(rows.map(serializeRow));
+    }
+
+    // Bez parametru — vrátí všechny existující řádky (pro client-side refresh).
     const rows = await prisma.machineWeekShifts.findMany({
-      where: { weekStart: civilDateToUTCMidnight(parsed) },
-      orderBy: [{ machine: "asc" }, { dayOfWeek: "asc" }],
+      orderBy: [{ machine: "asc" }, { weekStart: "asc" }, { dayOfWeek: "asc" }],
     });
     return NextResponse.json(rows.map(serializeRow));
   } catch (err) {
