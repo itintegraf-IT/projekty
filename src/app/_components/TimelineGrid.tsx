@@ -2492,8 +2492,22 @@ export default function TimelineGrid({
       } else {
         // Sprint D1: interval-based blocked overlays — respektuje overrides a mezery mezi směnami.
         // Cross-midnight NIGHT (endMin < startMin) se rozdělí na [start, 48) a [0, end) pro daný den.
+        // Live preview: pokud je aktivní shiftEdgePreview pro tento stroj + den + směnu,
+        // override startMin/endMin před výpočtem span, aby se šrafování hýbalo spolu s handle.
+        const preview = shiftEdgePreview;
+        const previewMatchesDay =
+          preview && preview.machine === machine && utcToPragueDateStr(preview.date) === dateStr;
+        const effectiveIntervals = previewMatchesDay
+          ? row.intervals.map((iv) => {
+              if (iv.shift !== preview!.shift) return iv;
+              const startMin = preview!.edge === "start" ? preview!.previewMin : iv.startMin;
+              const endMin   = preview!.edge === "end"   ? preview!.previewMin : iv.endMin;
+              return { ...iv, startMin, endMin };
+            })
+          : row.intervals;
+
         const activeSpans: Array<[number, number]> = [];
-        for (const iv of row.intervals) {
+        for (const iv of effectiveIntervals) {
           const s = Math.round(iv.startMin / 30);
           const e = Math.round(iv.endMin / 30);
           if (iv.endMin < iv.startMin) {
