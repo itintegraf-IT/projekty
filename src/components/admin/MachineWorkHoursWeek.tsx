@@ -199,8 +199,7 @@ export function MachineWorkHoursWeek() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [editingOverride, setEditingOverride] = useState<{ machine: string; dow: number; shift: ShiftType } | null>(null);
-  const [popoverAnchor, setPopoverAnchor] = useState<DOMRect | null>(null);
+  const [popoverState, setPopoverState] = useState<{ machine: string; dow: number; shift: ShiftType; anchor: DOMRect } | null>(null);
   const [cascadeBlocks, setCascadeBlocks] = useState<ConflictingBlock[] | null>(null);
   const { toasts, showToast, dismissToast } = useToast();
   const savingRef = useRef(false);
@@ -279,13 +278,11 @@ export function MachineWorkHoursWeek() {
   };
 
   const openEditor = (machine: string, dow: number, shift: ShiftType, rect: DOMRect) => {
-    setEditingOverride({ machine, dow, shift });
-    setPopoverAnchor(rect);
+    setPopoverState({ machine, dow, shift, anchor: rect });
   };
 
   const closeEditor = () => {
-    setEditingOverride(null);
-    setPopoverAnchor(null);
+    setPopoverState(null);
   };
 
   const toggleShift = (machine: string, dow: number, shift: ShiftType) => {
@@ -646,20 +643,20 @@ export function MachineWorkHoursWeek() {
         </div>
       </div>
 
-      {editingOverride && popoverAnchor && (() => {
-        const row = rows[editingOverride.machine]?.find((r) => r.dayOfWeek === editingOverride.dow);
-        const sKey = shiftStartKey(editingOverride.shift);
-        const eKey = shiftEndKey(editingOverride.shift);
+      {popoverState && (() => {
+        const row = rows[popoverState.machine]?.find((r) => r.dayOfWeek === popoverState.dow);
+        const sKey = shiftStartKey(popoverState.shift);
+        const eKey = shiftEndKey(popoverState.shift);
         const cs = row ? row[sKey] : null;
         const ce = row ? row[eKey] : null;
         return (
           <ShiftHoursPopover
-            shift={editingOverride.shift}
-            anchor={popoverAnchor}
+            shift={popoverState.shift}
+            anchor={popoverState.anchor}
             currentStartMin={cs}
             currentEndMin={ce}
             onSave={(startMin, endMin) => {
-              saveOverride(editingOverride.machine, editingOverride.dow, editingOverride.shift, startMin, endMin);
+              saveOverride(popoverState.machine, popoverState.dow, popoverState.shift, startMin, endMin);
               closeEditor();
             }}
             onCancel={closeEditor}
