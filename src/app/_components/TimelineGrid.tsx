@@ -24,7 +24,8 @@ import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { resolveScheduleRows, resolveDayIntervals } from "@/lib/scheduleValidation";
-import { SHIFT_HOURS, fmtHHMM } from "@/lib/shifts";
+import { SHIFT_HOURS } from "@/lib/shifts";
+import { ShiftEdgeHandles } from "@/components/planner/ShiftEdgeHandles";
 import {
   HoverCard,
   HoverCardContent,
@@ -2923,214 +2924,22 @@ export default function TimelineGrid({
                 ))}
 
                 {/* Shift-edge handles — jen na hranici šrafování (přechod active ↔ blocked) */}
-                {canEdit && onShiftBoundsChange && machineWeekShifts && days.map((d) => {
-                  // Forward-semantic intervaly (včetně prev-day NIGHT tail) — single source of truth.
-                  const intervals = resolveDayIntervals(machine, d.dateStr, machineWeekShifts);
-                  if (intervals.length === 0) return null;
-
-                  // Aktivní sloty pro detekci sousedství se šrafováním.
-                  const activeSlots = new Set<number>();
-                  for (const iv of intervals) {
-                    const s = Math.round(iv.startMin / 30);
-                    const e = Math.round(iv.endMin / 30);
-                    for (let i = s; i < e; i++) activeSlots.add(i);
-                  }
-                  const isSlotBlocked = (slot: number): boolean => {
-                    if (slot < 0 || slot >= DAY_SLOT_COUNT) return false;
-                    return !activeSlots.has(slot);
-                  };
-
-                  const handles: React.ReactNode[] = [];
-                  // HandleInterval: vlastník (ownerDate) = den, jehož DB řádek handle edituje.
-                  type HandleInterval = {
-                    shift: "MORNING" | "AFTERNOON" | "NIGHT";
-                    startMin: number;
-                    endMin: number;
-                    emitStart: boolean;
-                    emitEnd: boolean;
-                    ownerDate: Date;
-                    ownerDateStr: string;
-                  };
-                  const handleIntervals: HandleInterval[] = intervals.map((iv) => {
-                    if (iv.source === "prev-tail") {
-                      // prev-tail: emitujeme jen END handle; edituje NIGHT end předchozího dne.
-                      const prev = new Date(d.date.getTime() - 24 * 60 * 60 * 1000);
-                      return {
-                        shift: iv.shift,
-                        startMin: iv.startMin,
-                        endMin: iv.endMin,
-                        emitStart: false,
-                        emitEnd: true,
-                        ownerDate: prev,
-                        ownerDateStr: utcToPragueDateStr(prev),
-                      };
+                {canEdit && onShiftBoundsChange && machineWeekShifts && days.map((d) => (
+                  <ShiftEdgeHandles
+                    key={`shift-handles-${d.dateStr}`}
+                    machine={machine}
+                    day={d}
+                    slotHeight={slotHeight}
+                    machineWeekShifts={machineWeekShifts}
+                    preview={shiftEdgePreview}
+                    dragStateRef={dragStateRef}
+                    dragDidMoveRef={dragDidMove}
+                    scrollRef={scrollRef}
+                    onReset={(m, ownerDate, shift, edge) =>
+                      callbacksRef.current.onShiftBoundsChange?.(m, ownerDate, shift, edge, null, false)
                     }
-                    // current: NIGHT má jen start (end patří next day), ostatní mají obojí.
-                    const isNight = iv.shift === "NIGHT";
-                    return {
-                      shift: iv.shift,
-                      startMin: iv.startMin,
-                      endMin: iv.endMin,
-                      emitStart: true,
-                      emitEnd: !isNight,
-                      ownerDate: d.date,
-                      ownerDateStr: d.dateStr,
-                    };
-                  });
-
-                  for (const hi of handleIntervals) {
-                    const shift = hi.shift;
-
-                    // Live preview override — musí odpovídat stejné směně i hraně i ownerovi.
-                    const preview = shiftEdgePreview;
-                    const sameDay = preview &&
-                      preview.machine === machine &&
-                      preview.shift === shift &&
-                      utcToPragueDateStr(preview.date) === hi.ownerDateStr;
-                    const effectiveStartMin = sameDay && preview.edge === "start" ? preview.previewMin : hi.startMin;
-                    const effectiveEndMin = sameDay && preview.edge === "end" ? preview.previewMin : hi.endMin;
-
-                    // Handle emit jen když sousedí se zablokovaným slotem.
-                    // Okraje dne (0:00 / 24:00) vždy emitujeme.
-                    // Během aktivního dragu vždy emit příslušnou hranu.
-                    const draggingStart = sameDay && preview.edge === "start";
-                    const draggingEnd = sameDay && preview.edge === "end";
-                    const effectiveStartSlot = Math.round(effectiveStartMin / 30);
-                    const effectiveEndSlot = Math.round(effectiveEndMin / 30);
-                    const emitStart = hi.emitStart && (draggingStart || effectiveStartSlot === 0 || isSlotBlocked(effectiveStartSlot - 1));
-                    const emitEnd = hi.emitEnd && (draggingEnd || effectiveEndSlot >= DAY_SLOT_COUNT || isSlotBlocked(effectiveEndSlot));
-
-                    // Slot-index Y výpočet — identický s blockedOverlays.
-                    const startY = d.y + (effectiveStartMin / 30) * slotHeight;
-                    const endY = d.y + (effectiveEndMin / 30) * slotHeight;
-
-                    const colorRgba = shift === "MORNING" ? "rgba(251,191,36,0.9)"
-                                    : shift === "AFTERNOON" ? "rgba(56,189,248,0.9)"
-                                    : "rgba(139,92,246,0.9)"; // NIGHT
-                    const tooltipShift = shift === "MORNING" ? "Ranní"
-                                       : shift === "AFTERNOON" ? "Odpolední"
-                                       : "Noční";
-
-                    if (emitStart) {
-                      handles.push(
-                        <div
-                          key={`shift-${machine}-${d.dateStr}-${shift}-start`}
-                          title={`${tooltipShift} start — táhni pro úpravu, pravý klik = reset`}
-                          onMouseDown={(e) => {
-                            if (e.button !== 0) return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            dragStateRef.current = {
-                              type: "shift-edge-resize",
-                              machine,
-                              date: hi.ownerDate,
-                              shift,
-                              edge: "start",
-                              origMin: hi.startMin,
-                              startClientY: e.clientY,
-                              startScrollTop: scrollRef.current?.scrollTop ?? 0,
-                              jointDrag: e.shiftKey,
-                            };
-                            dragDidMove.current = false;
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            callbacksRef.current.onShiftBoundsChange?.(machine, hi.ownerDate, shift, "start", null, false);
-                          }}
-                          style={{
-                            position: "absolute",
-                            top: startY,
-                            left: "50%",
-                            transform: "translate(-50%, -50%)",
-                            width: 36,
-                            height: 10,
-                            borderRadius: 5,
-                            background: colorRgba,
-                            cursor: "ns-resize",
-                            zIndex: 30,
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                            border: "1px solid rgba(0,0,0,0.4)",
-                          }}
-                        />,
-                      );
-                    }
-
-                    if (emitEnd) {
-                      handles.push(
-                        <div
-                          key={`shift-${machine}-${d.dateStr}-${shift}-end-from-${hi.ownerDateStr}`}
-                          title={`${tooltipShift} konec — táhni pro úpravu, pravý klik = reset`}
-                          onMouseDown={(e) => {
-                            if (e.button !== 0) return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            dragStateRef.current = {
-                              type: "shift-edge-resize",
-                              machine,
-                              date: hi.ownerDate,
-                              shift,
-                              edge: "end",
-                              origMin: hi.endMin,
-                              startClientY: e.clientY,
-                              startScrollTop: scrollRef.current?.scrollTop ?? 0,
-                              jointDrag: e.shiftKey,
-                            };
-                            dragDidMove.current = false;
-                          }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            callbacksRef.current.onShiftBoundsChange?.(machine, hi.ownerDate, shift, "end", null, false);
-                          }}
-                          style={{
-                            position: "absolute",
-                            top: endY,
-                            left: "50%",
-                            transform: "translate(-50%, -50%)",
-                            width: 36,
-                            height: 10,
-                            borderRadius: 5,
-                            background: colorRgba,
-                            cursor: "ns-resize",
-                            zIndex: 30,
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                            border: "1px solid rgba(0,0,0,0.4)",
-                          }}
-                        />,
-                      );
-                    }
-
-                    // Preview tooltip — jen pokud handle pro tuto hranu existuje.
-                    if (sameDay && ((preview.edge === "start" && emitStart) || (preview.edge === "end" && emitEnd))) {
-                      const previewY = preview.edge === "start" ? startY : endY;
-                      handles.push(
-                        <div
-                          key={`shift-${machine}-${d.dateStr}-${shift}-preview-from-${hi.ownerDateStr}`}
-                          style={{
-                            position: "absolute",
-                            top: previewY - 10,
-                            left: "calc(50% + 22px)",
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            background: "rgba(0,0,0,0.85)",
-                            color: "#fff",
-                            fontSize: 11,
-                            fontWeight: 700,
-                            fontVariantNumeric: "tabular-nums",
-                            pointerEvents: "none",
-                            zIndex: 31,
-                            whiteSpace: "nowrap",
-                            boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
-                          }}
-                        >
-                          {fmtHHMM(preview.previewMin)}
-                        </div>,
-                      );
-                    }
-                  }
-                  return <Fragment key={`shift-handles-${d.dateStr}`}>{handles}</Fragment>;
-                })}
+                  />
+                ))}
 
                 {/* Denní oddělovače — skryté jen když je červené šrafování na OBOU stranách přechodu */}
                 {days.map((d, di) => {
