@@ -12,6 +12,12 @@ Tento dokument popisuje bezpečný postup nasazování na Linux server
 - Na serveru neřešit merge konflikty. Merge z `Vojta` do `michal` dělat lokálně nebo přes GitHub.
 - Na produkci nikdy nespouštět `npm run prisma:seed`, protože je destruktivní.
 
+## Kdo co dělá
+
+- Vývoj (kroky 1–3 tohoto dokumentu): Vojta, lokálně na vývojovém počítači.
+- Server-side deploy (kroky 4–8): **Vojta** má SSH přístup na server a deploy provádí sám.
+- Dříve dělal server-side část Michal; od 2026-04-20 to přebírá Vojta.
+
 ## 1. Lokální kontrola před commitem
 
 Na vývojovém počítači:
@@ -72,6 +78,17 @@ První číslo `0` znamená, že `origin/michal` nechybí žádný commit z
 `origin/Vojta`.
 
 ## 4. Kontrola serveru před deployem
+
+### Připojení na server
+
+- SSH host: `192.168.10.210` (firemní síť)
+- Uživatel: `administrator`
+- Klient: PuTTY (Windows) nebo `ssh administrator@192.168.10.210` (macOS/Linux)
+- Produkční složka: `/var/www/planovanivyroby`
+- Heslo je mimo git — viz `~/Desktop/Vojta_KB/deploy-credentials.md`.
+
+Pro DB kontroly v kroku 7 se ještě musíš z shellu přihlásit do MySQL
+(`mysql -u <user> -p`). Credentials jsou ve stejném souboru.
 
 Na serveru:
 
