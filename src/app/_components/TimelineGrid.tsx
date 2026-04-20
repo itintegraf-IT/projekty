@@ -2974,16 +2974,17 @@ export default function TimelineGrid({
                         }}
                         style={{
                           position: "absolute",
-                          top: startY + 2,
+                          top: startY,
                           left: staggerLeftStart,
-                          transform: "translateX(-50%)",
-                          width: 28,
-                          height: 8,
-                          borderRadius: 4,
+                          transform: "translate(-50%, -50%)",
+                          width: 32,
+                          height: 10,
+                          borderRadius: 5,
                           background: colorRgba,
                           cursor: "ns-resize",
                           zIndex: 30,
                           boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                          border: "1px solid rgba(0,0,0,0.35)",
                         }}
                       />,
                     );
@@ -3017,16 +3018,17 @@ export default function TimelineGrid({
                         }}
                         style={{
                           position: "absolute",
-                          top: endY - 10,
+                          top: endY,
                           left: staggerLeftEnd,
-                          transform: "translateX(-50%)",
-                          width: 28,
-                          height: 8,
-                          borderRadius: 4,
+                          transform: "translate(-50%, -50%)",
+                          width: 32,
+                          height: 10,
+                          borderRadius: 5,
                           background: colorRgba,
                           cursor: "ns-resize",
                           zIndex: 30,
                           boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                          border: "1px solid rgba(0,0,0,0.35)",
                         }}
                       />,
                     );
