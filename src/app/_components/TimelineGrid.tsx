@@ -160,7 +160,7 @@ type DragInternalState =
       type: "shift-edge-resize";
       machine: string;
       date: Date;
-      shift: "MORNING" | "AFTERNOON";
+      shift: "MORNING" | "AFTERNOON" | "NIGHT";
       edge: "start" | "end";
       origMin: number;
       startClientY: number;
@@ -169,9 +169,11 @@ type DragInternalState =
     };
 
 // Validation ranges for shift-edge handles (in minutes from midnight)
-function rangeFor(shift: "MORNING" | "AFTERNOON", edge: "start" | "end"): [number, number] {
+function rangeFor(shift: "MORNING" | "AFTERNOON" | "NIGHT", edge: "start" | "end"): [number, number] {
   if (shift === "MORNING") return edge === "start" ? [240, 480] : [720, 960];
-  return edge === "start" ? [720, 960] : [1200, 1440];
+  if (shift === "AFTERNOON") return edge === "start" ? [720, 960] : [1200, 1440];
+  // NIGHT
+  return edge === "start" ? [1200, 1440] : [240, 480];
 }
 
 function formatHHMM(min: number): string {
@@ -233,7 +235,7 @@ interface TimelineGridProps {
   onShiftBoundsChange?: (
     machine: string,
     date: Date,
-    shift: "MORNING" | "AFTERNOON",
+    shift: "MORNING" | "AFTERNOON" | "NIGHT",
     edge: "start" | "end",
     newMin: number | null,
     joint?: boolean,
@@ -1804,7 +1806,7 @@ export default function TimelineGrid({
   const [lassoRect, setLassoRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [inlinePicker, setInlinePicker] = useState<{ blockId: number; field: "data" | "material" | "pantone"; currentValue: string; x: number; y: number } | null>(null);
   const [shiftEdgePreview, setShiftEdgePreview] = useState<{
-    machine: string; date: Date; shift: "MORNING" | "AFTERNOON"; edge: "start" | "end";
+    machine: string; date: Date; shift: "MORNING" | "AFTERNOON" | "NIGHT"; edge: "start" | "end";
     previewMin: number;
   } | null>(null);
   const shiftEdgePreviewRef = useRef(shiftEdgePreview);
@@ -2909,19 +2911,36 @@ export default function TimelineGrid({
                   />
                 ))}
 
-                {/* Shift-edge handles — drag pro úpravu hranic ranní/odpolední směny */}
-                {canEdit && onShiftBoundsChange && machineWeekShifts && viewStart && days.map((d) => {
+                {/* Shift-edge handles — jen na hranici šrafování (přechod active ↔ blocked) */}
+                {canEdit && onShiftBoundsChange && machineWeekShifts && days.map((d) => {
                   const rows = resolveScheduleRows(machine, d.date, machineWeekShifts);
                   const row = rows.find((r) => r.dayOfWeek === d.dayOfWeek);
                   if (!row || !row.isActive) return null;
+
+                  // Aktivní sloty pro detekci sousedství se šrafováním.
+                  const activeSlots = new Set<number>();
+                  for (const iv of row.intervals) {
+                    const s = Math.round(iv.startMin / 30);
+                    const e = Math.round(iv.endMin / 30);
+                    if (iv.endMin < iv.startMin) {
+                      for (let i = s; i < DAY_SLOT_COUNT; i++) activeSlots.add(i);
+                      for (let i = 0; i < e; i++) activeSlots.add(i);
+                    } else {
+                      for (let i = s; i < e; i++) activeSlots.add(i);
+                    }
+                  }
+                  const isSlotBlocked = (slot: number): boolean => {
+                    if (slot < 0 || slot >= DAY_SLOT_COUNT) return false;
+                    return !activeSlots.has(slot);
+                  };
+
                   const handles: React.ReactNode[] = [];
                   for (const iv of row.intervals) {
-                    if (iv.shift === "NIGHT") continue;
-                    const shift = iv.shift as "MORNING" | "AFTERNOON";
-                    // Shared-boundary detection
-                    const sharedStart = row.intervals.some((o) => o !== iv && o.endMin === iv.startMin);
-                    const sharedEnd = row.intervals.some((o) => o !== iv && o.startMin === iv.endMin);
-                    // Live preview override
+                    const shift = iv.shift;
+                    const startSlot = Math.round(iv.startMin / 30);
+                    const endSlot = Math.round(iv.endMin / 30);
+
+                    // Live preview override — musí odpovídat stejné směně i hraně.
                     const preview = shiftEdgePreview;
                     const sameDay = preview &&
                       preview.machine === machine &&
@@ -2930,111 +2949,115 @@ export default function TimelineGrid({
                     const effectiveStartMin = sameDay && preview.edge === "start" ? preview.previewMin : iv.startMin;
                     const effectiveEndMin = sameDay && preview.edge === "end" ? preview.previewMin : iv.endMin;
 
-                    // Slot-index Y-výpočet — stejný jako blockedOverlays, zaručuje vizuální soulad s šrafováním.
+                    // Handle emit jen když sousedí se zablokovaným slotem.
+                    // START edge: vnější = slot těsně před startSlot (výš v čase).
+                    // END edge:   vnější = slot na pozici endSlot (níž v čase).
+                    const emitStart = isSlotBlocked(startSlot - 1);
+                    const emitEnd = isSlotBlocked(endSlot);
+
+                    // Slot-index Y výpočet — identický s blockedOverlays.
                     const startY = d.y + (effectiveStartMin / 30) * slotHeight;
                     const endY = d.y + (effectiveEndMin / 30) * slotHeight;
 
-                    const colorRgba = shift === "MORNING" ? "rgba(251,191,36,0.85)" : "rgba(56,189,248,0.85)";
-                    const tooltipShift = shift === "MORNING" ? "Ranní" : "Odpolední";
+                    const colorRgba = shift === "MORNING" ? "rgba(251,191,36,0.9)"
+                                    : shift === "AFTERNOON" ? "rgba(56,189,248,0.9)"
+                                    : "rgba(139,92,246,0.9)"; // NIGHT
+                    const tooltipShift = shift === "MORNING" ? "Ranní"
+                                       : shift === "AFTERNOON" ? "Odpolední"
+                                       : "Noční";
 
-                    // Staggering when two handles occupy the same boundary
-                    const staggerLeftStart = sharedStart
-                      ? (shift === "MORNING" ? "calc(50% - 18px)" : "calc(50% + 18px)")
-                      : "50%";
-                    const staggerLeftEnd = sharedEnd
-                      ? (shift === "MORNING" ? "calc(50% - 18px)" : "calc(50% + 18px)")
-                      : "50%";
+                    if (emitStart) {
+                      handles.push(
+                        <div
+                          key={`shift-${machine}-${d.dateStr}-${shift}-start`}
+                          title={`${tooltipShift} start — táhni pro úpravu, pravý klik = reset`}
+                          onMouseDown={(e) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            dragStateRef.current = {
+                              type: "shift-edge-resize",
+                              machine,
+                              date: d.date,
+                              shift,
+                              edge: "start",
+                              origMin: iv.startMin,
+                              startClientY: e.clientY,
+                              startScrollTop: scrollRef.current?.scrollTop ?? 0,
+                              jointDrag: e.shiftKey,
+                            };
+                            dragDidMove.current = false;
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "start", null, false);
+                          }}
+                          style={{
+                            position: "absolute",
+                            top: startY,
+                            left: "50%",
+                            transform: "translate(-50%, -50%)",
+                            width: 36,
+                            height: 10,
+                            borderRadius: 5,
+                            background: colorRgba,
+                            cursor: "ns-resize",
+                            zIndex: 30,
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                            border: "1px solid rgba(0,0,0,0.4)",
+                          }}
+                        />,
+                      );
+                    }
 
-                    // START handle
-                    handles.push(
-                      <div
-                        key={`shift-${machine}-${d.dateStr}-${shift}-start`}
-                        title={`${tooltipShift} start — táhni pro úpravu, pravý klik = reset`}
-                        onMouseDown={(e) => {
-                          if (e.button !== 0) return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          dragStateRef.current = {
-                            type: "shift-edge-resize",
-                            machine,
-                            date: d.date,
-                            shift,
-                            edge: "start",
-                            origMin: iv.startMin,
-                            startClientY: e.clientY,
-                            startScrollTop: scrollRef.current?.scrollTop ?? 0,
-                            jointDrag: e.shiftKey,
-                          };
-                          dragDidMove.current = false;
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "start", null, false);
-                        }}
-                        style={{
-                          position: "absolute",
-                          top: startY,
-                          left: staggerLeftStart,
-                          transform: "translate(-50%, -50%)",
-                          width: 32,
-                          height: 10,
-                          borderRadius: 5,
-                          background: colorRgba,
-                          cursor: "ns-resize",
-                          zIndex: 30,
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                          border: "1px solid rgba(0,0,0,0.35)",
-                        }}
-                      />,
-                    );
+                    if (emitEnd) {
+                      handles.push(
+                        <div
+                          key={`shift-${machine}-${d.dateStr}-${shift}-end`}
+                          title={`${tooltipShift} konec — táhni pro úpravu, pravý klik = reset`}
+                          onMouseDown={(e) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            dragStateRef.current = {
+                              type: "shift-edge-resize",
+                              machine,
+                              date: d.date,
+                              shift,
+                              edge: "end",
+                              origMin: iv.endMin,
+                              startClientY: e.clientY,
+                              startScrollTop: scrollRef.current?.scrollTop ?? 0,
+                              jointDrag: e.shiftKey,
+                            };
+                            dragDidMove.current = false;
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "end", null, false);
+                          }}
+                          style={{
+                            position: "absolute",
+                            top: endY,
+                            left: "50%",
+                            transform: "translate(-50%, -50%)",
+                            width: 36,
+                            height: 10,
+                            borderRadius: 5,
+                            background: colorRgba,
+                            cursor: "ns-resize",
+                            zIndex: 30,
+                            boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                            border: "1px solid rgba(0,0,0,0.4)",
+                          }}
+                        />,
+                      );
+                    }
 
-                    // END handle
-                    handles.push(
-                      <div
-                        key={`shift-${machine}-${d.dateStr}-${shift}-end`}
-                        title={`${tooltipShift} konec — táhni pro úpravu, pravý klik = reset`}
-                        onMouseDown={(e) => {
-                          if (e.button !== 0) return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          dragStateRef.current = {
-                            type: "shift-edge-resize",
-                            machine,
-                            date: d.date,
-                            shift,
-                            edge: "end",
-                            origMin: iv.endMin,
-                            startClientY: e.clientY,
-                            startScrollTop: scrollRef.current?.scrollTop ?? 0,
-                            jointDrag: e.shiftKey,
-                          };
-                          dragDidMove.current = false;
-                        }}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "end", null, false);
-                        }}
-                        style={{
-                          position: "absolute",
-                          top: endY,
-                          left: staggerLeftEnd,
-                          transform: "translate(-50%, -50%)",
-                          width: 32,
-                          height: 10,
-                          borderRadius: 5,
-                          background: colorRgba,
-                          cursor: "ns-resize",
-                          zIndex: 30,
-                          boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-                          border: "1px solid rgba(0,0,0,0.35)",
-                        }}
-                      />,
-                    );
-
-                    // Live preview tooltip showing HH:MM
-                    if (sameDay) {
+                    // Preview tooltip — jen pokud handle pro tuto hranu existuje.
+                    if (sameDay && ((preview.edge === "start" && emitStart) || (preview.edge === "end" && emitEnd))) {
                       const previewY = preview.edge === "start" ? startY : endY;
                       handles.push(
                         <div
@@ -3042,7 +3065,7 @@ export default function TimelineGrid({
                           style={{
                             position: "absolute",
                             top: previewY - 10,
-                            left: preview.edge === "start" ? "calc(50% + 22px)" : "calc(50% + 22px)",
+                            left: "calc(50% + 22px)",
                             padding: "2px 6px",
                             borderRadius: 4,
                             background: "rgba(0,0,0,0.85)",

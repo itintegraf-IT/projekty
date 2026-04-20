@@ -874,7 +874,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     async (
       machine: string,
       date: Date,
-      shift: "MORNING" | "AFTERNOON",
+      shift: "MORNING" | "AFTERNOON" | "NIGHT",
       edge: "start" | "end",
       newMin: number | null,
       joint: boolean = false,
@@ -883,8 +883,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const weekStart = weekStartStrFromDateStr(dateStr);
       const current = machineWeekShifts.filter((r) => r.machine === machine && r.weekStart === weekStart);
       const byDow = new Map(current.map((r) => [r.dayOfWeek, r]));
-      const fieldName = (s: "MORNING" | "AFTERNOON", ed: "start" | "end") => {
-        const prefix = s === "MORNING" ? "morning" : "afternoon";
+      const fieldName = (s: "MORNING" | "AFTERNOON" | "NIGHT", ed: "start" | "end") => {
+        const prefix = s === "MORNING" ? "morning" : s === "AFTERNOON" ? "afternoon" : "night";
         return ed === "start" ? `${prefix}StartMin` : `${prefix}EndMin`;
       };
       const days: Record<string, unknown>[] = [];
