@@ -14,8 +14,8 @@ model AuditLog {
   username    String
   action      String
   field       String?
-  oldValue    String?
-  newValue    String?
+  oldValue    String?  @db.Text
+  newValue    String?  @db.Text
   createdAt   DateTime @default(now())
   orderNumber String?
 
