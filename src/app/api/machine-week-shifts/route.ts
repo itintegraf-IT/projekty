@@ -7,6 +7,7 @@ import { civilDateToUTCMidnight, parseCivilDateWriteInput, normalizeCivilDateInp
 import { emitSSE } from "@/lib/eventBus";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { SHIFT_EDIT_RANGES, fmtHHMM } from "@/lib/shifts";
+import { findConflictingBlocks } from "@/lib/findConflictingBlocks";
 
 function errorStatus(code: string): number {
   if (code === "FORBIDDEN") return 403;
@@ -138,61 +139,6 @@ async function ensureWeekSeeded(weekStartStr: string): Promise<void> {
   if (seeds.length === 0) return;
   await prisma.machineWeekShifts.createMany({ data: seeds, skipDuplicates: true });
   logger.info("[machine-week-shifts] auto-seeded week", { weekStart: weekStartStr, count: seeds.length });
-}
-
-type ConflictingBlock = { id: number; orderNumber: string; description: string | null; startTime: string; endTime: string };
-
-/**
- * Najde bloky typu ZAKAZKA/DATA/MATERIAL, které po změně pracovní doby
- * spadnou mimo aktivní intervaly. Používá checkScheduleViolationWithTemplates
- * (forward-semantic NIGHT wrap) pro detekci.
- */
-async function findConflictingBlocks(
-  machine: string,
-  weekStartStr: string,
-  newRows: Array<{ dayOfWeek: number; morningOn: boolean; afternoonOn: boolean; nightOn: boolean;
-    morningStartMin: number | null; morningEndMin: number | null;
-    afternoonStartMin: number | null; afternoonEndMin: number | null;
-    nightStartMin: number | null; nightEndMin: number | null; isActive: boolean; }>
-): Promise<ConflictingBlock[]> {
-  const weekStartDate = civilDateToUTCMidnight(weekStartStr);
-  const weekEnd = new Date(weekStartDate);
-  weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
-
-  // Fetch bloky v rozsahu týdne.
-  const blocks = await prisma.block.findMany({
-    where: {
-      machine,
-      startTime: { gte: weekStartDate, lt: weekEnd },
-    },
-    select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
-  });
-
-  // Emulovat weekShifts rows pro validátor.
-  const synthRows: MachineWeekShiftsRow[] = newRows.map((r) => ({
-    machine, weekStart: weekStartStr, dayOfWeek: r.dayOfWeek,
-    isActive: r.isActive,
-    morningOn: r.morningOn, afternoonOn: r.afternoonOn, nightOn: r.nightOn,
-    morningStartMin: r.morningStartMin, morningEndMin: r.morningEndMin,
-    afternoonStartMin: r.afternoonStartMin, afternoonEndMin: r.afternoonEndMin,
-    nightStartMin: r.nightStartMin, nightEndMin: r.nightEndMin,
-  }));
-
-  const { checkScheduleViolationWithTemplates } = await import("@/lib/scheduleValidation");
-  const conflicts: ConflictingBlock[] = [];
-  for (const b of blocks) {
-    const violation = checkScheduleViolationWithTemplates(machine, b.startTime, b.endTime, synthRows);
-    if (violation) {
-      conflicts.push({
-        id: b.id,
-        orderNumber: b.orderNumber,
-        description: b.description,
-        startTime: b.startTime.toISOString(),
-        endTime: b.endTime.toISOString(),
-      });
-    }
-  }
-  return conflicts;
 }
 
 export async function GET(req: Request) {
