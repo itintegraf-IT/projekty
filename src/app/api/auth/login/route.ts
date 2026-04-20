@@ -3,40 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/auth";
-
-// In-memory rate limiter: max 10 attempts per IP per 15 minutes
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT_MAX = 10;
-const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-
-function getClientIp(req: NextRequest): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    req.headers.get("x-real-ip") ??
-    "unknown"
-  );
-}
-
-function checkRateLimit(ip: string): { allowed: boolean; retryAfterSeconds: number } {
-  const now = Date.now();
-  const entry = loginAttempts.get(ip);
-
-  if (!entry || now > entry.resetAt) {
-    loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return { allowed: true, retryAfterSeconds: 0 };
-  }
-
-  if (entry.count >= RATE_LIMIT_MAX) {
-    return { allowed: false, retryAfterSeconds: Math.ceil((entry.resetAt - now) / 1000) };
-  }
-
-  entry.count += 1;
-  return { allowed: true, retryAfterSeconds: 0 };
-}
+import { checkRateLimit, getClientIp } from "@/lib/rateLimiter";
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
-  const { allowed, retryAfterSeconds } = checkRateLimit(ip);
+  const { allowed, retryAfterSeconds } = checkRateLimit("login", ip, 10, 15 * 60 * 1000);
   if (!allowed) {
     return NextResponse.json(
       { error: `Příliš mnoho pokusů. Zkuste znovu za ${Math.ceil(retryAfterSeconds / 60)} minut.` },

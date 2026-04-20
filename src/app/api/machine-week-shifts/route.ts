@@ -8,6 +8,8 @@ import { emitSSE } from "@/lib/eventBus";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { SHIFT_EDIT_RANGES, fmtHHMM } from "@/lib/shifts";
 import { findConflictingBlocks } from "@/lib/findConflictingBlocks";
+import { checkScheduleViolationWithTemplates } from "@/lib/scheduleValidation";
+import { checkRateLimit } from "@/lib/rateLimiter";
 
 function errorStatus(code: string): number {
   if (code === "FORBIDDEN") return 403;
@@ -180,6 +182,14 @@ export async function PUT(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!["ADMIN", "PLANOVAT"].includes(session.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { allowed, retryAfterSeconds } = checkRateLimit("put-shifts", String(session.id), 60, 60 * 1000);
+  if (!allowed) {
+    return NextResponse.json(
+      { error: `Příliš mnoho requestů. Zkuste znovu za ${retryAfterSeconds}s.` },
+      { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+    );
+  }
 
   try {
     const body = (await req.json()) as {
