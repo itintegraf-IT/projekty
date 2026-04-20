@@ -314,9 +314,42 @@ export async function PUT(req: Request) {
     const beforePayload = beforeSorted.map(encodeDay).join("|");
     const afterPayload = `${machine} ${parsedWeek}${force ? " [FORCE]" : ""} ${afterSorted.map(encodeDay).join("|")}`;
 
-    await prisma.$transaction([
-      ...normalized.map((d) =>
-        prisma.machineWeekShifts.upsert({
+    const updated = await prisma.$transaction(async (tx) => {
+      // Re-check cascade v transakci (TOCTOU protection).
+      // Mezi findConflictingBlocks (před transakcí) a commitem mohl jiný uživatel
+      // vytvořit konfliktní blok — tento re-check to zachytí.
+      if (!force) {
+        const weekEnd = new Date(weekStartDate);
+        weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
+        const blocks = await tx.block.findMany({
+          where: { machine, startTime: { gte: weekStartDate, lt: weekEnd } },
+          select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
+        });
+        const synthRows: MachineWeekShiftsRow[] = normalized.map((r) => ({
+          machine,
+          weekStart: parsedWeek,
+          dayOfWeek: r.dayOfWeek,
+          isActive: r.isActive,
+          morningOn: r.morningOn,
+          afternoonOn: r.afternoonOn,
+          nightOn: r.nightOn,
+          morningStartMin: r.morningStartMin,
+          morningEndMin: r.morningEndMin,
+          afternoonStartMin: r.afternoonStartMin,
+          afternoonEndMin: r.afternoonEndMin,
+          nightStartMin: r.nightStartMin,
+          nightEndMin: r.nightEndMin,
+        }));
+        for (const b of blocks) {
+          const violation = checkScheduleViolationWithTemplates(machine, b.startTime, b.endTime, synthRows);
+          if (violation) {
+            throw new AppError("CONFLICT", "SHIFT_SHRINK_CASCADE_RACE");
+          }
+        }
+      }
+
+      for (const d of normalized) {
+        await tx.machineWeekShifts.upsert({
           where: {
             machine_weekStart_dayOfWeek: {
               machine,
@@ -351,9 +384,10 @@ export async function PUT(req: Request) {
             nightStartMin: d.nightStartMin,
             nightEndMin: d.nightEndMin,
           },
-        })
-      ),
-      prisma.auditLog.create({
+        });
+      }
+
+      await tx.auditLog.create({
         data: {
           blockId: 0,
           userId: session.id,
@@ -363,18 +397,24 @@ export async function PUT(req: Request) {
           oldValue: beforePayload,
           newValue: afterPayload,
         },
-      }),
-    ]);
+      });
 
-    const updated = await prisma.machineWeekShifts.findMany({
-      where: { machine, weekStart: weekStartDate },
-      orderBy: { dayOfWeek: "asc" },
+      return await tx.machineWeekShifts.findMany({
+        where: { machine, weekStart: weekStartDate },
+        orderBy: { dayOfWeek: "asc" },
+      });
     });
 
     emitSSE("schedule:changed", { sourceUserId: session.id });
-    logger.info("[machine-week-shifts PUT] updated", { machine, weekStart: parsedWeek, force });
+    logger.info("[machine-week-shifts PUT] updated", { machine, weekStart: parsedWeek, force, userId: session.id });
     return NextResponse.json(updated.map(serializeRow));
   } catch (err) {
+    if (isAppError(err) && err.code === "CONFLICT" && err.message === "SHIFT_SHRINK_CASCADE_RACE") {
+      return NextResponse.json(
+        { error: "SHIFT_SHRINK_CASCADE_RACE", message: "Jiný uživatel vytvořil konfliktní blok. Obnov zobrazení." },
+        { status: 409 }
+      );
+    }
     if (isAppError(err)) return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     logger.error("[machine-week-shifts PUT] neočekávaná chyba", err);
     return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });
