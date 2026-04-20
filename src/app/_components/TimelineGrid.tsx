@@ -2930,10 +2930,9 @@ export default function TimelineGrid({
                     const effectiveStartMin = sameDay && preview.edge === "start" ? preview.previewMin : iv.startMin;
                     const effectiveEndMin = sameDay && preview.edge === "end" ? preview.previewMin : iv.endMin;
 
-                    const startTime = new Date(d.date.getTime() + effectiveStartMin * 60 * 1000);
-                    const endTime = new Date(d.date.getTime() + effectiveEndMin * 60 * 1000);
-                    const startY = dateToY(startTime, viewStart, slotHeight);
-                    const endY = dateToY(endTime, viewStart, slotHeight);
+                    // Slot-index Y-výpočet — stejný jako blockedOverlays, zaručuje vizuální soulad s šrafováním.
+                    const startY = d.y + (effectiveStartMin / 30) * slotHeight;
+                    const endY = d.y + (effectiveEndMin / 30) * slotHeight;
 
                     const colorRgba = shift === "MORNING" ? "rgba(251,191,36,0.85)" : "rgba(56,189,248,0.85)";
                     const tooltipShift = shift === "MORNING" ? "Ranní" : "Odpolední";
