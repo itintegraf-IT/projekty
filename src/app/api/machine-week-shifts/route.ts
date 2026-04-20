@@ -366,7 +366,7 @@ export async function PUT(req: Request) {
       .sort((a, b) => a.dayOfWeek - b.dayOfWeek);
     const afterSorted = normalized.slice().sort((a, b) => a.dayOfWeek - b.dayOfWeek);
     const beforePayload = beforeSorted.map(encodeDay).join("|");
-    const afterPayload = `${machine} ${parsedWeek} ${afterSorted.map(encodeDay).join("|")}`;
+    const afterPayload = `${machine} ${parsedWeek}${force ? " [FORCE]" : ""} ${afterSorted.map(encodeDay).join("|")}`;
 
     await prisma.$transaction([
       ...normalized.map((d) =>
@@ -426,7 +426,7 @@ export async function PUT(req: Request) {
     });
 
     emitSSE("schedule:changed", { sourceUserId: session.id });
-    logger.info("[machine-week-shifts PUT] updated", { machine, weekStart: parsedWeek });
+    logger.info("[machine-week-shifts PUT] updated", { machine, weekStart: parsedWeek, force });
     return NextResponse.json(updated.map(serializeRow));
   } catch (err) {
     if (isAppError(err)) return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
