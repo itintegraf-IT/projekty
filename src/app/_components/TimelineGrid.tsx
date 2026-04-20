@@ -20,7 +20,7 @@ import {
 } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
-import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
+import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { resolveScheduleRows, resolveDayIntervals } from "@/lib/scheduleValidation";
@@ -2857,9 +2857,9 @@ export default function TimelineGrid({
                   const allResolvedRows = machineWeekShifts
                     ? visibleMachines.flatMap((m) => resolveScheduleRows(m, d.date, machineWeekShifts))
                     : [];
-                  const activeMachines = allResolvedRows.filter((r) => r.dayOfWeek === dow && r.isActive);
-                  const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => slotToHour(getSlotRange(r).startSlot))) : WORK_START_H;
-                  const nightStart = activeMachines.length > 0 ? Math.max(...activeMachines.map((r) => slotToHour(getSlotRange(r).endSlot)))   : WORK_END_H;
+                  const activeMachines = allResolvedRows.filter((r) => r.dayOfWeek === dow && r.isActive && r.intervals.length > 0);
+                  const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => Math.min(...r.intervals.map((iv) => iv.startMin)) / 60)) : WORK_START_H;
+                  const nightStart = activeMachines.length > 0 ? Math.max(...activeMachines.map((r) => Math.max(...r.intervals.map((iv) => iv.endMin)) / 60))   : WORK_END_H;
                   const midpoint   = Math.round((nightEnd + nightStart) / 2); // střed pracovního okna (pro ranní/odpolední split)
                   return (
                     <Fragment key={`dayshade-${d.y}`}>

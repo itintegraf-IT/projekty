@@ -1,20 +1,15 @@
 import { pragueOf } from "./dateUtils";
-import { deriveHoursFromShifts, resolveShiftBounds, isDateTimeActive } from "./shifts";
+import { resolveShiftBounds, isDateTimeActive } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 import { slotFromHourBoundary } from "./timeSlots";
 
 export type DayScheduleRow = {
   machine: string;
   dayOfWeek: number;
-  startHour: number;    // legacy union (earliest start .. latest end)
-  endHour: number;
-  startSlot: number;
-  endSlot: number;
   isActive: boolean;
   morningOn: boolean;
   afternoonOn: boolean;
   nightOn: boolean;
-  // NEW — multi-interval (v minutách od půlnoci, cross-midnight pro NIGHT povolené)
   intervals: Array<{ shift: "MORNING" | "AFTERNOON" | "NIGHT"; startMin: number; endMin: number }>;
 };
 
@@ -33,7 +28,6 @@ export function resolveScheduleRows(
   const weekStart = weekStartStrFromDateStr(dateStr);
   const weekRows = weekShifts.filter((w) => w.machine === machine && w.weekStart === weekStart);
   return weekRows.map((w) => {
-    const { startHour, endHour } = deriveHoursFromShifts(w);
     const intervals: DayScheduleRow["intervals"] = [];
     for (const shift of ["MORNING", "AFTERNOON", "NIGHT"] as const) {
       const b = resolveShiftBounds(w, shift);
@@ -42,14 +36,10 @@ export function resolveScheduleRows(
     return {
       machine,
       dayOfWeek: w.dayOfWeek,
-      startHour,
-      endHour,
-      startSlot: slotFromHourBoundary(startHour),
-      endSlot: slotFromHourBoundary(endHour),
       isActive: w.isActive,
-      morningOn: w.morningOn,
-      afternoonOn: w.afternoonOn,
-      nightOn: w.nightOn,
+      morningOn: Boolean(w.morningOn),
+      afternoonOn: Boolean(w.afternoonOn),
+      nightOn: Boolean(w.nightOn),
       intervals,
     };
   });
