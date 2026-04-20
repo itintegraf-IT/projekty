@@ -19,7 +19,7 @@ import {
   utcToPragueHour,
 } from "@/lib/dateUtils";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
-import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
 import { Textarea }  from "@/components/ui/textarea";
@@ -517,7 +517,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [machineWeekShifts, setMachineWeekShifts] = useState<MachineWeekShiftsRow[]>(initialMachineWeekShifts);
   const [plannerCascade, setPlannerCascade] = useState<{
     conflicts: ConflictingBlock[];
-    pendingPayload: { machine: string; weekStart: string; days: unknown[] };
+    pendingPayload: { machine: string; weekStart: string; days: ShiftDayPayload[] };
   } | null>(null);
   const [showShutdowns, setShowShutdowns] = useState(false);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
@@ -887,10 +887,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const prefix = s === "MORNING" ? "morning" : s === "AFTERNOON" ? "afternoon" : "night";
         return ed === "start" ? `${prefix}StartMin` : `${prefix}EndMin`;
       };
-      const days: Record<string, unknown>[] = [];
+      const days: ShiftDayPayload[] = [];
       for (let dow = 0; dow < 7; dow++) {
         const r = byDow.get(dow);
-        const base: Record<string, unknown> = {
+        const base: ShiftDayPayload = {
           dayOfWeek: dow,
           isActive: r?.isActive ?? false,
           morningOn: r?.morningOn ?? false,
@@ -904,7 +904,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           nightEndMin: r?.nightEndMin ?? null,
         };
         if (dow === dayOfWeek) {
-          base[fieldName(shift, edge)] = newMin;
+          (base as unknown as Record<string, number | null>)[fieldName(shift, edge)] = newMin;
           if (joint) {
             // MORNING end shared with AFTERNOON start — update both
             if (shift === "MORNING" && edge === "end") base.afternoonStartMin = newMin;
@@ -932,7 +932,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           showToast(body.error ?? "Chyba úpravy pracovní doby", "error");
           return;
         }
-        await refetchWeekShifts();
+        // Server vrací updated rows pro tento week+machine — zmergujeme je do state.
+        const updatedRows = (await res.json().catch(() => null)) as MachineWeekShiftsRow[] | null;
+        if (updatedRows && Array.isArray(updatedRows)) {
+          setMachineWeekShifts((prev) => {
+            const without = prev.filter((r) => !(r.machine === machine && r.weekStart === weekStart));
+            return [...without, ...updatedRows];
+          });
+        }
       } catch (err) {
         console.error("[updateShiftBounds] failed", err);
         showToast("Chyba úpravy pracovní doby", "error");

@@ -23,6 +23,24 @@ export type MachineWeekShiftsRow = {
 };
 
 /**
+ * Payload pro jeden den v PUT /api/machine-week-shifts (body.days[]).
+ * Pevný tvar — validátor v route.ts očekává tyto klíče.
+ */
+export type ShiftDayPayload = {
+  dayOfWeek: number;
+  isActive: boolean;
+  morningOn: boolean;
+  afternoonOn: boolean;
+  nightOn: boolean;
+  morningStartMin: number | null;
+  morningEndMin: number | null;
+  afternoonStartMin: number | null;
+  afternoonEndMin: number | null;
+  nightStartMin: number | null;
+  nightEndMin: number | null;
+};
+
+/**
  * Vrátí YYYY-MM-DD pondělí týdne, do kterého spadá civil date.
  * Operuje čistě stringově (bez TZ) — vhodné pro lookup v poli weekShifts.
  */
