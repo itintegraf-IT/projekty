@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkScheduleViolationWithTemplates } from "./scheduleValidation";
+import { checkScheduleViolationWithTemplates, resolveDayIntervals } from "./scheduleValidation";
 import { pragueToUTC } from "./dateUtils";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
 
@@ -243,4 +243,37 @@ test("checkScheduleViolationWithTemplates — Po NIGHT ✓, Ne vše ✗, blok Ne
   const end = new Date("2026-04-20T00:00:00.000Z");   // Po 02:00 Prague
   const result = checkScheduleViolationWithTemplates("XL_106", start, end, rows);
   assert.notEqual(result, null, "Ne NIGHT ✗ → 23:00 musí být VIOLATION i když Po NIGHT ✓");
+});
+
+// --- resolveDayIntervals (Task 1.5) ---
+
+test("resolveDayIntervals — Po MORNING+AFTERNOON → 2 current intervaly", () => {
+  const rows: MachineWeekShiftsRow[] = [
+    { id: undefined, machine: "XL_106", weekStart: "2026-04-20", dayOfWeek: 1, isActive: true,
+      morningOn: true, afternoonOn: true, nightOn: false,
+      morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null },
+  ];
+  const intervals = resolveDayIntervals("XL_106", "2026-04-20", rows);
+  assert.deepEqual(intervals, [
+    { shift: "MORNING", startMin: 360, endMin: 840, source: "current" },
+    { shift: "AFTERNOON", startMin: 840, endMin: 1320, source: "current" },
+  ]);
+});
+
+test("resolveDayIntervals — Ne NIGHT ✓ Po vše ✗ → Po má jen prev-tail [0, 360)", () => {
+  const rows: MachineWeekShiftsRow[] = [
+    { id: undefined, machine: "XL_106", weekStart: "2026-04-13", dayOfWeek: 0, isActive: true,
+      morningOn: false, afternoonOn: false, nightOn: true,
+      morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null },
+    { id: undefined, machine: "XL_106", weekStart: "2026-04-20", dayOfWeek: 1, isActive: false,
+      morningOn: false, afternoonOn: false, nightOn: false,
+      morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+      nightStartMin: null, nightEndMin: null },
+  ];
+  const intervals = resolveDayIntervals("XL_106", "2026-04-20", rows);
+  assert.deepEqual(intervals, [
+    { shift: "NIGHT", startMin: 0, endMin: 360, source: "prev-tail" },
+  ]);
 });

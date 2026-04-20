@@ -22,8 +22,8 @@ import { badgeColorVar } from "@/lib/badgeColors";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT, getSlotRange, slotToHour } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
-import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
-import { resolveScheduleRows } from "@/lib/scheduleValidation";
+import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import { resolveScheduleRows, resolveDayIntervals } from "@/lib/scheduleValidation";
 import { SHIFT_HOURS } from "@/lib/shifts";
 import {
   HoverCard,
@@ -2099,6 +2099,8 @@ export default function TimelineGrid({
       if (!ds || !vs) return;
 
       const moved = dragDidMove.current;
+      // Snapshot shift-edge preview BEFORE clearing — jinak by ho ref mohl ztratit.
+      const shiftPreviewSnapshot = shiftEdgePreviewRef.current;
       dragStateRef.current = null;
       dragDidMove.current  = false;
       setDragPreview(null);
@@ -2108,7 +2110,7 @@ export default function TimelineGrid({
       // shift-edge-resize handles own commit, with moved==false allowed fall-through
       if (ds.type === "shift-edge-resize") {
         if (!moved) return;
-        const preview = shiftEdgePreviewRef.current;
+        const preview = shiftPreviewSnapshot;
         if (!preview || preview.previewMin === ds.origMin) return;
         const def = SHIFT_HOURS[ds.shift];
         const defaultMin = ds.edge === "start" ? def.start * 60 : def.end * 60;
@@ -2487,35 +2489,36 @@ export default function TimelineGrid({
             blockedOverlays.XL_106.push({ top: dayY + WORK_END_SLOT * slotHeight, height: (DAY_SLOT_COUNT - WORK_END_SLOT) * slotHeight, key: `b106-fri-${di}`, date: day, machine, overlayType: "end-block", effectiveStartSlot: WORK_END_SLOT, effectiveEndSlot: DAY_SLOT_COUNT, isException: false, exceptionId: null });
           }
         }
-      } else if (!row.isActive) {
-        blockedOverlays[machine].push({ top: dayY, height: dayHeight, key: `b-${machine}-off-${di}`, date: day, machine, overlayType: "full-block", effectiveStartSlot: 0, effectiveEndSlot: DAY_SLOT_COUNT, isException, exceptionId: excId });
       } else {
-        // Sprint D1: interval-based blocked overlays — respektuje overrides a mezery mezi směnami.
-        // Cross-midnight NIGHT (endMin < startMin) se rozdělí na [start, 48) a [0, end) pro daný den.
-        // Live preview: pokud je aktivní shiftEdgePreview pro tento stroj + den + směnu,
-        // override startMin/endMin před výpočtem span, aby se šrafování hýbalo spolu s handle.
+        // Forward-semantic intervaly (včetně prev-day NIGHT tail) — single source of truth.
+        const intervals = machineWeekShifts
+          ? resolveDayIntervals(machine, dateStr, machineWeekShifts)
+          : [];
+        // Live preview override pro aktuální den (jen source=current).
         const preview = shiftEdgePreview;
         const previewMatchesDay =
           preview && preview.machine === machine && utcToPragueDateStr(preview.date) === dateStr;
-        const effectiveIntervals = previewMatchesDay
-          ? row.intervals.map((iv) => {
-              if (iv.shift !== preview!.shift) return iv;
-              const startMin = preview!.edge === "start" ? preview!.previewMin : iv.startMin;
-              const endMin   = preview!.edge === "end"   ? preview!.previewMin : iv.endMin;
-              return { ...iv, startMin, endMin };
-            })
-          : row.intervals;
+
+        // Pro prev-tail: preview.date ukazuje na předchozí den (owner).
+        const prevDate = new Date(day.getTime() - 24 * 60 * 60 * 1000);
+        const previewMatchesPrev =
+          preview && preview.machine === machine && preview.shift === "NIGHT" &&
+          preview.edge === "end" && utcToPragueDateStr(preview.date) === utcToPragueDateStr(prevDate);
 
         const activeSpans: Array<[number, number]> = [];
-        for (const iv of effectiveIntervals) {
-          const s = Math.round(iv.startMin / 30);
-          const e = Math.round(iv.endMin / 30);
-          if (iv.endMin < iv.startMin) {
-            activeSpans.push([s, DAY_SLOT_COUNT]);
-            if (e > 0) activeSpans.push([0, e]);
-          } else if (e > s) {
-            activeSpans.push([s, e]);
+        for (const iv of intervals) {
+          let startMin = iv.startMin;
+          let endMin = iv.endMin;
+          if (iv.source === "current" && previewMatchesDay && preview!.shift === iv.shift) {
+            if (preview!.edge === "start") startMin = preview!.previewMin;
+            if (preview!.edge === "end") endMin = preview!.previewMin;
+          } else if (iv.source === "prev-tail" && previewMatchesPrev) {
+            // Drag NIGHT-end of prev day: tail shrinks/expands on current day.
+            endMin = preview!.previewMin;
           }
+          const s = Math.round(startMin / 30);
+          const e = Math.round(endMin / 30);
+          if (e > s) activeSpans.push([s, e]);
         }
         // Sort + merge překrývajících se / sousedících span.
         activeSpans.sort((a, b) => a[0] - b[0]);
@@ -2927,21 +2930,16 @@ export default function TimelineGrid({
 
                 {/* Shift-edge handles — jen na hranici šrafování (přechod active ↔ blocked) */}
                 {canEdit && onShiftBoundsChange && machineWeekShifts && days.map((d) => {
-                  const rows = resolveScheduleRows(machine, d.date, machineWeekShifts);
-                  const row = rows.find((r) => r.dayOfWeek === d.dayOfWeek);
-                  if (!row || !row.isActive) return null;
+                  // Forward-semantic intervaly (včetně prev-day NIGHT tail) — single source of truth.
+                  const intervals = resolveDayIntervals(machine, d.dateStr, machineWeekShifts);
+                  if (intervals.length === 0) return null;
 
                   // Aktivní sloty pro detekci sousedství se šrafováním.
                   const activeSlots = new Set<number>();
-                  for (const iv of row.intervals) {
+                  for (const iv of intervals) {
                     const s = Math.round(iv.startMin / 30);
                     const e = Math.round(iv.endMin / 30);
-                    if (iv.endMin < iv.startMin) {
-                      for (let i = s; i < DAY_SLOT_COUNT; i++) activeSlots.add(i);
-                      for (let i = 0; i < e; i++) activeSlots.add(i);
-                    } else {
-                      for (let i = s; i < e; i++) activeSlots.add(i);
-                    }
+                    for (let i = s; i < e; i++) activeSlots.add(i);
                   }
                   const isSlotBlocked = (slot: number): boolean => {
                     if (slot < 0 || slot >= DAY_SLOT_COUNT) return false;
@@ -2949,25 +2947,64 @@ export default function TimelineGrid({
                   };
 
                   const handles: React.ReactNode[] = [];
-                  for (const iv of row.intervals) {
-                    const shift = iv.shift;
-                    const startSlot = Math.round(iv.startMin / 30);
-                    const endSlot = Math.round(iv.endMin / 30);
+                  // HandleInterval: vlastník (ownerDate) = den, jehož DB řádek handle edituje.
+                  type HandleInterval = {
+                    shift: "MORNING" | "AFTERNOON" | "NIGHT";
+                    startMin: number;
+                    endMin: number;
+                    emitStart: boolean;
+                    emitEnd: boolean;
+                    ownerDate: Date;
+                    ownerDateStr: string;
+                  };
+                  const handleIntervals: HandleInterval[] = intervals.map((iv) => {
+                    if (iv.source === "prev-tail") {
+                      // prev-tail: emitujeme jen END handle; edituje NIGHT end předchozího dne.
+                      const prev = new Date(d.date.getTime() - 24 * 60 * 60 * 1000);
+                      return {
+                        shift: iv.shift,
+                        startMin: iv.startMin,
+                        endMin: iv.endMin,
+                        emitStart: false,
+                        emitEnd: true,
+                        ownerDate: prev,
+                        ownerDateStr: utcToPragueDateStr(prev),
+                      };
+                    }
+                    // current: NIGHT má jen start (end patří next day), ostatní mají obojí.
+                    const isNight = iv.shift === "NIGHT";
+                    return {
+                      shift: iv.shift,
+                      startMin: iv.startMin,
+                      endMin: iv.endMin,
+                      emitStart: true,
+                      emitEnd: !isNight,
+                      ownerDate: d.date,
+                      ownerDateStr: d.dateStr,
+                    };
+                  });
 
-                    // Live preview override — musí odpovídat stejné směně i hraně.
+                  for (const hi of handleIntervals) {
+                    const shift = hi.shift;
+
+                    // Live preview override — musí odpovídat stejné směně i hraně i ownerovi.
                     const preview = shiftEdgePreview;
                     const sameDay = preview &&
                       preview.machine === machine &&
                       preview.shift === shift &&
-                      utcToPragueDateStr(preview.date) === d.dateStr;
-                    const effectiveStartMin = sameDay && preview.edge === "start" ? preview.previewMin : iv.startMin;
-                    const effectiveEndMin = sameDay && preview.edge === "end" ? preview.previewMin : iv.endMin;
+                      utcToPragueDateStr(preview.date) === hi.ownerDateStr;
+                    const effectiveStartMin = sameDay && preview.edge === "start" ? preview.previewMin : hi.startMin;
+                    const effectiveEndMin = sameDay && preview.edge === "end" ? preview.previewMin : hi.endMin;
 
                     // Handle emit jen když sousedí se zablokovaným slotem.
-                    // START edge: vnější = slot těsně před startSlot (výš v čase).
-                    // END edge:   vnější = slot na pozici endSlot (níž v čase).
-                    const emitStart = isSlotBlocked(startSlot - 1);
-                    const emitEnd = isSlotBlocked(endSlot);
+                    // Okraje dne (0:00 / 24:00) vždy emitujeme.
+                    // Během aktivního dragu vždy emit příslušnou hranu.
+                    const draggingStart = sameDay && preview.edge === "start";
+                    const draggingEnd = sameDay && preview.edge === "end";
+                    const effectiveStartSlot = Math.round(effectiveStartMin / 30);
+                    const effectiveEndSlot = Math.round(effectiveEndMin / 30);
+                    const emitStart = hi.emitStart && (draggingStart || effectiveStartSlot === 0 || isSlotBlocked(effectiveStartSlot - 1));
+                    const emitEnd = hi.emitEnd && (draggingEnd || effectiveEndSlot >= DAY_SLOT_COUNT || isSlotBlocked(effectiveEndSlot));
 
                     // Slot-index Y výpočet — identický s blockedOverlays.
                     const startY = d.y + (effectiveStartMin / 30) * slotHeight;
@@ -2992,10 +3029,10 @@ export default function TimelineGrid({
                             dragStateRef.current = {
                               type: "shift-edge-resize",
                               machine,
-                              date: d.date,
+                              date: hi.ownerDate,
                               shift,
                               edge: "start",
-                              origMin: iv.startMin,
+                              origMin: hi.startMin,
                               startClientY: e.clientY,
                               startScrollTop: scrollRef.current?.scrollTop ?? 0,
                               jointDrag: e.shiftKey,
@@ -3005,7 +3042,7 @@ export default function TimelineGrid({
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "start", null, false);
+                            callbacksRef.current.onShiftBoundsChange?.(machine, hi.ownerDate, shift, "start", null, false);
                           }}
                           style={{
                             position: "absolute",
@@ -3028,7 +3065,7 @@ export default function TimelineGrid({
                     if (emitEnd) {
                       handles.push(
                         <div
-                          key={`shift-${machine}-${d.dateStr}-${shift}-end`}
+                          key={`shift-${machine}-${d.dateStr}-${shift}-end-from-${hi.ownerDateStr}`}
                           title={`${tooltipShift} konec — táhni pro úpravu, pravý klik = reset`}
                           onMouseDown={(e) => {
                             if (e.button !== 0) return;
@@ -3037,10 +3074,10 @@ export default function TimelineGrid({
                             dragStateRef.current = {
                               type: "shift-edge-resize",
                               machine,
-                              date: d.date,
+                              date: hi.ownerDate,
                               shift,
                               edge: "end",
-                              origMin: iv.endMin,
+                              origMin: hi.endMin,
                               startClientY: e.clientY,
                               startScrollTop: scrollRef.current?.scrollTop ?? 0,
                               jointDrag: e.shiftKey,
@@ -3050,7 +3087,7 @@ export default function TimelineGrid({
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            callbacksRef.current.onShiftBoundsChange?.(machine, d.date, shift, "end", null, false);
+                            callbacksRef.current.onShiftBoundsChange?.(machine, hi.ownerDate, shift, "end", null, false);
                           }}
                           style={{
                             position: "absolute",
@@ -3075,7 +3112,7 @@ export default function TimelineGrid({
                       const previewY = preview.edge === "start" ? startY : endY;
                       handles.push(
                         <div
-                          key={`shift-${machine}-${d.dateStr}-${shift}-preview`}
+                          key={`shift-${machine}-${d.dateStr}-${shift}-preview-from-${hi.ownerDateStr}`}
                           style={{
                             position: "absolute",
                             top: previewY - 10,
