@@ -125,6 +125,33 @@ describe("computeAvailableHours", () => {
     const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
     assert.equal(result, 15);
   });
+
+  // --- Forward semantic NIGHT wrap ---
+  it("Ne NIGHT ✓, jen Ne v rozsahu → 2h (jen 22-24 část)", () => {
+    const weekShifts: MachineWeekShiftsRow[] = [
+      { id: undefined, machine: "XL_106", weekStart: "2026-04-13", dayOfWeek: 0, isActive: true,
+        morningOn: false, afternoonOn: false, nightOn: true,
+        morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+        nightStartMin: null, nightEndMin: null },
+    ];
+    const hours = computeAvailableHours("XL_106", "2026-04-19", "2026-04-19", weekShifts);
+    assert.equal(hours, 2, "Ne NIGHT přispívá jen 2h (22-24) na dni Ne; tail patří Po");
+  });
+
+  it("Ne NIGHT ✓ + Po vše ✗, jen Po v rozsahu → 6h (tail z neděle)", () => {
+    const weekShifts: MachineWeekShiftsRow[] = [
+      { id: undefined, machine: "XL_106", weekStart: "2026-04-13", dayOfWeek: 0, isActive: true,
+        morningOn: false, afternoonOn: false, nightOn: true,
+        morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+        nightStartMin: null, nightEndMin: null },
+      { id: undefined, machine: "XL_106", weekStart: "2026-04-20", dayOfWeek: 1, isActive: false,
+        morningOn: false, afternoonOn: false, nightOn: false,
+        morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
+        nightStartMin: null, nightEndMin: null },
+    ];
+    const hours = computeAvailableHours("XL_106", "2026-04-20", "2026-04-20", weekShifts);
+    assert.equal(hours, 6, "Po dostane tail z Ne NIGHT (6h)");
+  });
 });
 
 // ---------------------------------------------------------------------------

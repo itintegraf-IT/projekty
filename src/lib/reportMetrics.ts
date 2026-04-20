@@ -4,7 +4,7 @@
  */
 
 import { addDaysToCivilDate } from "./dateUtils";
-import { SHIFTS, resolveShiftBounds } from "./shifts";
+import { resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
@@ -39,31 +39,46 @@ export function computeAvailableHours(
   rangeEnd: string,
   weekShifts: MachineWeekShiftsRow[],
 ): number {
-  let total = 0;
+  let totalMin = 0;
   let cur = rangeStart;
 
   while (cur <= rangeEnd) {
     const weekStart = weekStartStrFromDateStr(cur);
     const dayOfWeek = new Date(cur + "T12:00:00Z").getUTCDay();
     const row = weekShifts.find(
-      (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek
+      (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek,
     );
     if (row && row.isActive) {
-      let dayMinutes = 0;
-      for (const shift of SHIFTS) {
+      // MORNING + AFTERNOON celé (neprekračují půlnoc).
+      for (const shift of ["MORNING", "AFTERNOON"] as const) {
         const b = resolveShiftBounds(row, shift);
-        if (!b) continue;
-        const span = b.endMin < b.startMin
-          ? (1440 - b.startMin) + b.endMin   // cross midnight NIGHT
-          : b.endMin - b.startMin;
-        dayMinutes += span;
+        if (b) totalMin += b.endMin - b.startMin;
       }
-      total += dayMinutes / 60;
+      // NIGHT: jen [startMin, 1440) dnes.
+      const night = resolveShiftBounds(row, "NIGHT");
+      if (night && night.endMin < night.startMin) {
+        totalMin += 1440 - night.startMin;
+      }
+    }
+    // Tail z PŘEDCHOZÍHO dne: NIGHT(X-1) přispívá [0, prevEnd) dni X.
+    const prevDate = (() => {
+      const d = new Date(cur + "T12:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0, 10);
+    })();
+    const prevWeekStart = weekStartStrFromDateStr(prevDate);
+    const prevDow = new Date(prevDate + "T12:00:00Z").getUTCDay();
+    const prev = weekShifts.find(
+      (w) => w.machine === machine && w.weekStart === prevWeekStart && w.dayOfWeek === prevDow,
+    );
+    if (prev && prev.isActive && prev.nightOn) {
+      const b = resolveShiftBounds(prev, "NIGHT");
+      if (b && b.endMin < b.startMin) totalMin += b.endMin;
     }
     cur = addDaysToCivilDate(cur, 1);
   }
 
-  return total;
+  return totalMin / 60;
 }
 
 // ---------------------------------------------------------------------------
