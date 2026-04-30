@@ -427,6 +427,9 @@ export function BlockDetail({
                   {log.action === "DELETE" && <span style={{ color: "#ef4444" }}> · Smazána</span>}
                   {log.action === "EXPEDITION_PUBLISH" && <span style={{ color: "#22c55e" }}> · Zařazena do expedice</span>}
                   {log.action === "EXPEDITION_UNPUBLISH" && <span style={{ color: "#f59e0b" }}> · Odebrána z expedice</span>}
+                  {log.action === "AUTO_SHIFT" && log.oldValue && log.newValue && (
+                    <span style={{ color: "#f59e0b" }}> · Automaticky posunuto: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span></span>
+                  )}
                 </div>
               </div>
             ))}

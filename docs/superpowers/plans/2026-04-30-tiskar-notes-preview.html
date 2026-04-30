@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8" />
+<title>Tiskařské poznámky — Visual Preview v2</title>
+<style>
+  :root {
+    --surface:        #0f172a;
+    --surface-2:      #111827;
+    --timeline-bg:    #0b1220;
+    --border:         #1f2a3d;
+    --text:           #e5e7eb;
+    --text-muted:     #94a3b8;
+    --amber:          #f59e0b;
+    --amber-soft:     #fbbf24;
+    --amber-dark:     #b45309;
+  }
+  html, body {
+    margin: 0; padding: 0;
+    background: #0a0f1f;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    font-size: 14px;
+  }
+  body { padding: 32px; }
+  h1 { font-size: 22px; margin: 0 0 4px; font-weight: 700; }
+  h2 { font-size: 15px; margin: 32px 0 12px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  h3 { font-size: 13px; margin: 0 0 10px; color: var(--text); font-weight: 600; }
+  p.lead { color: var(--text-muted); margin: 0 0 24px; max-width: 720px; line-height: 1.6; }
+  .note { color: var(--text-muted); font-size: 12px; margin-top: 8px; line-height: 1.5; }
+  code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 3px; font-size: 12px; color: var(--amber); }
+
+  /* Block base */
+  .block {
+    position: relative;
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: #fff;
+    font-size: 12px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: transform 0.12s;
+    box-sizing: border-box;
+    min-height: 60px;
+  }
+  .block:hover { transform: translateY(-1px); }
+  .block-zakazka {
+    background: linear-gradient(160deg, rgba(59,130,246,0.95) 0%, rgba(37,99,235,0.88) 100%);
+    border: 1px solid rgba(59,130,246,0.65);
+    border-left: 2px solid #3b82f6;
+  }
+  .block-bez-sacku {
+    background: linear-gradient(160deg, rgba(227,100,20,0.95) 0%, rgba(190,80,10,0.88) 100%);
+    border: 1px solid rgba(227,100,20,0.65);
+    border-left: 2px solid #e36414;
+  }
+  .block-bez-tech {
+    background: linear-gradient(160deg, rgba(6,95,70,0.95) 0%, rgba(4,71,54,0.88) 100%);
+    border: 1px solid rgba(6,95,70,0.65);
+    border-left: 2px solid #059669;
+  }
+  .block .order { font-weight: 700; font-size: 13px; }
+  .block .meta { font-size: 10px; opacity: 0.85; margin-top: 2px; }
+  .block .desc { font-size: 11px; opacity: 0.9; margin-top: 4px; }
+
+  .block-small { min-height: 30px; padding: 4px 8px; }
+  .block-small .order { font-size: 11px; }
+  .block-small .meta { font-size: 9px; }
+
+  /* Variant B chosen — top stripe amber + badge, BEZ snippetu */
+  .has-notes {
+    border-top: 4px solid var(--amber) !important;
+    padding-top: 4px;
+  }
+  .note-badge {
+    position: absolute; top: 6px; right: 4px;
+    background: var(--amber);
+    color: #1f2937; font-weight: 700; font-size: 10px;
+    padding: 2px 6px; border-radius: 4px;
+    line-height: 1;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+
+  /* Block stack */
+  .block-stack {
+    background: var(--timeline-bg);
+    padding: 16px;
+    border-radius: 8px;
+    display: flex; flex-direction: column; gap: 8px;
+    border: 1px solid var(--border);
+  }
+
+  /* Hover tooltip — věrná replika z TimelineGrid.tsx */
+  .stage {
+    position: relative;
+    background: var(--timeline-bg);
+    padding: 24px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    min-height: 380px;
+  }
+  .stage .anchor-block {
+    position: absolute;
+    left: 24px; top: 60px;
+    width: 220px;
+  }
+  .tooltip {
+    position: absolute;
+    left: 264px; top: 30px;
+    width: 240px;
+    background: rgba(28,28,30,0.92);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.25);
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    pointer-events: none;
+  }
+  .tt-row { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 3px; }
+  .tt-order { font-weight: 700; font-size: 13px; color: rgba(255,255,255,0.95); letter-spacing: -0.01em; }
+  .tt-machine { font-size: 9px; font-weight: 600; color: rgba(255,255,255,0.35); letter-spacing: 0.06em; text-transform: uppercase; flex-shrink: 0; margin-left: 8px; }
+  .tt-desc { font-size: 11px; color: rgba(255,255,255,0.6); line-height: 1.4; margin-bottom: 3px; }
+  .tt-spec { font-size: 10.5px; color: rgba(255,255,255,0.42); font-style: italic; line-height: 1.35; margin-bottom: 6px; }
+  .tt-time { font-size: 10px; color: rgba(255,255,255,0.38); line-height: 1.4; }
+  .tt-section {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .tt-deadline { display: flex; justify-content: space-between; align-items: center; font-size: 10px; }
+  .tt-label { color: rgba(255,255,255,0.35); letter-spacing: 0.03em; }
+  .tt-val   { color: rgba(255,255,255,0.7); font-variant-numeric: tabular-nums; }
+  .tt-val.ok { color: #30d158; }
+
+  /* Nová sekce: tiskařské poznámky v hoveru */
+  .tt-notes-header {
+    display: flex; align-items: center; gap: 6px;
+    color: var(--amber);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .tt-notes-header .pill {
+    background: var(--amber);
+    color: #1f2937;
+    padding: 1px 5px; border-radius: 8px;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .tt-note {
+    border-left: 2px solid var(--amber);
+    padding-left: 8px;
+    padding-top: 1px; padding-bottom: 1px;
+  }
+  .tt-note + .tt-note { margin-top: 6px; }
+  .tt-note-text {
+    font-size: 11px;
+    color: rgba(255,255,255,0.85);
+    line-height: 1.45;
+    white-space: pre-wrap;
+  }
+  .tt-note-meta {
+    font-size: 9px;
+    color: rgba(255,255,255,0.32);
+    margin-top: 2px;
+    letter-spacing: 0.02em;
+  }
+  .tt-notes-more {
+    font-size: 10px;
+    color: var(--amber);
+    margin-top: 6px;
+    text-align: center;
+    font-style: italic;
+  }
+
+  /* Dialog */
+  .dialog-stage {
+    background: rgba(0,0,0,0.6);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 480px;
+  }
+  .dialog {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 100%; max-width: 520px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .dialog-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .dialog-header h3 { margin: 0; font-size: 14px; font-weight: 600; }
+  .dialog-header .close {
+    background: transparent; border: 0; color: var(--text-muted);
+    font-size: 22px; cursor: pointer; line-height: 1; padding: 0 4px;
+  }
+  .dialog-body {
+    padding: 12px 16px;
+    display: flex; flex-direction: column; gap: 10px;
+    max-height: 320px; overflow-y: auto;
+  }
+  .note-card {
+    border-left: 4px solid var(--amber);
+    background: rgba(30, 41, 59, 0.7);
+    padding: 8px 12px; border-radius: 4px;
+  }
+  .note-card .note-meta {
+    font-size: 11px; color: var(--text-muted); margin-bottom: 4px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .note-card .note-meta .actions { display: flex; gap: 8px; }
+  .note-card .note-meta .actions a {
+    color: #60a5fa; text-decoration: none; font-size: 11px; cursor: pointer;
+  }
+  .note-card .note-meta .actions a.danger { color: #f87171; }
+  .note-card .note-text {
+    font-size: 13px; color: var(--text); white-space: pre-wrap; line-height: 1.5;
+  }
+  .dialog-footer {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .dialog-footer textarea {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 8px; color: var(--text);
+    font-family: inherit; font-size: 13px;
+    resize: vertical; min-height: 64px;
+  }
+  .dialog-footer .footer-row {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .dialog-footer .char-count { font-size: 11px; color: var(--text-muted); }
+  .btn-amber {
+    background: var(--amber);
+    color: #1f2937; font-weight: 600; font-size: 13px;
+    border: 0; padding: 6px 14px; border-radius: 4px; cursor: pointer;
+  }
+  .btn-amber:hover { background: var(--amber-soft); }
+
+  .grid-2 {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Tiskařské poznámky — Preview v2</h1>
+<p class="lead">
+  Varianta <strong>B bez snippetu</strong> (oranžový pruh nahoře + badge v rohu).
+  Plný text poznámky je v <strong>hover tooltipu</strong> (přes celý blok) a v <strong>dialogu historie</strong> (klik na blok / na badge).
+</p>
+
+<h2>1. Bloky na timeline (zvolený design)</h2>
+
+<div class="block-stack" style="max-width: 320px;">
+
+  <div class="block block-zakazka">
+    <div class="order">2026-1100</div>
+    <div class="meta">6:00 – 14:00 · XL_105</div>
+    <div class="desc">Bez poznámky (referenční)</div>
+  </div>
+
+  <div class="block block-zakazka has-notes">
+    <div class="order">2026-1234</div>
+    <div class="meta">8:00 – 14:00 · XL_105</div>
+    <div class="desc">Etiketa Bonduelle 250 ml</div>
+    <span class="note-badge">📝 1</span>
+  </div>
+
+  <div class="block block-bez-sacku has-notes">
+    <div class="order">2026-1235</div>
+    <div class="meta">14:00 – 22:00 · XL_105</div>
+    <div class="desc">Knorr — bez sáčků</div>
+    <span class="note-badge">📝 3</span>
+  </div>
+
+  <div class="block block-bez-tech has-notes">
+    <div class="order">2026-1240</div>
+    <div class="meta">22:00 – 6:00 · XL_106</div>
+    <div class="desc">Test bez technologie</div>
+    <span class="note-badge">📝 2</span>
+  </div>
+
+  <div class="block block-zakazka has-notes block-small">
+    <div class="order">2026-1237</div>
+    <div class="meta">6:00 – 9:00 · XL_106</div>
+    <span class="note-badge">📝 1</span>
+  </div>
+
+</div>
+
+<p class="note">
+  Pruh nahoře 4 px, badge <code>📝 N</code> ukazuje počet poznámek.
+  Žádné animace, žádný snippet textu na bloku.
+</p>
+
+<h2>2. Hover tooltip — existující + sekce poznámek (návrh)</h2>
+
+<p class="lead">
+  Hover nad blokem (delay 200 ms, jako dnes) ukazuje stávající tooltip s číslem zakázky, popisem, časem a termíny.
+  <strong>Pod termíny přibyde nová sekce „Poznámky tiskař"</strong> — chronologicky, nejnovější nahoře.
+  Na šířku 240 px se vejdou 2–3 poznámky pohodlně, víc se zalomí. Pokud je víc než 3, ukáže se „+ N dalších" a tiskař si může otevřít dialog.
+</p>
+
+<div class="grid-2">
+
+  <!-- Tooltip A: 1 poznámka -->
+  <div class="stage">
+    <h3>Příklad: 1 poznámka</h3>
+    <div class="block block-zakazka has-notes anchor-block">
+      <div class="order">2026-1234</div>
+      <div class="meta">8:00 – 14:00 · XL_105</div>
+      <div class="desc">Etiketa Bonduelle 250 ml</div>
+      <span class="note-badge">📝 1</span>
+    </div>
+
+    <div class="tooltip">
+      <div class="tt-row">
+        <span class="tt-order">2026-1234</span>
+        <span class="tt-machine">XL 105</span>
+      </div>
+      <div class="tt-desc">Etiketa Bonduelle 250 ml</div>
+      <div class="tt-spec">4+0, lesklá fólie, 12000 archů</div>
+      <div class="tt-time">30. dub, 8:00–14:00</div>
+
+      <div class="tt-section">
+        <div class="tt-deadline"><span class="tt-label">DATA</span><span class="tt-val ok">28. dub ✓</span></div>
+        <div class="tt-deadline"><span class="tt-label">MATERIÁL</span><span class="tt-val ok">29. dub ✓</span></div>
+        <div class="tt-deadline"><span class="tt-label">EXPEDICE</span><span class="tt-val">2. kvě</span></div>
+      </div>
+
+      <div class="tt-section">
+        <div class="tt-notes-header">
+          📝 <span>POZNÁMKY TISKAŘ</span>
+          <span class="pill">1</span>
+        </div>
+        <div class="tt-note">
+          <div class="tt-note-text">Reklamace barvy — žlutá moc světlá, info předáno DTP.</div>
+          <div class="tt-note-meta">tiskar1 · 30. 4., 6:14</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tooltip B: 3 poznámky -->
+  <div class="stage">
+    <h3>Příklad: 3 poznámky</h3>
+    <div class="block block-bez-sacku has-notes anchor-block">
+      <div class="order">2026-1235</div>
+      <div class="meta">14:00 – 22:00 · XL_105</div>
+      <div class="desc">Knorr — bez sáčků</div>
+      <span class="note-badge">📝 3</span>
+    </div>
+
+    <div class="tooltip">
+      <div class="tt-row">
+        <span class="tt-order">2026-1235</span>
+        <span class="tt-machine">XL 105</span>
+      </div>
+      <div class="tt-desc">Knorr — bez sáčků</div>
+      <div class="tt-time">30. dub, 14:00–22:00</div>
+
+      <div class="tt-section">
+        <div class="tt-deadline"><span class="tt-label">EXPEDICE</span><span class="tt-val">3. kvě</span></div>
+      </div>
+
+      <div class="tt-section">
+        <div class="tt-notes-header">
+          📝 <span>POZNÁMKY TISKAŘ</span>
+          <span class="pill">3</span>
+        </div>
+        <div class="tt-note">
+          <div class="tt-note-text">Předáno noční směně — pokračovat opatrně, sledovat barvu.</div>
+          <div class="tt-note-meta">tiskar2 · 30. 4., 22:08</div>
+        </div>
+        <div class="tt-note">
+          <div class="tt-note-text">Stroj hlasitější chod od 16:00. Mechanik volaný.</div>
+          <div class="tt-note-meta">tiskar1 · 30. 4., 16:30 · upraveno</div>
+        </div>
+        <div class="tt-note">
+          <div class="tt-note-text">Reklamace barvy — žlutá moc světlá.</div>
+          <div class="tt-note-meta">tiskar1 · 30. 4., 14:42</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<p class="note">
+  Realizace: do existujícího hover tooltipu (řádek ~1525 v <code>TimelineGrid.tsx</code>) přidat conditional sekci po "Termínech".
+  Když je poznámek víc než 3, zobrazit první 3 + řádek „+ N dalších" — plný seznam je v dialogu po kliknutí na blok / badge.
+</p>
+
+<h2>3. Dialog historie poznámek (klik na blok / badge)</h2>
+
+<p class="lead">
+  Plný seznam, edit/smaz vlastních (do 30 min) pro tiskaře, vždy pro PLANOVAT/ADMIN.
+  Tady je „snippet" zbytečný — vidíš plný text. Snippet jsi tedy správně pochopil:
+  <strong>nemá být na bloku</strong>, je v hoveru a v dialogu.
+</p>
+
+<div class="dialog-stage">
+  <div class="dialog">
+    <div class="dialog-header">
+      <h3>Poznámky · zakázka 2026-1235 · XL_105</h3>
+      <button class="close">×</button>
+    </div>
+
+    <div class="dialog-body">
+
+      <div class="note-card">
+        <div class="note-meta">
+          <span><strong>tiskar2</strong> · 30. 4. 2026, 22:08</span>
+          <span class="actions"></span>
+        </div>
+        <div class="note-text">Předáno noční směně — pokračovat opatrně, sledovat barvu.</div>
+      </div>
+
+      <div class="note-card">
+        <div class="note-meta">
+          <span><strong>tiskar1</strong> · 30. 4. 2026, 16:30 · upraveno</span>
+          <span class="actions">
+            <a>Upravit</a>
+            <a class="danger">Smazat</a>
+          </span>
+        </div>
+        <div class="note-text">Stroj hlasitější chod od 16:00. Mechanik volaný, dorazí ráno.</div>
+      </div>
+
+      <div class="note-card">
+        <div class="note-meta">
+          <span><strong>tiskar1</strong> · 30. 4. 2026, 14:42</span>
+          <span class="actions"></span>
+        </div>
+        <div class="note-text">Reklamace barvy — žlutá moc světlá, info předáno DTP.</div>
+      </div>
+
+    </div>
+
+    <div class="dialog-footer">
+      <textarea placeholder="Nová poznámka…"></textarea>
+      <div class="footer-row">
+        <span class="char-count">0/500</span>
+        <button class="btn-amber">Přidat poznámku</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>Shrnutí</h2>
+<ul style="line-height: 1.7; max-width: 720px;">
+  <li><strong>Na bloku:</strong> oranžový pruh nahoře (4 px) + badge <code>📝 N</code> v pravém rohu. Žádný snippet textu na bloku.</li>
+  <li><strong>Hover:</strong> stávající tooltip + nová sekce „Poznámky tiskař" pod termíny. Max 3 poznámky, dál „+ N dalších".</li>
+  <li><strong>Klik na blok / badge:</strong> dialog s plnou historií, edit/smaz, formulář na novou.</li>
+  <li><strong>Barva:</strong> oranžová <code>#f59e0b</code>. Pozor na vizuální podobu se zakázkou typu „Bez sáčků" (oranžová) — pruh + badge ji od ní odliší.</li>
+</ul>
+
+<p class="note">
+  Pokud sedí, doplním plán o tuhle změnu (žádný snippet na bloku, hover sekce navíc) a pustíme implementaci.
+</p>
+
+</body>
+</html>

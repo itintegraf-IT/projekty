@@ -7,7 +7,8 @@ import { parseNullableCivilDateForDb, serializeBlock } from "@/lib/blockSerializ
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap } from "@/lib/overlapCheck";
-import { isAppError } from "@/lib/errors";
+import { AppError, isAppError } from "@/lib/errors";
+import { findNextFreeSlotFromDb } from "@/lib/scheduleSlotFinder";
 import { emitSSE } from "@/lib/eventBus";
 
 export async function GET(req: NextRequest) {
@@ -70,14 +71,38 @@ export async function POST(request: NextRequest) {
     // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
     const bypassScheduleValidation = body.bypassScheduleValidation === true;
     const bypassOverlapCheck = body.bypassOverlapCheck === true;
+    const autoShiftIfBusy = body.autoShiftIfBusy === true;
+
+    let startTime = new Date(body.startTime);
+    let endTime = new Date(body.endTime);
+    const originalStart = new Date(body.startTime);
+    const durationMs = endTime.getTime() - startTime.getTime();
+    let wasShifted = false;
+
     const scheduleError = await validateBlockScheduleFromDb(
-      body.machine as string,
-      new Date(body.startTime),
-      new Date(body.endTime),
-      blockType,
-      bypassScheduleValidation
+      body.machine as string, startTime, endTime, blockType, bypassScheduleValidation
     );
-    if (scheduleError) return NextResponse.json({ error: scheduleError.error }, { status: 422 });
+    if (scheduleError) {
+      if (!autoShiftIfBusy) {
+        return NextResponse.json({ error: scheduleError.error }, { status: 422 });
+      }
+      // Auto-shift: najdi nejbližší volný slot
+      const slot = await findNextFreeSlotFromDb(body.machine as string, startTime, durationMs);
+      if (!slot.found) {
+        return NextResponse.json(
+          { error: `Auto-shift selhal: stroj ${body.machine} obsazen déle než 7 dní od ${originalStart.toISOString()}.` },
+          { status: 409 }
+        );
+      }
+      startTime = slot.startTime;
+      endTime = slot.endTime;
+      wasShifted = true;
+      logger.info("[POST /api/blocks] auto-shift applied (pre-tx)", {
+        machine: body.machine,
+        originalStart: originalStart.toISOString(),
+        newStart: startTime.toISOString(),
+      });
+    }
 
     // Pokud je přítomno reservationId — ověřit existenci (mimo transakci)
     const reservationId: number | undefined = body.reservationId ? Number(body.reservationId) : undefined;
@@ -114,15 +139,39 @@ export async function POST(request: NextRequest) {
       const finalRecurrence = reservationPreview ? "NONE" : (body.recurrenceType ?? "NONE");
 
       if (!bypassOverlapCheck) {
-        await checkBlockOverlap(body.machine, new Date(body.startTime), new Date(body.endTime), null, tx);
+        try {
+          await checkBlockOverlap(body.machine, startTime, endTime, null, tx);
+        } catch (overlapErr) {
+          if (!autoShiftIfBusy || !isAppError(overlapErr) || overlapErr.code !== "OVERLAP") {
+            throw overlapErr;
+          }
+          // Race condition: slot byl mezi pre-check a transakcí obsazen.
+          const slot = await findNextFreeSlotFromDb(body.machine, startTime, durationMs);
+          if (!slot.found) {
+            throw new AppError(
+              "AUTO_SHIFT_FAILED",
+              `Auto-shift selhal: stroj ${body.machine} obsazen déle než 7 dní od ${originalStart.toISOString()}.`
+            );
+          }
+          startTime = slot.startTime;
+          endTime = slot.endTime;
+          wasShifted = true;
+          logger.info("[POST /api/blocks] auto-shift applied (race recovery)", {
+            machine: body.machine,
+            originalStart: originalStart.toISOString(),
+            newStart: startTime.toISOString(),
+          });
+          // Po posunu už musí overlap projít (ověříme znovu pro jistotu)
+          await checkBlockOverlap(body.machine, startTime, endTime, null, tx);
+        }
       }
 
       const newBlock = await tx.block.create({
         data: {
           orderNumber: finalOrderNumber,
           machine: body.machine,
-          startTime: new Date(body.startTime),
-          endTime: new Date(body.endTime),
+          startTime,
+          endTime,
           type: finalType,
           blockVariant: finalVariant,
           description: body.description ?? null,
@@ -176,10 +225,23 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      if (wasShifted) {
+        await tx.auditLog.create({
+          data: {
+            blockId: newBlock.id,
+            orderNumber: newBlock.orderNumber,
+            userId: session.id,
+            username: session.username,
+            action: "AUTO_SHIFT",
+            field: "startTime",
+            oldValue: originalStart.toISOString(),
+            newValue: startTime.toISOString(),
+          },
+        });
+      }
+
       // Pokud jde o rezervaci — atomicky ověřit stav QUEUE_READY a přepnout na SCHEDULED
       if (reservationPreview) {
-        const startTime = new Date(body.startTime);
-        const endTime = new Date(body.endTime);
         const startCZ = startTime.toLocaleString("cs-CZ", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" });
         // updateMany s WHERE status=QUEUE_READY — pokud jiný plánovač mezitím rezervaci zabrал,
         // count=0 a transakce se rollbackuje (eliminuje TOCTOU race condition)
@@ -213,12 +275,16 @@ export async function POST(request: NextRequest) {
     });
 
     emitSSE("block:created", { block: serializeBlock(block), machine: block.machine, sourceUserId: session.id });
-    return NextResponse.json(serializeBlock(block), { status: 201 });
+    const responseBody = wasShifted
+      ? { ...serializeBlock(block), autoShift: { originalStart: originalStart.toISOString() } }
+      : serializeBlock(block);
+    return NextResponse.json(responseBody, { status: 201 });
   } catch (error: unknown) {
     if (isAppError(error)) {
+      const status409 = error.code === "OVERLAP" || error.code === "AUTO_SHIFT_FAILED";
       return NextResponse.json(
         { error: error.message, code: error.code },
-        { status: error.code === "OVERLAP" ? 409 : 400 }
+        { status: status409 ? 409 : 400 }
       );
     }
     if (error instanceof Error && error.message === "RESERVATION_NOT_AVAILABLE") {

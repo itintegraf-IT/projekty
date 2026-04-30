@@ -19,6 +19,7 @@ import {
   utcToPragueHour,
 } from "@/lib/dateUtils";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
+import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -515,6 +516,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
   const [machineWeekShifts, setMachineWeekShifts] = useState<MachineWeekShiftsRow[]>(initialMachineWeekShifts);
+  // Dark mode detekce — projekt přepíná theme přes .dark třídu na html elementu
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.classList.contains("dark"));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
   const [plannerCascade, setPlannerCascade] = useState<{
     conflicts: ConflictingBlock[];
     pendingPayload: { machine: string; weekStart: string; days: ShiftDayPayload[] };
@@ -566,7 +576,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [bSeriesMachine, setBSeriesMachine]       = useState<"XL_105" | "XL_106">("XL_105");
   const [bSeriesFirstDate, setBSeriesFirstDate]   = useState<string>("");
   const [bSeriesFirstHour, setBSeriesFirstHour]   = useState<number>(7);
-  const [seriesPreview, setSeriesPreview]         = useState<Array<{ date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }>>([]);
+  const [seriesPreview, setSeriesPreview]         = useState<Array<{
+    date: string;
+    hour: number;
+    dataRequiredDate: string;
+    deadlineExpedice: string;
+    wasShifted: boolean;
+    originalDate: string;
+    originalHour: number;
+  }>>([]);
   const [seriesScheduling, setSeriesScheduling]   = useState(false);
 
   // Číselníky pro builder
@@ -2050,10 +2068,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       lakStatusLabel: findLabel(bLakOpts, bLakStatusId),
       specifikace: bSpecifikace || null,
       recurrenceType: bRecurrenceType,
+      autoShiftIfBusy: true,
     };
     setSeriesScheduling(true);
     let parentId: number | null = null;
     let created = 0;
+    const shiftedToasts: Array<{ original: string; final: string }> = [];
+    const failedSlots: Array<{ date: string; hour: number; reason: string }> = [];
+
     for (let i = 0; i < seriesPreview.length; i++) {
       const occ = seriesPreview[i];
       const startTime = pragueToUTC(occ.date, occ.hour);
@@ -2073,21 +2095,50 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           body: JSON.stringify(body),
         });
         if (res.ok) {
-          const block: Block = await res.json();
+          const block: Block & { autoShift?: { originalStart: string } } = await res.json();
           if (i === 0) parentId = block.id;
           handleBlockCreate(block);
           created++;
+          if (block.autoShift) {
+            const orig = new Date(block.autoShift.originalStart);
+            const final = new Date(block.startTime);
+            const fmt = (d: Date) => d.toLocaleString("cs-CZ", {
+              timeZone: "Europe/Prague",
+              day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit",
+            });
+            shiftedToasts.push({ original: fmt(orig), final: fmt(final) });
+          }
+        } else {
+          const err = await res.json().catch(() => ({ error: "neznámá chyba" }));
+          failedSlots.push({ date: occ.date, hour: occ.hour, reason: err.error ?? "chyba serveru" });
         }
-      } catch { /* skip failed occurrence */ }
+      } catch {
+        failedSlots.push({ date: occ.date, hour: occ.hour, reason: "síťová chyba" });
+      }
     }
     setSeriesScheduling(false);
-    if (created > 0 && created < seriesPreview.length) {
-      showToast(`Naplánováno jen ${created}/${seriesPreview.length} bloků — zkontroluj timeline.`, "error");
-    } else if (created > 0) {
-      showToast(`Série ${created} bloků naplánována.`, "success");
-    } else {
-      showToast("Naplánování série selhalo.", "error");
+
+    // Per-blok info-toasty pro auto-shift (max 5, aby se uživatel neutopil v toastech)
+    shiftedToasts.slice(0, 5).forEach((s) => {
+      showToast(`${s.original} → ${s.final} — přesunuto z kapacitních důvodů`, "info");
+    });
+    if (shiftedToasts.length > 5) {
+      showToast(`+${shiftedToasts.length - 5} dalších bloků posunuto. Zkontroluj timeline.`, "info");
     }
+
+    // Souhrn
+    if (created === seriesPreview.length) {
+      const shiftedCount = shiftedToasts.length;
+      const msg = shiftedCount > 0
+        ? `Série ${created} bloků naplánována (${shiftedCount} posunuto).`
+        : `Série ${created} bloků naplánována.`;
+      showToast(msg, "success");
+    } else if (created > 0) {
+      showToast(`Naplánováno ${created}/${seriesPreview.length}. ${failedSlots.length} bloků selhalo — zkontroluj timeline.`, "error");
+    } else {
+      showToast(`Naplánování série selhalo: ${failedSlots[0]?.reason ?? "neznámá chyba"}.`, "error");
+    }
+
     if (created > 0) {
       resetBuilderForm();
       setBSeriesFirstDate(""); setBSeriesFirstHour(7);
@@ -2104,13 +2155,77 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     return date;
   }
 
-  function generateSeriesPreview(firstDate: string, firstHour: number, count: number, rType: string, defaultDataDate: string, defaultExpedice: string): Array<{ date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }> {
+  function generateSeriesPreview(
+    firstDate: string,
+    firstHour: number,
+    count: number,
+    rType: string,
+    defaultDataDate: string,
+    defaultExpedice: string,
+    machine: string,
+    durationH: number,
+    allBlocks: Block[],
+    allCompanyDays: CompanyDay[],
+    weekShifts: MachineWeekShiftsRow[]
+  ): Array<{
+    date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string;
+    wasShifted: boolean; originalDate: string; originalHour: number;
+  }> {
     if (!firstDate || rType === "NONE" || count < 1) return [];
-    const occurrences: Array<{ date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string }> = [];
-    // UTC noon — bezpečné pro aritmetiku celých dnů ve všech timezone
+    const occurrences: Array<{
+      date: string; hour: number; dataRequiredDate: string; deadlineExpedice: string;
+      wasShifted: boolean; originalDate: string; originalHour: number;
+    }> = [];
+
+    const durationMs = durationH * 3600000;
+
+    // Sbíráme obsazené intervaly: bloky stroje + firemní odstávky
+    // (machine=null = celá firma, jinak specificky náš stroj) + sloty,
+    // které jsme v této sérii právě naplánovali. Stejná logika jako server.
+    const blockedIntervals: Array<{ start: Date; end: Date }> = [
+      ...allBlocks
+        .filter((b) => b.machine === machine)
+        .map((b) => ({ start: new Date(b.startTime), end: new Date(b.endTime) })),
+      ...allCompanyDays
+        .filter((cd) => cd.machine == null || cd.machine === machine)
+        .map((cd) => ({ start: new Date(cd.startDate), end: new Date(cd.endDate) })),
+    ];
+
+    // UTC noon — bezpečné pro aritmetiku celých dnů ve všech timezone (zachovat současné chování).
     let cur = new Date(firstDate + "T12:00:00.000Z");
     for (let i = 0; i < count; i++) {
-      occurrences.push({ date: cur.toISOString().slice(0, 10), hour: firstHour, dataRequiredDate: defaultDataDate, deadlineExpedice: defaultExpedice });
+      const originalDate = cur.toISOString().slice(0, 10);
+      const originalHour = firstHour;
+      const proposed = pragueToUTC(originalDate, originalHour);
+      const slot = findNextFreeSlot(machine, proposed, durationMs, blockedIntervals, weekShifts);
+
+      if (slot.found) {
+        const finalDate = utcToPragueDateStr(slot.startTime);
+        const finalHour = utcToPragueHour(slot.startTime);
+        blockedIntervals.push({ start: slot.startTime, end: slot.endTime });
+        occurrences.push({
+          date: finalDate,
+          hour: finalHour,
+          dataRequiredDate: defaultDataDate,
+          deadlineExpedice: defaultExpedice,
+          wasShifted: slot.wasShifted,
+          originalDate,
+          originalHour,
+        });
+      } else {
+        // Slot se nepodařilo najít do 7 dní — zařadit s původním časem.
+        // Server odmítne 409, klient ukáže chybový toast v handleScheduleSeries.
+        occurrences.push({
+          date: originalDate,
+          hour: originalHour,
+          dataRequiredDate: defaultDataDate,
+          deadlineExpedice: defaultExpedice,
+          wasShifted: false,
+          originalDate,
+          originalHour,
+        });
+      }
+
       cur = addRecurrenceInterval(cur, rType);
     }
     return occurrences;
@@ -2125,9 +2240,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       setSeriesPreview([]);
       return;
     }
-    setSeriesPreview(generateSeriesPreview(bSeriesFirstDate, bSeriesFirstHour, bRecurrenceCount, bRecurrenceType, bDataRequiredDate, bDeadlineExpedice));
+    setSeriesPreview(generateSeriesPreview(
+      bSeriesFirstDate, bSeriesFirstHour, bRecurrenceCount, bRecurrenceType,
+      bDataRequiredDate, bDeadlineExpedice,
+      bSeriesMachine, durationHours, blocks, companyDays, machineWeekShifts
+    ));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bRecurrenceType, bRecurrenceCount, bSeriesFirstDate, bSeriesFirstHour]);
+  }, [bRecurrenceType, bRecurrenceCount, bSeriesFirstDate, bSeriesFirstHour, bSeriesMachine, durationHours]);
 
   async function handleBlockVariantChange(blockId: number, variant: BlockVariant) {
     try {
@@ -2980,7 +3099,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             selectedBlockIds={selectedBlockIds}
             onMultiSelect={(ids) => { setSelectedBlockIds(ids); }}
             onMultiBlockUpdate={handleMultiBlockUpdate}
-            daysAhead={isTiskar ? 2 : daysAhead}
+            daysAhead={isTiskar ? 5 : daysAhead}
             daysBack={effectiveDaysBack}
             canEdit={canEdit}
             canEditData={canEditData}
@@ -3579,7 +3698,41 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>Preview série</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
                         {seriesPreview.map((occ, i) => (
-                          <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", borderRadius: 7, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                          <div
+                            key={i}
+                            title={
+                              occ.wasShifted
+                                ? `Posunuto kvůli kapacitě stroje — původně ${occ.originalDate} ${String(occ.originalHour).padStart(2, "0")}:00`
+                                : undefined
+                            }
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 3,
+                              padding: "6px 8px",
+                              borderRadius: 7,
+                              background: occ.wasShifted
+                                ? (isDark ? "rgba(255, 230, 0, 0.12)" : "#fef3c7")
+                                : "rgba(255,255,255,0.03)",
+                              border: occ.wasShifted
+                                ? (isDark ? "1px solid rgba(255, 230, 0, 0.45)" : "1px solid #f59e0b")
+                                : "1px solid rgba(255,255,255,0.06)",
+                              borderLeft: occ.wasShifted
+                                ? (isDark ? "3px solid #FFE600" : "3px solid #d97706")
+                                : "1px solid rgba(255,255,255,0.06)",
+                            }}
+                          >
+                            {occ.wasShifted && (
+                              <div style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: isDark ? "#FFE600" : "#92400e",
+                                letterSpacing: "0.04em",
+                                marginBottom: 2,
+                              }}>
+                                ⚠ Posunuto z {occ.originalDate} {String(occ.originalHour).padStart(2, "0")}:00 (kapacita)
+                              </div>
+                            )}
                             {/* Řádek 1: badge + Tisk datum + hodina */}
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                               <div style={{
@@ -3592,14 +3745,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                               <div style={{ flex: 1 }}>
                                 <DatePickerField
                                   value={occ.date}
-                                  onChange={(d) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, date: d } : o))}
+                                  onChange={(d) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, date: d, wasShifted: false } : o))}
                                   placeholder="Datum…"
                                 />
                               </div>
                               <div style={{ flex: "0 0 72px", position: "relative" }}>
                                 <select
                                   value={occ.hour}
-                                  onChange={(e) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, hour: parseInt(e.target.value) } : o))}
+                                  onChange={(e) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, hour: parseInt(e.target.value), wasShifted: false } : o))}
                                   style={{
                                     appearance: "none", width: "100%", height: 30,
                                     background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,

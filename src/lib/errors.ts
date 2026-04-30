@@ -5,6 +5,7 @@ export type AppErrorCode =
   | "SCHEDULE_VIOLATION"
   | "CONFLICT"
   | "OVERLAP"
+  | "AUTO_SHIFT_FAILED"
   | "VALIDATION_ERROR";
 
 export class AppError extends Error {
