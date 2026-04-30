@@ -113,6 +113,16 @@ export type Block = {
   // Poznámka MTZ k materiálu
   materialNote: string | null;
   materialNoteByUsername: string | null;
+  // Tiskařské poznámky (pole, řazené DESC podle createdAt) — viditelné jen pro ADMIN/PLANOVAT/TISKAR
+  notes?: Array<{
+    id: number;
+    blockId: number;
+    text: string;
+    createdAt: string;
+    updatedAt: string;
+    createdByUserId: number;
+    createdByUsername: string;
+  }>;
   recurrenceType: string;
   recurrenceParentId: number | null;
   splitGroupId: number | null;
@@ -227,6 +237,7 @@ interface TimelineGridProps {
   onBlockVariantChange?: (blockId: number, variant: BlockVariant) => void;
   onExpeditionPublish?:   (blockId: number) => Promise<void>;
   onExpeditionUnpublish?: (blockId: number) => Promise<void>;
+  onOpenNotes?: (block: Block) => void;
   onShiftBoundsChange?: (
     machine: string,
     date: Date,
@@ -791,6 +802,7 @@ function BlockCard({
   onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
   onExpeditionPublish, onExpeditionUnpublish,
   onDataChipDoubleClick,
+  onOpenNotes,
   splitPart, splitTotal,
 }: {
   block: Block;
@@ -826,6 +838,7 @@ function BlockCard({
   onBlockVariantChange?: (blockId: number, variant: BlockVariant) => void;
   onExpeditionPublish?:   (blockId: number) => Promise<void>;
   onExpeditionUnpublish?: (blockId: number) => Promise<void>;
+  onOpenNotes?: (block: Block) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
@@ -974,7 +987,9 @@ function BlockCard({
 
   const menuItemStyle: React.CSSProperties = { borderRadius: 7, padding: "6px 10px", fontSize: 13, color: "rgba(255,255,255,0.9)", cursor: "pointer" };
   const hasNote = !!block.materialNote;
-  const showMenu = (canEdit && !block.locked) || canEditMat || hasNote;
+  const tiskarNotes = block.notes ?? [];
+  const hasTiskarNotes = tiskarNotes.length > 0;
+  const showMenu = (canEdit && !block.locked) || canEditMat || hasNote || !!onOpenNotes;
 
   const showTooltip = block.type !== "UDRZBA" && !badgeHovered;
 
@@ -1025,6 +1040,49 @@ function BlockCard({
 
       {/* Modrý selection overlay */}
       {multiSelected && <div style={{ position: "absolute", inset: 0, borderRadius: 6, background: "rgba(255,230,0,0.12)", pointerEvents: "none", zIndex: 1 }} />}
+
+      {/* Tiskařské poznámky — oranžový pruh nahoře přes celou šířku + badge v rohu */}
+      {hasTiskarNotes && (
+        <>
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 4,
+              background: "#f59e0b",
+              borderTopLeftRadius: 7,
+              borderTopRightRadius: 7,
+              pointerEvents: "none",
+              zIndex: 3,
+            }}
+          />
+          <span
+            title={`Poznámek tiskaře: ${tiskarNotes.length}`}
+            onClick={onOpenNotes ? (e) => { e.stopPropagation(); onOpenNotes(block); } : undefined}
+            style={{
+              position: "absolute",
+              top: 7,
+              right: 4,
+              background: "#f59e0b",
+              color: "#1f2937",
+              fontSize: 10,
+              fontWeight: 700,
+              lineHeight: 1,
+              padding: "2px 6px",
+              borderRadius: 4,
+              boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
+              cursor: onOpenNotes ? "pointer" : "default",
+              zIndex: 4,
+              userSelect: "none",
+            }}
+          >
+            📝 {tiskarNotes.length}
+          </span>
+        </>
+      )}
 
 
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
@@ -1618,6 +1676,73 @@ function BlockCard({
                 )}
               </div>
             )}
+            {/* Tiskařské poznámky — sekce v hoveru */}
+            {tiskarNotes.length > 0 && (
+              <div style={{
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+              }}>
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  color: "#f59e0b",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  marginBottom: 2,
+                }}>
+                  <span>📝 Poznámky tiskař</span>
+                  <span style={{
+                    background: "#f59e0b",
+                    color: "#1f2937",
+                    padding: "1px 5px",
+                    borderRadius: 8,
+                    fontSize: 9,
+                    fontWeight: 700,
+                  }}>{tiskarNotes.length}</span>
+                </div>
+                {tiskarNotes.slice(0, 3).map((n) => (
+                  <div key={n.id} style={{ borderLeft: "2px solid #f59e0b", paddingLeft: 8 }}>
+                    <div style={{
+                      fontSize: 11,
+                      color: "rgba(255,255,255,0.85)",
+                      lineHeight: 1.45,
+                      whiteSpace: "pre-wrap",
+                    }}>{n.text}</div>
+                    <div style={{
+                      fontSize: 9,
+                      color: "rgba(255,255,255,0.32)",
+                      marginTop: 2,
+                      letterSpacing: "0.02em",
+                    }}>
+                      {n.createdByUsername} · {new Date(n.createdAt).toLocaleString("cs-CZ", {
+                        day: "numeric", month: "numeric",
+                        hour: "2-digit", minute: "2-digit",
+                        timeZone: "Europe/Prague",
+                      })}
+                      {n.updatedAt !== n.createdAt && " · upraveno"}
+                    </div>
+                  </div>
+                ))}
+                {tiskarNotes.length > 3 && (
+                  <div style={{
+                    fontSize: 10,
+                    color: "#f59e0b",
+                    textAlign: "center",
+                    fontStyle: "italic",
+                    marginTop: 4,
+                  }}>
+                    + {tiskarNotes.length - 3} dalších
+                  </div>
+                )}
+              </div>
+            )}
           </div>,
           document.body
         );
@@ -1711,6 +1836,17 @@ function BlockCard({
             </ContextMenuItem>
           </>
         )}
+        {onOpenNotes && block.type === "ZAKAZKA" && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => onOpenNotes(block)}
+              style={{ ...menuItemStyle, color: "#fbbf24" }}
+            >
+              📝 Poznámka tiskaře{hasTiskarNotes ? ` (${tiskarNotes.length})` : ""}
+            </ContextMenuItem>
+          </>
+        )}
         {canEdit && block.type === "ZAKAZKA" && onNotify && (
           <>
             <ContextMenuSeparator />
@@ -1785,6 +1921,7 @@ export default function TimelineGrid({
   onBlockVariantChange,
   onExpeditionPublish,
   onExpeditionUnpublish,
+  onOpenNotes,
   onShiftBoundsChange,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
@@ -3033,6 +3170,7 @@ export default function TimelineGrid({
                       onBlockVariantChange={onBlockVariantChange}
                       onExpeditionPublish={onExpeditionPublish}
                       onExpeditionUnpublish={onExpeditionUnpublish}
+                      onOpenNotes={onOpenNotes}
                     />
                   );
                 })}

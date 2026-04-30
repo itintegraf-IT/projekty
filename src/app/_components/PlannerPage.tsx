@@ -43,6 +43,9 @@ import {
 import { ZoomSlider } from "@/components/ZoomSlider";
 import { InfoPanel, type AuditLogEntry } from "@/components/InfoPanel";
 import { InboxPanel, type NotificationItem } from "@/components/InboxPanel";
+import { BlockNotesDialog } from "@/components/BlockNotesDialog";
+import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
+import type { NoteRole } from "@/lib/blockNotePermissions";
 import { FIELD_LABELS, fmtAuditVal, formatPragueMaybeToday } from "@/lib/auditFormatters";
 import { BlockDetail } from "@/components/BlockDetail";
 import { BlockEdit } from "@/components/BlockEdit";
@@ -512,8 +515,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const canEditDataDate = canEdit;
   const canEditMat      = canEdit || currentUser.role === "MTZ";
   const isTiskar    = currentUser.role === "TISKAR";
+  const canSeeNotes = canEdit || isTiskar;
 
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
+  const [notesDialogBlockId, setNotesDialogBlockId] = useState<number | null>(null);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
   const [machineWeekShifts, setMachineWeekShifts] = useState<MachineWeekShiftsRow[]>(initialMachineWeekShifts);
   // Dark mode detekce — projekt přepíná theme přes .dark třídu na html elementu
@@ -1011,6 +1016,37 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       );
     }
 
+    if (type === "block:note-created") {
+      const blockId = payload.blockId as number;
+      const note = payload.note as SerializedBlockNote;
+      if (!blockId || !note) return;
+      setBlocks((prev) => prev.map((b) =>
+        b.id === blockId
+          ? { ...b, notes: [note, ...(b.notes ?? []).filter((n) => n.id !== note.id)] }
+          : b
+      ));
+    }
+
+    if (type === "block:note-updated") {
+      const blockId = payload.blockId as number;
+      const note = payload.note as SerializedBlockNote;
+      if (!blockId || !note) return;
+      setBlocks((prev) => prev.map((b) =>
+        b.id === blockId
+          ? { ...b, notes: (b.notes ?? []).map((n) => n.id === note.id ? note : n) }
+          : b
+      ));
+    }
+
+    if (type === "block:note-deleted") {
+      const blockId = payload.blockId as number;
+      const noteId = payload.noteId as number;
+      if (!blockId || !noteId) return;
+      setBlocks((prev) => prev.map((b) =>
+        b.id === blockId ? { ...b, notes: (b.notes ?? []).filter((n) => n.id !== noteId) } : b
+      ));
+    }
+
     if (type === "schedule:changed") {
       // Refresh MachineWeekShifts
       fetch("/api/machine-week-shifts")
@@ -1144,6 +1180,56 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         setSelectedBlock(block);
       }
     }
+  }
+
+  async function handleCreateNote(blockId: number, text: string) {
+    const r = await fetch(`/api/blocks/${blockId}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      showToast(j.error ?? "Nepodařilo se uložit poznámku", "error");
+      return;
+    }
+    const note = (await r.json()) as SerializedBlockNote;
+    setBlocks((prev) => prev.map((b) =>
+      b.id === blockId ? { ...b, notes: [note, ...(b.notes ?? [])] } : b
+    ));
+  }
+
+  async function handleUpdateNote(blockId: number, noteId: number, text: string) {
+    const r = await fetch(`/api/blocks/${blockId}/notes/${noteId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      showToast(j.error ?? "Nepodařilo se upravit poznámku", "error");
+      return;
+    }
+    const note = (await r.json()) as SerializedBlockNote;
+    setBlocks((prev) => prev.map((b) =>
+      b.id === blockId
+        ? { ...b, notes: (b.notes ?? []).map((n) => n.id === noteId ? note : n) }
+        : b
+    ));
+  }
+
+  async function handleDeleteNote(blockId: number, noteId: number) {
+    const r = await fetch(`/api/blocks/${blockId}/notes/${noteId}`, { method: "DELETE" });
+    if (!r.ok) {
+      const j = (await r.json().catch(() => ({}))) as { error?: string };
+      showToast(j.error ?? "Nepodařilo se smazat poznámku", "error");
+      return;
+    }
+    setBlocks((prev) => prev.map((b) =>
+      b.id === blockId
+        ? { ...b, notes: (b.notes ?? []).filter((n) => n.id !== noteId) }
+        : b
+    ));
   }
 
   async function handleNotify(blockId: number, orderNumber: string) {
@@ -3119,6 +3205,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onExpeditionUnpublish={canEdit ? handleExpeditionUnpublish : undefined}
             onDataChipDoubleClick={canEditData && !canEditDataDate ? handleDataChipDoubleClick : undefined}
             onShiftBoundsChange={canEdit ? updateShiftBounds : undefined}
+            onOpenNotes={canSeeNotes ? (b) => setNotesDialogBlockId(b.id) : undefined}
           />
         </div>
 
@@ -4035,6 +4122,35 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+
+      {(() => {
+        if (!canSeeNotes || notesDialogBlockId === null) return null;
+        const dialogBlock = blocks.find((b) => b.id === notesDialogBlockId);
+        if (!dialogBlock) return null;
+        const role = currentUser.role as NoteRole;
+        const canCreate =
+          role === "ADMIN" || role === "PLANOVAT" ||
+          (role === "TISKAR" && currentUser.assignedMachine === dialogBlock.machine);
+        return (
+          <BlockNotesDialog
+            open
+            blockId={dialogBlock.id}
+            blockMachine={dialogBlock.machine}
+            blockOrderNumber={dialogBlock.orderNumber}
+            notes={dialogBlock.notes ?? []}
+            currentUser={{
+              id: currentUser.id,
+              role,
+              assignedMachine: currentUser.assignedMachine ?? null,
+            }}
+            canCreate={canCreate}
+            onClose={() => setNotesDialogBlockId(null)}
+            onCreate={(text) => handleCreateNote(dialogBlock.id, text)}
+            onUpdate={(noteId, text) => handleUpdateNote(dialogBlock.id, noteId, text)}
+            onDelete={(noteId) => handleDeleteNote(dialogBlock.id, noteId)}
+          />
+        );
+      })()}
 
       {dtpPopover && (
         <DtpDataPopover

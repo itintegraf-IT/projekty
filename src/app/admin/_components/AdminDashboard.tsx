@@ -1571,6 +1571,12 @@ function AuditLogSection() {
                   <span style={{ color: "#30d158" }}>Zařazena do expedice</span>
                 ) : log.action === "EXPEDITION_UNPUBLISH" ? (
                   <span style={{ color: "#ff9f0a" }}>Odebrána z expedice</span>
+                ) : log.action === "NOTE_CREATE" ? (
+                  <><span style={{ color: "#f59e0b" }}>📝 Přidána poznámka:</span> <span style={{ color: TEXT_PRIMARY }}>{log.newValue ?? ""}</span></>
+                ) : log.action === "NOTE_UPDATE" ? (
+                  <><span style={{ color: "#f59e0b" }}>📝 Upravena poznámka:</span> <span style={{ color: TEXT_SECONDARY }}>{log.oldValue ?? ""}</span>{" → "}<span style={{ color: TEXT_PRIMARY }}>{log.newValue ?? ""}</span></>
+                ) : log.action === "NOTE_DELETE" ? (
+                  <><span style={{ color: "#ff453a" }}>📝 Smazána poznámka:</span> <span style={{ color: TEXT_SECONDARY }}>{log.oldValue ?? ""}</span></>
                 ) : log.action}
               </span>
             </div>

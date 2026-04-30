@@ -430,6 +430,15 @@ export function BlockDetail({
                   {log.action === "AUTO_SHIFT" && log.oldValue && log.newValue && (
                     <span style={{ color: "#f59e0b" }}> · Automaticky posunuto: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span></span>
                   )}
+                  {log.action === "NOTE_CREATE" && log.newValue && (
+                    <span> · <span style={{ color: "#f59e0b" }}>📝 Přidána poznámka tiskaře:</span> <span style={{ color: "var(--text)" }}>{log.newValue}</span></span>
+                  )}
+                  {log.action === "NOTE_UPDATE" && (
+                    <span> · <span style={{ color: "#f59e0b" }}>📝 Upravena poznámka:</span> <span style={{ color: "var(--text)" }}>{log.oldValue ?? ""} → {log.newValue ?? ""}</span></span>
+                  )}
+                  {log.action === "NOTE_DELETE" && (
+                    <span> · <span style={{ color: "#ef4444" }}>📝 Smazána poznámka:</span> <span style={{ color: "var(--text-muted)" }}>{log.oldValue ?? ""}</span></span>
+                  )}
                 </div>
               </div>
             ))}

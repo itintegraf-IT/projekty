@@ -73,6 +73,7 @@ model Block {
   Reservation                                 Reservation? @relation(fields: [reservationId], references: [id])
   Block_Block_splitGroupIdToBlock             Block?       @relation("Block_splitGroupIdToBlock", fields: [splitGroupId], references: [id])
   other_Block_Block_splitGroupIdToBlock       Block[]      @relation("Block_splitGroupIdToBlock")
+  notes                                       BlockNote[]
 
   @@index([deadlineExpedice, expeditionPublishedAt, expeditionSortOrder], map: "Block_expedition_idx")
   @@index([jobPresetId])
@@ -326,4 +327,18 @@ model ShiftAssignment {
 enum ExpeditionManualItem_kind {
   MANUAL_JOB
   INTERNAL_TRANSFER
+}
+
+model BlockNote {
+  id                Int      @id @default(autoincrement())
+  blockId           Int
+  text              String   @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdByUserId   Int
+  createdByUsername String
+
+  block             Block    @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@index([blockId, createdAt])
 }

@@ -16,11 +16,15 @@ export default async function HomePage({
   if (!session) redirect("/login");
   const isTiskar = session.role === "TISKAR";
   const isPlanner = ["ADMIN", "PLANOVAT"].includes(session.role);
+  const canSeeNotes = isPlanner || isTiskar;
 
   const blocks = await prisma.block.findMany({
     where: isTiskar && session.assignedMachine ? { machine: session.assignedMachine } : undefined,
     orderBy: { startTime: "asc" },
-    include: { Reservation: { select: { confirmedAt: true } } },
+    include: {
+      Reservation: { select: { confirmedAt: true } },
+      ...(canSeeNotes ? { notes: { orderBy: { createdAt: "desc" as const } } } : {}),
+    },
   });
 
   // QUEUE_READY rezervace — jen pro PLANOVAT/ADMIN (OBCHODNIK na plánovači nemá přístup k drag&drop)

@@ -1,5 +1,6 @@
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { civilDateToUTCMidnight, normalizeCivilDateInput, parseCivilDateWriteInput } from "@/lib/dateUtils";
+import { serializeBlockNote, type SerializableBlockNote, type SerializedBlockNote } from "@/lib/blockNoteSerialization";
 
 const BLOCK_CIVIL_DATE_FIELDS = new Set([
   "deadlineExpedice",
@@ -22,11 +23,15 @@ type SerializableBlock = {
   createdAt: Date;
   updatedAt: Date;
   Reservation?: { confirmedAt: Date | null } | null;
+  notes?: SerializableBlockNote[];
   [key: string]: unknown;
 };
 
 export function serializeBlock<T extends SerializableBlock>(block: T) {
-  const { Reservation, ...rest } = block;
+  const { Reservation, notes, ...rest } = block;
+  const serializedNotes: SerializedBlockNote[] = Array.isArray(notes)
+    ? notes.map(serializeBlockNote)
+    : [];
   return {
     ...rest,
     blockVariant: normalizeBlockVariant(block.blockVariant as string | null | undefined, block.type),
@@ -41,6 +46,7 @@ export function serializeBlock<T extends SerializableBlock>(block: T) {
     createdAt: block.createdAt.toISOString(),
     updatedAt: block.updatedAt.toISOString(),
     reservationConfirmedAt: Reservation?.confirmedAt?.toISOString() ?? null,
+    notes: serializedNotes,
   };
 }
 

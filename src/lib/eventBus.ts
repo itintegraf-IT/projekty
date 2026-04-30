@@ -25,6 +25,9 @@ export type SSEEventType =
   | "block:batch-updated"
   | "block:print-completed"
   | "block:expedition-changed"
+  | "block:note-created"
+  | "block:note-updated"
+  | "block:note-deleted"
   | "reservation:updated"
   | "schedule:changed";
 

@@ -42,6 +42,10 @@ const BLOCK_EVENTS: SSEEventType[] = [
   "block:batch-updated", "block:print-completed", "block:expedition-changed",
 ];
 
+const NOTE_EVENTS: SSEEventType[] = [
+  "block:note-created", "block:note-updated", "block:note-deleted",
+];
+
 function shouldSendEvent(
   event: SSEEventType,
   payload: SSEPayload,
@@ -51,6 +55,14 @@ function shouldSendEvent(
   if (payload.sourceUserId === session.id) return false;
 
   const { role, assignedMachine } = session;
+
+  // Tiskařské poznámky vidí jen ADMIN/PLANOVAT/TISKAR (TISKAR jen na svém stroji)
+  if (NOTE_EVENTS.includes(event)) {
+    if (role === "TISKAR") {
+      return (payload.machine as string) === assignedMachine;
+    }
+    return role === "ADMIN" || role === "PLANOVAT";
+  }
 
   if (role === "TISKAR") {
     if (!BLOCK_EVENTS.includes(event)) return false;
@@ -120,6 +132,7 @@ export async function GET() {
       const ALL_EVENTS: SSEEventType[] = [
         "block:created", "block:updated", "block:deleted",
         "block:batch-updated", "block:print-completed", "block:expedition-changed",
+        "block:note-created", "block:note-updated", "block:note-deleted",
         "reservation:updated", "schedule:changed",
       ];
 
