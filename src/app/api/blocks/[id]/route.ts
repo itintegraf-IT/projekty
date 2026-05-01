@@ -10,6 +10,7 @@ import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap } from "@/lib/overlapCheck";
 import { emitSSE } from "@/lib/eventBus";
+import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -24,9 +25,13 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
   }
 
   try {
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
     const block = await prisma.block.findUnique({
       where: { id },
-      include: { Reservation: { select: { confirmedAt: true } } },
+      include: {
+        Reservation: { select: { confirmedAt: true } },
+        ...(canSeeNotes ? { notes: { orderBy: { createdAt: "desc" as const } } } : {}),
+      },
     });
     if (!block) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
@@ -413,10 +418,13 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       return updated;
     });
 
-    // Refetch s Reservation include pro reservationConfirmedAt
+    // Refetch s Reservation a notes include — PUT smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
     const blockWithRes = await prisma.block.findUnique({
       where: { id: block.id },
-      include: { Reservation: { select: { confirmedAt: true } } },
+      include: {
+        Reservation: { select: { confirmedAt: true } },
+        notes: { orderBy: { createdAt: "desc" as const } },
+      },
     }) ?? block;
 
     emitSSE("block:updated", { block: serializeBlock(blockWithRes), machine: block.machine, sourceUserId: session.id });

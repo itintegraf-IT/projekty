@@ -10,6 +10,7 @@ import { checkBlockOverlap } from "@/lib/overlapCheck";
 import { AppError, isAppError } from "@/lib/errors";
 import { findNextFreeSlotFromDb } from "@/lib/scheduleSlotFinder";
 import { emitSSE } from "@/lib/eventBus";
+import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -34,11 +35,13 @@ export async function GET(req: NextRequest) {
       machineFilter = machineParam;
     }
 
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
     const blocks = await prisma.block.findMany({
       where: machineFilter ? { machine: machineFilter } : undefined,
       orderBy: { startTime: "asc" },
       include: {
         Reservation: { select: { confirmedAt: true } },
+        ...(canSeeNotes ? { notes: { orderBy: { createdAt: "desc" as const } } } : {}),
       },
     });
     return NextResponse.json(blocks.map(serializeBlock));

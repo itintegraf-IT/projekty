@@ -152,10 +152,13 @@ export async function POST(request: NextRequest) {
       return updated;
     });
 
-    // Refetch s Reservation include pro reservationConfirmedAt
+    // Refetch s Reservation a notes include — batch smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
     const resultsWithRes = await prisma.block.findMany({
       where: { id: { in: results.map(r => r.id) } },
-      include: { Reservation: { select: { confirmedAt: true } } },
+      include: {
+        Reservation: { select: { confirmedAt: true } },
+        notes: { orderBy: { createdAt: "desc" as const } },
+      },
     });
 
     emitSSE("block:batch-updated", { blocks: resultsWithRes.map(serializeBlock), sourceUserId: session.id });

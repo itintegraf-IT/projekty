@@ -93,97 +93,89 @@ export function resolvePresetDateOffset(offsetDays: number | null | undefined): 
   return addDaysToDateStr(todayPragueDateStr(), offsetDays);
 }
 
-function pushOverwrite(overwrittenFields: string[], key: string, changed: boolean) {
-  if (changed && !overwrittenFields.includes(key)) overwrittenFields.push(key);
-}
-
 export function applyJobPresetToDraft(
   current: JobPresetDraftValues,
   preset: JobPreset,
   type: string
 ): { next: JobPresetDraftValues; overwrittenFields: string[] } {
   const next: JobPresetDraftValues = { ...current };
+  // Variant A nikdy nepřepíše vyplněné pole, takže overwrittenFields je vždy prázdné.
+  // Návratový tvar zachován pro kompatibilitu s call-sity v BlockEdit a PlannerPage.
   const overwrittenFields: string[] = [];
 
-  if (type === "ZAKAZKA" && preset.blockVariant) {
-    const normalized = normalizeBlockVariant(preset.blockVariant, type);
-    pushOverwrite(overwrittenFields, "blockVariant", current.blockVariant !== normalized && current.blockVariant !== "STANDARD");
-    next.blockVariant = normalized;
+  // blockVariant: jen když je STANDARD (default)
+  if (type === "ZAKAZKA" && preset.blockVariant && current.blockVariant === "STANDARD") {
+    next.blockVariant = normalizeBlockVariant(preset.blockVariant, type);
   }
 
-  if (preset.specifikace !== null) {
-    pushOverwrite(overwrittenFields, "specifikace", current.specifikace.trim() !== "" && current.specifikace !== preset.specifikace);
+  // specifikace: jen když prázdné
+  if (preset.specifikace !== null && current.specifikace.trim() === "") {
     next.specifikace = preset.specifikace;
   }
 
-  if (preset.dataStatusId !== null) {
-    const value = String(preset.dataStatusId);
-    pushOverwrite(overwrittenFields, "dataStatusId", current.dataStatusId !== "" && current.dataStatusId !== value);
-    next.dataStatusId = value;
+  // dataStatusId: jen když prázdné
+  if (preset.dataStatusId !== null && current.dataStatusId === "") {
+    next.dataStatusId = String(preset.dataStatusId);
   }
 
-  if (preset.dataRequiredDateOffsetDays !== null) {
+  // dataRequiredDate: jen když prázdné
+  if (preset.dataRequiredDateOffsetDays !== null && current.dataRequiredDate === "") {
     const value = resolvePresetDateOffset(preset.dataRequiredDateOffsetDays) ?? "";
-    pushOverwrite(overwrittenFields, "dataRequiredDate", current.dataRequiredDate !== "" && current.dataRequiredDate !== value);
     next.dataRequiredDate = value;
   }
 
-  if (preset.materialStatusId !== null) {
-    const value = String(preset.materialStatusId);
-    pushOverwrite(overwrittenFields, "materialStatusId", current.materialStatusId !== "" && current.materialStatusId !== value);
-    next.materialStatusId = value;
+  // materialStatusId: jen když prázdné
+  if (preset.materialStatusId !== null && current.materialStatusId === "") {
+    next.materialStatusId = String(preset.materialStatusId);
   }
 
-  if (preset.materialInStock !== null) {
-    pushOverwrite(overwrittenFields, "materialInStock", current.materialInStock !== preset.materialInStock);
+  // materialInStock: aplikovat z presetu; vyplněné materialRequiredDate
+  // se nikdy nemaže (Variant A — preserve user values)
+  if (preset.materialInStock !== null && current.materialInStock !== preset.materialInStock) {
     next.materialInStock = preset.materialInStock;
-    if (preset.materialInStock) {
-      pushOverwrite(overwrittenFields, "materialRequiredDate", current.materialRequiredDate !== "");
-      next.materialRequiredDate = "";
-    }
   }
 
-  if (!next.materialInStock && preset.materialRequiredDateOffsetDays !== null) {
+  // materialRequiredDate fill: jen když prázdné a preset nehlásí materialInStock
+  if (
+    !next.materialInStock &&
+    preset.materialRequiredDateOffsetDays !== null &&
+    current.materialRequiredDate === ""
+  ) {
     const value = resolvePresetDateOffset(preset.materialRequiredDateOffsetDays) ?? "";
-    pushOverwrite(overwrittenFields, "materialRequiredDate", current.materialRequiredDate !== "" && current.materialRequiredDate !== value);
     next.materialRequiredDate = value;
   }
 
-  if (preset.pantoneRequired !== null) {
-    pushOverwrite(overwrittenFields, "pantoneRequired", current.pantoneRequired !== preset.pantoneRequired);
+  // pantoneRequired: aplikovat z presetu; vyplněné pantoneRequiredDate
+  // se nikdy nemaže (Variant A — preserve user values)
+  if (preset.pantoneRequired !== null && current.pantoneRequired !== preset.pantoneRequired) {
     next.pantoneRequired = preset.pantoneRequired;
-    if (!preset.pantoneRequired) {
-      pushOverwrite(overwrittenFields, "pantoneRequiredDate", current.pantoneRequiredDate !== "");
-      next.pantoneRequiredDate = "";
-    }
   }
 
-  if (preset.pantoneRequiredDateOffsetDays !== null) {
+  // pantoneRequiredDate fill: jen když prázdné
+  if (preset.pantoneRequiredDateOffsetDays !== null && current.pantoneRequiredDate === "") {
     const value = resolvePresetDateOffset(preset.pantoneRequiredDateOffsetDays) ?? "";
-    pushOverwrite(overwrittenFields, "pantoneRequiredDate", current.pantoneRequiredDate !== "" && current.pantoneRequiredDate !== value);
     next.pantoneRequiredDate = value;
-    // Setting a date implies pantone is required
+    // Setting a date implies pantone is required (existing behavior)
     if (value) next.pantoneRequired = true;
   }
 
-  if (preset.barvyStatusId !== null) {
-    const value = String(preset.barvyStatusId);
-    pushOverwrite(overwrittenFields, "barvyStatusId", current.barvyStatusId !== "" && current.barvyStatusId !== value);
-    next.barvyStatusId = value;
+  // barvyStatusId: jen když prázdné
+  if (preset.barvyStatusId !== null && current.barvyStatusId === "") {
+    next.barvyStatusId = String(preset.barvyStatusId);
   }
 
-  if (preset.lakStatusId !== null) {
-    const value = String(preset.lakStatusId);
-    pushOverwrite(overwrittenFields, "lakStatusId", current.lakStatusId !== "" && current.lakStatusId !== value);
-    next.lakStatusId = value;
+  // lakStatusId: jen když prázdné
+  if (preset.lakStatusId !== null && current.lakStatusId === "") {
+    next.lakStatusId = String(preset.lakStatusId);
   }
 
-  if (preset.deadlineExpediceOffsetDays !== null) {
+  // deadlineExpedice: jen když prázdné
+  if (preset.deadlineExpediceOffsetDays !== null && current.deadlineExpedice === "") {
     const value = resolvePresetDateOffset(preset.deadlineExpediceOffsetDays) ?? "";
-    pushOverwrite(overwrittenFields, "deadlineExpedice", current.deadlineExpedice !== "" && current.deadlineExpedice !== value);
     next.deadlineExpedice = value;
   }
 
+  // Identita presetu — vždy aktualizovat
   next.jobPresetId = preset.id;
   next.jobPresetLabel = preset.name;
 
