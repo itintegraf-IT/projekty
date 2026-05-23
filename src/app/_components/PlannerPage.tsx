@@ -1732,7 +1732,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     });
   }
 
-  async function handleDtpPopoverSave(
+  async function handleDtpDataStatusChange(
     blockId: number,
     patch: { dataStatusId?: number | null; dataStatusLabel?: string | null; dataOk?: boolean }
   ) {
@@ -3237,6 +3237,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             blocks={blocks}
             dataOpts={bDataOpts}
             onScrollToBlock={handleDtpScrollToBlock}
+            onStatusChange={handleDtpDataStatusChange}
             width={dtpPanelWidth}
             onWidthChange={setDtpPanelWidth}
             onWidthCommit={(w) => savePreference("dtp-panel-width", String(w))}
@@ -4162,7 +4163,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           dataOpts={bDataOpts}
           anchorRect={dtpPopover.rect}
           onClose={() => setDtpPopover(null)}
-          onSave={handleDtpPopoverSave}
+          onSave={handleDtpDataStatusChange}
         />
       )}
 

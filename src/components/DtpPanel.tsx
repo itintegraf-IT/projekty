@@ -11,6 +11,12 @@ import type { Block } from "@/app/_components/TimelineGrid";
 import type { CodebookOption } from "@/lib/plannerTypes";
 import { badgeColorVar } from "@/lib/badgeColors";
 
+// ─── Sdílené typy ─────────────────────────────────────────────────────────────
+type OnStatusChange = (
+  blockId: number,
+  patch: { dataStatusId: number | null; dataStatusLabel: string | null; dataOk: boolean }
+) => Promise<void>;
+
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const DTP_PANEL_MIN_W = 180;
 const DTP_PANEL_MAX_W = 420;
@@ -23,6 +29,7 @@ interface DtpPanelProps {
   blocks: Block[];
   dataOpts: CodebookOption[];
   onScrollToBlock: (block: Block) => void;
+  onStatusChange: OnStatusChange;
   width: number;
   onWidthChange: (w: number) => void;
   onWidthCommit?: (w: number) => void;
@@ -60,6 +67,7 @@ export function DtpPanel({
   blocks,
   dataOpts,
   onScrollToBlock,
+  onStatusChange,
   width,
   onWidthChange,
   onWidthCommit,
@@ -207,6 +215,7 @@ export function DtpPanel({
             block={block}
             dataOpts={dataOpts}
             onScrollTo={() => onScrollToBlock(block)}
+            onStatusChange={onStatusChange}
           />
         ))}
       </div>
@@ -242,23 +251,18 @@ function FilterChip({
 
 // ─── BlockCard ────────────────────────────────────────────────────────────────
 function BlockCard({
-  block, dataOpts, onScrollTo,
+  block, dataOpts, onScrollTo, onStatusChange,
 }: {
   block: Block;
   dataOpts: CodebookOption[];
   onScrollTo: () => void;
+  onStatusChange: OnStatusChange;
 }) {
   const { label: dateLabel, urgent } = useMemo(
     () => formatCardDate(block.startTime),
     [block.startTime]
   );
   const [hovered, setHovered] = useState(false);
-
-  const chipAccent = useMemo(() => {
-    if (!block.dataStatusId) return null;
-    const opt = dataOpts.find((o) => o.id === block.dataStatusId);
-    return badgeColorVar(opt?.badgeColor ?? null) ?? "var(--badge-blue)";
-  }, [block.dataStatusId, dataOpts]);
 
   function handleClick() {
     onScrollTo();
@@ -291,27 +295,87 @@ function BlockCard({
         {MACHINE_LABELS[block.machine] ?? block.machine} · {blockDurationLabel(block)}
       </div>
 
-      {block.dataStatusLabel ? (
-        <span style={{
-          display: "inline-block", padding: "2px 7px", borderRadius: 10,
-          fontSize: 9, fontWeight: 700,
-          color: `color-mix(in oklab, ${chipAccent ?? "var(--badge-blue)"} 70%, var(--text))`,
-          background: `color-mix(in oklab, ${chipAccent ?? "var(--badge-blue)"} 30%, transparent)`,
-          border: `1px solid ${chipAccent ?? "var(--badge-blue)"}`,
-        }}>
-          {block.dataStatusLabel}
-        </span>
-      ) : (
-        <span style={{
-          display: "inline-block", padding: "2px 7px", borderRadius: 10,
-          fontSize: 9, fontWeight: 500, fontStyle: "italic",
-          background: "transparent", color: "var(--text-muted)",
-          border: "1px dashed var(--border)",
-        }}>
-          bez statusu
-        </span>
-      )}
+      <StatusChipSelect
+        block={block}
+        dataOpts={dataOpts}
+        onChange={(statusIdStr) => {
+          const statusId = statusIdStr ? parseInt(statusIdStr, 10) : null;
+          const selectedOpt = dataOpts.find((o) => o.id === statusId);
+          void onStatusChange(block.id, {
+            dataStatusId: statusId,
+            dataStatusLabel: selectedOpt?.label ?? null,
+            dataOk: statusId !== null,
+          });
+        }}
+      />
     </div>
+  );
+}
+
+// ─── StatusChipSelect ────────────────────────────────────────────────────────
+function StatusChipSelect({
+  block, dataOpts, onChange,
+}: {
+  block: Block;
+  dataOpts: CodebookOption[];
+  onChange: (statusIdStr: string) => void;
+}) {
+  const chipAccent = useMemo(() => {
+    if (!block.dataStatusId) return null;
+    const opt = dataOpts.find((o) => o.id === block.dataStatusId);
+    return badgeColorVar(opt?.badgeColor ?? null) ?? "var(--badge-blue)";
+  }, [block.dataStatusId, dataOpts]);
+
+  const hasStatus = !!block.dataStatusId;
+  const accent = chipAccent ?? "var(--badge-blue)";
+
+  // SVG šipka jako background-image (data URI). Native <select> jinak vykreslí OS šipku.
+  const arrowSvg = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%23${
+    hasStatus ? "9ca3af" : "6b7280"
+  }' stroke-width='1.5'><path d='M1 1l4 4 4-4' stroke-linecap='round'/></svg>")`;
+
+  return (
+    <select
+      aria-label={`Status zakázky ${block.orderNumber}`}
+      value={block.dataStatusId?.toString() ?? ""}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        appearance: "none",
+        WebkitAppearance: "none",
+        MozAppearance: "none",
+        padding: "2px 18px 2px 7px",
+        borderRadius: 10,
+        fontSize: 9,
+        fontWeight: hasStatus ? 700 : 500,
+        fontStyle: hasStatus ? "normal" : "italic",
+        color: hasStatus
+          ? `color-mix(in oklab, ${accent} 70%, var(--text))`
+          : "var(--text-muted)",
+        backgroundColor: hasStatus
+          ? `color-mix(in oklab, ${accent} 30%, transparent)`
+          : "transparent",
+        border: hasStatus
+          ? `1px solid ${accent}`
+          : "1px dashed var(--border)",
+        cursor: "pointer",
+        outline: "none",
+        backgroundImage: arrowSvg,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 5px center",
+        backgroundSize: "8px 5px",
+        lineHeight: 1.4,
+        maxWidth: "100%",
+      } as React.CSSProperties}
+    >
+      <option value="">— bez statusu —</option>
+      {dataOpts.filter((o) => o.isActive).map((opt) => (
+        <option key={opt.id} value={opt.id.toString()}>
+          {opt.isWarning ? "⚠ " : ""}{opt.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
