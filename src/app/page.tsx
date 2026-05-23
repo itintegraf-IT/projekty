@@ -18,8 +18,9 @@ export default async function HomePage({
   const isPlanner = ["ADMIN", "PLANOVAT"].includes(session.role);
   const canSeeNotes = isPlanner || isTiskar;
 
+  // TISKAR vidí všechny stroje (pro peek druhého stroje); edity jsou
+  // omezeny v API podle assignedMachine, takže read-only přístup je bezpečný.
   const blocks = await prisma.block.findMany({
-    where: isTiskar && session.assignedMachine ? { machine: session.assignedMachine } : undefined,
     orderBy: { startTime: "asc" },
     include: {
       Reservation: { select: { confirmedAt: true } },

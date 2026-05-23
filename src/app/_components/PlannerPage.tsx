@@ -51,6 +51,8 @@ import { BlockDetail } from "@/components/BlockDetail";
 import { BlockEdit } from "@/components/BlockEdit";
 import { DtpPanel } from "@/components/DtpPanel";
 import { DtpDataPopover } from "@/components/DtpDataPopover";
+import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
+import { OrderSearchSheet } from "@/components/OrderSearchSheet";
 import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 import {
   type CodebookOption,
@@ -557,6 +559,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   workingTimeLockRef.current = workingTimeLock;
   const MAX_HISTORY = 30;
 
+  // ── Peek panel (TISKAR) ──
+  // TISKAR: aktuálně zobrazený stroj (default = vlastní). Přepíná se v hlavičce
+  // přes TiskarMachineToggle nebo automaticky po kliku na SplitChip / výběru v hledání.
+  const [viewMachine, setViewMachine] = useState<string>(currentUser.assignedMachine ?? "XL_105");
+  const [searchSheetOpen, setSearchSheetOpen] = useState(false);
+
   // Builder form fields
   const [orderNumber, setOrderNumber]     = useState("");
   const [type, setType]                   = useState("ZAKAZKA");
@@ -683,6 +691,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
+
   const [daysAhead, setDaysAhead] = useState(60);
   const [daysBack, setDaysBack]   = useState(3);
 
@@ -1275,6 +1284,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     pendingScrollMs.current = new Date(block.startTime).getTime();
     setDaysBack(Math.max(3, diffDays + 5));
   }
+
+  const handleSplitChipClick = useCallback((partnerId: number) => {
+    const partner = blocks.find(b => b.id === partnerId);
+    if (!partner) return;
+    // Přepne tiskaři viewMachine na partner.machine — TimelineGrid se přerenderuje
+    // na druhý stroj a vybere partnera. Scroll position scrollRefu se zachovává.
+    setViewMachine(partner.machine);
+    setSelectedBlock(partner);
+    if (new Date(partner.startTime) < viewStart) {
+      handleJumpToOutOfRange(partner);
+    } else {
+      const y = dateToY(new Date(partner.startTime), viewStart, slotHeight);
+      scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
+    }
+  }, [blocks, viewStart, slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bloky mimo rozsah (v minulosti) odpovídající aktuálnímu hledání
   const outOfRangeBlocks = filterText.trim()
@@ -2837,6 +2861,30 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             </span>
           </span>
           <div style={{ flex: 1 }} />
+          <TiskarMachineToggle
+            machines={["XL_105", "XL_106"] as const}
+            activeMachine={viewMachine}
+            ownMachine={currentUser.assignedMachine ?? "XL_105"}
+            onChange={(machine) => setViewMachine(machine)}
+          />
+          <button
+            onClick={(e) => { if (e.button !== 0) return; setSearchSheetOpen(true); }}
+            title="Najít zakázku"
+            style={{
+              padding: "3px 10px",
+              fontSize: 11,
+              borderRadius: 6,
+              background: "var(--surface-2)",
+              border: "1px solid var(--border)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            🔍 Najít
+          </button>
           <Button variant="outline" size="sm" onClick={handleScrollToNow} className="h-8 text-xs theme-transition-fast" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-muted)" }}>
             Dnes
           </Button>
@@ -3166,7 +3214,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       {/* ── Tělo ── */}
       <section style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         {/* LEVÁ ČÁST – timeline grid */}
-        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
           <TimelineGrid
             blocks={blocks}
             filterText={filterText}
@@ -3200,8 +3248,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             badgeColorMap={badgeColorMap}
             machineWeekShifts={machineWeekShifts}
             isTiskar={isTiskar}
-            onPrintComplete={isTiskar || canEdit ? handlePrintComplete : undefined}
-            assignedMachine={isTiskar ? (currentUser.assignedMachine ?? null) : null}
+            // TISKAR: Hotovo tlačítko jen na vlastním stroji. Když přepne na cizí stroj,
+            // onPrintComplete je undefined → button se v BlockCard nezobrazí.
+            onPrintComplete={
+              isTiskar
+                ? (viewMachine === currentUser.assignedMachine ? handlePrintComplete : undefined)
+                : (canEdit ? handlePrintComplete : undefined)
+            }
+            // TISKAR: assignedMachine = aktuálně zobrazený stroj (viewMachine).
+            // Pro non-tiskar role zůstává původní chování (null = vidí všechny stroje).
+            assignedMachine={isTiskar ? viewMachine : null}
             onNotify={canEdit ? handleNotify : undefined}
             onBlockVariantChange={canEdit ? handleBlockVariantChange : undefined}
             onExpeditionPublish={canEdit ? handleExpeditionPublish : undefined}
@@ -3209,6 +3265,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onDataChipDoubleClick={canEditData && !canEditDataDate ? handleDataChipDoubleClick : undefined}
             onShiftBoundsChange={canEdit ? updateShiftBounds : undefined}
             onOpenNotes={canSeeNotes ? (b) => setNotesDialogBlockId(b.id) : undefined}
+            onSplitChipClick={handleSplitChipClick}
           />
         </div>
 
@@ -3284,7 +3341,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             />
           ) : selectedBlock ? (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} canEdit={canEdit} onBlockUpdate={handleBlockUpdate} />
+              <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} canEdit={canEdit} onBlockUpdate={handleBlockUpdate} allBlocks={blocks} />
             </div>
           ) : (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "var(--surface)", borderLeft: "1px solid var(--border)" }}>
@@ -4164,6 +4221,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           anchorRect={dtpPopover.rect}
           onClose={() => setDtpPopover(null)}
           onSave={handleDtpDataStatusChange}
+        />
+      )}
+
+      {isTiskar && (
+        <OrderSearchSheet
+          open={searchSheetOpen}
+          allBlocks={blocks}
+          onSelect={(block) => {
+            setSearchSheetOpen(false);
+            // Pokud je zakázka na jiném stroji, přepneme tiskaři viewMachine
+            // → TimelineGrid re-renderuje na daný stroj. Pak vybereme blok a scrollneme.
+            if (block.machine !== viewMachine) setViewMachine(block.machine);
+            setSelectedBlock(block);
+            if (new Date(block.startTime) < viewStart) {
+              handleJumpToOutOfRange(block);
+            } else {
+              const y = dateToY(new Date(block.startTime), viewStart, slotHeight);
+              scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
+            }
+          }}
+          onClose={() => setSearchSheetOpen(false)}
         />
       )}
 

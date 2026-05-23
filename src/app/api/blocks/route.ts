@@ -20,20 +20,10 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const machineParam = url.searchParams.get("machine");
 
-    // TISKAR: vždy jen svůj stroj, ignorovat query param
-    let machineFilter: string | undefined;
-    if (session.role === "TISKAR") {
-      if (!session.assignedMachine) {
-        return NextResponse.json({ error: "Tiskař nemá přiřazený stroj" }, { status: 400 });
-      }
-      // Pokud TISKAR zkusil zadat jiný stroj, vrátit 403
-      if (machineParam && machineParam !== session.assignedMachine) {
-        return NextResponse.json({ error: "Forbidden — cizí stroj" }, { status: 403 });
-      }
-      machineFilter = session.assignedMachine;
-    } else if (machineParam) {
-      machineFilter = machineParam;
-    }
+    // TISKAR vidí read-only všechny stroje (peek druhého stroje u split zakázek);
+    // edity jsou omezeny v /api/blocks/[id] a /api/blocks/[id]/complete podle
+    // session.assignedMachine.
+    const machineFilter: string | undefined = machineParam ?? undefined;
 
     const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
     const blocks = await prisma.block.findMany({

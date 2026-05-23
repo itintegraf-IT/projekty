@@ -26,6 +26,8 @@ import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { resolveScheduleRows, resolveDayIntervals } from "@/lib/scheduleValidation";
 import { SHIFT_HOURS } from "@/lib/shifts";
 import { ShiftEdgeHandles } from "@/components/planner/ShiftEdgeHandles";
+import { SplitChip } from "@/components/SplitChip";
+import { findSplitPartner, getSplitChipState } from "@/lib/splitHelpers";
 import {
   HoverCard,
   HoverCardContent,
@@ -247,6 +249,7 @@ interface TimelineGridProps {
     newMin: number | null,
     joint?: boolean,
   ) => Promise<void>;
+  onSplitChipClick?: (partnerId: number) => void;
 }
 
 type QueueDropPreview = {
@@ -826,6 +829,7 @@ function BlockCard({
   onDataChipDoubleClick,
   onOpenNotes,
   splitPart, splitTotal,
+  splitPartner, onSplitChipClick,
 }: {
   block: Block;
   top: number;
@@ -861,6 +865,8 @@ function BlockCard({
   onExpeditionPublish?:   (blockId: number) => Promise<void>;
   onExpeditionUnpublish?: (blockId: number) => Promise<void>;
   onOpenNotes?: (block: Block) => void;
+  splitPartner?: Block | null;
+  onSplitChipClick?: (partnerId: number) => void;
 }) {
   const [resizeHovered, setResizeHovered] = useState(false);
   const [hovered, setHovered]             = useState(false);
@@ -1207,6 +1213,17 @@ function BlockCard({
                 {printPending ? "·" : isPrintDone ? "↩" : "✓"}
               </button>
             )}
+            {splitPartner && clampedHeight >= 32 && (() => {
+              const { state, time } = getSplitChipState(splitPartner);
+              return (
+                <SplitChip
+                  partnerMachine={splitPartner.machine}
+                  state={state}
+                  time={time}
+                  onClick={() => onSplitChipClick?.(splitPartner.id)}
+                />
+              );
+            })()}
           </div>
         );
       })()}
@@ -1499,6 +1516,19 @@ function BlockCard({
           </button>
         </div>
       )}
+
+      {/* SplitChip — jen pro TISKAR, MODE_FULL */}
+      {MODE_FULL && splitPartner && clampedHeight >= 32 && (() => {
+        const { state, time } = getSplitChipState(splitPartner);
+        return (
+          <SplitChip
+            partnerMachine={splitPartner.machine}
+            state={state}
+            time={time}
+            onClick={() => onSplitChipClick?.(splitPartner.id)}
+          />
+        );
+      })()}
 
       {/* Resize handle — rohový iOS-style */}
       {!block.locked && (
@@ -1948,6 +1978,7 @@ export default function TimelineGrid({
   onExpeditionUnpublish,
   onOpenNotes,
   onShiftBoundsChange,
+  onSplitChipClick,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -3145,6 +3176,10 @@ export default function TimelineGrid({
                   const splitSiblings = block.splitGroupId != null ? (splitGroupMap.get(block.splitGroupId) ?? []) : [];
                   const splitTotal = splitSiblings.length > 1 ? splitSiblings.length : 0;
                   const splitPart  = splitTotal > 0 ? splitSiblings.findIndex(b => b.id === block.id) + 1 : 0;
+                  // Split partner pro TISKAR — najde sourozenecký blok na druhém stroji
+                  const splitPartner = isTiskar
+                    ? findSplitPartner(block, blocks, assignedMachine ?? "")
+                    : null;
 
                   return (
                     <BlockCard
@@ -3196,6 +3231,8 @@ export default function TimelineGrid({
                       onExpeditionPublish={onExpeditionPublish}
                       onExpeditionUnpublish={onExpeditionUnpublish}
                       onOpenNotes={onOpenNotes}
+                      splitPartner={splitPartner}
+                      onSplitChipClick={onSplitChipClick}
                     />
                   );
                 })}

@@ -10,6 +10,7 @@ import { TYPE_LABELS, TYPE_BUILDER_CONFIG } from "@/lib/plannerTypes";
 import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
 import { formatCivilDate, formatPragueDateTime, formatPragueDateShort, formatPragueTime } from "@/lib/dateUtils";
 import DatePickerField from "@/app/_components/DatePickerField";
+import { getSplitChipState } from "@/lib/splitHelpers";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -59,12 +60,14 @@ export function BlockDetail({
   onDelete,
   canEdit,
   onBlockUpdate,
+  allBlocks,
 }: {
   block: Block;
   onClose: () => void;
   onDelete: (id: number, rejectionReason?: string) => void;
   canEdit?: boolean;
   onBlockUpdate?: (updated: Block) => void;
+  allBlocks?: Block[];
 }) {
   const [confirming, setConfirming] = useState(false);
   const [detailRejectionReason, setDetailRejectionReason] = useState("");
@@ -234,6 +237,50 @@ export function BlockDetail({
             </div>
           </>
         )}
+
+        {/* Druhá část splitu — informačně pro všechny role */}
+        {(() => {
+          if (!allBlocks || block.splitGroupId == null) return null;
+          const partner = allBlocks.find(
+            (b) =>
+              b.id !== block.id &&
+              b.splitGroupId === block.splitGroupId &&
+              b.machine !== block.machine
+          );
+          if (!partner) return null;
+          const { state, time } = getSplitChipState(partner);
+          const timeStr = time.toLocaleString("cs-CZ", { dateStyle: "short", timeStyle: "short" });
+          return (
+            <>
+              <Separator className="my-1 bg-slate-800" />
+              <div style={{ borderRadius: 12, background: "var(--surface-2)", padding: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--text-muted)", marginBottom: 6 }}>
+                  Druhá část
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span>Stroj</span>
+                  <span style={{ fontWeight: 600 }}>{partner.machine.replace("_", " ")}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span>Stav</span>
+                  <span style={{ fontWeight: 600, color: state === "done" ? "var(--success, #34c759)" : "var(--warning, #ff9500)" }}>
+                    {state === "done" ? "Hotovo" : "Čeká"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                  <span>{state === "done" ? "Vytištěno" : "Plán"}</span>
+                  <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{timeStr}</span>
+                </div>
+                {state === "done" && partner.printCompletedByUsername && (
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span>Tiskl</span>
+                    <span style={{ fontWeight: 600 }}>{partner.printCompletedByUsername}</span>
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
 
         {/* Rezervace — zobrazit jen pokud blok má reservationId */}
         {block.reservationId && reservation && (
