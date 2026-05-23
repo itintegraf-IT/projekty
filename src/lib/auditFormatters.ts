@@ -10,6 +10,7 @@ export const FIELD_LABELS: Record<string, string> = {
   materialOk: "Materiál OK",
   materialNote: "Poznámka MTZ",
   materialInStock: "Materiál skladem",
+  materialIssued: "Materiál vydán",
   deadlineExpedice: "Expedice termín",
   expediceNote: "Poznámka expedice",
   doprava: "Doprava",
@@ -22,6 +23,7 @@ export const FIELD_LABELS: Record<string, string> = {
 export function fmtAuditVal(val: string | null, field: string | null): string {
   if (!val || val === "null") return "—";
   if (field === "dataOk" || field === "materialOk" || field === "pantoneRequired") return val === "true" ? "✓ OK" : "✗ Ne";
+  if (field === "materialInStock" || field === "materialIssued") return val === "true" ? "✓ Ano" : "✗ Ne";
   if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
     return formatCivilDate(val);
   }

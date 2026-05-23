@@ -200,7 +200,7 @@ export function BlockDetail({
           </>
         )}
 
-        {(block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace) && (
+        {(block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace || block.materialInStock || block.materialIssued) && (
           <>
             <Separator className="my-1 bg-slate-800" />
             <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2 space-y-1.5">
@@ -210,6 +210,14 @@ export function BlockDetail({
               )}
               {block.materialStatusLabel && (
                 <DeadlineRow label="Materiál" value={block.materialStatusLabel} ok={block.materialOk} date={block.materialRequiredDate ? formatDate(block.materialRequiredDate) : null} />
+              )}
+              {(block.materialInStock || block.materialIssued) && (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[10px] text-slate-500 w-16 flex-shrink-0">Sklad</span>
+                  <span className={block.materialIssued ? "text-blue-400 font-semibold" : "text-green-400 font-semibold"}>
+                    {block.materialIssued ? "Vydáno ➜" : "Skladem ✓"}
+                  </span>
+                </div>
               )}
               {block.barvyStatusLabel && <Row label="Barvy" value={block.barvyStatusLabel} />}
               {block.lakStatusLabel && <Row label="Lak" value={block.lakStatusLabel} />}

@@ -98,6 +98,7 @@ export type Block = {
   materialRequiredDate: string | null;
   materialOk: boolean;
   materialInStock: boolean;
+  materialIssued: boolean;
   // Výrobní sloupečky — PANTONE
   pantoneRequiredDate: string | null;
   pantoneOk: boolean;
@@ -478,7 +479,8 @@ const DEADLINE_BG: Record<string, string> = {
   danger:     "color-mix(in oklab, var(--danger) 85%, black 15%)",
   warning:    "color-mix(in oklab, var(--warning) 75%, black 25%)",
   earlyStart: "color-mix(in oklab, #f97316 85%, black 15%)",
-  empty:      "rgba(255,255,255,0.12)",
+  issued:     "color-mix(in oklab, #3b82f6 85%, black 15%)",
+  empty:      "rgba(0,0,0,0.45)",
   neutral:    "rgba(255,255,255,0.18)",
 };
 const DEADLINE_BORDER: Record<string, string> = {
@@ -486,7 +488,8 @@ const DEADLINE_BORDER: Record<string, string> = {
   danger:     "color-mix(in oklab, var(--danger) 70%, black 30%)",
   warning:    "color-mix(in oklab, var(--warning) 60%, black 40%)",
   earlyStart: "color-mix(in oklab, #f97316 70%, black 30%)",
-  empty:      "rgba(255,255,255,0.20)",
+  issued:     "color-mix(in oklab, #3b82f6 70%, black 30%)",
+  empty:      "rgba(255,255,255,0.55)",
   neutral:    "rgba(255,255,255,0.30)",
 };
 
@@ -517,9 +520,9 @@ const DAY_NAMES_TG   = ["Po","Út","St","Čt","Pá","So","Ne"];
 
 // ─── InlineDatePicker — floating calendar pro dvojklik na badge ───────────────
 function InlineDatePicker({
-  x, y, currentValue, onPick, onClose, onPickSkladem,
+  x, y, currentValue, onPick, onClose, onPickSkladem, onPickVydano, sklademActive, vydanoActive,
 }: {
-  x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void; onPickSkladem?: () => void;
+  x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void; onPickSkladem?: () => void; onPickVydano?: () => void; sklademActive?: boolean; vydanoActive?: boolean;
 }) {
   const today = todayPragueDateStr();
   const safeDate = normalizeCivilDateInput(currentValue) ?? "";
@@ -599,19 +602,38 @@ function InlineDatePicker({
             );
           })}
         </div>
-        {onPickSkladem && (
-          <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
-            <button
-              onClick={() => { onPickSkladem(); onClose(); }}
-              style={{
-                width: "100%", padding: "6px 0", borderRadius: 8, border: "none",
-                background: "rgba(16,185,129,0.15)", color: "#10b981",
-                fontSize: 12, fontWeight: 700, cursor: "pointer",
-                letterSpacing: "0.04em",
-              }}
-            >
-              Skladem ✓
-            </button>
+        {(onPickSkladem || onPickVydano) && (
+          <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8, display: "flex", gap: 6 }}>
+            {onPickSkladem && (
+              <button
+                onClick={() => { onPickSkladem(); onClose(); }}
+                style={{
+                  flex: 1, padding: "6px 0", borderRadius: 8,
+                  border: sklademActive ? "1px solid #10b981" : "none",
+                  background: sklademActive ? "rgba(16,185,129,0.35)" : "rgba(16,185,129,0.15)",
+                  color: sklademActive ? "#fff" : "#10b981",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {sklademActive ? "Zrušit skladem" : "Skladem ✓"}
+              </button>
+            )}
+            {onPickVydano && (
+              <button
+                onClick={() => { onPickVydano(); onClose(); }}
+                style={{
+                  flex: 1, padding: "6px 0", borderRadius: 8,
+                  border: vydanoActive ? "1px solid #3b82f6" : "none",
+                  background: vydanoActive ? "rgba(59,130,246,0.35)" : "rgba(59,130,246,0.15)",
+                  color: vydanoActive ? "#fff" : "#3b82f6",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {vydanoActive ? "Zrušit vydáno" : "Vydáno ➜"}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -634,8 +656,8 @@ function DateBadge({
   const stateKey = empty ? "empty" : ok ? "ok" : danger ? "danger" : warn ? "warning" : earlyStart ? "earlyStart" : "neutral";
   const bg          = customBg ?? DEADLINE_BG[stateKey];
   const borderColor = customBorder ?? DEADLINE_BORDER[stateKey];
-  const labelColor  = customTextColor ?? (empty ? "var(--text-muted)" : "rgba(255,255,255,0.90)");
-  const dateColor   = customTextColor ?? (empty ? "var(--text-muted)" : "#fff");
+  const labelColor  = customTextColor ?? (empty ? "#fff" : "rgba(255,255,255,0.90)");
+  const dateColor   = customTextColor ?? (empty ? "rgba(255,255,255,0.95)" : "#fff");
 
   function handleClick(e: React.MouseEvent) {
     e.stopPropagation();
@@ -867,10 +889,11 @@ function BlockCard({
   const dataCanToggle = false;
   const dataCanOpenCalendar    = !block.dataOk && !!canEditDataDate && !!onInlineDatePick;
   const dataCanOpenDtpPopover  = !!canEditData && !canEditDataDate && !!onDataChipDoubleClick;
-  // materialInStock potlačuje warning logiku materiálu
-  const effectiveMaterialDate = block.materialInStock ? null : block.materialRequiredDate;
-  const effectiveMaterialOk   = block.materialInStock ? true : block.materialOk;
-  const materialDeadlineState = block.materialInStock
+  // materialInStock i materialIssued potlačují warning logiku materiálu
+  const materialHandled = block.materialInStock || block.materialIssued;
+  const effectiveMaterialDate = materialHandled ? null : block.materialRequiredDate;
+  const effectiveMaterialOk   = materialHandled ? true : block.materialOk;
+  const materialDeadlineState = materialHandled
     ? "ok"
     : deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
   const pantoneDeadlineState = deadlineState(block.pantoneRequiredDate, block.pantoneOk, now, block.startTime);
@@ -1088,12 +1111,12 @@ function BlockCard({
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
         const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
+        const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const pStateKey = !block.pantoneRequired && !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : !block.pantoneRequiredDate ? "warning" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
         const dateChip = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 10, fontWeight: 600,
-          color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
+          color: stateKey === "empty" ? "#fff" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
           borderTop: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fieldAccent}`,
@@ -1127,10 +1150,10 @@ function BlockCard({
                   {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
-                  <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                    onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                    M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+                  <span style={dateChip(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock && !block.materialIssued)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                    M&nbsp;{block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                   </span>
                 </MaterialNoteAffordance>
                 <span style={dateChip(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
@@ -1191,11 +1214,11 @@ function BlockCard({
       {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
       {MODE_TINY && (() => {
         const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
+        const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const chipStyle = (stateKey: string, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600,
-          color: stateKey === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
+          color: stateKey === "empty" ? "#fff" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
           borderTop: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fieldAccent}`,
@@ -1229,10 +1252,10 @@ function BlockCard({
                   {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
-                  <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                    onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                    M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+                  <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock && !block.materialIssued)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                    M&nbsp;{block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                   </span>
                 </MaterialNoteAffordance>
                 <span style={chipStyle(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
@@ -1363,13 +1386,15 @@ function BlockCard({
           />
           <MaterialNoteAffordance block={block}>
             <DateBadge
-              label="MAT." dateStr={block.materialInStock ? null : block.materialRequiredDate}
-              overrideText={block.materialInStock ? "SKLADEM" : undefined}
-              ok={block.materialInStock || materialDeadlineState === "ok"} warn={!block.materialInStock && materialDeadlineState === "warning"} danger={!block.materialInStock && materialDeadlineState === "danger"} earlyStart={!block.materialInStock && materialDeadlineState === "earlyStart"}
+              label="MAT." dateStr={materialHandled ? null : block.materialRequiredDate}
+              overrideText={block.materialIssued ? "VYDÁNO" : block.materialInStock ? "SKLADEM" : undefined}
+              ok={materialHandled || materialDeadlineState === "ok"} warn={!materialHandled && materialDeadlineState === "warning"} danger={!materialHandled && materialDeadlineState === "danger"} earlyStart={!materialHandled && materialDeadlineState === "earlyStart"}
               accent={FIELD_ACCENT.MATERIAL}
-              onToggle={block.materialInStock ? () => {} : () => toggleField("materialOk", block.materialOk)}
+              onToggle={materialHandled ? () => {} : () => toggleField("materialOk", block.materialOk)}
               onDoubleClick={canEditMat ? (rect) => onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", rect) : undefined}
               statusLabel={block.materialStatusLabel}
+              customBg={block.materialIssued ? DEADLINE_BG.issued : undefined}
+              customBorder={block.materialIssued ? DEADLINE_BORDER.issued : undefined}
             />
           </MaterialNoteAffordance>
           <DateBadge
@@ -1392,12 +1417,12 @@ function BlockCard({
       {/* ── Řádek 2b: Kompaktní datum chipy (MODE_FULL, 48–59px — plný DateBadge se nevejde) ── */}
       {showDatesCompact && (() => {
         const dSK = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mSK = block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
+        const mSK = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eSK = !block.deadlineExpedice ? "empty" : "neutral";
         const pSK = !block.pantoneRequired && !block.pantoneRequiredDate && !block.pantoneOk ? "empty" : block.pantoneOk ? "ok" : !block.pantoneRequiredDate ? "warning" : pantoneDeadlineState === "none" ? "neutral" : pantoneDeadlineState;
         const cs = (sk: string, fa: string, clickable: boolean): React.CSSProperties => ({
           fontSize: 9, fontWeight: 600,
-          color: sk === "empty" ? "var(--text-muted)" : "rgba(255,255,255,0.90)",
+          color: sk === "empty" ? "#fff" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[sk] ?? DEADLINE_BG.neutral,
           borderTop: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[sk] ?? DEADLINE_BORDER.neutral}`,
           borderLeft: `2px solid ${fa}`,
@@ -1420,10 +1445,10 @@ function BlockCard({
               {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
             </span>
             <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
-              <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock)}
-                onClick={block.materialRequiredDate && !block.materialInStock ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
-                onDoubleClick={canEditMat && onInlineDatePick && !block.materialInStock ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                M&nbsp;{block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+              <span style={cs(mSK, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock && !block.materialIssued)}
+                onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
+                M&nbsp;{block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
               </span>
             </MaterialNoteAffordance>
             <span style={cs(eSK, FIELD_ACCENT.EXPEDICE, false)}>
@@ -3302,7 +3327,7 @@ export default function TimelineGrid({
               const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(f === "material" ? { [field]: dateStr, materialInStock: false } : { [field]: dateStr }),
+                body: JSON.stringify(f === "material" ? { [field]: dateStr, materialInStock: false, materialIssued: false } : { [field]: dateStr }),
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
@@ -3312,19 +3337,41 @@ export default function TimelineGrid({
               callbacksRef.current.onError?.("Nepodařilo se uložit datum.");
             }
           }}
+          sklademActive={inlinePicker.field === "material" && !!blocks.find((b) => b.id === inlinePicker.blockId)?.materialInStock}
+          vydanoActive={inlinePicker.field === "material" && !!blocks.find((b) => b.id === inlinePicker.blockId)?.materialIssued}
           onPickSkladem={inlinePicker.field === "material" ? async () => {
+            const current = blocks.find((b) => b.id === inlinePicker.blockId);
+            const nextValue = !current?.materialInStock;
             setInlinePicker(null);
             try {
               const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ materialInStock: true }),
+                body: JSON.stringify({ materialInStock: nextValue }),
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
               callbacksRef.current.onBlockUpdate(updated);
             } catch (err) {
               console.error("Inline skladem failed", err);
+              callbacksRef.current.onError?.("Nepodařilo se uložit.");
+            }
+          } : undefined}
+          onPickVydano={inlinePicker.field === "material" ? async () => {
+            const current = blocks.find((b) => b.id === inlinePicker.blockId);
+            const nextValue = !current?.materialIssued;
+            setInlinePicker(null);
+            try {
+              const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ materialIssued: nextValue }),
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const updated = await res.json();
+              callbacksRef.current.onBlockUpdate(updated);
+            } catch (err) {
+              console.error("Inline vydáno failed", err);
               callbacksRef.current.onError?.("Nepodařilo se uložit.");
             }
           } : undefined}

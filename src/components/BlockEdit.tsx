@@ -133,6 +133,7 @@ export function BlockEdit({
   const [materialOk, setMaterialOk]             = useState(block.materialOk);
   const [materialNote, setMaterialNote]         = useState(block.materialNote ?? "");
   const [materialInStock, setMaterialInStock]   = useState(block.materialInStock);
+  const [materialIssued, setMaterialIssued]     = useState(block.materialIssued);
   // PANTONE
   const [pantoneRequiredDate, setPantoneRequiredDate] = useState(
     block.pantoneRequiredDate ? utcToPragueDateStr(new Date(block.pantoneRequiredDate)) : ""
@@ -402,6 +403,7 @@ export function BlockEdit({
       materialOk,
       materialNote: materialNote.trim() || null,
       materialInStock,
+      materialIssued,
       pantoneRequired,
       pantoneRequiredDate: pantoneRequiredDate || null,
       pantoneOk,
@@ -738,13 +740,15 @@ export function BlockEdit({
               {/* MATERIÁL */}
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <ColLabel>Materiál</ColLabel>
-                {materialInStock ? (
+                {materialIssued ? (
+                  <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.3)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#3b82f6" }}>Vydáno ➜</div>
+                ) : materialInStock ? (
                   <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#10b981" }}>Skladem ✓</div>
                 ) : (
                   <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum" />
                 )}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
-                  {!materialInStock && (
+                  {!materialInStock && !materialIssued && (
                     <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: materialOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
                       <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: materialOk ? "var(--success)" : "transparent", border: materialOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
                         {materialOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -755,6 +759,9 @@ export function BlockEdit({
                   )}
                   <button type="button" onClick={() => { setMaterialInStock(!materialInStock); if (!materialInStock) { setMaterialRequiredDate(""); setMaterialOk(false); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: materialInStock ? "1px solid rgba(16,185,129,0.5)" : "1px solid var(--border)", background: materialInStock ? "rgba(16,185,129,0.15)" : "transparent", color: materialInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
                     SKLAD
+                  </button>
+                  <button type="button" onClick={() => setMaterialIssued(!materialIssued)} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: materialIssued ? "1px solid rgba(59,130,246,0.5)" : "1px solid var(--border)", background: materialIssued ? "rgba(59,130,246,0.15)" : "transparent", color: materialIssued ? "#3b82f6" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                    VYDÁNO
                   </button>
                 </div>
               </div>

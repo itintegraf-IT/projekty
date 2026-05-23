@@ -78,6 +78,7 @@ type QueueItem = {
   materialStatusLabel: string | null;
   materialRequiredDate: string | null;
   materialInStock: boolean;
+  materialIssued: boolean;
   pantoneRequiredDate: string | null;
   pantoneOk: boolean;
   pantoneRequired: boolean;
@@ -489,6 +490,7 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     materialStatusLabel: null,
     materialRequiredDate: typeof p.materialRequiredDate === "string" ? p.materialRequiredDate : null,
     materialInStock: Boolean(p.materialInStock),
+    materialIssued: Boolean(p.materialIssued),
     pantoneRequiredDate: typeof p.pantoneRequiredDate === "string" ? p.pantoneRequiredDate : null,
     pantoneOk: Boolean(p.pantoneOk),
     pantoneRequired: Boolean(p.pantoneRequired),
@@ -2112,6 +2114,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         materialStatusLabel: findLabel(bMaterialOpts, bMaterialStatusId),
         materialRequiredDate: bMaterialInStock ? null : bMaterialRequiredDate || null,
         materialInStock: bMaterialInStock,
+        materialIssued: false,
         pantoneRequiredDate: bPantoneRequiredDate || null,
         pantoneOk: bPantoneOk,
         pantoneRequired: bPantoneRequired,

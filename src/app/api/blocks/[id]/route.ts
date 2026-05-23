@@ -54,7 +54,7 @@ const SPLIT_SHARED_FIELDS = [
   "jobPresetId", "jobPresetLabel",
   "type", "blockVariant",
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
-  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
+  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock", "materialIssued",
   "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
   "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
 ] as const;
@@ -94,6 +94,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         pantoneOk: body.pantoneOk,
         pantoneRequired: body.pantoneRequired,
         materialInStock: body.materialInStock,
+        materialIssued: body.materialIssued,
       };
     } else {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -141,7 +142,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const AUDITED_FIELDS = [
       "dataStatusLabel", "dataRequiredDate", "dataOk",
       "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
-      "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "materialInStock",
+      "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "materialInStock", "materialIssued",
       "deadlineExpedice",
       "expediceNote", "doprava",
       "blockVariant",
@@ -330,6 +331,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           // MATERIAL IN STOCK (pokud materialInStock=true, vynulovat materialRequiredDate)
           ...(allowed.materialInStock !== undefined && { materialInStock: allowed.materialInStock as boolean }),
           ...(allowed.materialInStock === true && { materialRequiredDate: null }),
+          // MATERIAL ISSUED (pokud materialIssued=true, vynulovat materialRequiredDate)
+          ...(allowed.materialIssued !== undefined && { materialIssued: allowed.materialIssued as boolean }),
+          ...(allowed.materialIssued === true && { materialRequiredDate: null }),
           // BARVY
           ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
           ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),
