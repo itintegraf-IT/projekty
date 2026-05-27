@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
 import ThemeToggle from "@/app/_components/ThemeToggle";
 import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
@@ -8,6 +8,7 @@ import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
 import { PrinterCodebook } from "@/components/admin/PrinterCodebook";
 import { ShiftRoster } from "@/components/admin/ShiftRoster";
 import { MachineWorkHoursWeek } from "@/components/admin/MachineWorkHoursWeek";
+import { AuditLogPanel } from "@/components/admin/AuditLogPanel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { summarizeJobPreset, type JobPreset } from "@/lib/jobPresets";
 
@@ -259,7 +260,11 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
       </div>
 
       {/* Content */}
-      <div style={{ maxWidth: activeTab === "rozpis" || activeTab === "shifts" ? 1280 : 680, margin: "0 auto", padding: "20px" }}>
+      <div style={{
+        maxWidth: (activeTab === "rozpis" || activeTab === "shifts" || activeTab === "audit") ? 1280 : 680,
+        margin: "0 auto",
+        padding: "20px",
+      }}>
         {activeTab === "users" && !isPlanovat ? (
           <UsersSection currentUserId={currentUser.id} />
         ) : activeTab === "codebook" ? (
@@ -267,7 +272,9 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
         ) : activeTab === "presets" ? (
           <PresetSection />
         ) : activeTab === "audit" && !isPlanovat ? (
-          <AuditLogSection />
+          <Suspense fallback={null}>
+            <AuditLogPanel />
+          </Suspense>
         ) : activeTab === "shifts" ? (
           <MachineWorkHoursWeek />
         ) : activeTab === "rozpis" ? (
@@ -1467,122 +1474,3 @@ function PresetSection() {
   );
 }
 
-// ─── Tab: Audit log ───────────────────────────────────────────────────────────
-
-interface AuditLogEntry {
-  id: number;
-  blockId: number;
-  orderNumber: string | null;
-  userId: number;
-  username: string;
-  action: string;
-  field: string | null;
-  oldValue: string | null;
-  newValue: string | null;
-  createdAt: string;
-}
-
-const AUDIT_FIELD_LABELS: Record<string, string> = {
-  jobPresetLabel: "Preset",
-  dataStatusLabel: "DATA stav",
-  dataRequiredDate: "DATA datum",
-  dataOk: "DATA OK",
-  materialStatusLabel: "Materiál stav",
-  materialRequiredDate: "Materiál datum",
-  materialOk: "Materiál OK",
-  deadlineExpedice: "Expedice termín",
-  expediceNote: "Poznámka expedice",
-  doprava: "Doprava",
-};
-
-// ─── Tab: Audit log ───────────────────────────────────────────────────────────
-
-function AuditLogSection() {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/audit?limit=50")
-      .then((r) => r.ok ? r.json() : [])
-      .then((data) => { setLogs(data); setLoading(false); })
-      .catch(() => { setLogs([]); setLoading(false); });
-  }, []);
-
-  function fmtDatetime(iso: string) {
-    const d = new Date(iso);
-    return d.toLocaleDateString("cs-CZ", { timeZone: "Europe/Prague", day: "2-digit", month: "2-digit" }) + " " +
-      d.toLocaleTimeString("cs-CZ", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit" });
-  }
-
-  function fmtVal(val: string | null, field: string | null) {
-    if (!val || val === "null") return "—";
-    if (field === "dataOk" || field === "materialOk") return val === "true" ? "✓ OK" : "✗ Ne";
-    if (val.match(/^\d{4}-\d{2}-\d{2}/)) {
-      try { return new Date(val).toLocaleDateString("cs-CZ", { timeZone: "Europe/Prague" }); } catch { return val; }
-    }
-    return val;
-  }
-
-  if (loading) {
-    return <div style={{ textAlign: "center", color: TEXT_SECONDARY, padding: 40, fontSize: 13 }}>Načítám…</div>;
-  }
-
-  return (
-    <div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 12 }}>
-        Posledních 50 záznamů
-      </div>
-      {logs.length === 0 ? (
-        <div style={{ textAlign: "center", color: TEXT_SECONDARY, padding: 40, fontSize: 13 }}>
-          Žádné záznamy.
-        </div>
-      ) : (
-        <div style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${SEPARATOR}` }}>
-          {logs.map((log, i) => (
-            <div
-              key={log.id}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "100px 80px 120px 1fr",
-                gap: 8,
-                padding: "10px 14px",
-                borderTop: i > 0 ? `1px solid ${SEPARATOR}` : undefined,
-                background: i % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
-                alignItems: "center",
-                fontSize: 12,
-              }}
-            >
-              <span style={{ color: TEXT_SECONDARY }}>{fmtDatetime(log.createdAt)}</span>
-              <span style={{ fontWeight: 600, color: TEXT_PRIMARY }}>{log.username}</span>
-              <span style={{ color: TEXT_PRIMARY }}>{log.orderNumber ?? `#${log.blockId}`}</span>
-              <span style={{ color: TEXT_PRIMARY }}>
-                {log.action === "UPDATE" && log.field ? (
-                  <>
-                    {AUDIT_FIELD_LABELS[log.field] ?? log.field}:{" "}
-                    <span style={{ color: TEXT_SECONDARY }}>{fmtVal(log.oldValue, log.field)}</span>
-                    {" → "}
-                    <span style={{ color: TEXT_PRIMARY }}>{fmtVal(log.newValue, log.field)}</span>
-                  </>
-                ) : log.action === "CREATE" ? (
-                  <span style={{ color: "#30d158" }}>Přidána</span>
-                ) : log.action === "DELETE" ? (
-                  <span style={{ color: "#ff453a" }}>Smazána</span>
-                ) : log.action === "EXPEDITION_PUBLISH" ? (
-                  <span style={{ color: "#30d158" }}>Zařazena do expedice</span>
-                ) : log.action === "EXPEDITION_UNPUBLISH" ? (
-                  <span style={{ color: "#ff9f0a" }}>Odebrána z expedice</span>
-                ) : log.action === "NOTE_CREATE" ? (
-                  <><span style={{ color: "#f59e0b" }}>📝 Přidána poznámka:</span> <span style={{ color: TEXT_PRIMARY }}>{log.newValue ?? ""}</span></>
-                ) : log.action === "NOTE_UPDATE" ? (
-                  <><span style={{ color: "#f59e0b" }}>📝 Upravena poznámka:</span> <span style={{ color: TEXT_SECONDARY }}>{log.oldValue ?? ""}</span>{" → "}<span style={{ color: TEXT_PRIMARY }}>{log.newValue ?? ""}</span></>
-                ) : log.action === "NOTE_DELETE" ? (
-                  <><span style={{ color: "#ff453a" }}>📝 Smazána poznámka:</span> <span style={{ color: TEXT_SECONDARY }}>{log.oldValue ?? ""}</span></>
-                ) : log.action}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}

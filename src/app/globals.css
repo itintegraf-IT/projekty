@@ -268,3 +268,38 @@ body {
 .dark .tl-morning   { background-color: rgba(255,255,255,0.07) !important; }
 .dark .tl-afternoon { background-color: rgba(255,255,255,0.03) !important; }
 .dark .tl-day-alt   { background-color: rgba(255,255,255,0.05) !important; }
+
+@keyframes auditShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Audit log panel ───────────────────────────────────────────────────────── */
+.audit-input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 35%, transparent);
+  border-color: var(--accent);
+}
+.audit-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 35%, transparent);
+}
+.audit-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 130px) minmax(80px, 120px) minmax(90px, 130px) 1fr;
+  gap: 10px;
+}
+.audit-row > * { min-width: 0; }
+@media (max-width: 720px) {
+  .audit-row {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "time user"
+      "order order"
+      "action action";
+  }
+  .audit-row .audit-cell-time   { grid-area: time; }
+  .audit-row .audit-cell-user   { grid-area: user; text-align: right; }
+  .audit-row .audit-cell-order  { grid-area: order; }
+  .audit-row .audit-cell-action { grid-area: action; }
+}
