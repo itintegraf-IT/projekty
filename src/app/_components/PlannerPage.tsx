@@ -2561,17 +2561,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setEditingBlock(block);
   }
 
-  async function handlePaste() {
+  async function handlePasteWithTarget(target: { machine: string; time: Date }) {
     const src = copiedBlockRef.current;
-    const target = pasteTargetRef.current;
-    if (!src) {
-      showToast("Žádný blok není zkopírován. Nejdřív klikni na blok a Ctrl+C.", "info");
-      return;
-    }
-    if (!target) {
-      showToast("Klikni na timeline kde má být vložen, pak Ctrl+V.", "info");
-      return;
-    }
+    if (!src) return;
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
     const newStart = workingTimeLockRef.current
@@ -2627,17 +2619,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
-  async function handleGroupPaste() {
-    const group = clipboardGroupRef.current;
-    const target = pasteTargetRef.current;
-    if (group.length === 0) {
-      showToast("Žádné bloky nejsou zkopírovány.", "info");
+  async function handlePaste() {
+    if (!copiedBlockRef.current) {
+      showToast("Žádný blok není zkopírován. Nejdřív klikni na blok a Ctrl+C.", "info");
       return;
     }
-    if (!target) {
+    if (!pasteTargetRef.current) {
       showToast("Klikni na timeline kde má být vložen, pak Ctrl+V.", "info");
       return;
     }
+    await handlePasteWithTarget(pasteTargetRef.current);
+  }
+
+  async function handleGroupPasteWithTarget(target: { machine: string; time: Date }) {
+    const group = clipboardGroupRef.current;
+    if (group.length === 0) return;
     // Anchor = nejstarší startTime ve skupině
     const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
     const anchorBlock = group.find((b) => new Date(b.startTime).getTime() === anchorMs)!;
@@ -2729,6 +2725,33 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         clipboardGroupRef.current = [];
         isGroupCutRef.current = false;
       }
+    }
+  }
+
+  async function handleGroupPaste() {
+    if (clipboardGroupRef.current.length === 0) {
+      showToast("Žádné bloky nejsou zkopírovány.", "info");
+      return;
+    }
+    if (!pasteTargetRef.current) {
+      showToast("Klikni na timeline kde má být vložen, pak Ctrl+V.", "info");
+      return;
+    }
+    await handleGroupPasteWithTarget(pasteTargetRef.current);
+  }
+
+  // Right-click → "Vložit zde" — přijímá target přímo (state setteru ještě
+  // neproběhl, proto target pasujeme přes parametr; setPasteTarget jen kvůli
+  // markeru / další interakci).
+  function handlePasteHere(machine: string, time: Date) {
+    const target = { machine, time };
+    setPasteTarget(target);
+    if (clipboardGroupRef.current.length > 0) {
+      void handleGroupPasteWithTarget(target);
+    } else if (copiedBlockRef.current) {
+      void handlePasteWithTarget(target);
+    } else {
+      showToast("Žádný blok není zkopírován. Nejdřív klikni na blok a Ctrl+C.", "info");
     }
   }
 
@@ -3349,6 +3372,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onSplitChipClick={handleSplitChipClick}
             pasteTarget={pasteTarget}
             clipboardHasContent={!!copiedBlock || clipboardGroupRef.current.length > 0}
+            onPasteHere={handlePasteHere}
             pasteSlotDurationMs={(() => {
               // Délka pro snap markeru = max délka v aktuálním clipboardu.
               // Pro single copy = délka zdroje; pro group = max ze skupiny (anchor pozice).

@@ -255,6 +255,8 @@ interface TimelineGridProps {
   /** Délka zdrojového bloku v ms — používá se pro snap markeru na pracovní dobu,
    *  aby marker ukazoval stejnou pozici, na kterou skutečný paste vloží blok. */
   pasteSlotDurationMs?: number;
+  /** Pravým klikem na prázdný grid — nastaví pasteTarget a okamžitě vloží blok. */
+  onPasteHere?: (machine: string, time: Date) => void;
 }
 
 type QueueDropPreview = {
@@ -1987,6 +1989,7 @@ export default function TimelineGrid({
   pasteTarget,
   clipboardHasContent,
   pasteSlotDurationMs,
+  onPasteHere,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -2017,6 +2020,18 @@ export default function TimelineGrid({
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const blocksRef       = useRef(blocks);
   const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
+  // ── Right-click na prázdný grid: pozice myši pro výpočet času v "Vložit zde" ──
+  const ctxGridMouseRef = useRef<{ x: number; y: number } | null>(null);
+  // Lokální menu styl pro položky kontextového menu nad prázdným gridem
+  // (analogie BlockCard.menuItemStyle, ale uvnitř TimelineGrid scope).
+  const menuItemStyleEmpty: React.CSSProperties = {
+    fontSize: 13,
+    padding: "6px 10px",
+    borderRadius: 7,
+    color: "rgba(255,255,255,0.9)",
+    cursor: "pointer",
+    outline: "none",
+  };
 
   // ── Edge auto-scroll při dragu ──────────────────────────────────────────────
   const autoScrollRef = useRef({ active: false, speed: 0, rafId: 0 });
@@ -3028,6 +3043,8 @@ export default function TimelineGrid({
                     })}
                   </div>
                 )}
+              <ContextMenu>
+              <ContextMenuTrigger asChild>
               <div
                 ref={(el) => { colRefs.current[colIdx] = el; }}
                 style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0, backgroundColor: "var(--timeline-bg)" }}
@@ -3048,6 +3065,14 @@ export default function TimelineGrid({
                   const timelineY = e.clientY - rect.top + el.scrollTop;
                   const snappedTime = snapToSlot(yToDate(timelineY, vs, slotHeight));
                   onGridClick(machine, snappedTime);
+                }}
+                onContextMenu={(e: React.MouseEvent) => {
+                  // Block-level ContextMenu (uvnitř BlockCard) má precedenci díky
+                  // Radix event propagation — pokud je target uvnitř bloku, gridové
+                  // menu se vůbec neotevírá. Zaznamenáme pozici myši jen pro
+                  // klik mimo blok, aby "Vložit zde" znalo místo vložení.
+                  if ((e.target as HTMLElement).closest("[data-block]")) return;
+                  ctxGridMouseRef.current = { x: e.clientX, y: e.clientY };
                 }}
               >
                 {/* ── Denní cykly + střídání dnů (základní vrstva) ─────────── */}
@@ -3388,6 +3413,34 @@ export default function TimelineGrid({
                   }}
                 />
               </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent
+                style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: 4, minWidth: 180, zIndex: 500 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {clipboardHasContent ? (
+                  <ContextMenuItem
+                    onClick={() => {
+                      const pos = ctxGridMouseRef.current;
+                      const el = scrollRef.current;
+                      const vs = viewStartRef.current;
+                      if (!pos || !el || !vs || !onPasteHere) return;
+                      const rect = el.getBoundingClientRect();
+                      const timelineY = pos.y - rect.top + el.scrollTop;
+                      const snappedTime = snapToSlot(yToDate(timelineY, vs, slotHeight));
+                      onPasteHere(machine, snappedTime);
+                    }}
+                    style={menuItemStyleEmpty}
+                  >
+                    ⎘ Vložit zde
+                  </ContextMenuItem>
+                ) : (
+                  <ContextMenuItem disabled style={{ ...menuItemStyleEmpty, color: "rgba(255,255,255,0.4)" }}>
+                    Žádný blok není zkopírován
+                  </ContextMenuItem>
+                )}
+              </ContextMenuContent>
+              </ContextMenu>
               </Fragment>
             );
           })}
