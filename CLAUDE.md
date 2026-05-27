@@ -1,6 +1,6 @@
 # CLAUDE.md — Repo Truth
 
-Aktualizováno podle stavu repozitáře k 16. 4. 2026.
+Aktualizováno podle stavu repozitáře k 27. 5. 2026.
 
 Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asistenty. Pokud se aplikace změní, aktualizuj nejdřív tento soubor a až potom navazující dokumentaci.
 
@@ -9,17 +9,19 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **24/24 testů zelené** (viz níže)
+- celá test suite: **31/31 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
+- copy/paste UX fix dokončen 27. 5. 2026 (5 Tasků, plán `docs/superpowers/plans/2026-05-27-copy-paste-ux-fix.md`)
 
 ### Spuštění testů
 
 ```bash
 node --test --import tsx src/lib/dateUtils.test.ts             # 8 testů
 node --test --import tsx src/lib/errors.test.ts                # 5 testů
-node --experimental-test-module-mocks --test --import tsx src/lib/scheduleValidationServer.test.ts  # 11 testů
+node --test --import tsx src/lib/pasteTarget.test.ts           # 6 testů
+node --experimental-test-module-mocks --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
 ```
 
 Pozor: `scheduleValidationServer.test.ts` vyžaduje flag `--experimental-test-module-mocks` (používá `mock.module()` pro mock Prismy). Bez něj selže s `mock.module is not a function`.
@@ -294,6 +296,18 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 
 - `src/lib/workingTime.ts`
 - `src/lib/scheduleValidation.ts`
+- `src/lib/pasteTarget.ts` — `computePasteTargetFromBlock` / `computePasteTargetFromGroup`, výchozí pozice paste targetu
+
+### Copy/Paste flow (aktualizováno 27. 5. 2026)
+
+- Ctrl+C / Ctrl+X / right-click → Kopírovat **automaticky nastavují pasteTarget** na pozici za zdrojovým blokem (helper `src/lib/pasteTarget.ts`). Ctrl+V tak funguje hned, bez nutnosti klikat do prázdného gridu.
+- Vizuální marker pasteTargetu se kreslí v `TimelineGrid` jako přerušovaná modrá čára „⎘ Sem (Ctrl+V)" ve sloupci cílového stroje. Snap respektuje `workingTimeLock` a délku zdrojového bloku, takže marker přesně ukazuje kam paste skutečně vloží.
+- Pravý klik na prázdný grid nabízí „⎘ Vložit zde" — kompletně mouse-only workflow.
+- Esc čistí: multi-select, copiedBlock, isCut, pasteTarget, clipboardGroupRef.
+- SSE `block:deleted` vyčistí copiedBlock/clipboardGroupRef/selectedBlockIds pokud obsahují smazaný blok (prevence „fantom paste" se starou referencí).
+- Ctrl+C/X bez výběru → info-toast „Žádný blok není vybrán" místo silent no-op.
+- Keydown handler je bindovaný **jednou** na mount (`useEffect([])`); hodnotu `selectedBlock` čte přes `selectedBlockRef.current`. Tím odpadlo re-binding při SSE updatech a 5min pollingu.
+- `handlePaste` a `handleGroupPaste` jsou guard wrappery; business logika je v `handlePasteWithTarget(target)` / `handleGroupPasteWithTarget(target)` — target přijímají explicitně, sdílí se mezi Ctrl+V a right-click paste.
 
 ### Rezervace
 
