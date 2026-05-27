@@ -181,6 +181,17 @@ export function BlockEdit({
   });
   const [seriesOccSaving, setSeriesOccSaving] = useState(false);
 
+  // Dark mode detekce — projekt přepíná theme přes .dark třídu na html elementu.
+  // Stejný pattern jako v PlannerPage; lokální duplikace je levnější než nový prop.
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    const check = () => setIsDark(document.documentElement.classList.contains("dark"));
+    check();
+    const observer = new MutationObserver(check);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
   // SÉRIE — auto-shift resolver per draft (preview kolize/pracovní doby)
   // Iteruje drafty v chronologickém pořadí; každý úspěšný slot se přidá do blocked,
   // aby sourozenci v sérii nekolidovali mezi sebou. Bloky série jsou z baseBlocked
@@ -988,17 +999,59 @@ export function BlockEdit({
                 const resolved = seriesOccResolved.find((r) => r.blockId === occ.blockId);
                 const wasShifted = resolved?.wasShifted ?? false;
                 const noSlotFound = resolved?.noSlotFound ?? false;
-                const shiftedDateLabel = resolved && wasShifted
-                  ? `${resolved.adjustedDate.split("-").reverse().slice(0, 2).join(". ")}. ${String(resolved.adjustedHour).padStart(2, "0")}:00`
-                  : "";
+                const isEditing = occ.blockId === block.id;
+                // Banner styl je převzat z Job Builder preview série, aby UX byl konzistentní.
+                const cardStyle: React.CSSProperties = noSlotFound
+                  ? {
+                      background: isDark ? "rgba(239, 68, 68, 0.12)" : "#fee2e2",
+                      border: isDark ? "1px solid rgba(239, 68, 68, 0.45)" : "1px solid #ef4444",
+                      borderLeft: isDark ? "3px solid #ef4444" : "3px solid #b91c1c",
+                    }
+                  : wasShifted
+                  ? {
+                      background: isDark ? "rgba(255, 230, 0, 0.12)" : "#fef3c7",
+                      border: isDark ? "1px solid rgba(255, 230, 0, 0.45)" : "1px solid #f59e0b",
+                      borderLeft: isDark ? "3px solid #FFE600" : "3px solid #d97706",
+                    }
+                  : {
+                      background: isEditing ? "rgba(59,130,246,0.08)" : "rgba(255,255,255,0.03)",
+                      border: isEditing ? "1px solid rgba(59,130,246,0.2)" : "1px solid rgba(255,255,255,0.06)",
+                    };
+                const titleAttr = noSlotFound
+                  ? "Nelze najít volný slot do 7 dní od požadovaného času. Zvol jiné datum nebo uvolni kapacitu stroje."
+                  : wasShifted
+                  ? `Posunuto kvůli kapacitě stroje — původně ${occ.date} ${String(occ.hour).padStart(2, "0")}:00`
+                  : undefined;
                 return (
-                <div key={occ.blockId} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", borderRadius: 7, background: occ.blockId === block.id ? "rgba(59,130,246,0.08)" : "rgba(255,255,255,0.03)", border: occ.blockId === block.id ? "1px solid rgba(59,130,246,0.2)" : "1px solid rgba(255,255,255,0.06)" }}>
+                <div
+                  key={occ.blockId}
+                  title={titleAttr}
+                  style={{ display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", borderRadius: 7, ...cardStyle }}
+                >
+                  {wasShifted && !noSlotFound && (
+                    <div style={{
+                      fontSize: 10, fontWeight: 700,
+                      color: isDark ? "#FFE600" : "#92400e",
+                      letterSpacing: "0.04em", marginBottom: 2,
+                    }}>
+                      ⚠ Posunuto z {occ.date} {String(occ.hour).padStart(2, "0")}:00 (kapacita)
+                    </div>
+                  )}
+                  {noSlotFound && (
+                    <div style={{
+                      fontSize: 10, fontWeight: 700,
+                      color: isDark ? "#fca5a5" : "#991b1b",
+                      letterSpacing: "0.04em", marginBottom: 2,
+                    }}>
+                      ⛔ Nelze naplánovat — žádný volný slot do 7 dní od {occ.date} {String(occ.hour).padStart(2, "0")}:00
+                    </div>
+                  )}
                   {/* Řádek 1: badge + Tisk datum + hodina */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <div style={{
                       flexShrink: 0, width: 20, height: 20, borderRadius: 4,
-                      background: occ.blockId === block.id ? "rgba(59,130,246,0.28)" : "rgba(59,130,246,0.1)",
-                      border: occ.blockId === block.id ? "1px solid rgba(59,130,246,0.55)" : "1px solid rgba(59,130,246,0.2)",
+                      background: isEditing ? "rgba(59,130,246,0.28)" : "rgba(59,130,246,0.1)",
+                      border: isEditing ? "1px solid rgba(59,130,246,0.55)" : "1px solid rgba(59,130,246,0.2)",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 9, fontWeight: 700, color: "#3b82f6",
                     }}>{i + 1}</div>
@@ -1033,25 +1086,6 @@ export function BlockEdit({
                       </svg>
                     </div>
                   </div>
-                  {/* Auto-shift warning: posunuto / nebylo nalezeno volné okno */}
-                  {wasShifted && (
-                    <div
-                      title={`Po uložení se blok posune na ${shiftedDateLabel} — kapacita stroje nebo pracovní doba neumožňuje uložit přesně tento čas.`}
-                      style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: 26, fontSize: 9, fontWeight: 600, color: "#f59e0b", letterSpacing: "0.02em" }}
-                    >
-                      <span style={{ fontSize: 11, lineHeight: 1 }}>⚠</span>
-                      <span>Posunuto na {shiftedDateLabel}</span>
-                    </div>
-                  )}
-                  {noSlotFound && (
-                    <div
-                      title="Nelze najít volný slot do 7 dní od požadovaného času. Zvol jiné datum nebo uvolni kapacitu stroje."
-                      style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: 26, fontSize: 9, fontWeight: 600, color: "#ef4444", letterSpacing: "0.02em" }}
-                    >
-                      <span style={{ fontSize: 11, lineHeight: 1 }}>⛔</span>
-                      <span>Nelze naplánovat (mimo 7 dní)</span>
-                    </div>
-                  )}
                   {/* Řádek 2: DATA datum + EXP datum */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 26 }}>
                     <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>DATA:</div>
