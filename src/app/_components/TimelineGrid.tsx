@@ -250,6 +250,11 @@ interface TimelineGridProps {
     joint?: boolean,
   ) => Promise<void>;
   onSplitChipClick?: (partnerId: number) => void;
+  pasteTarget?: { machine: string; time: Date } | null;
+  clipboardHasContent?: boolean;
+  /** Délka zdrojového bloku v ms — používá se pro snap markeru na pracovní dobu,
+   *  aby marker ukazoval stejnou pozici, na kterou skutečný paste vloží blok. */
+  pasteSlotDurationMs?: number;
 }
 
 type QueueDropPreview = {
@@ -1979,6 +1984,9 @@ export default function TimelineGrid({
   onOpenNotes,
   onShiftBoundsChange,
   onSplitChipClick,
+  pasteTarget,
+  clipboardHasContent,
+  pasteSlotDurationMs,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -3160,6 +3168,60 @@ export default function TimelineGrid({
                     )}
                   </div>
                 )}
+
+                {/* ── Paste target marker ─────────────────────────────────── */}
+                {/* Renderuje se jednou na sloupec stroje, před BlockCards (přes zIndex). */}
+                {pasteTarget && pasteTarget.machine === machine && viewStart && (() => {
+                  // Snap na pracovní dobu pokud lock zapnutý. Používáme skutečnou délku
+                  // zdrojového bloku (pasteSlotDurationMs), aby marker přesně odpovídal
+                  // pozici, kam handlePaste blok skutečně vloží. Fallback 30 min, pokud
+                  // duration není k dispozici (např. když je clipboard prázdný a target
+                  // je jen z grid clicku).
+                  const snapDurationMs = pasteSlotDurationMs ?? (30 * 60 * 1000);
+                  const effectiveTime = workingTimeLock && machineWeekShifts
+                    ? snapToNextValidStartWithTemplates(pasteTarget.machine, pasteTarget.time, snapDurationMs, machineWeekShifts)
+                    : pasteTarget.time;
+                  const top = dateToY(effectiveTime, viewStart, slotHeight);
+                  // Pokud je marker mimo viewport (cíl daleko mimo daysAhead/daysBack), nevykresluj
+                  if (top < 0 || top > totalHeight) return null;
+                  return (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: top - 1,
+                        left: 0,
+                        right: 0,
+                        height: 0,
+                        borderTop: clipboardHasContent
+                          ? "2px dashed rgba(59,130,246,0.85)"
+                          : "2px dashed rgba(59,130,246,0.35)",
+                        pointerEvents: "none",
+                        // Vyšší než drag stav BlockCard (zIndex 20) — marker zůstává viditelný
+                        // i během dragu jiného bloku.
+                        zIndex: 25,
+                      }}
+                      data-paste-marker
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: 4,
+                          top: -9,
+                          padding: "1px 5px",
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: "#fff",
+                          background: clipboardHasContent ? "rgba(59,130,246,0.9)" : "rgba(59,130,246,0.45)",
+                          borderRadius: 4,
+                          letterSpacing: "0.05em",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        ⎘ Sem (Ctrl+V)
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Bloky patřící tomuto stroji */}
                 {machineBlocks.map((block) => {

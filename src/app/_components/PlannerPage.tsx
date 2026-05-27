@@ -2738,6 +2738,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.key === "Escape") {
         setSelectedBlockIds(new Set());
+        // Vyčistit i clipboard + paste target — Esc = "zruš vše"
+        setCopiedBlock(null);
+        setIsCut(false);
+        setPasteTarget(null);
+        clipboardGroupRef.current = [];
+        isGroupCutRef.current = false;
         return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedBlockIdsRef.current.size > 0) {
@@ -3341,6 +3347,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onShiftBoundsChange={canEdit ? updateShiftBounds : undefined}
             onOpenNotes={canSeeNotes ? (b) => setNotesDialogBlockId(b.id) : undefined}
             onSplitChipClick={handleSplitChipClick}
+            pasteTarget={pasteTarget}
+            clipboardHasContent={!!copiedBlock || clipboardGroupRef.current.length > 0}
+            pasteSlotDurationMs={(() => {
+              // Délka pro snap markeru = max délka v aktuálním clipboardu.
+              // Pro single copy = délka zdroje; pro group = max ze skupiny (anchor pozice).
+              if (clipboardGroupRef.current.length > 0) {
+                return Math.max(
+                  ...clipboardGroupRef.current.map((b) =>
+                    new Date(b.endTime).getTime() - new Date(b.startTime).getTime()
+                  )
+                );
+              }
+              if (copiedBlock) {
+                return new Date(copiedBlock.endTime).getTime() - new Date(copiedBlock.startTime).getTime();
+              }
+              return undefined;
+            })()}
           />
         </div>
 
