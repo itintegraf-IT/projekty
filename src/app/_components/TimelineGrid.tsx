@@ -3195,8 +3195,10 @@ export default function TimelineGrid({
                 )}
 
                 {/* ── Paste target marker ─────────────────────────────────── */}
-                {/* Renderuje se jednou na sloupec stroje, před BlockCards (přes zIndex). */}
-                {pasteTarget && pasteTarget.machine === machine && viewStart && (() => {
+                {/* Renderuje se jednou na sloupec stroje, před BlockCards (přes zIndex).
+                    Skryje se když je schránka prázdná — bez clipboardu marker nemá smysl
+                    a slib „Sem (Ctrl+V)" by byl matoucí. */}
+                {pasteTarget && clipboardHasContent && pasteTarget.machine === machine && viewStart && (() => {
                   // Snap na pracovní dobu pokud lock zapnutý. Používáme skutečnou délku
                   // zdrojového bloku (pasteSlotDurationMs), aby marker přesně odpovídal
                   // pozici, kam handlePaste blok skutečně vloží. Fallback 30 min, pokud
@@ -3217,9 +3219,7 @@ export default function TimelineGrid({
                         left: 0,
                         right: 0,
                         height: 0,
-                        borderTop: clipboardHasContent
-                          ? "2px dashed rgba(59,130,246,0.85)"
-                          : "2px dashed rgba(59,130,246,0.35)",
+                        borderTop: "2px dashed rgba(59,130,246,0.85)",
                         pointerEvents: "none",
                         // Vyšší než drag stav BlockCard (zIndex 20) — marker zůstává viditelný
                         // i během dragu jiného bloku.
@@ -3236,7 +3236,7 @@ export default function TimelineGrid({
                           fontSize: 9,
                           fontWeight: 700,
                           color: "#fff",
-                          background: clipboardHasContent ? "rgba(59,130,246,0.9)" : "rgba(59,130,246,0.45)",
+                          background: "rgba(59,130,246,0.9)",
                           borderRadius: 4,
                           letterSpacing: "0.05em",
                           whiteSpace: "nowrap",
