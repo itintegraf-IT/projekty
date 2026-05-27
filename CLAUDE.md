@@ -9,11 +9,12 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **31/31 testů zelené** (viz níže)
+- celá test suite: **37/37 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
 - copy/paste UX fix dokončen 27. 5. 2026 (5 Tasků, plán `docs/superpowers/plans/2026-05-27-copy-paste-ux-fix.md`)
+- clipboard text-copy fix (HTTP secure-context) 27. 5. 2026 (helper `src/lib/clipboardCopy.ts`)
 
 ### Spuštění testů
 
@@ -21,6 +22,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 node --test --import tsx src/lib/dateUtils.test.ts             # 8 testů
 node --test --import tsx src/lib/errors.test.ts                # 5 testů
 node --test --import tsx src/lib/pasteTarget.test.ts           # 6 testů
+node --test --import tsx src/lib/clipboardCopy.test.ts         # 6 testů
 node --experimental-test-module-mocks --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
 ```
 
@@ -297,6 +299,7 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/lib/workingTime.ts`
 - `src/lib/scheduleValidation.ts`
 - `src/lib/pasteTarget.ts` — `computePasteTargetFromBlock` / `computePasteTargetFromGroup`, výchozí pozice paste targetu
+- `src/lib/clipboardCopy.ts` — `copyTextToClipboard(text)` — defenzivní helper pro kopii do systémové schránky; nejdřív zkusí `navigator.clipboard.writeText`, při chybě (HTTP / non-secure context) spadne na legacy `document.execCommand('copy')`. Vrací `Promise<boolean>` (true = úspěch). **Použít všude místo přímého volání `navigator.clipboard.*`** — produkční server běží přes HTTP a přímé volání crashne UI.
 
 ### Copy/Paste flow (aktualizováno 27. 5. 2026)
 
