@@ -20,6 +20,7 @@ import {
 } from "@/lib/dateUtils";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
+import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -1013,6 +1014,33 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const blockId = payload.blockId as number;
       setBlocks((prev) => prev.filter((b) => b.id !== blockId));
       setSelectedBlock((sel) => sel?.id === blockId ? null : sel);
+      // Vyčistit multi-select, pokud obsahoval smazaný blok
+      setSelectedBlockIds((prev) => {
+        if (!prev.has(blockId)) return prev;
+        const next = new Set(prev);
+        next.delete(blockId);
+        return next;
+      });
+      // Vyčistit clipboard, pokud zdrojový blok byl smazán (jinak by paste vytvořil fantom)
+      if (copiedBlockRef.current?.id === blockId) {
+        setCopiedBlock(null);
+        setIsCut(false);
+        setPasteTarget(null);
+        showToast("Zkopírovaný blok byl smazán, clipboard vyčištěn.", "info");
+      }
+      if (clipboardGroupRef.current.some((b) => b.id === blockId)) {
+        const remaining = clipboardGroupRef.current.filter((b) => b.id !== blockId);
+        clipboardGroupRef.current = remaining;
+        if (remaining.length === 0) {
+          setPasteTarget(null);
+          isGroupCutRef.current = false;
+          showToast("Všechny bloky ze skupiny byly smazány, clipboard vyčištěn.", "info");
+        } else {
+          const newTarget = computePasteTargetFromGroup(remaining);
+          if (newTarget) setPasteTarget(newTarget);
+          showToast(`Ze skupiny byl smazán blok, zbývá ${remaining.length}.`, "info");
+        }
+      }
     }
 
     if (type === "block:batch-updated") {
@@ -2536,7 +2564,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   async function handlePaste() {
     const src = copiedBlockRef.current;
     const target = pasteTargetRef.current;
-    if (!src || !target) return;
+    if (!src) {
+      showToast("Žádný blok není zkopírován. Nejdřív klikni na blok a Ctrl+C.", "info");
+      return;
+    }
+    if (!target) {
+      showToast("Klikni na timeline kde má být vložen, pak Ctrl+V.", "info");
+      return;
+    }
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
     const newStart = workingTimeLockRef.current
@@ -2595,7 +2630,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   async function handleGroupPaste() {
     const group = clipboardGroupRef.current;
     const target = pasteTargetRef.current;
-    if (!group.length || !target) return;
+    if (group.length === 0) {
+      showToast("Žádné bloky nejsou zkopírovány.", "info");
+      return;
+    }
+    if (!target) {
+      showToast("Klikni na timeline kde má být vložen, pak Ctrl+V.", "info");
+      return;
+    }
     // Anchor = nejstarší startTime ve skupině
     const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
     const anchorBlock = group.find((b) => new Date(b.startTime).getTime() === anchorMs)!;
@@ -2732,17 +2774,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // Priorita: skupinové operace, pokud je vybráno více bloků lasem
       if (e.key === "c" && selectedBlockIdsRef.current.size > 0) {
         e.preventDefault();
-        clipboardGroupRef.current = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
+        const group = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
+        clipboardGroupRef.current = group;
         isGroupCutRef.current = false;
+        const target = computePasteTargetFromGroup(group);
+        if (target) setPasteTarget(target);
+        showToast(`Zkopírováno ${group.length} bloků. Ctrl+V je vloží za poslední, nebo klikni jinam.`, "info");
         return;
       }
       if (e.key === "x" && selectedBlockIdsRef.current.size > 0) {
         e.preventDefault();
-        clipboardGroupRef.current = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
+        const group = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
+        clipboardGroupRef.current = group;
         isGroupCutRef.current = true;
+        const target = computePasteTargetFromGroup(group);
+        if (target) setPasteTarget(target);
+        showToast(`Vyříznuto ${group.length} bloků. Ctrl+V je vloží za poslední.`, "info");
         return;
       }
-      if (e.key === "v" && clipboardGroupRef.current.length > 0 && pasteTargetRef.current) {
+      if (e.key === "v" && clipboardGroupRef.current.length > 0) {
         e.preventDefault();
         void handleGroupPaste();
         return;
@@ -2752,13 +2802,31 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         e.preventDefault();
         setCopiedBlock(selectedBlock);
         setIsCut(false);
+        // Vyčistit group clipboard — single copy přebírá precedenci
+        clipboardGroupRef.current = [];
+        isGroupCutRef.current = false;
+        // Auto-set pasteTarget za zdrojový blok, aby Ctrl+V hned fungoval
+        setPasteTarget(computePasteTargetFromBlock(selectedBlock));
+        showToast("Blok zkopírován. Ctrl+V vloží těsně za originál, nebo klikni jinam pro jiné místo.", "info");
+        return;
       }
       if (e.key === "x" && selectedBlock) {
         e.preventDefault();
         setCopiedBlock(selectedBlock);
         setIsCut(true);
+        clipboardGroupRef.current = [];
+        isGroupCutRef.current = false;
+        setPasteTarget(computePasteTargetFromBlock(selectedBlock));
+        showToast("Blok vyříznut. Ctrl+V vloží těsně za originál.", "info");
+        return;
       }
-      if (e.key === "v" && copiedBlockRef.current && pasteTargetRef.current) {
+      // Ctrl+C / Ctrl+X bez jakéhokoliv výběru — explicitní toast místo silent no-op
+      if (e.key === "c" || e.key === "x") {
+        e.preventDefault();
+        showToast("Žádný blok není vybrán. Nejdřív klikni na blok nebo vyber skupinu.", "info");
+        return;
+      }
+      if (e.key === "v") {
         e.preventDefault();
         handlePaste();
       }
@@ -3232,7 +3300,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             copiedBlockId={copiedBlock?.id ?? null}
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
             onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); }}
-            onBlockCopy={(block) => { setCopiedBlock(block); setIsCut(false); }}
+            onBlockCopy={(block) => {
+              setCopiedBlock(block);
+              setIsCut(false);
+              clipboardGroupRef.current = [];
+              isGroupCutRef.current = false;
+              setPasteTarget(computePasteTargetFromBlock(block));
+              showToast("Blok zkopírován. Ctrl+V vloží za originál, nebo klikni jinam.", "info");
+            }}
             selectedBlockIds={selectedBlockIds}
             onMultiSelect={(ids) => { setSelectedBlockIds(ids); }}
             onMultiBlockUpdate={handleMultiBlockUpdate}
