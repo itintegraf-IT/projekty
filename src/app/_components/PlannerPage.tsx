@@ -3464,6 +3464,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               barvyOpts={bBarvyOpts}
               lakOpts={bLakOpts}
               jobPresets={jobPresets}
+              companyDays={companyDays}
+              machineWeekShifts={machineWeekShifts}
               onToast={showToast}
             />
           ) : selectedBlock ? (

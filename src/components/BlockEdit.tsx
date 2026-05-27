@@ -11,11 +11,13 @@ import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Lock, Unlock, CalendarDays } from "lucide-react";
 import DatePickerField from "@/app/_components/DatePickerField";
-import { type Block } from "@/app/_components/TimelineGrid";
+import { type Block, type CompanyDay } from "@/app/_components/TimelineGrid";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
 import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
+import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
+import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
   type CodebookOption,
@@ -74,6 +76,8 @@ export function BlockEdit({
   barvyOpts: barvyOptsProp,
   lakOpts: lakOptsProp,
   jobPresets = [],
+  companyDays = [],
+  machineWeekShifts = [],
   onToast,
 }: {
   block: Block;
@@ -92,6 +96,8 @@ export function BlockEdit({
   barvyOpts?: CodebookOption[];
   lakOpts?: CodebookOption[];
   jobPresets?: JobPreset[];
+  companyDays?: CompanyDay[];
+  machineWeekShifts?: MachineWeekShiftsRow[];
   onToast?: (message: string, type: Toast["type"]) => void;
 }) {
   const [orderNumber, setOrderNumber] = useState(block.orderNumber);
@@ -175,6 +181,89 @@ export function BlockEdit({
   });
   const [seriesOccSaving, setSeriesOccSaving] = useState(false);
 
+  // SÉRIE — auto-shift resolver per draft (preview kolize/pracovní doby)
+  // Iteruje drafty v chronologickém pořadí; každý úspěšný slot se přidá do blocked,
+  // aby sourozenci v sérii nekolidovali mezi sebou. Bloky série jsou z baseBlocked
+  // vyloučeny (každý draft může najít vlastní pozici nezávisle na původní).
+  type ResolvedDraft = {
+    blockId: number;
+    date: string;
+    hour: number;
+    dataRequiredDate: string;
+    deadlineExpedice: string;
+    adjustedDate: string;
+    adjustedHour: number;
+    wasShifted: boolean;
+    noSlotFound: boolean;
+  };
+  const seriesOccResolved: ResolvedDraft[] = useMemo(() => {
+    if (!isInSeries || seriesOccDrafts.length === 0) return [];
+    const seriesIdSet = new Set(seriesOccDrafts.map((d) => d.blockId));
+    // Skupiny per stroj — sourozenci série jsou obvykle na stejném stroji,
+    // ale defensivně podporujeme i cross-machine sérii.
+    const machineBlockedBase = new Map<string, BlockedInterval[]>();
+    function getBaseBlocked(machine: string): BlockedInterval[] {
+      const cached = machineBlockedBase.get(machine);
+      if (cached) return cached;
+      const built: BlockedInterval[] = [
+        ...allBlocks
+          .filter((b) => b.machine === machine && !seriesIdSet.has(b.id))
+          .map((b) => ({ start: new Date(b.startTime), end: new Date(b.endTime) })),
+        ...companyDays
+          .filter((cd) => cd.machine == null || cd.machine === machine)
+          .map((cd) => ({ start: new Date(cd.startDate), end: new Date(cd.endDate) })),
+      ];
+      machineBlockedBase.set(machine, built);
+      return built;
+    }
+    const sortedDrafts = [...seriesOccDrafts].sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.hour - b.hour;
+    });
+    const machineBlocked = new Map<string, BlockedInterval[]>();
+    const resolved = new Map<number, ResolvedDraft>();
+    for (const draft of sortedDrafts) {
+      const orig = allBlocks.find((b) => b.id === draft.blockId);
+      if (!orig) continue;
+      const draftMachine = orig.machine;
+      const duration = new Date(orig.endTime).getTime() - new Date(orig.startTime).getTime();
+      let proposed: Date;
+      try {
+        proposed = pragueToUTC(draft.date, draft.hour);
+      } catch {
+        // Neplatný uživatelský vstup (např. nesmyslné datum) — UI ukáže ⛔.
+        resolved.set(draft.blockId, {
+          ...draft, adjustedDate: draft.date, adjustedHour: draft.hour,
+          wasShifted: false, noSlotFound: true,
+        });
+        continue;
+      }
+      if (!machineBlocked.has(draftMachine)) {
+        machineBlocked.set(draftMachine, [...getBaseBlocked(draftMachine)]);
+      }
+      const blocked = machineBlocked.get(draftMachine)!;
+      const result = findNextFreeSlot(draftMachine, proposed, duration, blocked, machineWeekShifts);
+      if (!result.found) {
+        resolved.set(draft.blockId, {
+          ...draft, adjustedDate: draft.date, adjustedHour: draft.hour,
+          wasShifted: false, noSlotFound: true,
+        });
+        continue;
+      }
+      blocked.push({ start: result.startTime, end: result.endTime });
+      resolved.set(draft.blockId, {
+        ...draft,
+        adjustedDate: utcToPragueDateStr(result.startTime),
+        adjustedHour: utcToPragueHour(result.startTime),
+        wasShifted: result.wasShifted,
+        noSlotFound: false,
+      });
+    }
+    return seriesOccDrafts.map((d) => resolved.get(d.blockId) ?? {
+      ...d, adjustedDate: d.date, adjustedHour: d.hour, wasShifted: false, noSlotFound: false,
+    });
+  }, [seriesOccDrafts, allBlocks, companyDays, machineWeekShifts, isInSeries]);
+
   // SPLIT SKUPINA
   const splitGroup = block.splitGroupId != null
     ? allBlocks
@@ -208,27 +297,51 @@ export function BlockEdit({
       .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
     let saved = 0;
     let attempted = 0;
-    for (const draft of seriesOccDrafts) {
-      const orig = curSeries.find((b) => b.id === draft.blockId);
+    let skippedNoSlot = 0;
+    const failedReasons: string[] = [];
+    const savedAdjusted: Array<{ blockId: number; date: string; hour: number }> = [];
+    // Iterujeme v chronologickém pořadí adjustedDate/Hour — totéž pořadí, v jakém
+    // resolver alokoval sloty. Tím se vyhneme tomu, aby PUT pro pozdější blok
+    // přepsal pozici, kterou ještě nestihne uvolnit dřívější blok.
+    const orderedResolved = [...seriesOccResolved].sort((a, b) => {
+      if (a.adjustedDate !== b.adjustedDate) return a.adjustedDate.localeCompare(b.adjustedDate);
+      return a.adjustedHour - b.adjustedHour;
+    });
+    for (const resolved of orderedResolved) {
+      const orig = curSeries.find((b) => b.id === resolved.blockId);
       if (!orig) continue;
       const origDate = utcToPragueDateStr(new Date(orig.startTime));
       const origHour = utcToPragueHour(new Date(orig.startTime));
       const origDataDate = orig.dataRequiredDate ? utcToPragueDateStr(new Date(orig.dataRequiredDate)) : "";
       const origExpedice = orig.deadlineExpedice ? utcToPragueDateStr(new Date(orig.deadlineExpedice)) : "";
-      if (draft.date === origDate && draft.hour === origHour && draft.dataRequiredDate === origDataDate && draft.deadlineExpedice === origExpedice) continue;
+      // Změna jen pokud se posune ADJUSTED čas (ne raw user input) nebo datumy DAT/EXP.
+      const timeChanged = resolved.adjustedDate !== origDate || resolved.adjustedHour !== origHour;
+      const dataChanged = resolved.dataRequiredDate !== origDataDate;
+      const expediceChanged = resolved.deadlineExpedice !== origExpedice;
+      if (!timeChanged && !dataChanged && !expediceChanged) continue;
+      // Slot nebyl nalezen do 7 dní — skip + počítat pro toast
+      if (resolved.noSlotFound) {
+        skippedNoSlot++;
+        continue;
+      }
       attempted++;
       const origDuration = new Date(orig.endTime).getTime() - new Date(orig.startTime).getTime();
-      const newStart = pragueToUTC(draft.date, draft.hour);
+      const newStart = pragueToUTC(resolved.adjustedDate, resolved.adjustedHour);
       const newEnd = new Date(newStart.getTime() + origDuration);
       try {
-        const res = await fetch(`/api/blocks/${draft.blockId}`, {
+        const res = await fetch(`/api/blocks/${resolved.blockId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             startTime: newStart.toISOString(),
             endTime: newEnd.toISOString(),
-            dataRequiredDate: draft.dataRequiredDate || null,
-            deadlineExpedice: draft.deadlineExpedice || null,
+            dataRequiredDate: resolved.dataRequiredDate || null,
+            deadlineExpedice: resolved.deadlineExpedice || null,
+            // Klient už ověřil přes findNextFreeSlot — server by jinak vyhodil 422/409
+            // i pro adjusted čas, protože blok stále existuje v DB na původní pozici
+            // (před PUT). bypass je bezpečný — adjusted slot je validní by construction.
+            bypassOverlapCheck: true,
+            bypassScheduleValidation: true,
           }),
         });
         if (res.ok) {
@@ -236,21 +349,43 @@ export function BlockEdit({
           onBlockUpdate?.(updated);
           // Sync form state pro aktuální blok — jinak by buildPayload() při
           // následném "Uložit změny" přepsal tyto hodnoty původními.
-          if (draft.blockId === block.id) {
-            setDataRequiredDate(draft.dataRequiredDate);
-            setDeadlineExpedice(draft.deadlineExpedice);
+          if (resolved.blockId === block.id) {
+            setDataRequiredDate(resolved.dataRequiredDate);
+            setDeadlineExpedice(resolved.deadlineExpedice);
           }
+          savedAdjusted.push({ blockId: resolved.blockId, date: resolved.adjustedDate, hour: resolved.adjustedHour });
           saved++;
+        } else {
+          const err = await res.json().catch(() => ({})) as { error?: string };
+          if (err.error) failedReasons.push(err.error);
         }
-      } catch { /* skip */ }
+      } catch (error) {
+        failedReasons.push(error instanceof Error ? error.message : "Neznámá chyba sítě");
+      }
+    }
+    // Sync drafty s adjusted hodnotami pro úspěšně uložené bloky — aby UI nezobrazoval
+    // původní uživatelský vstup (např. 30.7.), když realita v DB je adjusted (např. 1.8.).
+    if (savedAdjusted.length > 0) {
+      setSeriesOccDrafts((prev) => prev.map((d) => {
+        const saved = savedAdjusted.find((s) => s.blockId === d.blockId);
+        return saved ? { ...d, date: saved.date, hour: saved.hour } : d;
+      }));
     }
     setSeriesOccSaving(false);
-    if (attempted === 0) {
+    const skippedMsg = skippedNoSlot > 0
+      ? ` ${skippedNoSlot} ${skippedNoSlot === 1 ? "blok" : "bloků"} nebylo možné naplánovat do 7 dní — zvol jiné datum.`
+      : "";
+    const reasonsMsg = failedReasons.length > 0 ? ` Důvod: ${failedReasons[0]}` : "";
+    if (attempted === 0 && skippedNoSlot === 0) {
       onToast?.("Žádné změny k uložení.", "info");
-    } else if (saved === attempted) {
+    } else if (attempted === 0 && skippedNoSlot > 0) {
+      onToast?.(`Nelze uložit:${skippedMsg}`, "error");
+    } else if (saved === attempted && skippedNoSlot === 0) {
       onToast?.(`Uloženo ${saved} výskytů.`, "success");
+    } else if (saved === attempted && skippedNoSlot > 0) {
+      onToast?.(`Uloženo ${saved} výskytů.${skippedMsg}`, "error");
     } else if (saved > 0) {
-      onToast?.(`Uloženo ${saved}/${attempted} výskytů — některé selhaly.`, "error");
+      onToast?.(`Uloženo ${saved}/${attempted} výskytů — některé selhaly.${reasonsMsg}${skippedMsg}`, "error");
     } else {
       onToast?.("Uložení selhalo — zkus to znovu.", "error");
     }
@@ -849,7 +984,14 @@ export function BlockEdit({
           <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)" }}>
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>Termíny série</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 260, overflowY: "auto" }}>
-              {seriesOccDrafts.map((occ, i) => (
+              {seriesOccDrafts.map((occ, i) => {
+                const resolved = seriesOccResolved.find((r) => r.blockId === occ.blockId);
+                const wasShifted = resolved?.wasShifted ?? false;
+                const noSlotFound = resolved?.noSlotFound ?? false;
+                const shiftedDateLabel = resolved && wasShifted
+                  ? `${resolved.adjustedDate.split("-").reverse().slice(0, 2).join(". ")}. ${String(resolved.adjustedHour).padStart(2, "0")}:00`
+                  : "";
+                return (
                 <div key={occ.blockId} style={{ display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", borderRadius: 7, background: occ.blockId === block.id ? "rgba(59,130,246,0.08)" : "rgba(255,255,255,0.03)", border: occ.blockId === block.id ? "1px solid rgba(59,130,246,0.2)" : "1px solid rgba(255,255,255,0.06)" }}>
                   {/* Řádek 1: badge + Tisk datum + hodina */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -891,6 +1033,25 @@ export function BlockEdit({
                       </svg>
                     </div>
                   </div>
+                  {/* Auto-shift warning: posunuto / nebylo nalezeno volné okno */}
+                  {wasShifted && (
+                    <div
+                      title={`Po uložení se blok posune na ${shiftedDateLabel} — kapacita stroje nebo pracovní doba neumožňuje uložit přesně tento čas.`}
+                      style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: 26, fontSize: 9, fontWeight: 600, color: "#f59e0b", letterSpacing: "0.02em" }}
+                    >
+                      <span style={{ fontSize: 11, lineHeight: 1 }}>⚠</span>
+                      <span>Posunuto na {shiftedDateLabel}</span>
+                    </div>
+                  )}
+                  {noSlotFound && (
+                    <div
+                      title="Nelze najít volný slot do 7 dní od požadovaného času. Zvol jiné datum nebo uvolni kapacitu stroje."
+                      style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: 26, fontSize: 9, fontWeight: 600, color: "#ef4444", letterSpacing: "0.02em" }}
+                    >
+                      <span style={{ fontSize: 11, lineHeight: 1 }}>⛔</span>
+                      <span>Nelze naplánovat (mimo 7 dní)</span>
+                    </div>
+                  )}
                   {/* Řádek 2: DATA datum + EXP datum */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 26 }}>
                     <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>DATA:</div>
@@ -911,7 +1072,8 @@ export function BlockEdit({
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <button
               type="button"
