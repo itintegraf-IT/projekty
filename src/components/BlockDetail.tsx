@@ -11,6 +11,7 @@ import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
 import { formatCivilDate, formatPragueDateTime, formatPragueDateShort, formatPragueTime } from "@/lib/dateUtils";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { getSplitChipState } from "@/lib/splitHelpers";
+import { copyTextToClipboard } from "@/lib/clipboardCopy";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -158,7 +159,7 @@ export function BlockDetail({
             <span className="text-sm font-bold text-slate-100">{block.orderNumber}</span>
             <button
               type="button"
-              onClick={() => navigator.clipboard.writeText([block.orderNumber, block.description].filter(Boolean).join(" – "))}
+              onClick={() => void copyTextToClipboard([block.orderNumber, block.description].filter(Boolean).join(" – "))}
               title="Kopírovat číslo zakázky a popis"
               style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: "1px 3px", lineHeight: 1, transition: "color 120ms ease-out" }}
               onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}

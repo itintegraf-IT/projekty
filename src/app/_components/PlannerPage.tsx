@@ -21,6 +21,7 @@ import {
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
+import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -3695,7 +3696,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                         <Label style={{ fontSize: 10, color: "var(--text-muted)" }}>Popis</Label>
                         <button
                           type="button"
-                          onClick={() => navigator.clipboard.writeText(description)}
+                          onClick={() => void copyTextToClipboard(description)}
                           title="Kopírovat popis"
                           style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: "0 2px", lineHeight: 1, transition: "color 120ms ease-out" }}
                           onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text)")}
