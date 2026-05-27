@@ -15,6 +15,7 @@ import { type Block } from "@/app/_components/TimelineGrid";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
+import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
 import { type Toast } from "@/components/ToastContainer";
 import {
   type CodebookOption,
@@ -81,7 +82,7 @@ export function BlockEdit({
   onBlockUpdate?: (updated: Block) => void;
   allBlocks: Block[];
   onDeleteAll: (ids: number[]) => Promise<void>;
-  onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<void>;
+  onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<boolean>;
   canEdit?: boolean;
   canEditData?: boolean;
   canEditDataDate?: boolean;
@@ -957,9 +958,23 @@ export function BlockEdit({
               <button
                 disabled={saving}
                 onClick={async () => {
-                  if (seriesConfirm === "save" && pendingSavePayload.current) {
-                    const ids = getSeriesIds();
-                    await onSaveAll(ids, pendingSavePayload.current);
+                  const pending = pendingSavePayload.current;
+                  if (seriesConfirm === "save" && pending) {
+                    const allIds = getSeriesIds();
+                    const otherIds = allIds.filter((id) => id !== block.id);
+                    // Per-instance fieldy (termíny, ready flagy, sklad/vydání)
+                    // patří jen editovanému bloku — odrážejí konkrétní intent
+                    // uživatele pro tuto instanci. Sourozenci v sérii dostanou
+                    // jen sdílená pole (orderNumber, specifikace, materialStatusId, …).
+                    // Viz src/lib/seriesPropagation.ts pro úplný seznam.
+                    const sharedPayload = stripSeriesPropagatedFields(pending);
+                    const ok = await onSaveAll([block.id], pending);
+                    // Pokud první save selhal, sourozence nepřepisujeme — nechceme
+                    // nekonzistentní stav, kdy se sdílená pole aplikují na ostatní,
+                    // ale editovaný blok zůstává starý.
+                    if (ok && otherIds.length > 0) {
+                      await onSaveAll(otherIds, sharedPayload);
+                    }
                     onClose();
                   } else if (seriesConfirm === "delete") {
                     const ids = getFollowingSeriesIds();

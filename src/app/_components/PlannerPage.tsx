@@ -1992,7 +1992,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setCanRedo(false);
   }
 
-  async function handleSaveAll(ids: number[], payload: Record<string, unknown>) {
+  async function handleSaveAll(ids: number[], payload: Record<string, unknown>): Promise<boolean> {
     try {
       // Pokud payload obsahuje endTime, spočítat durationMs a aplikovat per-block
       const hasEndTime = payload.endTime !== undefined;
@@ -2029,9 +2029,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const updatedEditing = results.find((r) => r.id === editingBlock.id);
         if (updatedEditing) setEditingBlock(updatedEditing);
       }
+      return true;
     } catch (error) {
       console.error("Series save failed", error);
       showToast(error instanceof Error ? error.message : "Chyba při ukládání série.", "error");
+      return false;
     }
   }
 
