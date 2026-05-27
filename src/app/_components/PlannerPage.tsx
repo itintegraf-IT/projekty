@@ -658,6 +658,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   blocksRef.current = blocks;
   const selectedBlockIdsRef = useRef<Set<number>>(new Set());
   selectedBlockIdsRef.current = selectedBlockIds;
+  const selectedBlockRef = useRef<Block | null>(null);
+  selectedBlockRef.current = selectedBlock;
   const editingBlockIdsRef = useRef<Set<number>>(new Set());
   const dragInProgressRef = useRef(false);
   const [sseOffline, setSseOffline] = useState(false);
@@ -2774,7 +2776,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         setMultiDeletePending(true);
         return;
       }
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedBlock) {
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedBlockRef.current) {
         e.preventDefault();
         setKeyDeletePending(true);
         return;
@@ -2827,25 +2829,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return;
       }
       // Fallback: jednoblokové operace
-      if (e.key === "c" && selectedBlock) {
+      if (e.key === "c" && selectedBlockRef.current) {
         e.preventDefault();
-        setCopiedBlock(selectedBlock);
+        setCopiedBlock(selectedBlockRef.current);
         setIsCut(false);
         // Vyčistit group clipboard — single copy přebírá precedenci
         clipboardGroupRef.current = [];
         isGroupCutRef.current = false;
         // Auto-set pasteTarget za zdrojový blok, aby Ctrl+V hned fungoval
-        setPasteTarget(computePasteTargetFromBlock(selectedBlock));
+        setPasteTarget(computePasteTargetFromBlock(selectedBlockRef.current));
         showToast("Blok zkopírován. Ctrl+V vloží těsně za originál, nebo klikni jinam pro jiné místo.", "info");
         return;
       }
-      if (e.key === "x" && selectedBlock) {
+      if (e.key === "x" && selectedBlockRef.current) {
         e.preventDefault();
-        setCopiedBlock(selectedBlock);
+        setCopiedBlock(selectedBlockRef.current);
         setIsCut(true);
         clipboardGroupRef.current = [];
         isGroupCutRef.current = false;
-        setPasteTarget(computePasteTargetFromBlock(selectedBlock));
+        setPasteTarget(computePasteTargetFromBlock(selectedBlockRef.current));
         showToast("Blok vyříznut. Ctrl+V vloží těsně za originál.", "info");
         return;
       }
@@ -2862,7 +2864,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [selectedBlock]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const typeConfig = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
 
