@@ -1058,14 +1058,18 @@ export function BlockEdit({
                     <div style={{ fontSize: 9, fontWeight: 600, color: "var(--text-muted)", width: 28, flexShrink: 0 }}>Tisk:</div>
                     <div style={{ flex: 1 }}>
                       <DatePickerField
-                        value={occ.date}
+                        // Pattern z Job Builder preview: input zobrazuje ADJUSTED hodnotu
+                        // (kam se to po uložení posune). User vidí v inputu výsledek auto-shiftu;
+                        // banner ⚠ ukazuje, odkud původně tahal. Při noSlotFound zůstává user input
+                        // v inputu (adjusted neexistuje).
+                        value={wasShifted && resolved ? resolved.adjustedDate : occ.date}
                         onChange={(d) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, date: d } : o))}
                         placeholder="Datum…"
                       />
                     </div>
                     <div style={{ flex: "0 0 72px", position: "relative" }}>
                       <select
-                        value={occ.hour}
+                        value={wasShifted && resolved ? resolved.adjustedHour : occ.hour}
                         onChange={(e) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, hour: parseInt(e.target.value) } : o))}
                         style={{
                           appearance: "none", width: "100%", height: 30,
