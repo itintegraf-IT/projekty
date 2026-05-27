@@ -87,8 +87,22 @@ První číslo `0` znamená, že `origin/michal` nechybí žádný commit z
 - Produkční složka: `/var/www/planovanivyroby`
 - Heslo je mimo git — viz `~/Desktop/Vojta_KB/deploy-credentials.md`.
 
-Pro DB kontroly v kroku 7 se ještě musíš z shellu přihlásit do MySQL
-(`mysql -u <user> -p`). Credentials jsou ve stejném souboru.
+### Přístup do MySQL na serveru
+
+Produkční databáze se jmenuje **`igvyroba`** (malými písmeny, ne `IGvyroba`).
+
+MySQL `root` na Ubuntu serveru používá plugin **`auth_socket`** — připojení
+přes heslo (`mysql -u root -p`) skončí chybou `1698 Access denied`. Místo
+toho používej `sudo`, který se připojí přes unix socket:
+
+```bash
+sudo mysql igvyroba
+sudo mysqldump igvyroba > dump.sql
+```
+
+`sudo` se zeptá na heslo uživatele `administrator`, ne na MySQL heslo.
+
+### Kontrola git stavu
 
 Na serveru:
 
@@ -96,7 +110,8 @@ Na serveru:
 cd /var/www/planovanivyroby
 git status
 git branch -vv
-git remote -v
+git fetch origin --prune
+git log --oneline origin/michal -5
 ```
 
 Očekávaný stav:
@@ -107,24 +122,90 @@ Your branch is up to date with 'origin/michal'.
 nothing to commit, working tree clean
 ```
 
+`git log origin/michal -5` musí nahoře ukázat ten samý commit, který jsme
+před chvílí pushli z lokálu (krok 3). Pokud ne, něco se nepushlo.
+
 Pokud pracovní strom není čistý, zastavit se a zjistit proč. Nepoužívat
 `git reset --hard` bez jasného důvodu a zálohy.
 
+## 4b. Záloha DB a PRE-deploy snapshot (POVINNÉ)
+
+**Žádný deploy bez tohoto kroku.** Tohle je tvoje pojistka proti ztrátě
+dat — bez ověřené zálohy a snapshotu nelze prokázat, že se nic neposunulo.
+
+### 4b.1 mysqldump záloha
+
+```bash
+mkdir -p ~/backups
+sudo mysqldump --single-transaction --triggers --routines --add-drop-table \
+  igvyroba > ~/backups/igvyroba_pre_deploy_$(date +%Y%m%d_%H%M%S).sql
+
+# Ověření, že dump je validní
+ls -lh ~/backups/igvyroba_pre_deploy_*.sql | tail -1
+grep -c "CREATE TABLE \`Block\`" ~/backups/igvyroba_pre_deploy_*.sql | tail -1
+wc -l ~/backups/igvyroba_pre_deploy_*.sql | tail -1
+```
+
+Musí platit:
+
+- soubor má jednotky/desítky MB (nesmí být 0 bytes)
+- `grep -c "CREATE TABLE \`Block\`"` vrátí **1**
+- `wc -l` jsou tisíce řádků
+
+### 4b.2 PRE-deploy snapshot dat
+
+Klíčový krok — bez tohoto snapshotu nemůžeme po deployi prokázat, že se nic
+v datech neposunulo. Hodnotu `sum_secs` ber jako otisk: součet trvání
+všech bloků v sekundách. Pokud se cokoli posune nebo zmizí, číslo se změní.
+
+```bash
+sudo mysql igvyroba -e "
+SELECT
+  COUNT(*) AS total_blocks,
+  COUNT(DISTINCT machine) AS machines,
+  MIN(startTime) AS earliest,
+  MAX(startTime) AS latest,
+  COUNT(DISTINCT splitGroupId) AS split_groups,
+  COUNT(CASE WHEN reservationId IS NOT NULL THEN 1 END) AS reserved,
+  SUM(UNIX_TIMESTAMP(endTime) - UNIX_TIMESTAMP(startTime)) AS sum_secs
+FROM Block;
+
+SELECT machine, COUNT(*) AS pocet FROM Block GROUP BY machine;
+SELECT type, COUNT(*) AS pocet FROM Block GROUP BY type ORDER BY pocet DESC;
+
+SELECT id, machine, startTime, endTime, type, blockVariant, splitGroupId
+FROM Block ORDER BY id DESC LIMIT 10;
+" | tee ~/backups/snapshot_PRE_$(date +%Y%m%d_%H%M%S).txt
+```
+
+Snapshot se uloží do `~/backups/snapshot_PRE_*.txt`. Hodnoty si zapamatuj
+(zejména `total_blocks`, `sum_secs`, rozpad podle stroje a typu).
+
+### 4b.3 Rollback plán
+
+Pokud cokoli v krocích 5–7 selže, restore z dumpu:
+
+```bash
+sudo mysql igvyroba < ~/backups/igvyroba_pre_deploy_<TIMESTAMP>.sql
+```
+
+Před restorem **zastav aplikaci** (`pm2 stop ecosystem.config.cjs`), aby
+nepsala do DB během importu.
+
 ## 5. Dry-run deploye
 
-Deploy script je na serveru ve větvi `michal`:
+Deploy script je na serveru ve větvi `michal`.
+
+**Gotcha — executable bit:** `deploy.sh` ve své pre-check fázi spustí
+`git checkout scripts/deploy.sh`, aby zahodil případné lokální změny
+(typicky CRLF→LF). Tím ale **smaže i náš `chmod +x`**. Proto se může stát,
+že po dry-runu opět vrátí `Permission denied`. Řešení — chmod a spuštění
+spojit do jednoho příkazu přes `&&`:
 
 ```bash
 cd /var/www/planovanivyroby
 ls -la scripts/deploy.sh
-DRY_RUN=1 ./scripts/deploy.sh
-```
-
-Pokud shell vrátí `Permission denied`, nastavit executable bit:
-
-```bash
-chmod +x scripts/deploy.sh
-DRY_RUN=1 ./scripts/deploy.sh
+chmod +x scripts/deploy.sh && DRY_RUN=1 ./scripts/deploy.sh
 ```
 
 Dry-run nesmí nic měnit. Měl by vypsat přibližně:
@@ -144,17 +225,17 @@ pm2 reload ecosystem.config.cjs --update-env || pm2 start ecosystem.config.cjs
 
 ## 6. Ostrý deploy
 
-Na serveru:
+Na serveru (znovu chmod + spuštění na jednom řádku, kvůli gotcha výše):
 
 ```bash
 cd /var/www/planovanivyroby
-./scripts/deploy.sh
+chmod +x scripts/deploy.sh && ./scripts/deploy.sh
 ```
 
 Explicitní varianta, když chceme mít jistotu větve:
 
 ```bash
-GIT_BRANCH=michal ./scripts/deploy.sh
+chmod +x scripts/deploy.sh && GIT_BRANCH=michal ./scripts/deploy.sh
 ```
 
 Za úspěch se považuje:
@@ -177,16 +258,78 @@ Poznámky:
 - `prisma:bootstrap` je bezpečný doplňovací bootstrap. `prisma:seed` nepoužívat
   na produkci.
 
-## 7. DB kontroly po změnách času nebo odstávek
+## 7. POST-deploy ověření dat (POVINNÉ)
 
-Po změnách, které se týkají času, naplánování nebo odstávek, ověřit:
+**Bez tohoto kroku deploy NEDOKONČUJEME.** Bez porovnání PRE a POST snapshotu
+nemáme jak prokázat, že se v produkčních datech nic neposunulo. Tohle je
+hlavní bezpečnostní pojistka.
+
+### 7.1 POST snapshot
+
+```bash
+sudo mysql igvyroba -e "
+SELECT
+  COUNT(*) AS total_blocks,
+  COUNT(DISTINCT machine) AS machines,
+  MIN(startTime) AS earliest,
+  MAX(startTime) AS latest,
+  COUNT(DISTINCT splitGroupId) AS split_groups,
+  COUNT(CASE WHEN reservationId IS NOT NULL THEN 1 END) AS reserved,
+  SUM(UNIX_TIMESTAMP(endTime) - UNIX_TIMESTAMP(startTime)) AS sum_secs
+FROM Block;
+
+SELECT machine, COUNT(*) AS pocet FROM Block GROUP BY machine;
+SELECT type, COUNT(*) AS pocet FROM Block GROUP BY type ORDER BY pocet DESC;
+
+SELECT id, machine, startTime, endTime, type, blockVariant, splitGroupId
+FROM Block ORDER BY id DESC LIMIT 10;
+" | tee ~/backups/snapshot_POST_$(date +%Y%m%d_%H%M%S).txt
+```
+
+### 7.2 Porovnání PRE vs POST
+
+Otevři oba snapshot soubory a porovnej. **Všechny hodnoty musí sedět 1:1.**
+Klíčové metriky:
+
+| Metrika | Význam |
+|---|---|
+| `total_blocks` | Celkový počet bloků — pokud klesl, něco zmizelo |
+| **`sum_secs`** | **Součet trvání všech bloků v sekundách — časový otisk** |
+| `earliest` / `latest` | Krajní časy — pokud se posunuly, něco se přeplánovalo |
+| Rozpad podle stroje | XL_105 / XL_106 počty |
+| Rozpad podle typu | ZAKAZKA / REZERVACE / UDRZBA počty |
+| Top 10 IDs | Posledních 10 bloků se stejnými časy a stroji |
+
+**`sum_secs` je nejcitlivější** — pokud se posunul i jeden blok o pár vteřin,
+součet se změní. Pokud se neshoduje, **okamžitě rollback z dumpu** (krok 4b.3).
+
+### 7.3 Tabulka `Block` obsahuje VŠECHNY typy bloků
+
+Tabulka `Block` není jen zakázky. Obsahuje:
+
+- `ZAKAZKA` — skutečné tisky
+- `REZERVACE` — rezervace ze `/rezervace`
+- `UDRZBA` — údržba stroje
+- `MYTI`, `PRESTAVBA` — provozní bloky
+
+Při verifikaci kontrolujeme rozpad **podle typu zvlášť**, ne jen celkový počet.
+
+### 7.4 Specifické kontroly podle obsahu deploye
+
+#### Po Prisma migraci
+Pokud deploy obsahoval Prisma migraci, ověř, že nový sloupec/index existuje:
+
+```bash
+sudo mysql igvyroba -e "SHOW COLUMNS FROM Block LIKE 'nazev_sloupce';"
+sudo mysql igvyroba -e "SELECT version_id, name FROM _prisma_migrations ORDER BY started_at DESC LIMIT 5;"
+```
+
+#### Po změnách v CompanyDay nebo času
+Pokud deploy mění logiku odstávek nebo časů, ověř datetime přesnost:
 
 ```sql
 SHOW COLUMNS FROM CompanyDay;
-SELECT id, label, startDate, endDate, machine
-FROM CompanyDay
-ORDER BY id DESC
-LIMIT 5;
+SELECT id, label, startDate, endDate, machine FROM CompanyDay ORDER BY id DESC LIMIT 5;
 ```
 
 Správné schéma pro odstávky:
@@ -218,6 +361,20 @@ Po deployi v aplikaci ověřit:
 - Nově vytvořená odstávka se uloží s časem a vykreslí na timeline.
 - Testovací odstávky po ověření smazat.
 
+## Shrnutí — kontrolní checklist před každým deployem
+
+1. ☐ Lokálně: `npm run build`, `npm run lint`, všechny testy zelené
+2. ☐ Při změnách v API/schema/planneru: subagent audit diffu `origin/michal..origin/Vojta` na rizika ztráty/posunu dat
+3. ☐ Merge `Vojta → michal` lokálně (fast-forward), push origin michal
+4. ☐ SSH na server, git status čistý, fetch + `git log origin/michal -5` ukazuje nový HEAD
+5. ☐ **`mysqldump` záloha** s ověřením (velikost, `CREATE TABLE Block`, řádky)
+6. ☐ **PRE snapshot** uložený do `~/backups/snapshot_PRE_*.txt`
+7. ☐ Dry-run `DRY_RUN=1 ./scripts/deploy.sh` projde čistě
+8. ☐ Ostrý `chmod +x scripts/deploy.sh && ./scripts/deploy.sh`
+9. ☐ **POST snapshot** a porovnání všech metrik 1:1 s PRE (zejména `sum_secs`)
+10. ☐ Pokud Prisma migrace: ověř `SHOW COLUMNS` že nový sloupec existuje
+11. ☐ UI smoke test v prohlížeči (drag, resize, edit, mazání)
+
 ## Automatizace do budoucna
 
 Aktuální `scripts/deploy.sh` je dobrý základ a už automatizuje serverovou část:
@@ -227,7 +384,9 @@ Co bych automatizoval později:
 
 - Přidat lokální helper pro merge `Vojta -> michal`, který před pushem spustí testy a build.
 - Přidat kontrolu, že se deployuje jen z větve `michal` malým písmenem.
-- Přidat rychlou DB health kontrolu pro `CompanyDay.startDate/endDate = datetime(3)`.
+- Přidat skript `scripts/snapshot.sh`, který vygeneruje PRE/POST snapshoty a uloží je do `~/backups/`.
+- Přidat `scripts/verify-deploy.sh`, který automaticky porovná PRE a POST snapshot a vrátí non-zero, pokud se metriky neshodují.
+- Opravit `deploy.sh`, aby ve fázi pre-check nezahazoval `chmod +x` na sobě samém (např. ignorovat změnu perm bitu, nebo aplikovat chmod za posledním checkoutem).
 
 Co bych zatím nedělal:
 
