@@ -190,8 +190,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         allowed.dataOk = allowed.dataStatusId !== null;
       }
 
-      // Overlap check — pokud se mění čas nebo stroj (přeskočit při drag/resize, kde autoResolveOverlap řeší overlap)
-      if (!bypassOverlapCheck) {
+      // Časný overlap check — přeskočit při bypassOverlapCheck NEBO resolveChain
+      // (u resolveChain smí anchor přistát na obsazené místo, chain push to vyřeší
+      // a finální assertNoOverlapForBlocks na konci transakce ověří výsledek).
+      if (!bypassOverlapCheck && !resolveChain) {
         const checkMachine = (allowed.machine as string | undefined) ?? oldBlock.machine;
         const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : oldBlock.startTime;
         const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : oldBlock.endTime;

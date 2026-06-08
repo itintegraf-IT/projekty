@@ -1646,67 +1646,66 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   async function handleBlockUpdate(updated: Block, addToHistory = false) {
     if (typeof updated.id !== "number") return; // Guard against API error responses
+    // PUT s resolveChain vrací v poli `shifted` navazující bloky odsunuté serverem (chain push).
+    const shifted = ((updated as Block & { shifted?: Block[] }).shifted ?? []).filter((s) => typeof s.id === "number");
+    const cleanUpdated = { ...updated } as Block & { shifted?: Block[] };
+    delete cleanUpdated.shifted;
+
     const prev = blocksRef.current.find(b => b.id === updated.id);
-    setBlocks((arr) => arr.map((b) => (b.id === updated.id ? updated : b)));
-    setSelectedBlock((sel) => (sel?.id === updated.id ? updated : sel));
-    setEditingBlock((eb) => eb?.id === updated.id ? updated : eb);
+    // Staré pozice posunutých bloků pro undo — sebrat PŘED aplikací do stavu.
+    const shiftedOld = shifted
+      .map((s) => blocksRef.current.find((b) => b.id === s.id))
+      .filter((b): b is Block => b != null);
+
+    setBlocks((arr) => arr.map((b) => {
+      if (b.id === cleanUpdated.id) return cleanUpdated;
+      const sh = shifted.find((s) => s.id === b.id);
+      return sh ?? b;
+    }));
+    setSelectedBlock((sel) => (sel?.id === cleanUpdated.id ? cleanUpdated : sel));
+    setEditingBlock((eb) => eb?.id === cleanUpdated.id ? cleanUpdated : eb);
     // Lokální propagace sdílených polí do split sourozenců
-    if (updated.splitGroupId != null) {
+    if (cleanUpdated.splitGroupId != null) {
       const patch: Partial<Block> = {};
       for (const f of SPLIT_SHARED_FIELDS) {
-        (patch as Record<string, unknown>)[f] = (updated as Record<string, unknown>)[f];
+        (patch as Record<string, unknown>)[f] = (cleanUpdated as Record<string, unknown>)[f];
       }
       // Pokud se type mění na non-ZAKAZKA, normalizovat blockVariant na STANDARD
       if (patch.type && patch.type !== "ZAKAZKA") patch.blockVariant = "STANDARD";
       setBlocks(prev => prev.map(b =>
-        b.id !== updated.id &&
-        (b.splitGroupId === updated.splitGroupId || b.id === updated.splitGroupId)
+        b.id !== cleanUpdated.id &&
+        (b.splitGroupId === cleanUpdated.splitGroupId || b.id === cleanUpdated.splitGroupId)
           ? { ...b, ...patch }
           : b
       ));
     }
-    if (prev) {
+    if (prev && addToHistory) {
       const timeOrMachineChanged =
-        new Date(prev.startTime).getTime() !== new Date(updated.startTime).getTime() ||
-        new Date(prev.endTime).getTime()   !== new Date(updated.endTime).getTime()   ||
-        prev.machine !== updated.machine;
+        new Date(prev.startTime).getTime() !== new Date(cleanUpdated.startTime).getTime() ||
+        new Date(prev.endTime).getTime()   !== new Date(cleanUpdated.endTime).getTime()   ||
+        prev.machine !== cleanUpdated.machine;
       if (timeOrMachineChanged) {
-        const movedSnapshots = new Map<number, { startTime: string; endTime: string; machine: string }>();
-        // Snapshot přesunutého bloku
-        movedSnapshots.set(updated.id, { startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine });
-
-        // autoResolveOverlap naplní movedSnapshots chain bloky
-        await autoResolveOverlap(updated, new Set([updated.id]), prev, false, movedSnapshots);
-
-        if (addToHistory && movedSnapshots.size > 0) {
-          // Snapshot "po" — aktuální stav všech posunutých bloků
-          const afterSnapshots = new Map<number, { startTime: string; endTime: string; machine: string }>();
-          for (const [id] of movedSnapshots) {
-            const currentBlock = blocksRef.current.find(b => b.id === id);
-            if (currentBlock) afterSnapshots.set(id, { startTime: currentBlock.startTime as string, endTime: currentBlock.endTime as string, machine: currentBlock.machine });
-          }
-
-          undoStack.current.push({
-            undo: async () => {
-              const updates = Array.from(movedSnapshots.entries()).map(([id, snap]) => ({
-                id, startTime: snap.startTime, endTime: snap.endTime, machine: snap.machine,
-              }));
-              const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
-              if (r.ok) { const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b)); }
-            },
-            redo: async () => {
-              const updates = Array.from(afterSnapshots.entries()).map(([id, snap]) => ({
-                id, startTime: snap.startTime, endTime: snap.endTime, machine: snap.machine,
-              }));
-              const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
-              if (r.ok) { const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b)); }
-            },
-          });
-          if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
-          redoStack.current = [];
-          setCanUndo(true);
-          setCanRedo(false);
-        }
+        // Undo/redo: přesunutý blok + posunuté navazující na/z původních pozic (batch).
+        const beforeSnaps = [
+          { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine },
+          ...shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine })),
+        ];
+        const afterSnaps = [
+          { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine },
+          ...shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
+        ];
+        const applyBatch = async (snaps: typeof beforeSnaps) => {
+          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
+          if (r.ok) { const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b)); }
+        };
+        undoStack.current.push({
+          undo: async () => { await applyBatch(beforeSnaps); },
+          redo: async () => { await applyBatch(afterSnaps); },
+        });
+        if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
+        redoStack.current = [];
+        setCanUndo(true);
+        setCanRedo(false);
       }
     }
   }

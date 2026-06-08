@@ -570,7 +570,7 @@ export function BlockEdit({
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, bypassOverlapCheck: true }),
+        body: JSON.stringify({ ...payload, resolveChain: true }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string; code?: string };
@@ -583,7 +583,7 @@ export function BlockEdit({
       onSave(updated);
     } catch (error) {
       console.error("Block save failed", error);
-      setError("Chyba při ukládání.");
+      setError(error instanceof Error ? error.message : "Chyba při ukládání.");
     } finally {
       setSaving(false);
     }

@@ -2357,7 +2357,7 @@ export default function TimelineGrid({
         }
         const newEnd      = new Date(newStart.getTime() + duration);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine, bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine, bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
@@ -2376,7 +2376,7 @@ export default function TimelineGrid({
         const finalEnd       = snapToSlot(yToDate(originalTop + newHeightRaw, vs, sh));
         const minEnd         = new Date(ds.originalStart.getTime() + SLOT_MS);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true }) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo změnit.");
