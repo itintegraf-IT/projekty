@@ -8,7 +8,9 @@ import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
-import { checkBlockOverlap } from "@/lib/overlapCheck";
+import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import { resolveChainPushFromDb } from "@/lib/overlapResolver.server";
+import type { ChainMove } from "@/lib/overlapResolver";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
 
@@ -104,9 +106,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     // bypassOverlapCheck přeskakuje overlap check — používá se POUZE při drag & drop / resize,
     // kde autoResolveOverlap ihned po uložení vyřeší překryvy přes batch endpoint.
     const bypassOverlapCheck = (body as Record<string, unknown>).bypassOverlapCheck === true;
+    // resolveChain: server po uložení bloku sám odsune navazující bloky (chain push) v téže transakci.
+    const resolveChain = (body as Record<string, unknown>).resolveChain === true;
     // Explicitně smazat příznaky z allowed — nesmí jít do prisma.block.update
     delete (allowed as Record<string, unknown>).bypassScheduleValidation;
     delete (allowed as Record<string, unknown>).bypassOverlapCheck;
+    delete (allowed as Record<string, unknown>).resolveChain;
     delete (allowed as Record<string, unknown>).expeditionPublishedAt;
     delete (allowed as Record<string, unknown>).expeditionSortOrder;
     delete (allowed as Record<string, unknown>).expectedUpdatedAt;
@@ -150,7 +155,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
 
-    const block = await prisma.$transaction(async (tx) => {
+    const { block, shifted } = await prisma.$transaction(async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });
       if (!oldBlock) {
         throw new AppError("NOT_FOUND", "Blok nenalezen");
@@ -419,7 +424,36 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         }
       }
 
-      return updated;
+      // ── Chain push navazujících bloků + tvrdá pojistka ──
+      // Jen pro ZAKAZKA a jen když se reálně měnil čas/stroj.
+      let shiftedMoves: ChainMove[] = [];
+      if (resultingType === "ZAKAZKA" && timingChanged) {
+        if (resolveChain) {
+          shiftedMoves = await resolveChainPushFromDb(
+            tx,
+            updated.machine,
+            { id: updated.id, startTime: updated.startTime, endTime: updated.endTime },
+            !bypassScheduleValidation
+          );
+          if (shiftedMoves.length > 0) {
+            await tx.auditLog.createMany({
+              data: shiftedMoves.map((m) => ({
+                blockId: m.id,
+                orderNumber: null,
+                userId: session.id,
+                username: session.username,
+                action: "AUTO_SHIFT",
+                field: "startTime/endTime/machine",
+                newValue: `${updated.machine} ${m.startTime.toISOString()}–${m.endTime.toISOString()}`,
+              })),
+            });
+          }
+        }
+        // Tvrdá pojistka — běží VŽDY (i bez resolveChain): překryv se nesmí uložit do DB.
+        await assertNoOverlapForBlocks(updated.machine, [updated.id, ...shiftedMoves.map((m) => m.id)], tx);
+      }
+
+      return { block: updated, shifted: shiftedMoves };
     });
 
     // Refetch s Reservation a notes include — PUT smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
@@ -432,7 +466,22 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     }) ?? block;
 
     emitSSE("block:updated", { block: serializeBlock(blockWithRes), machine: block.machine, sourceUserId: session.id });
-    return NextResponse.json(serializeBlock(blockWithRes));
+
+    // Posunuté (chain push) bloky — refetch, poslat klientovi v odpovědi i přes SSE ostatním.
+    let serializedShifted: ReturnType<typeof serializeBlock>[] = [];
+    if (shifted.length > 0) {
+      const shiftedBlocks = await prisma.block.findMany({
+        where: { id: { in: shifted.map((m) => m.id) } },
+        include: {
+          Reservation: { select: { confirmedAt: true } },
+          notes: { orderBy: { createdAt: "desc" as const } },
+        },
+      });
+      serializedShifted = shiftedBlocks.map(serializeBlock);
+      emitSSE("block:batch-updated", { blocks: serializedShifted, sourceUserId: session.id });
+    }
+
+    return NextResponse.json({ ...serializeBlock(blockWithRes), shifted: serializedShifted });
   } catch (error: unknown) {
     if (isAppError(error)) {
       const statusMap: Record<string, number> = {

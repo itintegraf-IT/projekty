@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
-import { checkBlockOverlap } from "@/lib/overlapCheck";
+import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { AppError, isAppError } from "@/lib/errors";
 import { emitSSE } from "@/lib/eventBus";
 
@@ -117,6 +117,18 @@ export async function POST(request: NextRequest) {
           },
         });
         updated.push(result);
+      }
+
+      // Tvrdá pojistka — žádný ZAKAZKA blok z této dávky nesmí skončit překrytý (kontrola po stroji).
+      // Běží VŽDY (i při bypassOverlapCheck): překryv se nesmí uložit do DB.
+      const zakazkaByMachine = new Map<string, number[]>();
+      for (const u of zakazkaUpdates) {
+        const arr = zakazkaByMachine.get(u.machine) ?? [];
+        arr.push(u.id);
+        zakazkaByMachine.set(u.machine, arr);
+      }
+      for (const [machine, ids] of zakazkaByMachine) {
+        await assertNoOverlapForBlocks(machine, ids, tx);
       }
 
       const auditRows: {
