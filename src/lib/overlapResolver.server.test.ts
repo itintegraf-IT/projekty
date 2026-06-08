@@ -50,6 +50,20 @@ describe("resolveChainPushFromDb", () => {
     assert.equal(updateMock.mock.calls.length, 0);
   });
 
+  it("excludeIds přidá bloky do notIn filtru (lasso: sourozenci se neposouvají)", async () => {
+    const findManyMock = mock.fn(async () => []);
+    const tx = {
+      block: { findMany: findManyMock, update: mock.fn(async () => ({})) },
+      machineWeekShifts: { findMany: mock.fn(async () => []) },
+      companyDay: { findMany: mock.fn(async () => []) },
+    } as never;
+
+    await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(12) }, false, new Set([5, 7]));
+
+    const where = (findManyMock.mock.calls as unknown as { arguments: [{ where: { id: { notIn: number[] } } }] }[])[0]!.arguments[0].where;
+    assert.deepEqual(where.id.notIn, [1, 5, 7]);
+  });
+
   it("posunutý blok by spadl do firemní odstávky → vyhodí SCHEDULE_VIOLATION", async () => {
     const updateMock = mock.fn(async () => ({}));
     const tx = {

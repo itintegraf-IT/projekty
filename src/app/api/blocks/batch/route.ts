@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { AppError, isAppError } from "@/lib/errors";
 import { emitSSE } from "@/lib/eventBus";
 
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest) {
   let updates: BatchUpdate[];
   let bypassScheduleValidation = false;
   let bypassOverlapCheck = false;
+  let resolveChain = false;
   try {
     const body = await request.json();
     if (!Array.isArray(body.updates) || body.updates.length === 0) {
@@ -35,6 +37,7 @@ export async function POST(request: NextRequest) {
     // bypassScheduleValidation přeskakuje jen working hours validaci, NE firemní odstávky (companyDays).
     bypassScheduleValidation = body.bypassScheduleValidation === true;
     bypassOverlapCheck = body.bypassOverlapCheck === true;
+    resolveChain = body.resolveChain === true;
   } catch {
     return NextResponse.json({ error: "Neplatný JSON" }, { status: 400 });
   }
@@ -49,7 +52,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const results = await prisma.$transaction(async (tx) => {
+    const { updated: results, shiftedIds } = await prisma.$transaction(async (tx) => {
       // Fetch UVNITŘ transakce — eliminuje TOCTOU gap
       const existingBlocks = await tx.block.findMany({
         where: { id: { in: updates.map((u) => u.id) } },
@@ -119,15 +122,51 @@ export async function POST(request: NextRequest) {
         updated.push(result);
       }
 
-      // Finální pojistka — žádný ZAKAZKA blok z této dávky nesmí skončit překrytý (kontrola po stroji).
-      // Běží VŽDY (i při bypassOverlapCheck): zachytí překryv v rámci této transakce.
-      const zakazkaByMachine = new Map<string, number[]>();
+      // Bloky ke kontrole překryvu, per stroj — přesunuté z dávky + případně posunuté chain pushem.
+      const checkByMachine = new Map<string, number[]>();
       for (const u of zakazkaUpdates) {
-        const arr = zakazkaByMachine.get(u.machine) ?? [];
+        const arr = checkByMachine.get(u.machine) ?? [];
         arr.push(u.id);
-        zakazkaByMachine.set(u.machine, arr);
+        checkByMachine.set(u.machine, arr);
       }
-      for (const [machine, ids] of zakazkaByMachine) {
+
+      // Chain push (resolveChain) — každý přesunutý ZAKAZKA blok odsune navazující;
+      // sourozenci z téže dávky (lasso) se neposouvají (excludeIds = movedIds).
+      const shiftedMoves: AppliedMove[] = [];
+      if (resolveChain && zakazkaUpdates.length > 0) {
+        const movedIds = new Set(zakazkaUpdates.map((u) => u.id));
+        for (const u of zakazkaUpdates) {
+          const moves = await resolveChainPushFromDb(
+            tx,
+            u.machine,
+            { id: u.id, startTime: new Date(u.startTime), endTime: new Date(u.endTime) },
+            !bypassScheduleValidation,
+            movedIds
+          );
+          shiftedMoves.push(...moves);
+          const arr = checkByMachine.get(u.machine) ?? [];
+          arr.push(...moves.map((m) => m.id));
+          checkByMachine.set(u.machine, arr);
+        }
+        if (shiftedMoves.length > 0) {
+          await tx.auditLog.createMany({
+            data: shiftedMoves.map((m) => ({
+              blockId: m.id,
+              orderNumber: m.orderNumber,
+              userId: session.id,
+              username: session.username,
+              action: "AUTO_SHIFT",
+              field: "startTime",
+              oldValue: m.oldStartTime.toISOString(),
+              newValue: m.startTime.toISOString(),
+            })),
+          });
+        }
+      }
+
+      // Finální pojistka — žádný ZAKAZKA blok (přesunutý ani posunutý) nesmí skončit překrytý.
+      // Běží VŽDY (i při bypassOverlapCheck): zachytí překryv v rámci této transakce.
+      for (const [machine, ids] of checkByMachine) {
         await assertNoOverlapForBlocks(machine, ids, tx);
       }
 
@@ -161,12 +200,12 @@ export async function POST(request: NextRequest) {
 
       await tx.auditLog.createMany({ data: auditRows });
 
-      return updated;
+      return { updated, shiftedIds: shiftedMoves.map((m) => m.id) };
     });
 
     // Refetch s Reservation a notes include — batch smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
     const resultsWithRes = await prisma.block.findMany({
-      where: { id: { in: results.map(r => r.id) } },
+      where: { id: { in: [...results.map((r) => r.id), ...shiftedIds] } },
       include: {
         Reservation: { select: { confirmedAt: true } },
         notes: { orderBy: { createdAt: "desc" as const } },

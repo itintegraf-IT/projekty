@@ -348,10 +348,9 @@ export function BlockEdit({
             endTime: newEnd.toISOString(),
             dataRequiredDate: resolved.dataRequiredDate || null,
             deadlineExpedice: resolved.deadlineExpedice || null,
-            // Klient už ověřil přes findNextFreeSlot — server by jinak vyhodil 422/409
-            // i pro adjusted čas, protože blok stále existuje v DB na původní pozici
-            // (před PUT). bypass je bezpečný — adjusted slot je validní by construction.
-            bypassOverlapCheck: true,
+            // resolveChain — server umístí výskyt a případně odsune navazující bloky
+            // (chain push) v téže transakci; finální pojistka ověří výsledek.
+            resolveChain: true,
             bypassScheduleValidation: true,
           }),
         });

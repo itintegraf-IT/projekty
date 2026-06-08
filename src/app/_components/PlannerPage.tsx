@@ -1724,47 +1724,54 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             machine: u.machine,
           })),
           bypassScheduleValidation: !workingTimeLockRef.current,
-          bypassOverlapCheck: true,
+          resolveChain: true,
         }),
       });
       if (!batchRes.ok) {
         const err = await batchRes.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? "Chyba serveru");
       }
+      // Batch vrací přesunuté lasso bloky + navazující odsunuté serverem (chain push).
       const results: Block[] = await batchRes.json();
+      const updateIds = new Set(updates.map((u) => u.id));
+      const shiftedResults = results.filter((r) => !updateIds.has(r.id));
+      // Staré pozice posunutých navazujících bloků (pro undo) — PŘED aplikací do stavu.
+      const shiftedOld = shiftedResults
+        .map((r) => blocksRef.current.find((b) => b.id === r.id))
+        .filter((b): b is Block => b != null);
+
       const newBlocks = blocksRef.current.map((b) => results.find((r) => r.id === b.id) ?? b);
       blocksRef.current = newBlocks;
       setBlocks(newBlocks);
 
-      const prevSnaps = updates.map(u => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime, endTime: o.endTime, machine: o.machine } : null; }).filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[];
-      const nextSnaps = updates.map(u => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine }));
+      const prevSnaps = [
+        ...(updates
+          .map((u) => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine } : null; })
+          .filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[]),
+        ...shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine })),
+      ];
+      const nextSnaps = [
+        ...updates.map((u) => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine })),
+        ...shiftedResults.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
+      ];
       if (prevSnaps.length > 0) {
-        const bypassAtTime = !workingTimeLockRef.current;
+        const applyBatch = async (snaps: typeof prevSnaps) => {
+          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
+          if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
+          const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
+        };
         undoStack.current.push({
-          undo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: prevSnaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
-            if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
-            const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
-          },
-          redo: async () => {
-            const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: nextSnaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
-            if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
-            const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
-          },
+          undo: async () => { await applyBatch(prevSnaps); },
+          redo: async () => { await applyBatch(nextSnaps); },
         });
         if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
         redoStack.current = [];
         setCanUndo(true);
         setCanRedo(false);
       }
-
-      const excludeIds = new Set(updates.map(u => u.id));
-      for (const moved of results) {
-        await autoResolveOverlap(moved, excludeIds, originals.get(moved.id));
-      }
     } catch (error) {
       console.error("Multi-block update failed", error);
-      showToast("Hromadný posun se nepodařilo uložit.", "error");
+      showToast(error instanceof Error ? error.message : "Hromadný posun se nepodařilo uložit.", "error");
     }
   }
 
@@ -2014,7 +2021,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const res = await fetch(`/api/blocks/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...blockPayload, bypassOverlapCheck: true }),
+          body: JSON.stringify({ ...blockPayload, resolveChain: true }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
@@ -2493,7 +2500,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const res1 = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }),
+        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, autoShiftIfBusy: true }),
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
@@ -2508,22 +2515,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const parentBlock: Block = await res1.json();
       handleBlockCreate(parentBlock);
 
-      // Vyřešit případný overlap nového bloku s existujícími
-      const overlapResult = await autoResolveOverlap(parentBlock, new Set([parentBlock.id]), undefined, true);
-      if (overlapResult === "blocked_by_lock") {
-        // Blok byl smazán (kolidoval se zamknutým), item zůstane ve frontě
-        setDraggingQueueItem(null);
-        return;
-      }
-      if (overlapResult === "failed") {
-        // POST proběhl, blok existuje v DB/UI, ale overlap resolution selhala
-        removeFromQueue();
-        setDraggingQueueItem(null);
-        showToast("Blok byl vytvořen, ale nepodařilo se automaticky vyřešit překryv — zkontroluj pozici na timeline.", "info");
-        return;
-      }
-
-      // Vytvořit children bloky (pokud opakování > 1)
+      // Vytvořit children bloky (pokud opakování > 1).
+      // autoShiftIfBusy → server umístí každý výskyt na nejbližší volné místo.
       if (rType !== "NONE" && rCount > 1) {
         let curStart = addRecurrenceInterval(startTime, rType);
         for (let i = 1; i < rCount; i++) {
@@ -2537,7 +2530,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               endTime: curEnd.toISOString(),
               recurrenceParentId: parentBlock.id,
               bypassScheduleValidation: !workingTimeLockRef.current,
-              bypassOverlapCheck: true,
+              autoShiftIfBusy: true,
             }),
           });
           if (res.ok) {
@@ -2603,13 +2596,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           lakStatusLabel: src.lakStatusLabel,
           specifikace: src.specifikace,
           bypassScheduleValidation: !workingTimeLockRef.current,
-          bypassOverlapCheck: true,
+          autoShiftIfBusy: true,
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Chyba serveru");
+      }
       const newBlock: Block = await res.json();
       handleBlockCreate(newBlock);
-      await autoResolveOverlap(newBlock, new Set([newBlock.id]), undefined, true);
       if (isCutRef.current) {
         await fetch(`/api/blocks/${src.id}`, { method: "DELETE" });
         setBlocks((prev) => prev.filter((b) => b.id !== src.id));
@@ -2671,7 +2666,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
             specifikace: src.specifikace,
             bypassScheduleValidation: !workingTimeLockRef.current,
-            bypassOverlapCheck: true,
+            autoShiftIfBusy: true,
           }),
         });
         if (!res.ok) {
@@ -2704,13 +2699,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       return;
     }
 
-    // Všechny POST proběhly úspěšně — přidej do lokálního stavu
+    // Všechny POST proběhly úspěšně — přidej do lokálního stavu.
+    // Server (autoShiftIfBusy) umístil každý blok na volné místo, takže klientský
+    // overlap resolve není potřeba.
     created.forEach((b) => handleBlockCreate(b));
-    // Vyřešit překryvy — sekvenčně, každý nový blok může posunout existující
-    const createdIds = new Set(created.map(b => b.id));
-    for (const b of created) {
-      await autoResolveOverlap(b, createdIds, undefined, true);
-    }
 
     if (isGroupCutRef.current) {
       // DELETE originálů — kontroluj .ok, sb er selhání

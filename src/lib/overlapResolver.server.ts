@@ -32,7 +32,8 @@ export async function resolveChainPushFromDb(
   tx: PrismaTransactionClient,
   machine: string,
   anchor: { id: number; startTime: Date; endTime: Date },
-  respectWorkingHours: boolean
+  respectWorkingHours: boolean,
+  excludeIds: ReadonlySet<number> = new Set()
 ): Promise<AppliedMove[]> {
   // Okno: den před anchorem až 30 dní za jeho koncem (chain push posouvá jen dopředu).
   const windowStart = new Date(anchor.startTime.getTime() - DAY_MS);
@@ -41,7 +42,8 @@ export async function resolveChainPushFromDb(
   const rows = await tx.block.findMany({
     where: {
       machine,
-      id: { not: anchor.id },
+      // anchor + sourozenci ve stejné dávce (lasso) se neposouvají
+      id: { notIn: [anchor.id, ...excludeIds] },
       type: "ZAKAZKA",
       startTime: { lt: windowEnd },
       endTime: { gt: windowStart },
