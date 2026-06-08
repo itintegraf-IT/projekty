@@ -81,6 +81,7 @@ model Block {
   @@index([recurrenceParentId])
   @@index([reservationId])
   @@index([splitGroupId])
+  @@index([machine, startTime, endTime], map: "Block_machine_time_idx")
 }
 
 model CodebookOption {

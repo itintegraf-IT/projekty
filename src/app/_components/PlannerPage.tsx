@@ -110,7 +110,6 @@ type PushSuggestion = {
 
 type HistoryEntry = { undo: () => Promise<void>; redo: () => Promise<void> };
 
-type OverlapResult = "resolved" | "blocked_by_lock" | "failed";
 
 // ─── Pomocné funkce ───────────────────────────────────────────────────────────
 function formatDuration(hours: number): string {
@@ -662,7 +661,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const selectedBlockRef = useRef<Block | null>(null);
   selectedBlockRef.current = selectedBlock;
   const editingBlockIdsRef = useRef<Set<number>>(new Set());
-  const dragInProgressRef = useRef(false);
   const [sseOffline, setSseOffline] = useState(false);
 
   useEffect(() => {
@@ -995,7 +993,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (!serverBlock?.id) return;
 
       // Ochrana editovaných / dragovaných bloků
-      if (editingBlockIdsRef.current.has(serverBlock.id) || dragInProgressRef.current) {
+      if (editingBlockIdsRef.current.has(serverBlock.id)) {
         showToast(`Blok ${serverBlock.orderNumber ?? serverBlock.id} byl změněn jiným uživatelem.`, "info");
         return;
       }
@@ -1052,7 +1050,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const serverMap = new Map(serverBlocks.map((b) => [b.id, b]));
       setBlocks((prev) =>
         prev.map((b) => {
-          if (editingBlockIdsRef.current.has(b.id) || dragInProgressRef.current) return b;
+          if (editingBlockIdsRef.current.has(b.id)) return b;
           return serverMap.get(b.id) ?? b;
         })
       );
@@ -1435,207 +1433,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   //  1. Překryv dozadu (přesunutý blok narazí na předchozí) → snap dopředu
   //  2. Překryv dopředu → auto-push navazující bloky
   // excludeIds = bloky které mají být při kontrole přeskočeny (přesouvané bloky ve skupině)
-  async function autoResolveOverlap(movedBlock: Block, excludeIds: Set<number> = new Set([movedBlock.id]), prevBlock?: Block, deleteBlockOnConflict = false, movedSnapshots?: Map<number, { startTime: string; endTime: string; machine: string }>): Promise<OverlapResult> {
-    const duration = new Date(movedBlock.endTime).getTime() - new Date(movedBlock.startTime).getTime();
-    const otherBlocks = blocksRef.current.filter(b => !excludeIds.has(b.id));
-    const sameMachine = otherBlocks
-      .filter(b => b.machine === movedBlock.machine)
-      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
-    let current = movedBlock;
-
-    // Helper: vrátit blok zpět na původní pozici (nebo smazat pokud je nový a deleteBlockOnConflict)
-    async function revertMovedBlock(): Promise<OverlapResult> {
-      if (deleteBlockOnConflict && !prevBlock) {
-        // Nový blok — smazat místo revert
-        let deleteOk = false;
-        try {
-          const delRes = await fetch(`/api/blocks/${current.id}`, { method: "DELETE" });
-          deleteOk = delRes.ok;
-        } catch {
-          deleteOk = false;
-        }
-        if (!deleteOk) {
-          // DELETE selhalo — blok zůstává v DB; caller odstraní item z fronty (prevence duplicit)
-          showToast("Blok koliduje se zamknutým blokem a nepodařilo se ho smazat — zkontroluj timeline.", "error");
-          return "failed";
-        }
-        setBlocks(prev => prev.filter(b => b.id !== current.id));
-        setSelectedBlock(sel => sel?.id === current.id ? null : sel);
-        showToast("Blok nelze umístit — koliduje se zamknutým blokem.", "error");
-        return "blocked_by_lock";
-      }
-      const orig = prevBlock ?? movedBlock;
-      try {
-        const res = await fetch(`/api/blocks/${current.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ startTime: new Date(orig.startTime).toISOString(), endTime: new Date(orig.endTime).toISOString(), machine: orig.machine, bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }),
-        });
-        if (res.ok) {
-          const reverted = await res.json() as Block;
-          setBlocks(prev => prev.map(b => b.id === reverted.id ? reverted : b));
-          setSelectedBlock(sel => sel?.id === reverted.id ? reverted : sel);
-        } else {
-          return "failed";
-        }
-      } catch (error) {
-        console.error("Revert moved block failed", error);
-        showToast("Nepodařilo se vrátit blok na původní pozici.", "error");
-        return "failed";
-      }
-      return "blocked_by_lock";
-    }
-
-    // ── Krok 1: Překryv dozadu ────────────────────────────────────────────────
-    const ms = new Date(current.startTime).getTime();
-    const preceding = sameMachine.find(b =>
-      new Date(b.startTime).getTime() < ms && new Date(b.endTime).getTime() > ms
-    );
-    if (preceding) {
-      let rawStart = new Date(preceding.endTime);
-      // Pokud je lock zapnutý, snapneme výslednou pozici přes blokované časy
-      // (preceding.endTime může ležet uvnitř šrafování — např. blok přesahující přes noc)
-      if (workingTimeLockRef.current) {
-        rawStart = snapToNextValidStartWithTemplates(current.machine, rawStart, duration, machineWeekShifts);
-      }
-      const newStart = rawStart.getTime();
-      try {
-        const res = await fetch(`/api/blocks/${current.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ startTime: new Date(newStart).toISOString(), endTime: new Date(newStart + duration).toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, bypassOverlapCheck: true }),
-        });
-        if (res.ok) {
-          current = await res.json() as Block;
-          setBlocks(prev => prev.map(b => b.id === current.id ? current : b));
-        } else {
-          return "failed";
-        }
-      } catch (error) {
-        console.error("Backward overlap correction failed", error);
-        showToast("Nepodařilo se opravit překryv bloku.", "error");
-        return "failed";
-      }
-    }
-
-    // ── Krok 2: Překryv dopředu → auto-push (skip locked) ────────────────────
-    const curEnd   = new Date(current.endTime).getTime();
-    const curStart = new Date(current.startTime).getTime();
-
-    // Najít všechny bloky na stejném stroji, seřazené podle startTime
-    const candidates = sameMachine
-      .filter(b => new Date(b.startTime).getTime() >= curStart)
-      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
-    if (candidates.length === 0) return "resolved";
-
-    // Stavíme chain bloků k posunu — zamknuté přeskakujeme
-    const chain: Block[] = [];
-    const chainPositions: { id: number; newStart: number; newEnd: number }[] = [];
-    let pEnd = curEnd; // "kurzor" — konec posledního umístěného bloku
-
-    for (let i = 0; i < 200; i++) {
-      // Najít blok, jehož aktuální startTime < pEnd (koliduje)
-      const next = candidates.find(b =>
-        !chain.find(c => c.id === b.id) &&
-        !excludeIds.has(b.id) &&
-        new Date(b.startTime).getTime() < pEnd &&
-        new Date(b.endTime).getTime() > curStart
-      );
-      if (!next) break;
-
-      if (next.locked) {
-        // Přeskočit zamknutý blok — posunout kurzor za jeho konec
-        const lockedEnd = new Date(next.endTime).getTime();
-        if (lockedEnd > pEnd) pEnd = lockedEnd;
-        continue;
-      }
-
-      // Nezamknutý blok — přidat do chainu
-      chain.push(next);
-      const dur = new Date(next.endTime).getTime() - new Date(next.startTime).getTime();
-      let ns = new Date(pEnd);
-      if (workingTimeLockRef.current) {
-        ns = snapToNextValidStartWithTemplates(next.machine, ns, dur, machineWeekShifts);
-      }
-      // Ověřit, že nová pozice nekoliduje s locked blokem
-      let nsMs = ns.getTime();
-      let nsEnd = nsMs + dur;
-      const lockedOnMachine = sameMachine.filter(b => b.locked);
-      let safetyCounter = 0;
-      while (safetyCounter < 50) {
-        const lockedHit = lockedOnMachine.find(l =>
-          new Date(l.startTime).getTime() < nsEnd && new Date(l.endTime).getTime() > nsMs
-        );
-        if (!lockedHit) break;
-        // Přeskočit locked blok
-        const afterLocked = new Date(lockedHit.endTime).getTime();
-        let snapped = new Date(afterLocked);
-        if (workingTimeLockRef.current) {
-          snapped = snapToNextValidStartWithTemplates(next.machine, snapped, dur, machineWeekShifts);
-        }
-        nsMs = snapped.getTime();
-        nsEnd = nsMs + dur;
-        safetyCounter++;
-      }
-
-      chainPositions.push({ id: next.id, newStart: nsMs, newEnd: nsEnd });
-      pEnd = nsEnd;
-    }
-
-    if (chain.length === 0) return "resolved";
-
-    // Uložit snapshoty chain bloků pro undo
-    if (movedSnapshots) {
-      for (const b of chain) {
-        if (!movedSnapshots.has(b.id)) {
-          movedSnapshots.set(b.id, { startTime: b.startTime as string, endTime: b.endTime as string, machine: b.machine });
-        }
-      }
-    }
-
-    // Uložit chain přes batch API
-    try {
-      const batchUpdates = chain.map((b, idx) => ({
-        id: b.id,
-        startTime: new Date(chainPositions[idx].newStart).toISOString(),
-        endTime: new Date(chainPositions[idx].newEnd).toISOString(),
-        machine: b.machine,
-      }));
-
-      const batchRes = await fetch("/api/blocks/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          updates: batchUpdates,
-          bypassScheduleValidation: !workingTimeLockRef.current,
-          bypassOverlapCheck: true,
-        }),
-      });
-
-      if (!batchRes.ok) {
-        const err = await batchRes.json().catch(() => ({})) as { error?: string };
-        throw new Error(err.error ?? `Chain push batch HTTP ${batchRes.status}`);
-      }
-
-      const results: Block[] = await batchRes.json();
-      setBlocks(prev => prev.map(b => results.find(r => r.id === b.id) ?? b));
-
-      // Rekurzivně vyřešit překryv posledního bloku chainu
-      const allExcluded = new Set([...Array.from(excludeIds), ...chain.map(b => b.id)]);
-      const lastResult = results[results.length - 1];
-      if (lastResult) await autoResolveOverlap(lastResult, allExcluded, undefined, false, movedSnapshots);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Nepodařilo se automaticky posunout navazující bloky.";
-      showToast(msg, "error");
-      await revertMovedBlock();
-      return "failed";
-    }
-
-    return "resolved";
-  }
-
   const SPLIT_SHARED_FIELDS = [
     "orderNumber", "description", "specifikace", "deadlineExpedice",
     "jobPresetId", "jobPresetLabel",
