@@ -119,8 +119,8 @@ export async function POST(request: NextRequest) {
         updated.push(result);
       }
 
-      // Tvrdá pojistka — žádný ZAKAZKA blok z této dávky nesmí skončit překrytý (kontrola po stroji).
-      // Běží VŽDY (i při bypassOverlapCheck): překryv se nesmí uložit do DB.
+      // Finální pojistka — žádný ZAKAZKA blok z této dávky nesmí skončit překrytý (kontrola po stroji).
+      // Běží VŽDY (i při bypassOverlapCheck): zachytí překryv v rámci této transakce.
       const zakazkaByMachine = new Map<string, number[]>();
       for (const u of zakazkaUpdates) {
         const arr = zakazkaByMachine.get(u.machine) ?? [];

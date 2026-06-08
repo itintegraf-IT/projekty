@@ -20,7 +20,7 @@ describe("resolveChainPushFromDb", () => {
     assert.equal(moves.length, 1);
     assert.deepEqual(moves[0], { id: 2, startTime: H(12), endTime: H(14) });
     assert.equal(updateMock.mock.calls.length, 1);
-    const arg = updateMock.mock.calls[0].arguments[0] as { where: { id: number }; data: { startTime: Date; endTime: Date } };
+    const arg = (updateMock.mock.calls as unknown as { arguments: unknown[] }[])[0]!.arguments[0] as { where: { id: number }; data: { startTime: Date; endTime: Date } };
     assert.equal(arg.where.id, 2);
     assert.deepEqual(arg.data.startTime, H(12));
     assert.deepEqual(arg.data.endTime, H(14));

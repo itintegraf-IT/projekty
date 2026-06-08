@@ -449,7 +449,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             });
           }
         }
-        // Tvrdá pojistka — běží VŽDY (i bez resolveChain): překryv se nesmí uložit do DB.
+        // Finální pojistka — běží VŽDY (i bez resolveChain): zachytí překryv v rámci této transakce.
         await assertNoOverlapForBlocks(updated.machine, [updated.id, ...shiftedMoves.map((m) => m.id)], tx);
       }
 

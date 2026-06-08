@@ -104,4 +104,27 @@ describe("assertNoOverlapForBlocks", () => {
 
     await assert.doesNotReject(() => assertNoOverlapForBlocks("XL_105", [], tx));
   });
+
+  it("vyhodí OVERLAP když koliduje až DRUHÝ blok v seznamu", async () => {
+    let call = 0;
+    const tx = {
+      block: {
+        findMany: mock.fn(async () => [
+          { id: 1, orderNumber: "A", startTime: new Date("2026-04-16T10:00:00Z"), endTime: new Date("2026-04-16T11:00:00Z") },
+          { id: 2, orderNumber: "B", startTime: new Date("2026-04-16T12:00:00Z"), endTime: new Date("2026-04-16T13:00:00Z") },
+        ]),
+        // první blok bez kolize, druhý koliduje
+        findFirst: mock.fn(async () => (++call === 1 ? null : { id: 99, orderNumber: "C" })),
+      },
+    } as never;
+
+    await assert.rejects(
+      () => assertNoOverlapForBlocks("XL_105", [1, 2], tx),
+      (err: Error & { code?: string }) => {
+        assert.equal(err.code, "OVERLAP");
+        assert.ok(err.message.includes("B"), "hláška má jmenovat kolidující blok B");
+        return true;
+      },
+    );
+  });
 });

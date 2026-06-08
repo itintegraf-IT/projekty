@@ -32,10 +32,16 @@ export async function checkBlockOverlap(
 }
 
 /**
- * Tvrdá finální pojistka. Ověří, že ŽÁDNÝ z `blockIds` nepřekrývá jiný blok na stroji.
+ * Finální pojistka. Ověří, že ŽÁDNÝ z `blockIds` nepřekrývá jiný blok na stroji.
  * Volat na KONCI transakce po všech zápisech (i po chain pushi). Při nálezu hodí
- * AppError("OVERLAP") → rollback celé transakce. Tím je zaručeno, že překryv se
- * nikdy nezapíše do DB, bez ohledu na to, jakou cestou mutace přišla.
+ * AppError("OVERLAP") → rollback celé transakce. Zachytí překryv vzniklý jakoukoliv
+ * cestou v rámci JEDNÉ transakce (i s bypassOverlapCheck).
+ *
+ * LIMIT: používá plain `findFirst` (ne `SELECT ... FOR UPDATE`), takže pod MySQL
+ * REPEATABLE READ nezavírá okno pro phantom mezi DVĚMA souběžnými transakcemi (dva
+ * requesty do stejného volného slotu ve stejný okamžik se v snapshotu neuvidí). To je
+ * vzácné (dva plánovači, stejný stroj, stejná sekunda); pro úplnou garanci je potřeba
+ * zámek na okno (FOR UPDATE) nebo DB-level constraint — viz follow-up v plánu.
  */
 export async function assertNoOverlapForBlocks(
   machine: string,
