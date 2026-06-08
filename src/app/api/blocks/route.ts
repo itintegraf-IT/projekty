@@ -6,7 +6,8 @@ import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeBlock } from "@/lib/blockSerialization";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
-import { checkBlockOverlap } from "@/lib/overlapCheck";
+import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { AppError, isAppError } from "@/lib/errors";
 import { findNextFreeSlotFromDb } from "@/lib/scheduleSlotFinder";
 import { emitSSE } from "@/lib/eventBus";
@@ -65,6 +66,8 @@ export async function POST(request: NextRequest) {
     const bypassScheduleValidation = body.bypassScheduleValidation === true;
     const bypassOverlapCheck = body.bypassOverlapCheck === true;
     const autoShiftIfBusy = body.autoShiftIfBusy === true;
+    // resolveChain: nový blok zůstane na cíli a server odsune navazující (chain push).
+    const resolveChain = body.resolveChain === true;
 
     let startTime = new Date(body.startTime);
     let endTime = new Date(body.endTime);
@@ -125,13 +128,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Atomická transakce: block.create + auditLog.create + rezervace SCHEDULED update
-    const block = await prisma.$transaction(async (tx) => {
+    const { newBlock: block, shiftedMoves } = await prisma.$transaction(async (tx) => {
       const finalOrderNumber = finalOrderNumberPreview;
       const finalType = finalTypePreview;
       const finalVariant = reservationPreview ? "STANDARD" : blockVariant;
       const finalRecurrence = reservationPreview ? "NONE" : (body.recurrenceType ?? "NONE");
 
-      if (!bypassOverlapCheck) {
+      if (!bypassOverlapCheck && !resolveChain) {
         try {
           await checkBlockOverlap(body.machine, startTime, endTime, null, tx);
         } catch (overlapErr) {
@@ -265,13 +268,53 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      return newBlock;
+      // Chain push (resolveChain) — nový blok zůstane na cíli, navazující se odsunou.
+      let shiftedMoves: AppliedMove[] = [];
+      if (resolveChain && finalType === "ZAKAZKA") {
+        shiftedMoves = await resolveChainPushFromDb(
+          tx,
+          body.machine,
+          { id: newBlock.id, startTime: newBlock.startTime, endTime: newBlock.endTime },
+          !bypassScheduleValidation
+        );
+        if (shiftedMoves.length > 0) {
+          await tx.auditLog.createMany({
+            data: shiftedMoves.map((m) => ({
+              blockId: m.id,
+              orderNumber: m.orderNumber,
+              userId: session.id,
+              username: session.username,
+              action: "AUTO_SHIFT",
+              field: "startTime",
+              oldValue: m.oldStartTime.toISOString(),
+              newValue: m.startTime.toISOString(),
+            })),
+          });
+        }
+        await assertNoOverlapForBlocks(body.machine, [newBlock.id, ...shiftedMoves.map((m) => m.id)], tx);
+      }
+
+      return { newBlock, shiftedMoves };
     });
 
     emitSSE("block:created", { block: serializeBlock(block), machine: block.machine, sourceUserId: session.id });
-    const responseBody = wasShifted
-      ? { ...serializeBlock(block), autoShift: { originalStart: originalStart.toISOString() } }
-      : serializeBlock(block);
+
+    // Posunuté navazující bloky (chain push) — refetch, poslat klientovi i přes SSE.
+    let serializedShifted: ReturnType<typeof serializeBlock>[] = [];
+    if (shiftedMoves.length > 0) {
+      const shiftedBlocks = await prisma.block.findMany({
+        where: { id: { in: shiftedMoves.map((m) => m.id) } },
+        include: { Reservation: { select: { confirmedAt: true } } },
+      });
+      serializedShifted = shiftedBlocks.map(serializeBlock);
+      emitSSE("block:batch-updated", { blocks: serializedShifted, sourceUserId: session.id });
+    }
+
+    const responseBody = {
+      ...serializeBlock(block),
+      ...(wasShifted ? { autoShift: { originalStart: originalStart.toISOString() } } : {}),
+      shifted: serializedShifted,
+    };
     return NextResponse.json(responseBody, { status: 201 });
   } catch (error: unknown) {
     if (isAppError(error)) {

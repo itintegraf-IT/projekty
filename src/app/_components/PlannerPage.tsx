@@ -1779,11 +1779,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   function handleBlockCreate(newBlock: Block) {
-    setBlocks((prev) =>
-      [...prev, newBlock].sort(
+    // POST s resolveChain vrací v poli `shifted` navazující bloky odsunuté serverem.
+    const shifted = ((newBlock as Block & { shifted?: Block[] }).shifted ?? []).filter((s) => typeof s.id === "number");
+    const cleanNew = { ...newBlock } as Block & { shifted?: Block[] };
+    delete cleanNew.shifted;
+    setBlocks((prev) => {
+      const withShifted = shifted.length > 0
+        ? prev.map((b) => shifted.find((s) => s.id === b.id) ?? b)
+        : prev;
+      return [...withShifted, cleanNew].sort(
         (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
-      )
-    );
+      );
+    });
   }
 
   function handleDataChipDoubleClick(blockId: number, rect: DOMRect) {
@@ -2503,7 +2510,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const res1 = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, autoShiftIfBusy: true }),
+        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true }),
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
@@ -2519,7 +2526,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       handleBlockCreate(parentBlock);
 
       // Vytvořit children bloky (pokud opakování > 1).
-      // autoShiftIfBusy → server umístí každý výskyt na nejbližší volné místo.
+      // resolveChain → server umístí každý výskyt na cíl a odsune navazující bloky.
       if (rType !== "NONE" && rCount > 1) {
         let curStart = addRecurrenceInterval(startTime, rType);
         for (let i = 1; i < rCount; i++) {
@@ -2533,7 +2540,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               endTime: curEnd.toISOString(),
               recurrenceParentId: parentBlock.id,
               bypassScheduleValidation: !workingTimeLockRef.current,
-              autoShiftIfBusy: true,
+              resolveChain: true,
             }),
           });
           if (res.ok) {
@@ -2599,7 +2606,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           lakStatusLabel: src.lakStatusLabel,
           specifikace: src.specifikace,
           bypassScheduleValidation: !workingTimeLockRef.current,
-          autoShiftIfBusy: true,
+          resolveChain: true,
         }),
       });
       if (!res.ok) {
@@ -2669,7 +2676,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
             specifikace: src.specifikace,
             bypassScheduleValidation: !workingTimeLockRef.current,
-            autoShiftIfBusy: true,
+            resolveChain: true,
           }),
         });
         if (!res.ok) {
@@ -2703,8 +2710,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
 
     // Všechny POST proběhly úspěšně — přidej do lokálního stavu.
-    // Server (autoShiftIfBusy) umístil každý blok na volné místo, takže klientský
-    // overlap resolve není potřeba.
+    // Server (resolveChain) umístil každý blok na cíl a odsunul navazující; handleBlockCreate
+    // aplikuje i posunuté bloky (pole shifted).
     created.forEach((b) => handleBlockCreate(b));
 
     if (isGroupCutRef.current) {
