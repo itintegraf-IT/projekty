@@ -58,3 +58,50 @@ describe("checkBlockOverlap", () => {
     assert.deepEqual(whereArg.endTime, { gt: new Date("2026-04-16T12:00:00Z") });
   });
 });
+
+describe("assertNoOverlapForBlocks", () => {
+  let assertNoOverlapForBlocks: typeof import("@/lib/overlapCheck").assertNoOverlapForBlocks;
+
+  beforeEach(async () => {
+    assertNoOverlapForBlocks = (await import("@/lib/overlapCheck")).assertNoOverlapForBlocks;
+  });
+
+  it("projde když žádný z dotčených bloků nekoliduje", async () => {
+    const tx = {
+      block: {
+        findMany: mock.fn(async () => [
+          { id: 1, orderNumber: "A", startTime: new Date("2026-04-16T10:00:00Z"), endTime: new Date("2026-04-16T12:00:00Z") },
+        ]),
+        findFirst: mock.fn(async () => null),
+      },
+    } as never;
+
+    await assert.doesNotReject(() => assertNoOverlapForBlocks("XL_105", [1], tx));
+  });
+
+  it("vyhodí OVERLAP když některý z dotčených bloků koliduje", async () => {
+    const tx = {
+      block: {
+        findMany: mock.fn(async () => [
+          { id: 1, orderNumber: "A", startTime: new Date("2026-04-16T10:00:00Z"), endTime: new Date("2026-04-16T12:00:00Z") },
+        ]),
+        findFirst: mock.fn(async () => ({ id: 99, orderNumber: "B" })),
+      },
+    } as never;
+
+    await assert.rejects(
+      () => assertNoOverlapForBlocks("XL_105", [1], tx),
+      (err: Error & { code?: string }) => {
+        assert.equal(err.code, "OVERLAP");
+        return true;
+      },
+    );
+  });
+
+  it("prázdný seznam blockIds → žádný dotaz, projde", async () => {
+    const findManyMock = mock.fn(async () => []);
+    const tx = { block: { findMany: findManyMock, findFirst: mock.fn(async () => null) } } as never;
+
+    await assert.doesNotReject(() => assertNoOverlapForBlocks("XL_105", [], tx));
+  });
+});
