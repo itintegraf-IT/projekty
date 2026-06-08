@@ -107,7 +107,10 @@ export async function POST(request: NextRequest) {
       // Pro lasso batch (bloky se nepřekrývají navzájem) pořadí nehraje roli.
       const reversed = [...updates].reverse();
       for (const u of reversed) {
-        if (!bypassOverlapCheck) {
+        // Časný overlap check — přeskočit při bypassOverlapCheck NEBO resolveChain
+        // (u resolveChain smí blok přistát na obsazené místo, chain push to vyřeší a finální
+        // assertNoOverlapForBlocks ověří výsledek — konzistentně s PUT route).
+        if (!bypassOverlapCheck && !resolveChain) {
           await checkBlockOverlap(u.machine, new Date(u.startTime), new Date(u.endTime), u.id, tx);
         }
 
@@ -135,7 +138,12 @@ export async function POST(request: NextRequest) {
       const shiftedMoves: AppliedMove[] = [];
       if (resolveChain && zakazkaUpdates.length > 0) {
         const movedIds = new Set(zakazkaUpdates.map((u) => u.id));
-        for (const u of zakazkaUpdates) {
+        // Sestupně dle startTime — pozdější blok uvolní místo dřív (kompozičně korektnější
+        // chain push při více anchorech v jedné dávce). Finální pojistka je záchrana.
+        const anchorsByStartDesc = [...zakazkaUpdates].sort(
+          (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
+        );
+        for (const u of anchorsByStartDesc) {
           const moves = await resolveChainPushFromDb(
             tx,
             u.machine,
@@ -201,7 +209,7 @@ export async function POST(request: NextRequest) {
       await tx.auditLog.createMany({ data: auditRows });
 
       return { updated, shiftedIds: shiftedMoves.map((m) => m.id) };
-    });
+    }, { timeout: 15000, maxWait: 5000 });
 
     // Refetch s Reservation a notes include — batch smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
     const resultsWithRes = await prisma.block.findMany({

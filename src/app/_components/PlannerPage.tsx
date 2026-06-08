@@ -1056,6 +1056,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           return serverMap.get(b.id) ?? b;
         })
       );
+      // Sync vybraného bloku (jako u block:updated) — posunutý blok v detail panelu nesmí zůstat zastaralý.
+      setSelectedBlock((sel) => (sel ? (serverMap.get(sel.id) ?? sel) : sel));
     }
 
     if (type === "block:note-created") {
@@ -1696,7 +1698,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         ];
         const applyBatch = async (snaps: typeof beforeSnaps) => {
           const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
-          if (r.ok) { const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b)); }
+          if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
+          const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
         };
         undoStack.current.push({
           undo: async () => { await applyBatch(beforeSnaps); },
