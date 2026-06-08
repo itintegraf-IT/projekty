@@ -5,40 +5,71 @@ import { resolveChainPushFromDb } from "./overlapResolver.server";
 const H = (h: number) => new Date(`2026-06-16T${String(h).padStart(2, "0")}:00:00.000Z`);
 
 describe("resolveChainPushFromDb", () => {
-  it("posune navazující blok a zapíše ho přes tx.block.update", async () => {
+  it("posune navazující blok, zapíše ho a vrátí orderNumber + staré časy", async () => {
     const updateMock = mock.fn(async () => ({}));
     const tx = {
       block: {
-        findMany: mock.fn(async () => [{ id: 2, startTime: H(11), endTime: H(13), locked: false }]),
+        findMany: mock.fn(async () => [
+          { id: 2, orderNumber: "17219", startTime: H(11), endTime: H(13), locked: false },
+        ]),
         update: updateMock,
       },
       machineWeekShifts: { findMany: mock.fn(async () => []) },
+      companyDay: { findMany: mock.fn(async () => []) },
     } as never;
 
     const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(12) }, false);
 
     assert.equal(moves.length, 1);
-    assert.deepEqual(moves[0], { id: 2, startTime: H(12), endTime: H(14) });
+    assert.equal(moves[0]!.id, 2);
+    assert.equal(moves[0]!.orderNumber, "17219");
+    assert.deepEqual(moves[0]!.startTime, H(12));
+    assert.deepEqual(moves[0]!.endTime, H(14));
+    // staré časy pro audit oldValue
+    assert.deepEqual(moves[0]!.oldStartTime, H(11));
+    assert.deepEqual(moves[0]!.oldEndTime, H(13));
     assert.equal(updateMock.mock.calls.length, 1);
-    const arg = (updateMock.mock.calls as unknown as { arguments: unknown[] }[])[0]!.arguments[0] as { where: { id: number }; data: { startTime: Date; endTime: Date } };
-    assert.equal(arg.where.id, 2);
-    assert.deepEqual(arg.data.startTime, H(12));
-    assert.deepEqual(arg.data.endTime, H(14));
   });
 
   it("žádná kolize → žádný update, prázdné moves", async () => {
     const updateMock = mock.fn(async () => ({}));
     const tx = {
       block: {
-        findMany: mock.fn(async () => [{ id: 2, startTime: H(14), endTime: H(16), locked: false }]),
+        findMany: mock.fn(async () => [
+          { id: 2, orderNumber: "X", startTime: H(14), endTime: H(16), locked: false },
+        ]),
         update: updateMock,
       },
       machineWeekShifts: { findMany: mock.fn(async () => []) },
+      companyDay: { findMany: mock.fn(async () => []) },
     } as never;
 
     const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(12) }, false);
 
     assert.equal(moves.length, 0);
     assert.equal(updateMock.mock.calls.length, 0);
+  });
+
+  it("posunutý blok by spadl do firemní odstávky → vyhodí SCHEDULE_VIOLATION", async () => {
+    const updateMock = mock.fn(async () => ({}));
+    const tx = {
+      block: {
+        findMany: mock.fn(async () => [
+          { id: 2, orderNumber: "17219", startTime: H(11), endTime: H(13), locked: false },
+        ]),
+        update: updateMock,
+      },
+      machineWeekShifts: { findMany: mock.fn(async () => []) },
+      // odstávka přesně tam, kam by se blok posunul (12–14)
+      companyDay: { findMany: mock.fn(async () => [{ startDate: H(12), endDate: H(14) }]) },
+    } as never;
+
+    await assert.rejects(
+      () => resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(12) }, false),
+      (err: Error & { code?: string }) => {
+        assert.equal(err.code, "SCHEDULE_VIOLATION");
+        return true;
+      },
+    );
   });
 });

@@ -9,8 +9,7 @@ import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expeditio
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
-import { resolveChainPushFromDb } from "@/lib/overlapResolver.server";
-import type { ChainMove } from "@/lib/overlapResolver";
+import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
 
@@ -426,7 +425,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
       // ── Chain push navazujících bloků + tvrdá pojistka ──
       // Jen pro ZAKAZKA a jen když se reálně měnil čas/stroj.
-      let shiftedMoves: ChainMove[] = [];
+      let shiftedMoves: AppliedMove[] = [];
       if (resultingType === "ZAKAZKA" && timingChanged) {
         if (resolveChain) {
           shiftedMoves = await resolveChainPushFromDb(
@@ -439,12 +438,13 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             await tx.auditLog.createMany({
               data: shiftedMoves.map((m) => ({
                 blockId: m.id,
-                orderNumber: null,
+                orderNumber: m.orderNumber,
                 userId: session.id,
                 username: session.username,
                 action: "AUTO_SHIFT",
-                field: "startTime/endTime/machine",
-                newValue: `${updated.machine} ${m.startTime.toISOString()}–${m.endTime.toISOString()}`,
+                field: "startTime",
+                oldValue: m.oldStartTime.toISOString(),
+                newValue: m.startTime.toISOString(),
               })),
             });
           }
