@@ -72,8 +72,8 @@ describe("assertNoOverlapForBlocks", () => {
         findMany: mock.fn(async () => [
           { id: 1, orderNumber: "A", startTime: new Date("2026-04-16T10:00:00Z"), endTime: new Date("2026-04-16T12:00:00Z") },
         ]),
-        findFirst: mock.fn(async () => null),
       },
+      $queryRaw: mock.fn(async () => []),
     } as never;
 
     await assert.doesNotReject(() => assertNoOverlapForBlocks("XL_105", [1], tx));
@@ -85,8 +85,8 @@ describe("assertNoOverlapForBlocks", () => {
         findMany: mock.fn(async () => [
           { id: 1, orderNumber: "A", startTime: new Date("2026-04-16T10:00:00Z"), endTime: new Date("2026-04-16T12:00:00Z") },
         ]),
-        findFirst: mock.fn(async () => ({ id: 99, orderNumber: "B" })),
       },
+      $queryRaw: mock.fn(async () => [{ id: 99, orderNumber: "B" }]),
     } as never;
 
     await assert.rejects(
@@ -100,7 +100,7 @@ describe("assertNoOverlapForBlocks", () => {
 
   it("prázdný seznam blockIds → žádný dotaz, projde", async () => {
     const findManyMock = mock.fn(async () => []);
-    const tx = { block: { findMany: findManyMock, findFirst: mock.fn(async () => null) } } as never;
+    const tx = { block: { findMany: findManyMock }, $queryRaw: mock.fn(async () => []) } as never;
 
     await assert.doesNotReject(() => assertNoOverlapForBlocks("XL_105", [], tx));
   });
@@ -113,9 +113,9 @@ describe("assertNoOverlapForBlocks", () => {
           { id: 1, orderNumber: "A", startTime: new Date("2026-04-16T10:00:00Z"), endTime: new Date("2026-04-16T11:00:00Z") },
           { id: 2, orderNumber: "B", startTime: new Date("2026-04-16T12:00:00Z"), endTime: new Date("2026-04-16T13:00:00Z") },
         ]),
-        // první blok bez kolize, druhý koliduje
-        findFirst: mock.fn(async () => (++call === 1 ? null : { id: 99, orderNumber: "C" })),
       },
+      // první blok bez kolize, druhý koliduje
+      $queryRaw: mock.fn(async () => (++call === 1 ? [] : [{ id: 99, orderNumber: "C" }])),
     } as never;
 
     await assert.rejects(

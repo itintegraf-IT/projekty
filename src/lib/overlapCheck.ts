@@ -54,15 +54,19 @@ export async function assertNoOverlapForBlocks(
     select: { id: true, orderNumber: true, startTime: true, endTime: true },
   });
   for (const b of blocks) {
-    const conflict = await tx.block.findFirst({
-      where: {
-        machine,
-        id: { not: b.id },
-        startTime: { lt: b.endTime },
-        endTime: { gt: b.startTime },
-      },
-      select: { id: true, orderNumber: true },
-    });
+    // FOR UPDATE — pod MySQL REPEATABLE READ bere next-key/gap zámky na okně (machine, čas).
+    // Souběžná transakce mířící do stejného slotu se zablokuje (a po commitu uvidí náš blok)
+    // místo tichého phantom překryvu. Využívá index Block(machine, startTime, endTime).
+    const conflicts = await tx.$queryRaw<{ id: number; orderNumber: string | null }[]>`
+      SELECT id, orderNumber FROM Block
+      WHERE machine = ${machine}
+        AND id <> ${b.id}
+        AND startTime < ${b.endTime}
+        AND endTime > ${b.startTime}
+      LIMIT 1
+      FOR UPDATE
+    `;
+    const conflict = conflicts[0];
     if (conflict) {
       throw new AppError(
         "OVERLAP",

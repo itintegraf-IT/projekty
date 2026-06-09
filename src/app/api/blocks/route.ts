@@ -291,6 +291,10 @@ export async function POST(request: NextRequest) {
             })),
           });
         }
+      }
+      // Finální pojistka — běží VŽDY pro ZAKAZKA (i bez resolveChain / s bypassOverlapCheck):
+      // překryv se nesmí uložit žádnou cestou (konzistentně s PUT a batch route).
+      if (finalType === "ZAKAZKA") {
         await assertNoOverlapForBlocks(body.machine, [newBlock.id, ...shiftedMoves.map((m) => m.id)], tx);
       }
 

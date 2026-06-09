@@ -48,6 +48,9 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
   }
 }
 
+// POZOR — NIKDY sem nepřidávat startTime/endTime/machine: split sourozenci se aktualizují
+// přes updateMany, který NEprochází finální pojistkou assertNoOverlapForBlocks (ta kontroluje
+// jen editovaný blok + chain-push posuny). Časové pole tady by otevřelo nehlídaný překryv.
 const SPLIT_SHARED_FIELDS = [
   "orderNumber", "description", "specifikace", "deadlineExpedice",
   "expediceNote", "doprava",

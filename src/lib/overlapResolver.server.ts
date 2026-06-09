@@ -1,5 +1,5 @@
 import { computeChainPush, type ChainMove, type BlockInterval } from "@/lib/overlapResolver";
-import { serializeWeekShifts } from "@/lib/scheduleValidation";
+import { serializeWeekShifts, checkScheduleViolationWithTemplates } from "@/lib/scheduleValidation";
 import { weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { pragueOf } from "@/lib/dateUtils";
@@ -35,9 +35,11 @@ export async function resolveChainPushFromDb(
   respectWorkingHours: boolean,
   excludeIds: ReadonlySet<number> = new Set()
 ): Promise<AppliedMove[]> {
-  // Okno: den před anchorem až 30 dní za jeho koncem (chain push posouvá jen dopředu).
+  // Okno: den před anchorem až 90 dní za jeho koncem (chain push posouvá jen dopředu).
+  // 90 dní dává velkou rezervu i pro dlouhé kaskády; blok za hranicí okna by způsobil
+  // jen falešný rollback (finální pojistka ho zachytí), ne tichý překryv.
   const windowStart = new Date(anchor.startTime.getTime() - DAY_MS);
-  const windowEnd = new Date(anchor.endTime.getTime() + 30 * DAY_MS);
+  const windowEnd = new Date(anchor.endTime.getTime() + 90 * DAY_MS);
 
   const rows = await tx.block.findMany({
     where: {
@@ -76,6 +78,21 @@ export async function resolveChainPushFromDb(
 
   const moves = computeChainPush(machine, anchor, others, weekShifts, respectWorkingHours);
   if (moves.length === 0) return [];
+
+  // Pracovní doba posunutých bloků — snap (snapToNextValidStartWithTemplates) má strop
+  // 20 iterací a u fragmentovaných směn může vzácně vrátit pozici mimo provoz. Finální
+  // pojistka kontroluje jen překryv, ne pracovní dobu, takže ji ověříme tady.
+  if (respectWorkingHours) {
+    for (const m of moves) {
+      const violation = checkScheduleViolationWithTemplates(machine, m.startTime, m.endTime, weekShifts);
+      if (violation) {
+        throw new AppError(
+          "SCHEDULE_VIOLATION",
+          "Auto-posun navazujícího bloku by skončil mimo pracovní dobu — uvolni místo ručně."
+        );
+      }
+    }
+  }
 
   // Firemní odstávky (companyDays) — snap je neřeší, takže ověř, že posunutý blok
   // nepřistál na odstávce. Platí vždy (i bez respectWorkingHours).
