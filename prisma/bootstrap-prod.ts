@@ -80,6 +80,28 @@ async function main() {
     console.log(`ℹ️  Číselníky: ${existingCount} položek již existuje — přeskočeno.`);
   }
 
+  // 1b. Nové číselníky TISKOVÝ ARCH / SÉRIE — per-kategorie seed (funguje i na
+  //     existující DB, kde DATA/MATERIAL/BARVY/LAK už dávno existují).
+  for (const { category, prefix } of [
+    { category: "TISKOVY_ARCH", prefix: "TA" },
+    { category: "SERIE", prefix: "série" },
+  ]) {
+    const count = await prisma.codebookOption.count({ where: { category } });
+    if (count === 0) {
+      await prisma.codebookOption.createMany({
+        data: Array.from({ length: 20 }, (_, i) => ({
+          category,
+          label: `${i + 1}. ${prefix}`,
+          sortOrder: i,
+          isWarning: false,
+        })),
+      });
+      console.log(`✅ Číselník ${category}: 20 položek vytvořeno.`);
+    } else {
+      console.log(`ℹ️  Číselník ${category}: ${count} položek již existuje — přeskočeno.`);
+    }
+  }
+
   // 2. Pracovní doba strojů — vytvořit pouze pokud tabulka prázdná
   const machineWorkHoursCount = await prisma.machineWorkHours.count();
   if (machineWorkHoursCount === 0) {

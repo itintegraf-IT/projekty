@@ -70,13 +70,15 @@ const MACHINE_LABELS: Record<string, string> = {
   XL_106: "XL 106",
 };
 
-const CATEGORIES = ["DATA", "MATERIAL", "BARVY", "LAK"] as const;
+const CATEGORIES = ["DATA", "MATERIAL", "BARVY", "LAK", "TISKOVY_ARCH", "SERIE"] as const;
 type Category = typeof CATEGORIES[number];
 const CATEGORY_LABELS: Record<Category, string> = {
   DATA: "DATA",
   MATERIAL: "MATERIÁL",
   BARVY: "BARVY",
   LAK: "LAK",
+  TISKOVY_ARCH: "TISKOVÝ ARCH",
+  SERIE: "SÉRIE",
 };
 const PILL_KEYS = [...CATEGORIES, "TISKARI"] as const;
 type PillKey = typeof PILL_KEYS[number];
