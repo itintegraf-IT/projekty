@@ -431,7 +431,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       // ── Chain push navazujících bloků + tvrdá pojistka ──
       // Jen pro ZAKAZKA a jen když se reálně měnil čas/stroj.
       let shiftedMoves: AppliedMove[] = [];
-      if (resultingType === "ZAKAZKA" && timingChanged) {
+      if (resultingType === "ZAKAZKA" && (timingChanged || typeChangingToZakazka)) {
         if (resolveChain) {
           shiftedMoves = await resolveChainPushFromDb(
             tx,
@@ -459,7 +459,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       }
 
       return { block: updated, shifted: shiftedMoves };
-    });
+    }, { timeout: 15000, maxWait: 5000 });
 
     // Refetch s Reservation a notes include — PUT smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
     const blockWithRes = await prisma.block.findUnique({

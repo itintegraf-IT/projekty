@@ -50,7 +50,7 @@ export async function resolveChainPushFromDb(
       startTime: { lt: windowEnd },
       endTime: { gt: windowStart },
     },
-    select: { id: true, orderNumber: true, startTime: true, endTime: true, locked: true },
+    select: { id: true, orderNumber: true, startTime: true, endTime: true, locked: true, printCompletedAt: true },
   });
 
   let weekShifts: MachineWeekShiftsRow[] = [];
@@ -73,7 +73,9 @@ export async function resolveChainPushFromDb(
     id: r.id,
     startTime: r.startTime,
     endTime: r.endTime,
-    locked: r.locked,
+    // Vytištěné bloky (printCompletedAt) se chovají jako zamčené — tisk fyzicky proběhl,
+    // nesmí se přeplánovat chain pushem (locked se při potvrzení tisku nenastavuje).
+    locked: r.locked || r.printCompletedAt != null,
   }));
 
   const moves = computeChainPush(machine, anchor, others, weekShifts, respectWorkingHours);

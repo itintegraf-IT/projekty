@@ -299,7 +299,7 @@ export async function POST(request: NextRequest) {
       }
 
       return { newBlock, shiftedMoves };
-    });
+    }, { timeout: 15000, maxWait: 5000 });
 
     emitSSE("block:created", { block: serializeBlock(block), machine: block.machine, sourceUserId: session.id });
 

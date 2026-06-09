@@ -37,11 +37,10 @@ export async function checkBlockOverlap(
  * AppError("OVERLAP") → rollback celé transakce. Zachytí překryv vzniklý jakoukoliv
  * cestou v rámci JEDNÉ transakce (i s bypassOverlapCheck).
  *
- * LIMIT: používá plain `findFirst` (ne `SELECT ... FOR UPDATE`), takže pod MySQL
- * REPEATABLE READ nezavírá okno pro phantom mezi DVĚMA souběžnými transakcemi (dva
- * requesty do stejného volného slotu ve stejný okamžik se v snapshotu neuvidí). To je
- * vzácné (dva plánovači, stejný stroj, stejná sekunda); pro úplnou garanci je potřeba
- * zámek na okno (FOR UPDATE) nebo DB-level constraint — viz follow-up v plánu.
+ * Souběžnost: používá `SELECT ... FOR UPDATE`, který pod MySQL REPEATABLE READ bere
+ * next-key/gap zámky na okně (machine, čas). Dvě souběžné transakce mířící do stejného
+ * volného slotu se proto serializují (druhá počká a po commitu první uvidí její blok)
+ * místo tichého phantom překryvu. Vyžaduje index Block(machine, startTime, endTime).
  */
 export async function assertNoOverlapForBlocks(
   machine: string,

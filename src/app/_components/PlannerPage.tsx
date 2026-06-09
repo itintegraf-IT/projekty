@@ -2354,7 +2354,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     } catch (error) {
       console.error("Queue drop block creation failed", error);
-      showToast("Chyba při vytváření bloku.", "error");
+      showToast(error instanceof Error ? error.message : "Chyba při vytváření bloku.", "error");
       setDraggingQueueItem(null);
     }
   }
@@ -2421,7 +2421,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
     } catch (error) {
       console.error("Block paste failed", error);
-      showToast("Chyba při vložení bloku.", "error");
+      showToast(error instanceof Error ? error.message : "Chyba při vložení bloku.", "error");
     }
   }
 
