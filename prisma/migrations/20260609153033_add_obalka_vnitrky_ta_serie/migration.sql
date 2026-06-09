@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE `Block` ADD COLUMN `obalka` BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN `vnitrky` BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN `tiskoveArchy` VARCHAR(191) NULL,
+    ADD COLUMN `serie` VARCHAR(191) NULL;

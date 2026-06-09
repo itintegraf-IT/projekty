@@ -46,6 +46,10 @@ model Block {
   lakStatusId                                 Int?
   lakStatusLabel                              String?
   specifikace                                 String?
+  obalka                                      Boolean      @default(false)
+  vnitrky                                     Boolean      @default(false)
+  tiskoveArchy                                String?
+  serie                                       String?
   recurrenceType                              String       @default("NONE")
   recurrenceParentId                          Int?
   createdAt                                   DateTime     @default(now())
