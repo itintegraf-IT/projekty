@@ -202,7 +202,8 @@ git commit -m "feat(db): pole obalka/vnitrky/tiskoveArchy/serie na Block"
 
 **Files:**
 - Modify: `src/app/_components/TimelineGrid.tsx:115` (typ `Block`)
-- Modify: `src/app/_components/PlannerPage.tsx:2406` (paste payload)
+- Modify: `src/app/_components/PlannerPage.tsx:2406` (single paste payload — `handlePasteWithTarget`)
+- Modify: `src/app/_components/PlannerPage.tsx:2484` (group paste payload — `handleGroupPasteWithTarget`)
 - Modify: `src/app/_components/PlannerPage.tsx:1675` (delete-undo restore payload)
 
 - [ ] **Step 1: Přidat 4 optional pole do typu `Block`**

@@ -2482,6 +2482,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             barvyStatusId: src.barvyStatusId, barvyStatusLabel: src.barvyStatusLabel,
             lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
             specifikace: src.specifikace,
+            obalka: src.obalka ?? false, vnitrky: src.vnitrky ?? false,
+            tiskoveArchy: src.tiskoveArchy ?? null, serie: src.serie ?? null,
             bypassScheduleValidation: !workingTimeLockRef.current,
             resolveChain: true,
           }),
