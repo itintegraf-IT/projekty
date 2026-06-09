@@ -49,10 +49,11 @@ async function main() {
   for (const ov of overlaps) {
     // anchor = blok s dřívějším startem (zůstane), move = pozdější (posune se za anchor)
     const anchorEnd = ov.astart <= ov.bstart ? ov.aend : ov.bend;
+    // $queryRaw vrací číselné sloupce jako BigInt — findNextFreeSlotFromDb/Prisma čekají Int.
     const move =
       ov.astart <= ov.bstart
-        ? { id: ov.idb, ord: ov.ordb, start: ov.bstart, end: ov.bend }
-        : { id: ov.ida, ord: ov.orda, start: ov.astart, end: ov.aend };
+        ? { id: Number(ov.idb), ord: ov.ordb, start: ov.bstart, end: ov.bend }
+        : { id: Number(ov.ida), ord: ov.orda, start: ov.astart, end: ov.aend };
     const durMs = move.end.getTime() - move.start.getTime();
 
     const slot = await findNextFreeSlotFromDb(ov.machine, anchorEnd, durMs, move.id);
