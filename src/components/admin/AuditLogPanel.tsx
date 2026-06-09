@@ -2,19 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import DatePickerField from "@/app/_components/DatePickerField";
 
 const TEXT_PRIMARY = "var(--text)";
 const TEXT_SECONDARY = "var(--text-muted)";
-const SEPARATOR = "color-mix(in oklab, var(--border) 70%, transparent)";
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";
-const ACCENT_TEXT = "var(--accent)";
-const ACCENT_BG = "color-mix(in oklab, var(--accent) 18%, transparent)";
-const ACCENT_BORDER = "color-mix(in oklab, var(--accent) 45%, transparent)";
 
 const TOP_BAR_HEIGHT = 52;
 
-// 16px je minimum pro iOS Safari, aby focus inputu nezpůsobil zoom.
-const INPUT_FONT_SIZE = 16;
+// iOS-style brand accent (modrá), použito v DatePickerField a po celé app.
+const IOS_BLUE = "#3b82f6";
+const IOS_BLUE_BG = "rgba(59,130,246,0.15)";
+const IOS_BLUE_BORDER = "rgba(59,130,246,0.5)";
 
 const AUDIT_FIELD_LABELS: Record<string, string> = {
   jobPresetLabel: "Preset",
@@ -39,6 +38,16 @@ const ACTION_LABELS: Record<string, string> = {
   NOTE_UPDATE: "Poznámka ✎",
   NOTE_DELETE: "Poznámka −",
 };
+
+// Skupiny akcí pro iOS segmented control (jen ty nejčastější + Vše).
+const ACTION_GROUPS: { id: string; label: string; actions: string[] }[] = [
+  { id: "all", label: "Vše", actions: [] },
+  { id: "update", label: "Změny", actions: ["UPDATE"] },
+  { id: "create", label: "Nové", actions: ["CREATE"] },
+  { id: "delete", label: "Smazané", actions: ["DELETE"] },
+  { id: "notes", label: "Poznámky", actions: ["NOTE_CREATE", "NOTE_UPDATE", "NOTE_DELETE"] },
+  { id: "expedice", label: "Expedice", actions: ["EXPEDITION_PUBLISH", "EXPEDITION_UNPUBLISH"] },
+];
 
 export interface AuditLogEntry {
   id: number;
@@ -113,6 +122,16 @@ function hasActiveFilters(f: Filters): boolean {
   );
 }
 
+function activeActionGroupId(actions: string[]): string {
+  if (actions.length === 0) return "all";
+  const set = new Set(actions);
+  for (const g of ACTION_GROUPS) {
+    if (g.actions.length === 0) continue;
+    if (g.actions.length === set.size && g.actions.every((a) => set.has(a))) return g.id;
+  }
+  return ""; // vlastní kombinace (např. z URL) — žádný segment není active
+}
+
 const PAGE_SIZE = 50;
 const DEBOUNCE_MS = 250;
 
@@ -137,8 +156,6 @@ export function AuditLogPanel() {
 
   const [facets, setFacets] = useState<AuditFacets>({ usernames: [], actions: [] });
 
-  // Debouncovaný `q` pro server query. Reset() musí debounce flushnout (jinak
-  // server během 250ms drží předchozí hodnotu).
   const [debouncedQ, setDebouncedQ] = useState(filters.q);
   const qDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -155,7 +172,7 @@ export function AuditLogPanel() {
     [filters, debouncedQ]
   );
 
-  // ─── Facets fetch (jednou) ─────────────────────────────────────────────────
+  // Facets fetch
   useEffect(() => {
     const ctrl = new AbortController();
     (async () => {
@@ -166,8 +183,7 @@ export function AuditLogPanel() {
           return;
         }
         if (!r.ok) return;
-        const data = (await r.json()) as AuditFacets;
-        setFacets(data);
+        setFacets((await r.json()) as AuditFacets);
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
       }
@@ -175,9 +191,7 @@ export function AuditLogPanel() {
     return () => ctrl.abort();
   }, []);
 
-  // ─── URL sync (replace, ne push) ───────────────────────────────────────────
-  // Jen porovnáváme proti naposled zapsanému URL stringu, abychom se vyhnuli
-  // smyčce při změně reference `searchParams` hooku po router.replace().
+  // URL sync
   const lastWrittenUrlRef = useRef<string>(searchParams.toString());
   useEffect(() => {
     const next = filtersToSearchParams(effectiveFilters).toString();
@@ -187,11 +201,9 @@ export function AuditLogPanel() {
     router.replace(url, { scroll: false });
   }, [effectiveFilters, router]);
 
-  // ─── First page fetch (na změnu effective filtrů) ──────────────────────────
+  // First page fetch
   useEffect(() => {
     const ctrl = new AbortController();
-    // initialLoading je true jen při úplně prvním načtení; jakmile máme nějaká
-    // data, další fetch je "refetching" — zachováme staré logy s opacity.
     setRefetching(true);
     setError(null);
     (async () => {
@@ -224,9 +236,7 @@ export function AuditLogPanel() {
     return () => ctrl.abort();
   }, [effectiveFilters]);
 
-  // ─── Load more (cursor) ────────────────────────────────────────────────────
-  // sequenceRef chrání před race condition: pokud uživatel mezi tím změní filtr,
-  // odpověď na starý loadMore se zahodí.
+  // Load more
   const loadMoreSeqRef = useRef(0);
   const loadMore = useCallback(async () => {
     if (nextCursor === null || loadingMore) return;
@@ -241,7 +251,6 @@ export function AuditLogPanel() {
       }
       if (!r.ok) throw new Error("Nepodařilo se načíst další stránku");
       const data = (await r.json()) as AuditResponse;
-      // Ignoruj odpověď, pokud mezi tím vznikl novější request (změna filtru).
       if (mySeq !== loadMoreSeqRef.current) return;
       setLogs((prev) => {
         const seen = new Set(prev.map((l) => l.id));
@@ -259,9 +268,6 @@ export function AuditLogPanel() {
     }
   }, [effectiveFilters, nextCursor, loadingMore]);
 
-  // ─── IntersectionObserver pro auto-load ────────────────────────────────────
-  // Drží stabilní callback v refu, aby observer nemusel být znovu vytvořen
-  // při každé změně `loadMore` identity.
   const loadMoreRef = useRef(loadMore);
   useEffect(() => {
     loadMoreRef.current = loadMore;
@@ -275,19 +281,22 @@ export function AuditLogPanel() {
       (entries) => {
         if (entries[0]?.isIntersecting) loadMoreRef.current();
       },
-      { rootMargin: "200px" }
+      { rootMargin: "240px" }
     );
     observer.observe(el);
     return () => observer.disconnect();
   }, [nextCursor]);
 
-  // ─── Filter setters ────────────────────────────────────────────────────────
+  // Setters
   const setUsernames = useCallback(
     (next: string[]) => setFilters((f) => ({ ...f, usernames: next })),
     []
   );
-  const setActions = useCallback(
-    (next: string[]) => setFilters((f) => ({ ...f, actions: next })),
+  const setActionsBySegment = useCallback(
+    (segmentId: string) => {
+      const g = ACTION_GROUPS.find((x) => x.id === segmentId);
+      setFilters((f) => ({ ...f, actions: g ? g.actions : [] }));
+    },
     []
   );
   const setDateFrom = useCallback(
@@ -300,11 +309,6 @@ export function AuditLogPanel() {
   );
   const setQ = useCallback((v: string) => setFilters((f) => ({ ...f, q: v })), []);
 
-  const flushQ = useCallback(() => {
-    if (qDebounceTimer.current) clearTimeout(qDebounceTimer.current);
-    setDebouncedQ((prev) => (prev === filters.q ? prev : filters.q));
-  }, [filters.q]);
-
   const reset = useCallback(() => {
     if (qDebounceTimer.current) clearTimeout(qDebounceTimer.current);
     setDebouncedQ("");
@@ -313,54 +317,131 @@ export function AuditLogPanel() {
 
   const active = hasActiveFilters(filters);
   const showSkeleton = initialLoading && logs.length === 0;
+  const activeSegmentId = activeActionGroupId(filters.actions);
 
   if (unauthorized) {
-    return (
-      <div
-        style={{
-          marginTop: 24,
-          padding: "16px 18px",
-          borderRadius: 10,
-          background: "color-mix(in oklab, var(--danger) 10%, transparent)",
-          border: "1px solid color-mix(in oklab, var(--danger) 25%, transparent)",
-          color: "var(--danger)",
-          fontSize: 13,
-          fontFamily: FONT_STACK,
-        }}
-      >
-        Sezení vypršelo nebo nemáš oprávnění pro audit log. Přihlas se znovu.
-      </div>
-    );
+    return <UnauthorizedNotice />;
   }
 
   return (
     <div style={{ fontFamily: FONT_STACK }}>
-      <AuditLogFilters
-        filters={filters}
-        facets={facets}
-        setUsernames={setUsernames}
-        setActions={setActions}
-        setDateFrom={setDateFrom}
-        setDateTo={setDateTo}
-        setQ={setQ}
-        flushQ={flushQ}
-        reset={reset}
-        active={active}
-        totalCount={totalCount}
-        loadedCount={logs.length}
-        refetching={refetching}
-      />
+      {/* Sticky filter card */}
+      <div
+        style={{
+          position: "sticky",
+          top: TOP_BAR_HEIGHT,
+          zIndex: 30,
+          margin: "0 -20px 16px",
+          padding: "12px 20px 14px",
+          background: "color-mix(in oklab, var(--surface) 92%, transparent)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <FilterCard>
+          {/* Sekce: Období */}
+          <FilterRow label="Období">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <DatePickerField
+                value={filters.dateFrom}
+                onChange={setDateFrom}
+                placeholder="Od…"
+              />
+              <DatePickerField
+                value={filters.dateTo}
+                onChange={setDateTo}
+                placeholder="Do…"
+              />
+            </div>
+          </FilterRow>
+
+          {/* Sekce: Typ akce — segmented control */}
+          <FilterRow label="Typ akce">
+            <SegmentedControl
+              segments={ACTION_GROUPS.map((g) => ({ id: g.id, label: g.label }))}
+              value={activeSegmentId}
+              onChange={setActionsBySegment}
+            />
+          </FilterRow>
+
+          {/* Sekce: Hledání */}
+          <FilterRow label="Hledat">
+            <SearchPill
+              value={filters.q}
+              onChange={setQ}
+              placeholder="Číslo zakázky nebo ID bloku (min. 2 znaky)"
+            />
+          </FilterRow>
+
+          {/* Sekce: Uživatelé — chips */}
+          {facets.usernames.length > 0 && (
+            <FilterRow label="Uživatelé">
+              <UserChips
+                items={facets.usernames}
+                selected={filters.usernames}
+                onChange={setUsernames}
+              />
+            </FilterRow>
+          )}
+
+          {/* Footer karty: stav + reset */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginTop: 4,
+              paddingTop: 10,
+              borderTop: "1px solid var(--border)",
+            }}
+          >
+            <div
+              role="status"
+              aria-live="polite"
+              style={{ fontSize: 11, color: TEXT_SECONDARY }}
+            >
+              {refetching
+                ? "Aktualizuji…"
+                : totalCount === null
+                  ? `Načteno ${logs.length} záznamů`
+                  : `Zobrazeno ${logs.length} z ${totalCount} záznamů`}
+            </div>
+            <button
+              type="button"
+              onClick={reset}
+              disabled={!active}
+              style={{
+                height: 28,
+                padding: "0 12px",
+                borderRadius: 8,
+                background: "transparent",
+                border: "none",
+                color: active ? IOS_BLUE : TEXT_SECONDARY,
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: FONT_STACK,
+                cursor: active ? "pointer" : "default",
+                opacity: active ? 1 : 0.5,
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >
+              Vyčistit filtry
+            </button>
+          </div>
+        </FilterCard>
+      </div>
 
       {error && (
         <div
           role="alert"
           style={{
-            marginTop: 12,
+            marginBottom: 12,
             padding: "10px 14px",
             background: "color-mix(in oklab, var(--danger) 10%, transparent)",
             color: "var(--danger)",
             border: "1px solid color-mix(in oklab, var(--danger) 25%, transparent)",
-            borderRadius: 8,
+            borderRadius: 10,
             fontSize: 13,
           }}
         >
@@ -373,43 +454,29 @@ export function AuditLogPanel() {
       ) : logs.length === 0 ? (
         <EmptyState active={active} />
       ) : (
-        <div
-          aria-busy={refetching}
-          style={{
-            marginTop: 12,
-            borderRadius: 12,
-            overflow: "hidden",
-            border: `1px solid ${SEPARATOR}`,
-            background: "var(--surface)",
-            opacity: refetching ? 0.55 : 1,
-            transition: "opacity 120ms ease-out",
-          }}
-        >
-          {logs.map((log, i) => (
-            <AuditLogRow key={log.id} log={log} stripe={i % 2 === 0} isFirst={i === 0} />
-          ))}
-        </div>
+        <ResultsList logs={logs} refetching={refetching} />
       )}
 
       {nextCursor !== null && (
-        <div ref={sentinelRef} style={{ marginTop: 16, textAlign: "center" }} aria-hidden="true">
+        <div ref={sentinelRef} style={{ marginTop: 16, textAlign: "center" }}>
           <button
+            type="button"
             onClick={() => loadMoreRef.current()}
             disabled={loadingMore}
-            className="audit-input"
             style={{
               padding: "11px 22px",
               minHeight: 44,
               fontSize: 14,
               fontWeight: 600,
-              color: ACCENT_TEXT,
-              background: ACCENT_BG,
-              border: `1px solid ${ACCENT_BORDER}`,
-              borderRadius: 10,
+              color: IOS_BLUE,
+              background: IOS_BLUE_BG,
+              border: `1px solid ${IOS_BLUE_BORDER}`,
+              borderRadius: 12,
               cursor: loadingMore ? "default" : "pointer",
               opacity: loadingMore ? 0.6 : 1,
               fontFamily: FONT_STACK,
               WebkitTapHighlightColor: "transparent",
+              transition: "background 120ms ease-out",
             }}
           >
             {loadingMore ? "Načítám…" : "Načíst dalších 50"}
@@ -434,240 +501,104 @@ export function AuditLogPanel() {
   );
 }
 
-// ─── Filter bar ──────────────────────────────────────────────────────────────
+// ─── Filter card a row ───────────────────────────────────────────────────────
 
-interface AuditLogFiltersProps {
-  filters: Filters;
-  facets: AuditFacets;
-  setUsernames: (next: string[]) => void;
-  setActions: (next: string[]) => void;
-  setDateFrom: (v: string) => void;
-  setDateTo: (v: string) => void;
-  setQ: (v: string) => void;
-  flushQ: () => void;
-  reset: () => void;
-  active: boolean;
-  totalCount: number | null;
-  loadedCount: number;
-  refetching: boolean;
-}
-
-function AuditLogFilters({
-  filters,
-  facets,
-  setUsernames,
-  setActions,
-  setDateFrom,
-  setDateTo,
-  setQ,
-  flushQ,
-  reset,
-  active,
-  totalCount,
-  loadedCount,
-  refetching,
-}: AuditLogFiltersProps) {
-  function toggleUsername(name: string) {
-    if (filters.usernames.includes(name)) {
-      setUsernames(filters.usernames.filter((u) => u !== name));
-    } else {
-      setUsernames([...filters.usernames, name]);
-    }
-  }
-
-  function toggleAction(name: string) {
-    if (filters.actions.includes(name)) {
-      setActions(filters.actions.filter((a) => a !== name));
-    } else {
-      setActions([...filters.actions, name]);
-    }
-  }
-
+function FilterCard({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        position: "sticky",
-        top: TOP_BAR_HEIGHT,
-        zIndex: 30,
-        margin: "0 -20px",
-        padding: "12px 20px",
-        background: "color-mix(in oklab, var(--surface) 92%, transparent)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-        borderBottom: `1px solid ${SEPARATOR}`,
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 14,
+        padding: 14,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        boxShadow: "0 1px 2px color-mix(in oklab, black 4%, transparent)",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 10,
-          alignItems: "flex-end",
-        }}
-      >
-        <FilterField label="Od">
-          <input
-            type="date"
-            value={filters.dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            max={filters.dateTo || undefined}
-            className="audit-input"
-            style={dateInputStyle}
-            aria-label="Datum od"
-          />
-        </FilterField>
-
-        <FilterField label="Do">
-          <input
-            type="date"
-            value={filters.dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            min={filters.dateFrom || undefined}
-            className="audit-input"
-            style={dateInputStyle}
-            aria-label="Datum do"
-          />
-        </FilterField>
-
-        <FilterField label="Hledat" grow>
-          <input
-            type="search"
-            placeholder="Číslo zakázky nebo ID bloku (min. 2 znaky)"
-            value={filters.q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") flushQ();
-            }}
-            className="audit-input"
-            style={textInputStyle}
-            inputMode="search"
-            enterKeyHint="search"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            aria-label="Hledání podle čísla zakázky nebo ID bloku"
-          />
-        </FilterField>
-
-        <button
-          onClick={reset}
-          disabled={!active}
-          className="audit-input"
-          style={{
-            padding: "10px 14px",
-            minHeight: 44,
-            fontSize: 14,
-            fontWeight: 500,
-            color: active ? TEXT_PRIMARY : TEXT_SECONDARY,
-            background: "var(--surface-2)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            cursor: active ? "pointer" : "default",
-            opacity: active ? 1 : 0.5,
-            fontFamily: FONT_STACK,
-            WebkitTapHighlightColor: "transparent",
-          }}
-        >
-          Vyčistit
-        </button>
-      </div>
-
-      {/* Action chips */}
-      {facets.actions.length > 0 && (
-        <ChipGroup
-          label="Akce"
-          items={facets.actions}
-          selected={filters.actions}
-          onToggle={toggleAction}
-          renderLabel={(a) => ACTION_LABELS[a] ?? a}
-        />
-      )}
-
-      {/* Username chips */}
-      {facets.usernames.length > 0 && (
-        <ChipGroup
-          label="Uživatel"
-          items={facets.usernames}
-          selected={filters.usernames}
-          onToggle={toggleUsername}
-          renderLabel={(u) => u}
-        />
-      )}
-
-      <div
-        role="status"
-        aria-live="polite"
-        style={{ marginTop: 8, fontSize: 11, color: TEXT_SECONDARY }}
-      >
-        {refetching
-          ? "Aktualizuji…"
-          : totalCount === null
-            ? `Načteno ${loadedCount} záznamů`
-            : `Zobrazeno ${loadedCount} z ${totalCount} záznamů`}
-      </div>
+      {children}
     </div>
   );
 }
 
-function ChipGroup<T extends string>({
+function FilterRow({
   label,
-  items,
-  selected,
-  onToggle,
-  renderLabel,
+  children,
 }: {
   label: string;
-  items: T[];
-  selected: T[];
-  onToggle: (item: T) => void;
-  renderLabel: (item: T) => string;
+  children: React.ReactNode;
 }) {
   return (
-    <div
-      style={{
-        marginTop: 10,
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 6,
-        alignItems: "center",
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span
         style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: TEXT_SECONDARY,
+          fontSize: 9,
+          fontWeight: 700,
+          letterSpacing: "0.18em",
           textTransform: "uppercase",
-          letterSpacing: "0.06em",
-          marginRight: 4,
+          color: TEXT_SECONDARY,
         }}
       >
         {label}
       </span>
-      {items.map((item) => {
-        const isSelected = selected.includes(item);
+      {children}
+    </div>
+  );
+}
+
+// ─── iOS segmented control ───────────────────────────────────────────────────
+
+function SegmentedControl({
+  segments,
+  value,
+  onChange,
+}: {
+  segments: { id: string; label: string }[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 4,
+        padding: 3,
+        background: "var(--surface-2)",
+        borderRadius: 10,
+        overflow: "auto hidden",
+        scrollbarWidth: "none",
+      }}
+    >
+      {segments.map((s) => {
+        const isActive = value === s.id;
         return (
           <button
-            key={item}
-            onClick={() => onToggle(item)}
-            aria-pressed={isSelected}
-            className="audit-chip"
+            key={s.id}
+            type="button"
+            onClick={() => onChange(s.id)}
             style={{
-              padding: "10px 14px",
-              minHeight: 44,
-              fontSize: 13,
-              fontWeight: isSelected ? 600 : 500,
-              color: isSelected ? ACCENT_TEXT : TEXT_SECONDARY,
-              background: isSelected ? ACCENT_BG : "var(--surface-2)",
-              border: `1px solid ${isSelected ? ACCENT_BORDER : "var(--border)"}`,
-              borderRadius: 999,
-              cursor: "pointer",
+              flex: "1 0 auto",
+              minWidth: 70,
+              minHeight: 32,
+              padding: "6px 12px",
+              borderRadius: 8,
+              border: "none",
+              fontSize: 12,
+              fontWeight: isActive ? 700 : 500,
               fontFamily: FONT_STACK,
-              WebkitTapHighlightColor: "transparent",
+              background: isActive ? "var(--surface)" : "transparent",
+              color: isActive ? TEXT_PRIMARY : TEXT_SECONDARY,
+              boxShadow: isActive
+                ? "0 1px 3px color-mix(in oklab, black 12%, transparent)"
+                : "none",
+              cursor: "pointer",
               transition: "background 120ms ease-out, color 120ms ease-out",
+              WebkitTapHighlightColor: "transparent",
+              whiteSpace: "nowrap",
             }}
           >
-            {renderLabel(item)}
+            {s.label}
           </button>
         );
       })}
@@ -675,64 +606,279 @@ function ChipGroup<T extends string>({
   );
 }
 
-function FilterField({
-  label,
-  children,
-  grow = false,
+// ─── User chips ──────────────────────────────────────────────────────────────
+
+function UserChips({
+  items,
+  selected,
+  onChange,
 }: {
-  label: string;
-  children: React.ReactNode;
-  grow?: boolean;
+  items: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
 }) {
+  function toggle(name: string) {
+    if (selected.includes(name)) onChange(selected.filter((u) => u !== name));
+    else onChange([...selected, name]);
+  }
   return (
-    <label
+    <div
       style={{
         display: "flex",
-        flexDirection: "column",
-        gap: 4,
-        flex: grow ? "1 1 220px" : "0 0 auto",
-        minWidth: 150,
+        flexWrap: "wrap",
+        gap: 6,
       }}
     >
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          color: TEXT_SECONDARY,
-          textTransform: "uppercase",
-          letterSpacing: "0.06em",
-        }}
-      >
-        {label}
-      </span>
-      {children}
-    </label>
+      {items.map((u) => {
+        const isOn = selected.includes(u);
+        return (
+          <button
+            key={u}
+            type="button"
+            onClick={() => toggle(u)}
+            aria-pressed={isOn}
+            style={{
+              minHeight: 32,
+              padding: "6px 12px",
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: isOn ? 700 : 500,
+              fontFamily: FONT_STACK,
+              background: isOn ? IOS_BLUE_BG : "var(--surface-2)",
+              color: isOn ? IOS_BLUE : TEXT_SECONDARY,
+              border: `1px solid ${isOn ? IOS_BLUE_BORDER : "var(--border)"}`,
+              cursor: "pointer",
+              transition: "all 120ms ease-out",
+              WebkitTapHighlightColor: "transparent",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {u}
+          </button>
+        );
+      })}
+    </div>
   );
+}
+
+// ─── iOS search pill ─────────────────────────────────────────────────────────
+
+function SearchPill({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        background: "var(--surface-2)",
+        border: `1px solid ${focused ? IOS_BLUE_BORDER : "var(--border)"}`,
+        boxShadow: focused
+          ? "0 0 0 3px color-mix(in oklab, " + IOS_BLUE + " 18%, transparent)"
+          : "none",
+        borderRadius: 999,
+        padding: "0 12px",
+        minHeight: 36,
+        transition: "border-color 120ms ease-out, box-shadow 120ms ease-out",
+      }}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={focused ? IOS_BLUE : TEXT_SECONDARY}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ flexShrink: 0 }}
+        aria-hidden="true"
+      >
+        <circle cx="11" cy="11" r="8" />
+        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+      </svg>
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        inputMode="search"
+        enterKeyHint="search"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        aria-label="Hledání podle čísla zakázky nebo ID bloku"
+        style={{
+          flex: 1,
+          background: "transparent",
+          border: "none",
+          outline: "none",
+          color: TEXT_PRIMARY,
+          fontSize: 16, // iOS no-zoom threshold
+          fontFamily: FONT_STACK,
+          padding: "8px 0",
+          minWidth: 0,
+        }}
+      />
+      {value.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          aria-label="Vyčistit hledání"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 20,
+            height: 20,
+            borderRadius: 999,
+            border: "none",
+            background: "color-mix(in oklab, var(--text-muted) 40%, transparent)",
+            color: "var(--surface)",
+            cursor: "pointer",
+            padding: 0,
+            flexShrink: 0,
+            WebkitTapHighlightColor: "transparent",
+          }}
+        >
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Results list ────────────────────────────────────────────────────────────
+
+function ResultsList({
+  logs,
+  refetching,
+}: {
+  logs: AuditLogEntry[];
+  refetching: boolean;
+}) {
+  // Seskup podle dne (Praha) pro iOS Settings-style grouped inset list.
+  const groups = useMemo(() => groupByDay(logs), [logs]);
+
+  return (
+    <div
+      aria-busy={refetching}
+      style={{
+        opacity: refetching ? 0.55 : 1,
+        transition: "opacity 120ms ease-out",
+        display: "flex",
+        flexDirection: "column",
+        gap: 18,
+      }}
+    >
+      {groups.map((g) => (
+        <section key={g.dayKey}>
+          <div
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              color: TEXT_SECONDARY,
+              padding: "0 4px 6px",
+            }}
+          >
+            {g.label}
+          </div>
+          <div
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 14,
+              overflow: "hidden",
+              boxShadow: "0 1px 2px color-mix(in oklab, black 4%, transparent)",
+            }}
+          >
+            {g.logs.map((log, i) => (
+              <AuditLogRow key={log.id} log={log} isFirst={i === 0} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function groupByDay(logs: AuditLogEntry[]): { dayKey: string; label: string; logs: AuditLogEntry[] }[] {
+  const map = new Map<string, AuditLogEntry[]>();
+  for (const log of logs) {
+    const key = dayKeyPrague(log.createdAt);
+    const arr = map.get(key) ?? [];
+    arr.push(log);
+    map.set(key, arr);
+  }
+  const todayKey = dayKeyPrague(new Date().toISOString());
+  const yesterdayKey = dayKeyPrague(new Date(Date.now() - 86400000).toISOString());
+  return Array.from(map.entries()).map(([dayKey, items]) => ({
+    dayKey,
+    label:
+      dayKey === todayKey
+        ? "Dnes"
+        : dayKey === yesterdayKey
+          ? "Včera"
+          : formatLongDayPrague(items[0].createdAt),
+    logs: items,
+  }));
+}
+
+const PRAGUE_DAY_KEY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Prague",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+function dayKeyPrague(iso: string): string {
+  return PRAGUE_DAY_KEY_FMT.format(new Date(iso));
+}
+
+const PRAGUE_LONG_DAY_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: "Europe/Prague",
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+});
+function formatLongDayPrague(iso: string): string {
+  return PRAGUE_LONG_DAY_FMT.format(new Date(iso));
 }
 
 // ─── Single row ──────────────────────────────────────────────────────────────
 
-interface AuditLogRowProps {
-  log: AuditLogEntry;
-  stripe: boolean;
-  isFirst: boolean;
-}
-
-function AuditLogRow({ log, stripe, isFirst }: AuditLogRowProps) {
+function AuditLogRow({ log, isFirst }: { log: AuditLogEntry; isFirst: boolean }) {
   return (
     <div
       className="audit-row"
       style={{
-        padding: "11px 14px",
-        borderTop: isFirst ? undefined : `1px solid ${SEPARATOR}`,
-        background: stripe ? "var(--surface)" : "var(--surface-2)",
+        padding: "10px 14px",
+        borderTop: isFirst ? undefined : "1px solid color-mix(in oklab, var(--border) 60%, transparent)",
+        background: "transparent",
         alignItems: "center",
-        fontSize: 12,
+        fontSize: 13,
         minHeight: 44,
       }}
     >
-      <span className="audit-cell-time" style={{ color: TEXT_SECONDARY, whiteSpace: "nowrap" }}>
-        {fmtDatetime(log.createdAt)}
+      <span
+        className="audit-cell-time"
+        style={{ color: TEXT_SECONDARY, whiteSpace: "nowrap", fontSize: 11, fontVariantNumeric: "tabular-nums" }}
+      >
+        {fmtTime(log.createdAt)}
       </span>
       <span
         className="audit-cell-user"
@@ -742,6 +888,7 @@ function AuditLogRow({ log, stripe, isFirst }: AuditLogRowProps) {
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          fontSize: 12,
         }}
       >
         {log.username}
@@ -749,17 +896,18 @@ function AuditLogRow({ log, stripe, isFirst }: AuditLogRowProps) {
       <span
         className="audit-cell-order"
         style={{
-          color: TEXT_PRIMARY,
+          color: IOS_BLUE,
           fontFamily: "ui-monospace, SFMono-Regular, monospace",
           fontSize: 11,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          fontWeight: 600,
         }}
       >
         {log.orderNumber ?? `#${log.blockId}`}
       </span>
-      <span className="audit-cell-action" style={{ color: TEXT_PRIMARY, wordBreak: "break-word" }}>
+      <span className="audit-cell-action" style={{ color: TEXT_PRIMARY, wordBreak: "break-word", fontSize: 12 }}>
         <ActionContent log={log} />
       </span>
     </div>
@@ -770,30 +918,32 @@ function ActionContent({ log }: { log: AuditLogEntry }) {
   if (log.action === "UPDATE" && log.field) {
     return (
       <>
-        {AUDIT_FIELD_LABELS[log.field] ?? log.field}:{" "}
-        <span style={{ color: TEXT_SECONDARY }}>{fmtVal(log.oldValue, log.field)}</span>
+        <span style={{ color: TEXT_SECONDARY }}>{AUDIT_FIELD_LABELS[log.field] ?? log.field}:</span>{" "}
+        <span style={{ color: TEXT_SECONDARY, textDecoration: "line-through", textDecorationColor: "color-mix(in oklab, var(--text-muted) 60%, transparent)" }}>
+          {fmtVal(log.oldValue, log.field)}
+        </span>
         {" → "}
-        <span style={{ color: TEXT_PRIMARY }}>{fmtVal(log.newValue, log.field)}</span>
+        <span style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>{fmtVal(log.newValue, log.field)}</span>
       </>
     );
   }
-  if (log.action === "CREATE") return <span style={{ color: "var(--success)" }}>Přidána</span>;
-  if (log.action === "DELETE") return <span style={{ color: "var(--danger)" }}>Smazána</span>;
+  if (log.action === "CREATE") return <ActionBadge color="var(--success)" text="Přidáno" />;
+  if (log.action === "DELETE") return <ActionBadge color="var(--danger)" text="Smazáno" />;
   if (log.action === "EXPEDITION_PUBLISH")
-    return <span style={{ color: "var(--success)" }}>Zařazena do expedice</span>;
+    return <ActionBadge color="var(--success)" text="Zařazeno do expedice" />;
   if (log.action === "EXPEDITION_UNPUBLISH")
-    return <span style={{ color: "var(--warning)" }}>Odebrána z expedice</span>;
+    return <ActionBadge color="var(--warning)" text="Odebráno z expedice" />;
   if (log.action === "NOTE_CREATE")
     return (
       <>
-        <span style={{ color: "var(--warning)" }}>📝 Přidána poznámka:</span>{" "}
+        <ActionBadge color="var(--warning)" text="📝 Přidána poznámka" />{" "}
         <span style={{ color: TEXT_PRIMARY }}>{log.newValue ?? ""}</span>
       </>
     );
   if (log.action === "NOTE_UPDATE")
     return (
       <>
-        <span style={{ color: "var(--warning)" }}>📝 Upravena poznámka:</span>{" "}
+        <ActionBadge color="var(--warning)" text="📝 Upravena poznámka" />{" "}
         <span style={{ color: TEXT_SECONDARY }}>{log.oldValue ?? ""}</span>
         {" → "}
         <span style={{ color: TEXT_PRIMARY }}>{log.newValue ?? ""}</span>
@@ -802,14 +952,35 @@ function ActionContent({ log }: { log: AuditLogEntry }) {
   if (log.action === "NOTE_DELETE")
     return (
       <>
-        <span style={{ color: "var(--danger)" }}>📝 Smazána poznámka:</span>{" "}
+        <ActionBadge color="var(--danger)" text="📝 Smazána poznámka" />{" "}
         <span style={{ color: TEXT_SECONDARY }}>{log.oldValue ?? ""}</span>
       </>
     );
-  return <>{log.action}</>;
+  return <span style={{ color: TEXT_SECONDARY }}>{log.action}</span>;
 }
 
-// ─── Skeleton & empty ────────────────────────────────────────────────────────
+function ActionBadge({ color, text }: { color: string; text: string }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: 6,
+        background: `color-mix(in oklab, ${color} 14%, transparent)`,
+        color,
+        fontSize: 11,
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
+// ─── Skeleton + empty + unauthorized ────────────────────────────────────────
 
 function AuditLogSkeleton() {
   return (
@@ -818,10 +989,10 @@ function AuditLogSkeleton() {
       aria-busy="true"
       aria-label="Načítám audit log"
       style={{
-        marginTop: 12,
-        borderRadius: 12,
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 14,
         overflow: "hidden",
-        border: `1px solid ${SEPARATOR}`,
       }}
     >
       {Array.from({ length: 8 }).map((_, i) => (
@@ -830,8 +1001,7 @@ function AuditLogSkeleton() {
           className="audit-row"
           style={{
             padding: "12px 14px",
-            borderTop: i > 0 ? `1px solid ${SEPARATOR}` : undefined,
-            background: i % 2 === 0 ? "var(--surface)" : "var(--surface-2)",
+            borderTop: i > 0 ? "1px solid color-mix(in oklab, var(--border) 60%, transparent)" : undefined,
             alignItems: "center",
             minHeight: 44,
           }}
@@ -850,11 +1020,11 @@ function SkeletonBar({ w }: { w: string }) {
   return (
     <div
       style={{
-        height: 12,
+        height: 10,
         width: w,
         borderRadius: 4,
         background:
-          "linear-gradient(90deg, color-mix(in oklab, var(--border) 60%, transparent), color-mix(in oklab, var(--border) 30%, transparent), color-mix(in oklab, var(--border) 60%, transparent))",
+          "linear-gradient(90deg, color-mix(in oklab, var(--border) 60%, transparent), color-mix(in oklab, var(--border) 25%, transparent), color-mix(in oklab, var(--border) 60%, transparent))",
         backgroundSize: "200% 100%",
         animation: "auditShimmer 1.4s ease-in-out infinite",
       }}
@@ -866,15 +1036,17 @@ function EmptyState({ active }: { active: boolean }) {
   return (
     <div
       style={{
-        marginTop: 24,
         textAlign: "center",
-        padding: "48px 20px",
+        padding: "56px 20px",
         color: TEXT_SECONDARY,
         fontSize: 13,
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 14,
       }}
     >
-      <div style={{ fontSize: 32, opacity: 0.4, marginBottom: 8 }}>🗂️</div>
-      <div style={{ fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 4 }}>
+      <div style={{ fontSize: 36, opacity: 0.4, marginBottom: 10 }}>🗂️</div>
+      <div style={{ fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 4, fontSize: 14 }}>
         {active ? "Žádné záznamy odpovídající filtru" : "Žádné záznamy"}
       </div>
       {active && <div>Zkus uvolnit některý z filtrů.</div>}
@@ -882,23 +1054,34 @@ function EmptyState({ active }: { active: boolean }) {
   );
 }
 
+function UnauthorizedNotice() {
+  return (
+    <div
+      style={{
+        marginTop: 24,
+        padding: "16px 18px",
+        borderRadius: 12,
+        background: "color-mix(in oklab, var(--danger) 10%, transparent)",
+        border: "1px solid color-mix(in oklab, var(--danger) 25%, transparent)",
+        color: "var(--danger)",
+        fontSize: 13,
+        fontFamily: FONT_STACK,
+      }}
+    >
+      Sezení vypršelo nebo nemáš oprávnění pro audit log. Přihlas se znovu.
+    </div>
+  );
+}
+
 // ─── Formátovače ─────────────────────────────────────────────────────────────
 
-function fmtDatetime(iso: string) {
-  const d = new Date(iso);
-  return (
-    d.toLocaleDateString("cs-CZ", {
-      timeZone: "Europe/Prague",
-      day: "2-digit",
-      month: "2-digit",
-    }) +
-    " " +
-    d.toLocaleTimeString("cs-CZ", {
-      timeZone: "Europe/Prague",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  );
+const PRAGUE_TIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: "Europe/Prague",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+function fmtTime(iso: string) {
+  return PRAGUE_TIME_FMT.format(new Date(iso));
 }
 
 function fmtVal(val: string | null, field: string | null) {
@@ -913,33 +1096,3 @@ function fmtVal(val: string | null, field: string | null) {
   }
   return val;
 }
-
-// ─── Styly ───────────────────────────────────────────────────────────────────
-
-const dateInputStyle: React.CSSProperties = {
-  background: "var(--surface-2)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  padding: "10px 11px",
-  minHeight: 44,
-  color: TEXT_PRIMARY,
-  fontSize: INPUT_FONT_SIZE,
-  fontFamily: FONT_STACK,
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
-};
-
-const textInputStyle: React.CSSProperties = {
-  background: "var(--surface-2)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  padding: "10px 12px",
-  minHeight: 44,
-  color: TEXT_PRIMARY,
-  fontSize: INPUT_FONT_SIZE,
-  fontFamily: FONT_STACK,
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
-};
