@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="cs" class="dark">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root.dark{
+    --background:oklch(0.145 0 0); --surface:oklch(0.205 0 0); --surface-2:oklch(0.24 0 0); --surface-3:oklch(0.28 0 0);
+    --border:oklch(1 0 0 / 10%); --text:oklch(0.985 0 0); --text-muted:oklch(0.72 0 0); --ring:oklch(0.556 0 0);
+    --obalka:#facc15; --vnitrky:#22d3ee; --accent-blue:#3b82f6;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:26px;background:var(--background);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+  .wrap{display:flex;gap:26px;align-items:flex-start;}
+  .col{display:flex;flex-direction:column;gap:16px;}
+  .colTitle{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);}
+
+  .panel{width:540px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px 16px 18px;}
+  .section{font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--text-muted);margin-bottom:11px;}
+  .collabel{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;}
+  .grid4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;}
+  .fakefield{height:34px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:600;color:var(--text-muted);}
+  .selch{margin-left:auto;opacity:.55;}
+
+  .newrow{margin-top:13px;padding-top:13px;border-top:1px solid var(--border);}
+  .row4{display:grid;grid-template-columns:1fr 1fr 1.15fr 1.15fr;gap:8px;align-items:end;}
+  .toggle{height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;font-size:11px;font-weight:800;letter-spacing:.05em;border:1px solid var(--border);background:var(--surface-2);color:var(--text-muted);}
+  .toggle.on.obalka{border-color:var(--obalka);background:color-mix(in oklab,var(--obalka) 16%,transparent);color:var(--obalka);}
+  .toggle.on.vnitrky{border-color:var(--vnitrky);background:color-mix(in oklab,var(--vnitrky) 16%,transparent);color:var(--vnitrky);}
+  .chk{width:15px;height:15px;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid color-mix(in oklab,var(--text-muted) 50%,transparent);}
+  .toggle.on.obalka .chk{background:var(--obalka);border-color:var(--obalka);}
+  .toggle.on.vnitrky .chk{background:var(--vnitrky);border-color:var(--vnitrky);}
+
+  .ms{display:flex;flex-direction:column;gap:5px;position:relative;}
+  .mstrigger{height:38px;border-radius:10px;background:var(--surface-2);border:1px solid var(--border);display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:700;color:var(--text);}
+  .mstrigger .chev{margin-left:auto;opacity:.55;}
+  .mstrigger.open{border-color:var(--ring);}
+  .mstrigger.empty{color:var(--text-muted);font-weight:600;}
+  .dropdown{position:absolute;z-index:5;top:64px;left:0;width:185px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:6px;box-shadow:0 18px 40px rgba(0,0,0,.55);}
+  .ddhead{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);padding:5px 8px 7px;}
+  .ddrow{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:8px;font-size:12px;font-weight:600;color:var(--text);}
+  .ddrow.sel{background:color-mix(in oklab,var(--accent-blue) 22%,transparent);}
+  .ddbox{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+  .ddrow.sel .ddbox{background:var(--accent-blue);border-color:var(--accent-blue);}
+
+  /* DTP karta */
+  .dtpcard{width:300px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:13px 14px;position:relative;}
+  .dtpcard .ordno{font-size:15px;font-weight:800;color:var(--text);}
+  .dtpcard .ordsub{font-size:12px;color:var(--text-muted);margin-left:6px;}
+  .dtpmeta{font-size:11px;color:var(--text-muted);margin-top:6px;}
+  .dtpchips{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap;}
+  .dchip{font-size:9px;font-weight:800;letter-spacing:.04em;padding:4px 9px;border-radius:7px;}
+  .dchip.data{background:#f0b429;color:#1a1206;}
+  .dchip.obalka{background:var(--obalka);color:#1a1206;}
+  .dchip.vnitrky{background:var(--vnitrky);color:#06222a;}
+
+  /* read-only detail */
+  .detail{width:300px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:13px 14px;}
+  .detail .dh{font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);margin:2px 0 9px;}
+  .drow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid color-mix(in oklab,var(--border) 70%,transparent);font-size:12px;}
+  .drow .k{color:var(--text-muted);font-weight:600;}
+  .drow .val{color:var(--text);font-weight:700;text-align:right;}
+  .miniov{display:inline-block;font-size:9px;font-weight:900;padding:2px 7px;border-radius:5px;margin-left:5px;}
+  .miniov.obalka{background:var(--obalka);color:#1a1206;}
+  .miniov.vnitrky{background:var(--vnitrky);color:#06222a;}
+  .note{font-size:11px;color:var(--text-muted);line-height:1.5;max-width:540px;margin-top:2px;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- formulář -->
+    <div class="col">
+      <div class="colTitle">Formulář bloku — nový řádek (Série dropdown otevřený)</div>
+      <div class="panel">
+        <div class="section">Výrobní sloupečky</div>
+        <div class="grid4">
+          <div><div class="collabel">Data</div><div class="fakefield">10.06.26 <span class="selch">▾</span></div></div>
+          <div><div class="collabel">Materiál</div><div class="fakefield">14.06.26</div></div>
+          <div><div class="collabel">Pantone</div><div class="fakefield">Datum <span class="selch">▾</span></div></div>
+          <div><div class="collabel">Expedice</div><div class="fakefield">26.06.26 <span class="selch">▾</span></div></div>
+        </div>
+        <div class="newrow">
+          <div class="row4">
+            <div class="toggle on obalka"><span class="chk"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#0c0c0c" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>OBÁLKA</div>
+            <div class="toggle on vnitrky"><span class="chk"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#06222a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></span>VNITŘKY</div>
+            <div class="ms">
+              <div class="collabel">Tiskové archy</div>
+              <div class="mstrigger">1. TA, 5. TA <span class="chev">▾</span></div>
+            </div>
+            <div class="ms">
+              <div class="collabel">Série</div>
+              <div class="mstrigger open">1., 3. série <span class="chev">▴</span></div>
+              <div class="dropdown">
+                <div class="ddhead">Série</div>
+                <div class="ddrow sel"><span class="ddbox"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>1. série</div>
+                <div class="ddrow"><span class="ddbox"></span>2. série</div>
+                <div class="ddrow sel"><span class="ddbox"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>3. série</div>
+                <div class="ddrow"><span class="ddbox"></span>4. série</div>
+                <div class="ddrow"><span class="ddbox"></span>5. série</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Dlaždice OBÁLKA i VNITŘKY zapnuté (jeden klik = označeno). Multi-select ukazuje souhrn vybraných položek; dropdown s odškrtáváním bere obsah z admin číselníku.</div>
+    </div>
+
+    <!-- DTP + detail -->
+    <div class="col">
+      <div class="colTitle">DTP dashboard — karta se štítkem</div>
+      <div class="dtpcard">
+        <div><span class="ordno">17975</span><span class="ordsub">Park Lane</span></div>
+        <div class="dtpmeta">XL 105 · 08.06. 06:00 · 4 h</div>
+        <div class="dtpchips">
+          <span class="dchip data">DATA 08.06.</span>
+          <span class="dchip obalka">OBÁLKA</span>
+        </div>
+      </div>
+
+      <div class="colTitle" style="margin-top:6px">Detail bloku (read-only)</div>
+      <div class="detail">
+        <div class="dh">Zakázka 18110 · Brožura</div>
+        <div class="drow"><span class="k">DATA</span><span class="val">10.06. · OK</span></div>
+        <div class="drow"><span class="k">Materiál</span><span class="val">14.06.</span></div>
+        <div class="drow"><span class="k">Expedice</span><span class="val">26.06.</span></div>
+        <div class="drow"><span class="k">Typ tisku</span><span class="val"><span class="miniov obalka">OBÁLKA</span><span class="miniov vnitrky">VNITŘKY</span></span></div>
+        <div class="drow"><span class="k">Tiskové archy</span><span class="val">1., 2., 5. TA</span></div>
+        <div class="drow" style="border-bottom:none"><span class="k">Série</span><span class="val">1., 3. série</span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

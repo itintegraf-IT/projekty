@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="cs" class="dark">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --surface:    oklch(0.205 0 0);
+    --surface-2:  oklch(0.24 0 0);
+    --surface-3:  oklch(0.28 0 0);
+    --border:     oklch(1 0 0 / 10%);
+    --text:       oklch(0.985 0 0);
+    --text-muted: oklch(0.72 0 0);
+    --ring:       oklch(0.556 0 0);
+    --success:    oklch(0.72 0.18 152);
+    --warning:    oklch(0.82 0.16 90);
+    --badge-green:  #4ade80;
+    --badge-orange: #fb923c;
+    --obalka:  #facc15;   /* amber/žlutá — jako v 1.png */
+    --vnitrky: #22d3ee;   /* tyrkysová — kontrast k obálce */
+    --accent-blue: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px; background: var(--background); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { display: flex; gap: 28px; align-items: flex-start; }
+  .col { display: flex; flex-direction: column; gap: 18px; }
+  .colTitle { font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px; }
+
+  /* ---- panel (formulář) ---- */
+  .panel { width: 560px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 18px 18px 20px; }
+  .section { font-size: 9px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px; }
+  .collabel { font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+  .grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; }
+  .fakefield { height: 34px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; padding: 0 10px; font-size: 11px; font-weight: 600; color: var(--text-muted); }
+  .selchevron { margin-left: auto; opacity: .6; }
+
+  .newrow { margin-top: 14px; padding-top: 14px; border-top: 1px dashed color-mix(in oklab, var(--obalka) 45%, var(--border)); position: relative; }
+  .newtag { position: absolute; top: -8px; left: 0; font-size: 8px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: #0c0c0c; background: var(--obalka); border-radius: 5px; padding: 2px 7px; }
+  .row4 { display: grid; grid-template-columns: 1fr 1fr 1.2fr 1.2fr; gap: 8px; align-items: end; }
+
+  /* toggle pill (OBÁLKA / VNITŘKY) */
+  .toggle { height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-size: 11px; font-weight: 800; letter-spacing: .06em; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-muted); }
+  .toggle.on.obalka  { border-color: var(--obalka);  background: color-mix(in oklab, var(--obalka) 16%, transparent);  color: var(--obalka); }
+  .toggle.on.vnitrky { border-color: var(--vnitrky); background: color-mix(in oklab, var(--vnitrky) 16%, transparent); color: var(--vnitrky); }
+  .chk { width: 15px; height: 15px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .toggle.on.obalka  .chk { background: var(--obalka); }
+  .toggle.on.vnitrky .chk { background: var(--vnitrky); }
+  .toggle .chk svg { display: block; }
+
+  /* multi-select trigger */
+  .ms { display: flex; flex-direction: column; gap: 5px; }
+  .ms .collabel { margin-bottom: 0; }
+  .mstrigger { height: 38px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); display: flex; align-items: center; padding: 0 10px; font-size: 11px; font-weight: 700; color: var(--text); gap: 6px; }
+  .mstrigger .chev { margin-left: auto; opacity: .6; }
+  .mstrigger.open { border-color: var(--ring); }
+
+  /* dropdown panel */
+  .ddwrap { position: relative; }
+  .dropdown { position: absolute; z-index: 5; top: 6px; left: 0; width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 6px; box-shadow: 0 18px 40px rgba(0,0,0,.55); }
+  .ddhead { font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--text-muted); padding: 6px 8px 8px; }
+  .ddrow { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--text); cursor: pointer; }
+  .ddrow:hover { background: var(--surface-2); }
+  .ddrow.sel { background: color-mix(in oklab, var(--accent-blue) 22%, transparent); }
+  .ddbox { width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .ddrow.sel .ddbox { background: var(--accent-blue); border-color: var(--accent-blue); }
+
+  .pillrow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .pill { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); }
+
+  /* ---- timeline blocks ---- */
+  .machinecol { width: 360px; }
+  .block { position: relative; border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; background: linear-gradient(180deg,#16past, #14543a); overflow: hidden; }
+  .block.full { height: 132px; background: linear-gradient(170deg,#18694a 0%, #115237 100%); border: 1px solid rgba(255,255,255,.08); }
+  .block.tiny { height: 50px; background: linear-gradient(170deg,#18694a 0%, #115237 100%); border: 1px solid rgba(255,255,255,.08); display: flex; align-items: center; gap: 8px; }
+  .ordno { font-size: 15px; font-weight: 800; color: #fff; letter-spacing: .01em; }
+  .ordsub { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.62); margin-left: 7px; }
+  .statusrow { display: flex; gap: 6px; margin-top: 10px; }
+  .sbadge { border-radius: 7px; padding: 4px 8px; font-size: 9px; font-weight: 800; letter-spacing: .04em; line-height: 1.25; }
+  .sbadge .v { font-size: 11px; }
+  .sb-data { background: #f0b429; color: #1a1206; }
+  .sb-mat  { background: #14653a; color: #b7f3d0; border: 1px solid rgba(255,255,255,.14); }
+  .sb-exp  { background: #2a3a44; color: #cdd9e1; }
+
+  /* OBÁLKA/VNITŘKY badges */
+  .ovbadges { position: absolute; right: 10px; bottom: 9px; display: flex; gap: 6px; }
+  .tiny .ovbadges { position: static; margin-left: auto; }
+  .ovb { font-size: 9px; font-weight: 900; letter-spacing: .06em; padding: 3px 8px; border-radius: 6px; }
+  .ovb.obalka  { background: var(--obalka);  color: #1a1206; }
+  .ovb.vnitrky { background: var(--vnitrky); color: #06222a; }
+
+  .note { font-size: 11px; color: var(--text-muted); line-height: 1.5; max-width: 360px; }
+  .legend { display: flex; gap: 6px; margin-top: 2px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- LEVÝ SLOUPEC: formulář -->
+    <div class="col">
+      <div class="colTitle">Formulář bloku — nový řádek ve Výrobních sloupečcích</div>
+      <div class="panel">
+        <div class="section">Výrobní sloupečky</div>
+        <div class="grid4">
+          <div><div class="collabel">Data</div><div class="fakefield">08.06.26 <span class="selchevron">▾</span></div></div>
+          <div><div class="collabel">Materiál</div><div class="fakefield">Skladem ✓</div></div>
+          <div><div class="collabel">Pantone</div><div class="fakefield">Datum <span class="selchevron">▾</span></div></div>
+          <div><div class="collabel">Expedice</div><div class="fakefield">24.06.26 <span class="selchevron">▾</span></div></div>
+        </div>
+
+        <!-- NOVÝ ŘÁDEK -->
+        <div class="newrow">
+          <span class="newtag">Nové</span>
+          <div class="row4">
+            <div class="toggle on obalka">
+              <span class="chk"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#0c0c0c" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+              OBÁLKA
+            </div>
+            <div class="toggle vnitrky">
+              <span class="chk"></span>
+              VNITŘKY
+            </div>
+
+            <!-- Tiskové archy multi-select (otevřený) -->
+            <div class="ms ddwrap">
+              <div class="collabel">Tiskové archy</div>
+              <div class="mstrigger open">1. TA, 5. TA, 6. TA <span class="chev">▴</span></div>
+              <div class="dropdown">
+                <div class="ddhead">Tiskové archy</div>
+                <div class="ddrow sel"><span class="ddbox"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>1. TA</div>
+                <div class="ddrow"><span class="ddbox"></span>2. TA</div>
+                <div class="ddrow"><span class="ddbox"></span>3. TA</div>
+                <div class="ddrow"><span class="ddbox"></span>4. TA</div>
+                <div class="ddrow sel"><span class="ddbox"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>5. TA</div>
+                <div class="ddrow sel"><span class="ddbox"><svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5 3.5 6 8 1" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>6. TA</div>
+              </div>
+            </div>
+
+            <!-- Série multi-select (zavřený) -->
+            <div class="ms">
+              <div class="collabel">Série</div>
+              <div class="mstrigger">1. série <span class="chev">▾</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">Stávající formulář zůstává beze změny — přibyl jen jeden řádek pod datumy. Dropdowny berou položky z admin číselníků (kategorie&nbsp;<b>TISKOVÝ&nbsp;ARCH</b> a&nbsp;<b>SÉRIE</b>), takže rozsah 1–N spravuješ sám.</div>
+    </div>
+
+    <!-- PRAVÝ SLOUPEC: jak to vypadá v plánu -->
+    <div class="col machinecol">
+      <div class="colTitle">Plán — štítky OBÁLKA/VNITŘKY na bloku</div>
+
+      <div class="block full">
+        <div><span class="ordno">17975</span><span class="ordsub">R4769 · Park Lane</span></div>
+        <div class="statusrow">
+          <div class="sbadge sb-data">DATA<br><span class="v">08.06.26!</span></div>
+          <div class="sbadge sb-mat">MAT.<br><span class="v">SKLADEM ✓</span></div>
+          <div class="sbadge sb-exp">EXP.<br><span class="v">24.06.26</span></div>
+        </div>
+        <div class="ovbadges">
+          <span class="ovb obalka">OBÁLKA</span>
+          <span class="ovb vnitrky">VNITŘKY</span>
+        </div>
+      </div>
+
+      <div class="note" style="margin:-6px 0 6px">Vysoký blok → štítky <b>vpravo dole</b>.</div>
+
+      <div class="block tiny">
+        <span class="ordno" style="font-size:13px">18002</span>
+        <span class="ordsub" style="margin-left:5px">Katalog</span>
+        <div class="ovbadges">
+          <span class="ovb obalka">OB.</span>
+          <span class="ovb vnitrky">VN.</span>
+        </div>
+      </div>
+      <div class="note" style="margin:-6px 0 0">Krátký blok → štítky <b>vpravo vedle ostatních</b> (zkrácené).</div>
+    </div>
+  </div>
+</body>
+</html>

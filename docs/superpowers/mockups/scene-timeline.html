@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="cs" class="dark">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root.dark{
+    --background:oklch(0.145 0 0); --surface:oklch(0.205 0 0); --surface-2:oklch(0.24 0 0);
+    --border:oklch(1 0 0 / 10%); --text:oklch(0.985 0 0); --text-muted:oklch(0.72 0 0);
+    --timeline-bg:oklch(0.2 0.01 250);
+    --obalka:#facc15; --vnitrky:#22d3ee;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:26px;background:var(--background);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+  .title{font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);margin-bottom:14px;}
+  .planner{display:flex;background:var(--timeline-bg);border:1px solid var(--border);border-radius:16px;overflow:hidden;}
+  .gutter{width:54px;flex-shrink:0;border-right:1px solid var(--border);padding-top:42px;}
+  .hour{height:78px;font-size:10px;font-weight:600;color:var(--text-muted);padding:2px 0 0 8px;border-top:1px solid color-mix(in oklab,var(--border) 60%,transparent);}
+  .lane{flex:1;border-right:1px solid var(--border);position:relative;}
+  .lanehead{height:42px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:12px;font-weight:800;letter-spacing:.05em;color:var(--text);border-bottom:1px solid var(--border);background:color-mix(in oklab,var(--surface) 60%,transparent);}
+  .lanehead .dot{width:7px;height:7px;border-radius:50%;}
+  .lanebody{position:relative;padding:8px;}
+
+  .block{position:relative;border-radius:12px;padding:9px 11px;margin-bottom:9px;overflow:hidden;
+    background:linear-gradient(170deg,#18694a 0%,#115237 100%);border:1px solid rgba(255,255,255,.09);}
+  .block.maint{background:linear-gradient(170deg,#3b3550 0%,#2a2640 100%);}
+  .ordno{font-size:14px;font-weight:800;color:#fff;}
+  .ordsub{font-size:11px;font-weight:600;color:rgba(255,255,255,.6);margin-left:6px;}
+  .statusrow{display:flex;gap:5px;margin-top:8px;}
+  .sbadge{border-radius:6px;padding:3px 7px;font-size:8px;font-weight:800;letter-spacing:.04em;line-height:1.3;}
+  .sbadge .v{font-size:10px;font-weight:800;}
+  .sb-data{background:#f0b429;color:#1a1206;}
+  .sb-mat{background:#14653a;color:#b7f3d0;border:1px solid rgba(255,255,255,.14);}
+  .sb-exp{background:#2a3a44;color:#cdd9e1;}
+
+  .ovbadges{position:absolute;right:9px;bottom:8px;display:flex;gap:5px;}
+  .ovb{font-size:8px;font-weight:900;letter-spacing:.05em;padding:3px 7px;border-radius:6px;}
+  .ovb.obalka{background:var(--obalka);color:#1a1206;}
+  .ovb.vnitrky{background:var(--vnitrky);color:#06222a;}
+  .tiny{height:46px;display:flex;align-items:center;}
+  .tiny .ovbadges{position:static;margin-left:auto;}
+
+  .h-tall{min-height:118px;} .h-mid{min-height:78px;}
+  .linkwrap{position:absolute;left:-1px;right:-1px;top:0;bottom:0;pointer-events:none;}
+  .linktag{position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:9;background:#0c0c0c;border:1px solid var(--obalka);color:var(--obalka);font-size:9px;font-weight:800;letter-spacing:.04em;padding:3px 9px;border-radius:999px;white-space:nowrap;}
+  .note{font-size:11.5px;color:var(--text-muted);line-height:1.55;margin-top:14px;max-width:760px;}
+  .note b{color:var(--text);}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:middle;margin:0 3px 0 8px;}
+</style>
+</head>
+<body>
+  <div class="title">Plán výroby — jak vypadají štítky v reálném provozu</div>
+  <div class="planner">
+    <div class="gutter">
+      <div class="hour">06:00</div><div class="hour">08:00</div><div class="hour">10:00</div>
+      <div class="hour">12:00</div>
+    </div>
+
+    <!-- XL_105 -->
+    <div class="lane">
+      <div class="lanehead"><span class="dot" style="background:#4ade80"></span>XL&nbsp;105</div>
+      <div class="lanebody">
+        <div class="block h-tall">
+          <div><span class="ordno">17975</span><span class="ordsub">R4769 · Park Lane</span></div>
+          <div class="statusrow">
+            <div class="sb-data sbadge">DATA<br><span class="v">08.06.!</span></div>
+            <div class="sb-mat sbadge">MAT.<br><span class="v">SKLADEM ✓</span></div>
+            <div class="sb-exp sbadge">EXP.<br><span class="v">24.06.</span></div>
+          </div>
+          <div class="ovbadges"><span class="ovb obalka">OBÁLKA</span></div>
+        </div>
+
+        <div class="block tiny">
+          <span class="ordno" style="font-size:13px">18002</span>
+          <span class="ordsub" style="margin-left:5px">Katalog</span>
+          <div class="ovbadges"><span class="ovb obalka">OB.</span></div>
+        </div>
+
+        <div class="block h-mid">
+          <div><span class="ordno">18250</span><span class="ordsub">Letáky A5</span></div>
+          <div class="statusrow">
+            <div class="sb-data sbadge">DATA<br><span class="v">11.06.</span></div>
+            <div class="sb-exp sbadge">EXP.<br><span class="v">20.06.</span></div>
+          </div>
+          <!-- bez štítků obálka/vnitřky -->
+        </div>
+      </div>
+    </div>
+
+    <!-- XL_106 -->
+    <div class="lane" style="border-right:none">
+      <div class="lanehead"><span class="dot" style="background:#60a5fa"></span>XL&nbsp;106</div>
+      <div class="lanebody">
+        <div class="block h-tall">
+          <span class="linktag">↔ stejná zakázka 17975</span>
+          <div><span class="ordno">17975</span><span class="ordsub">R4769 · Park Lane</span></div>
+          <div class="statusrow">
+            <div class="sb-data sbadge">DATA<br><span class="v">08.06.!</span></div>
+            <div class="sb-mat sbadge">MAT.<br><span class="v">SKLADEM ✓</span></div>
+            <div class="sb-exp sbadge">EXP.<br><span class="v">24.06.</span></div>
+          </div>
+          <div class="ovbadges"><span class="ovb vnitrky">VNITŘKY</span></div>
+        </div>
+
+        <div class="block h-tall">
+          <div><span class="ordno">18110</span><span class="ordsub">Brožura 32s</span></div>
+          <div class="statusrow">
+            <div class="sb-data sbadge">DATA<br><span class="v">10.06.</span></div>
+            <div class="sb-mat sbadge">MAT.<br><span class="v">14.06.</span></div>
+            <div class="sb-exp sbadge">EXP.<br><span class="v">26.06.</span></div>
+          </div>
+          <div class="ovbadges"><span class="ovb obalka">OBÁLKA</span><span class="ovb vnitrky">VNITŘKY</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>To, co planovač řešil:</b> zakázka <b>17975</b> má obálku na stroji XL&nbsp;105 a vnitřky na XL&nbsp;106 — teď je to na první pohled vidět díky štítkům
+    <span class="swatch" style="background:var(--obalka)"></span><b>OBÁLKA</b> a
+    <span class="swatch" style="background:var(--vnitrky)"></span><b>VNITŘKY</b>.
+    Blok <b>18110</b> má oba štítky (tiskne se obálka i vnitřky najednou), <b>18250</b> nemá žádný (běžná zakázka). U krátkých bloků se štítky zkrátí na OB./VN.
+  </div>
+</body>
+</html>
