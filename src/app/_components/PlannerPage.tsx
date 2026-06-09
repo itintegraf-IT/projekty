@@ -73,6 +73,7 @@ type QueueItem = {
   blockVariant: BlockVariant;
   jobPresetId?: number | null;
   jobPresetLabel?: string | null;
+  machine?: string | null;
   durationHours: number;
   description: string;
   dataStatusId: number | null;
@@ -1975,6 +1976,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         blockVariant: type === "ZAKAZKA" ? blockVariant : "STANDARD",
         jobPresetId: type === "UDRZBA" ? null : bJobPresetId,
         jobPresetLabel: type === "UDRZBA" ? null : bJobPresetLabel || null,
+        machine: type === "UDRZBA" ? null : (jobPresets.find((p) => p.id === bJobPresetId)?.machineConstraint ?? null),
         durationHours,
         description: description.trim(),
         dataStatusId: bDataStatusId ? Number(bDataStatusId) : null,
@@ -3992,7 +3994,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                             <div style={{ width: 3, background: itemCfg?.color ?? "var(--text-muted)", flexShrink: 0 }} />
                             {/* Obsah */}
                             <div style={{ flex: 1, padding: "7px 9px", minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{item.orderNumber}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{item.orderNumber}</div>
+                                {item.machine && (
+                                  <span style={{ ...machineBadgeStyle(item.machine), marginLeft: "auto" }}>
+                                    {item.machine === "XL_105" ? "XL 105" : "XL 106"}
+                                  </span>
+                                )}
+                              </div>
                               <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
                                 {itemCfg && <itemCfg.icon size={10} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 3 }} />}{itemCfg?.label} · {formatDuration(item.durationHours)}
                               </div>
