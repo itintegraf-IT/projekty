@@ -1780,7 +1780,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       materialRequiredDate: b.materialRequiredDate, materialOk: b.materialOk,
       barvyStatusId: b.barvyStatusId, barvyStatusLabel: b.barvyStatusLabel,
       lakStatusId: b.lakStatusId, lakStatusLabel: b.lakStatusLabel,
-      specifikace: b.specifikace, materialNote: b.materialNote, recurrenceType: "NONE",
+      specifikace: b.specifikace, materialNote: b.materialNote,
+      obalka: b.obalka ?? false, vnitrky: b.vnitrky ?? false,
+      tiskoveArchy: b.tiskoveArchy ?? null, serie: b.serie ?? null,
+      recurrenceType: "NONE",
     }));
     let restoredIds: number[] = [];
     undoStack.current = undoStack.current.slice(-MAX_HISTORY + 1);

@@ -1006,12 +1006,12 @@ export function BlockEdit({
               {/* TISKOVÉ ARCHY */}
               <div>
                 <ColLabel>Tiskové archy</ColLabel>
-                <MultiSelectDropdown options={tiskoveArchyOpts} selected={tiskoveArchy} onChange={setTiskoveArchy} disabled={!canEdit} />
+                <MultiSelectDropdown options={[...tiskoveArchyOpts, ...tiskoveArchy.filter((s) => !tiskoveArchyOpts.includes(s))]} selected={tiskoveArchy} onChange={setTiskoveArchy} disabled={!canEdit} />
               </div>
               {/* SÉRIE */}
               <div>
                 <ColLabel>Série</ColLabel>
-                <MultiSelectDropdown options={serieOpts} selected={serie} onChange={setSerie} disabled={!canEdit} />
+                <MultiSelectDropdown options={[...serieOpts, ...serie.filter((s) => !serieOpts.includes(s))]} selected={serie} onChange={setSerie} disabled={!canEdit} />
               </div>
             </div>
 

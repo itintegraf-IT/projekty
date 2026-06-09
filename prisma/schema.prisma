@@ -48,8 +48,8 @@ model Block {
   specifikace                                 String?
   obalka                                      Boolean      @default(false)
   vnitrky                                     Boolean      @default(false)
-  tiskoveArchy                                String?
-  serie                                       String?
+  tiskoveArchy                                String?      @db.Text
+  serie                                       String?      @db.Text
   recurrenceType                              String       @default("NONE")
   recurrenceParentId                          Int?
   createdAt                                   DateTime     @default(now())
