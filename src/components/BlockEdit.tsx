@@ -16,6 +16,8 @@ import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVarian
 import { utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
 import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
+import { parseProductionTags, serializeProductionTags } from "@/lib/productionTags";
+import { MultiSelectDropdown } from "@/components/MultiSelectDropdown";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
@@ -155,6 +157,13 @@ export function BlockEdit({
 
   // SPECIFIKACE
   const [specifikace, setSpecifikace] = useState(block.specifikace ?? "");
+  // VÝROBNÍ ŠTÍTKY
+  const [obalka, setObalka]   = useState(block.obalka ?? false);
+  const [vnitrky, setVnitrky] = useState(block.vnitrky ?? false);
+  const [tiskoveArchy, setTiskoveArchy] = useState<string[]>(parseProductionTags(block.tiskoveArchy));
+  const [serie, setSerie]               = useState<string[]>(parseProductionTags(block.serie));
+  const [tiskoveArchyOpts, setTiskoveArchyOpts] = useState<string[]>([]);
+  const [serieOpts, setSerieOpts]               = useState<string[]>([]);
   const [jobPresetId, setJobPresetId] = useState<number | null>(block.jobPresetId ?? null);
   const [jobPresetLabel, setJobPresetLabel] = useState(block.jobPresetLabel ?? "");
 
@@ -427,6 +436,17 @@ export function BlockEdit({
     });
   }, [dataOptsProp]);
 
+  // Číselníky pro multi-selecty (TA/série) — fetch labelů v pořadí sortOrder
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/codebook?category=TISKOVY_ARCH").then((r) => r.json()),
+      fetch("/api/codebook?category=SERIE").then((r) => r.json()),
+    ]).then(([ta, se]) => {
+      setTiskoveArchyOpts((ta as Array<{ label: string }>).map((o) => o.label));
+      setSerieOpts((se as Array<{ label: string }>).map((o) => o.label));
+    }).catch(() => { /* prázdný seznam = dropdown ukáže hint */ });
+  }, []);
+
   const compatibleJobPresets = useMemo(
     () => jobPresets.filter((preset) => preset.isActive && presetSupportsType(preset, type)),
     [jobPresets, type]
@@ -558,6 +578,10 @@ export function BlockEdit({
       lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
       lakStatusLabel: lakStatusId ? resolveLabel(lakOpts, lakStatusId) : null,
       specifikace: specifikace.trim() || null,
+      obalka,
+      vnitrky,
+      tiskoveArchy: serializeProductionTags(tiskoveArchy),
+      serie: serializeProductionTags(serie),
       endTime: new Date(new Date(block.startTime).getTime() + durationHours * 3600000).toISOString(),
     };
   }
@@ -960,6 +984,34 @@ export function BlockEdit({
               <div style={{ opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
                 <ColLabel>Lak</ColLabel>
                 <StatusSelect value={lakStatusId} onChange={setLakStatusId} opts={lakOpts} />
+              </div>
+            </div>
+
+            {/* Řádek 3: Výrobní štítky — OBÁLKA | VNITŘKY | Tiskové archy | Série */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.15fr 1.15fr", gap: 6, marginTop: 10, alignItems: "end", opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
+              {/* OBÁLKA */}
+              <button type="button" onClick={() => setObalka((v) => !v)} style={{ height: 34, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", border: obalka ? "1px solid #facc15" : "1px solid var(--border)", background: obalka ? "color-mix(in oklab, #facc15 16%, transparent)" : "var(--surface-2)", color: obalka ? "#eab308" : "var(--text-muted)", transition: "all 100ms" }}>
+                <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: obalka ? "#facc15" : "transparent", border: obalka ? "1.5px solid #facc15" : "1.5px solid var(--border)" }}>
+                  {obalka && <svg width="8" height="6" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#1a1206" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                </span>
+                OBÁLKA
+              </button>
+              {/* VNITŘKY */}
+              <button type="button" onClick={() => setVnitrky((v) => !v)} style={{ height: 34, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", border: vnitrky ? "1px solid #22d3ee" : "1px solid var(--border)", background: vnitrky ? "color-mix(in oklab, #22d3ee 16%, transparent)" : "var(--surface-2)", color: vnitrky ? "#22d3ee" : "var(--text-muted)", transition: "all 100ms" }}>
+                <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: vnitrky ? "#22d3ee" : "transparent", border: vnitrky ? "1.5px solid #22d3ee" : "1.5px solid var(--border)" }}>
+                  {vnitrky && <svg width="8" height="6" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#06222a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                </span>
+                VNITŘKY
+              </button>
+              {/* TISKOVÉ ARCHY */}
+              <div>
+                <ColLabel>Tiskové archy</ColLabel>
+                <MultiSelectDropdown options={tiskoveArchyOpts} selected={tiskoveArchy} onChange={setTiskoveArchy} disabled={!canEdit} />
+              </div>
+              {/* SÉRIE */}
+              <div>
+                <ColLabel>Série</ColLabel>
+                <MultiSelectDropdown options={serieOpts} selected={serie} onChange={setSerie} disabled={!canEdit} />
               </div>
             </div>
 
