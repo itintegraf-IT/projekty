@@ -765,6 +765,22 @@ function MiniChip({ label, accent, textColor }: { label: string; accent: string;
   );
 }
 
+// ─── OvBadges — výrobní štítky OBÁLKA / VNITŘKY ───────────────────────────────
+// Fragment (bez wrapperu) — lze vložit do existujícího flex clusteru i do
+// absolutně pozicovaného kontejneru. abbreviated = zkrácené OB./VN. pro krátké bloky.
+function OvBadges({ obalka, vnitrky, abbreviated }: { obalka?: boolean; vnitrky?: boolean; abbreviated?: boolean }) {
+  if (!obalka && !vnitrky) return null;
+  const pill = (bg: string, fg: string, text: string) => (
+    <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.04em", padding: "2px 6px", borderRadius: 5, background: bg, color: fg, lineHeight: 1, whiteSpace: "nowrap", flexShrink: 0 }}>{text}</span>
+  );
+  return (
+    <>
+      {obalka && pill("#facc15", "#1a1206", abbreviated ? "OB." : "OBÁLKA")}
+      {vnitrky && pill("#22d3ee", "#06222a", abbreviated ? "VN." : "VNITŘKY")}
+    </>
+  );
+}
+
 // ─── MaterialNoteAffordance ────────────────────────────────────────────────────
 // Jen HoverCard pro pasivní náhled — ContextMenu je nyní na celém bloku (BlockCard).
 // Musí být MIMO BlockCard — definice uvnitř by způsobila remount při každém renderu.
@@ -1206,8 +1222,8 @@ function BlockCard({
                 </span>
               )}
             </div>
-            {/* Pravá část: status chips + série */}
-            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+            {/* Pravá část: status chips + série + výrobní štítky */}
+            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || block.obalka || block.vnitrky) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
@@ -1215,6 +1231,7 @@ function BlockCard({
                 {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                   <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
                 )}
+                <OvBadges obalka={block.obalka} vnitrky={block.vnitrky} abbreviated />
               </div>
             )}
             {/* Hotovo mini tlačítko — jen pro TISKAR */}
@@ -1320,8 +1337,8 @@ function BlockCard({
                 </span>
               )}
             </div>
-            {/* Pravá část: status chips + série + split */}
-            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
+            {/* Pravá část: status chips + série + split + výrobní štítky */}
+            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1 || block.obalka || block.vnitrky) && (
               <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
                 {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
                 {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
@@ -1332,6 +1349,7 @@ function BlockCard({
                 {(splitTotal ?? 0) > 1 && (
                   <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
                 )}
+                <OvBadges obalka={block.obalka} vnitrky={block.vnitrky} abbreviated />
               </div>
             )}
             {/* Hotovo mini tlačítko — jen pro TISKAR */}
@@ -1541,6 +1559,13 @@ function BlockCard({
           />
         );
       })()}
+
+      {/* Výrobní štítky OBÁLKA/VNITŘKY — vpravo dole (FULL mode, je tam prostor) */}
+      {MODE_FULL && (block.obalka || block.vnitrky) && (
+        <div style={{ position: "absolute", right: 6, bottom: 4, display: "flex", gap: 5, zIndex: 4, pointerEvents: "none" }}>
+          <OvBadges obalka={block.obalka} vnitrky={block.vnitrky} />
+        </div>
+      )}
 
       {/* Resize handle — rohový iOS-style */}
       {!block.locked && (
