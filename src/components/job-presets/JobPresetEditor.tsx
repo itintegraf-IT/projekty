@@ -8,6 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   summarizeJobPreset,
   type JobPreset,
+  type JobPresetMachine,
   type JobPresetUpsertInput,
 } from "@/lib/jobPresets";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
@@ -156,6 +157,7 @@ export default function JobPresetEditor({
   const [isActive, setIsActive] = useState(true);
   const [appliesToZakazka, setAppliesToZakazka] = useState(true);
   const [appliesToRezervace, setAppliesToRezervace] = useState(true);
+  const [machineConstraint, setMachineConstraint] = useState<JobPresetMachine | null>(null);
   const [blockVariant, setBlockVariant] = useState<BlockVariant | null>(null);
   const [specifikace, setSpecifikace] = useState("");
   const [dataStatusId, setDataStatusId] = useState<number | null>(null);
@@ -176,6 +178,7 @@ export default function JobPresetEditor({
     setIsActive(initialValue.isActive ?? true);
     setAppliesToZakazka(initialValue.appliesToZakazka ?? true);
     setAppliesToRezervace(initialValue.appliesToRezervace ?? true);
+    setMachineConstraint((initialValue.machineConstraint as JobPresetMachine | null | undefined) ?? null);
     setBlockVariant((initialValue.blockVariant as BlockVariant | null | undefined) ?? null);
     setSpecifikace(initialValue.specifikace ?? "");
     setDataStatusId(initialValue.dataStatusId ?? null);
@@ -231,7 +234,7 @@ export default function JobPresetEditor({
     sortOrder: initialValue.sortOrder ?? 0,
     appliesToZakazka,
     appliesToRezervace,
-    machineConstraint: null,
+    machineConstraint,
     blockVariant,
     specifikace: specifikace.trim() || null,
     dataStatusId,
@@ -259,6 +262,7 @@ export default function JobPresetEditor({
     initialValue.sortOrder,
     isActive,
     lakStatusId,
+    machineConstraint,
     materialInStock,
     materialOptions,
     materialRequiredDateOffsetDays,
@@ -281,7 +285,7 @@ export default function JobPresetEditor({
       isActive,
       appliesToZakazka,
       appliesToRezervace,
-      machineConstraint: null,
+      machineConstraint,
       blockVariant: appliesToZakazka ? blockVariant : null,
       specifikace: specifikace.trim() || null,
       dataStatusId,
@@ -380,6 +384,36 @@ export default function JobPresetEditor({
                 <Switch checked={appliesToRezervace} onCheckedChange={setAppliesToRezervace} />
                 Použít pro rezervaci
               </label>
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>Stroj</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                  {([null, "XL_105", "XL_106"] as const).map((m) => {
+                    const active = machineConstraint === m;
+                    const color = m === "XL_105" ? "#3b82f6" : m === "XL_106" ? "#16a34a" : "var(--accent)";
+                    const label = m === "XL_105" ? "XL 105" : m === "XL_106" ? "XL 106" : "Neurčeno";
+                    return (
+                      <button
+                        key={m ?? "none"}
+                        type="button"
+                        onClick={() => setMachineConstraint(m)}
+                        style={{
+                          height: 34,
+                          borderRadius: 8,
+                          border: active ? `1px solid ${color}` : "1px solid var(--border)",
+                          background: active ? `color-mix(in oklab, ${color} 14%, transparent)` : "var(--surface-2)",
+                          color: active ? color : "var(--text-muted)",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6 }}>Určuje stroj zakázek z presetu — zobrazí se jako badge ve frontě.</div>
+              </div>
               <div>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>Stav zakázky</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
