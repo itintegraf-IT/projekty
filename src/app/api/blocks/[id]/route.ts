@@ -154,6 +154,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       "expediceNote", "doprava",
       "blockVariant",
       "jobPresetLabel",
+      "obalka", "vnitrky", "tiskoveArchy", "serie",
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
 
@@ -351,6 +352,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.lakStatusLabel !== undefined && { lakStatusLabel: allowed.lakStatusLabel as string }),
           // SPECIFIKACE
           ...(allowed.specifikace !== undefined && { specifikace: allowed.specifikace as string }),
+          // VÝROBNÍ ŠTÍTKY
+          ...(allowed.obalka !== undefined && { obalka: allowed.obalka as boolean }),
+          ...(allowed.vnitrky !== undefined && { vnitrky: allowed.vnitrky as boolean }),
+          ...(allowed.tiskoveArchy !== undefined && { tiskoveArchy: allowed.tiskoveArchy as string | null }),
+          ...(allowed.serie !== undefined && { serie: allowed.serie as string | null }),
           // OPAKOVÁNÍ
           ...(allowed.recurrenceType !== undefined && { recurrenceType: allowed.recurrenceType as string }),
           // SPLIT SKUPINA

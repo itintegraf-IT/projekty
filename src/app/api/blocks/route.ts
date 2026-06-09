@@ -191,6 +191,11 @@ export async function POST(request: NextRequest) {
           lakStatusLabel: body.lakStatusLabel ?? null,
           // SPECIFIKACE
           specifikace: body.specifikace ?? null,
+          // VÝROBNÍ ŠTÍTKY
+          obalka: body.obalka ?? false,
+          vnitrky: body.vnitrky ?? false,
+          tiskoveArchy: body.tiskoveArchy ?? null,
+          serie: body.serie ?? null,
           // MATERIÁL POZNÁMKA (jen obsah — autor se nepřenáší, je server-owned)
           materialNote: body.materialNote ?? null,
           // PANTONE + MATERIAL FLAGS

@@ -24,6 +24,10 @@ export const SERIES_EXCLUDED_FIELDS = [
   "materialIssued",
   "materialInStock",
   "pantoneRequired",
+  "obalka",
+  "vnitrky",
+  "tiskoveArchy",
+  "serie",
 ] as const;
 
 type ExcludedField = typeof SERIES_EXCLUDED_FIELDS[number];

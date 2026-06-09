@@ -18,10 +18,22 @@ export const FIELD_LABELS: Record<string, string> = {
   pantoneOk: "Pantone OK",
   pantoneRequired: "Pantone potřeba",
   blockVariant: "Stav zakázky",
+  obalka: "Obálka",
+  vnitrky: "Vnitřky",
+  tiskoveArchy: "Tiskové archy",
+  serie: "Série",
 };
 
 export function fmtAuditVal(val: string | null, field: string | null): string {
   if (!val || val === "null") return "—";
+  if (field === "obalka" || field === "vnitrky") return val === "true" ? "✓ Ano" : "✗ Ne";
+  if (field === "tiskoveArchy" || field === "serie") {
+    try {
+      const arr = JSON.parse(val);
+      if (Array.isArray(arr)) return arr.length ? arr.join(", ") : "—";
+    } catch { /* fallthrough */ }
+    return val;
+  }
   if (field === "dataOk" || field === "materialOk" || field === "pantoneRequired") return val === "true" ? "✓ OK" : "✗ Ne";
   if (field === "materialInStock" || field === "materialIssued") return val === "true" ? "✓ Ano" : "✗ Ne";
   if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
