@@ -1560,9 +1560,10 @@ function BlockCard({
         );
       })()}
 
-      {/* Výrobní štítky OBÁLKA/VNITŘKY — vpravo dole (FULL mode, je tam prostor) */}
+      {/* Výrobní štítky OBÁLKA/VNITŘKY — vpravo dole (FULL mode, je tam prostor).
+          U TISKAŘE je spodní pruh obsazen tlačítkem Hotovo / SplitChipem → zvednout výš. */}
       {MODE_FULL && (block.obalka || block.vnitrky) && (
-        <div style={{ position: "absolute", right: 6, bottom: 4, display: "flex", gap: 5, zIndex: 4, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", right: 6, bottom: isTiskar ? 32 : 4, display: "flex", gap: 5, zIndex: 4, pointerEvents: "none" }}>
           <OvBadges obalka={block.obalka} vnitrky={block.vnitrky} />
         </div>
       )}
