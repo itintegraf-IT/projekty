@@ -308,6 +308,12 @@ function BlockCard({
           });
         }}
       />
+      {(block.obalka || block.vnitrky) && (
+        <div style={{ display: "flex", gap: 5, marginTop: 6 }}>
+          {block.obalka && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: "#facc15", color: "#1a1206", lineHeight: 1 }}>OBÁLKA</span>}
+          {block.vnitrky && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: "#22d3ee", color: "#06222a", lineHeight: 1 }}>VNITŘKY</span>}
+        </div>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { formatCivilDate, formatPragueDateTime, formatPragueDateShort, formatPra
 import DatePickerField from "@/app/_components/DatePickerField";
 import { getSplitChipState } from "@/lib/splitHelpers";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
+import { formatProductionTags } from "@/lib/productionTags";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -204,7 +205,7 @@ export function BlockDetail({
           </>
         )}
 
-        {(block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace || block.materialInStock || block.materialIssued) && (
+        {(block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace || block.materialInStock || block.materialIssued || block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
           <>
             <Separator className="my-1 bg-slate-800" />
             <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2 space-y-1.5">
@@ -226,6 +227,17 @@ export function BlockDetail({
               {block.barvyStatusLabel && <Row label="Barvy" value={block.barvyStatusLabel} />}
               {block.lakStatusLabel && <Row label="Lak" value={block.lakStatusLabel} />}
               {block.specifikace && <Row label="Spec" value={block.specifikace} />}
+              {(block.obalka || block.vnitrky) && (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[10px] text-slate-500 w-16 flex-shrink-0">Typ tisku</span>
+                  <span className="flex gap-1.5">
+                    {block.obalka && <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded" style={{ background: "#facc15", color: "#1a1206" }}>OBÁLKA</span>}
+                    {block.vnitrky && <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded" style={{ background: "#22d3ee", color: "#06222a" }}>VNITŘKY</span>}
+                  </span>
+                </div>
+              )}
+              {block.tiskoveArchy && <Row label="Tiskové archy" value={formatProductionTags(block.tiskoveArchy)} />}
+              {block.serie && <Row label="Série" value={formatProductionTags(block.serie)} />}
             </div>
           </>
         )}
