@@ -1674,6 +1674,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       lakStatusLabel: block.lakStatusLabel,
       specifikace: block.specifikace,
       materialNote: block.materialNote,
+      obalka: block.obalka ?? false,
+      vnitrky: block.vnitrky ?? false,
+      tiskoveArchy: block.tiskoveArchy ?? null,
+      serie: block.serie ?? null,
       recurrenceType: "NONE",
     };
 
@@ -2404,6 +2408,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           lakStatusId: src.lakStatusId,
           lakStatusLabel: src.lakStatusLabel,
           specifikace: src.specifikace,
+          obalka: src.obalka ?? false,
+          vnitrky: src.vnitrky ?? false,
+          tiskoveArchy: src.tiskoveArchy ?? null,
+          serie: src.serie ?? null,
           bypassScheduleValidation: !workingTimeLockRef.current,
           resolveChain: true,
         }),

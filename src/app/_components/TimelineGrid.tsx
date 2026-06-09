@@ -113,6 +113,11 @@ export type Block = {
   lakStatusLabel: string | null;
   // Výrobní sloupečky — SPECIFIKACE
   specifikace: string | null;
+  // Výrobní štítky — OBÁLKA / VNITŘKY + multi-select metadata
+  obalka?: boolean;
+  vnitrky?: boolean;
+  tiskoveArchy?: string | null;
+  serie?: string | null;
   // Poznámka MTZ k materiálu
   materialNote: string | null;
   materialNoteByUsername: string | null;
