@@ -508,8 +508,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           shiftedMoves = await resolveChainPushFromDb(
             tx,
             updated.machine,
-            { id: updated.id, startTime: updated.startTime, endTime: updated.endTime },
-            !bypassScheduleValidation
+            { id: updated.id, startTime: updated.startTime, endTime: updated.endTime }
           );
           if (shiftedMoves.length > 0) {
             await tx.auditLog.createMany({

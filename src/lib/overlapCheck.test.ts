@@ -1,5 +1,6 @@
 import { describe, it, mock, beforeEach } from "node:test";
 import assert from "node:assert/strict";
+import { findIntraBatchOverlap, type BatchSpan } from "@/lib/overlapCheck";
 
 describe("checkBlockOverlap", () => {
   let checkBlockOverlap: typeof import("@/lib/overlapCheck").checkBlockOverlap;
@@ -44,7 +45,7 @@ describe("checkBlockOverlap", () => {
 
     await checkBlockOverlap("XL_105", new Date("2026-04-16T10:00:00Z"), new Date("2026-04-16T12:00:00Z"), null, tx);
 
-    const whereArg = findFirstMock.mock.calls[0].arguments[0].where;
+    const whereArg = (findFirstMock.mock.calls as unknown as { arguments: [{ where: Record<string, unknown> }] }[])[0]!.arguments[0].where;
     assert.equal(whereArg.id, undefined, "excludeBlockId=null nesmí přidat id filter");
   });
 
@@ -54,7 +55,7 @@ describe("checkBlockOverlap", () => {
 
     await checkBlockOverlap("XL_105", new Date("2026-04-16T12:00:00Z"), new Date("2026-04-16T14:00:00Z"), null, tx);
 
-    const whereArg = findFirstMock.mock.calls[0].arguments[0].where;
+    const whereArg = (findFirstMock.mock.calls as unknown as { arguments: [{ where: Record<string, unknown> }] }[])[0]!.arguments[0].where;
     assert.deepEqual(whereArg.endTime, { gt: new Date("2026-04-16T12:00:00Z") });
   });
 });
@@ -126,5 +127,40 @@ describe("assertNoOverlapForBlocks", () => {
         return true;
       },
     );
+  });
+});
+
+describe("findIntraBatchOverlap", () => {
+  const span = (id: number, machine: string, startH: number, endH: number): BatchSpan => ({
+    id,
+    orderNumber: `B${id}`,
+    machine,
+    start: new Date(`2026-06-16T${String(startH).padStart(2, "0")}:00:00Z`),
+    end: new Date(`2026-06-16T${String(endH).padStart(2, "0")}:00:00Z`),
+  });
+
+  it("bez překryvu → null", () => {
+    assert.equal(findIntraBatchOverlap([span(1, "XL_105", 10, 12), span(2, "XL_105", 12, 14)]), null);
+  });
+
+  it("překryv na stejném stroji → vrátí pár", () => {
+    const pair = findIntraBatchOverlap([span(1, "XL_105", 10, 13), span(2, "XL_105", 12, 14)]);
+    assert.ok(pair);
+    assert.deepEqual([pair![0].id, pair![1].id], [1, 2]);
+  });
+
+  it("stejné časy na RŮZNÝCH strojích → null", () => {
+    assert.equal(findIntraBatchOverlap([span(1, "XL_105", 10, 13), span(2, "XL_106", 12, 14)]), null);
+  });
+
+  it("obalený interval (ne-sousední po sortu) se chytí přes running max end", () => {
+    // A 10–20 obaluje C 14–15; mezi nimi B 11–12 (uvnitř A) — running max end = A.end.
+    const pair = findIntraBatchOverlap([span(1, "XL_105", 10, 20), span(2, "XL_105", 11, 12), span(3, "XL_105", 14, 15)]);
+    assert.ok(pair);
+    assert.equal(pair![0].id, 1);
+  });
+
+  it("dotýkající se bloky (half-open) → null", () => {
+    assert.equal(findIntraBatchOverlap([span(1, "XL_105", 10, 12), span(2, "XL_105", 12, 14), span(3, "XL_105", 14, 16)]), null);
   });
 });

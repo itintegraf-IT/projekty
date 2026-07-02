@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **55/55 testů zelené** (viz níže)
+- celá test suite: **109/109 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -23,10 +23,17 @@ node --test --import tsx src/lib/dateUtils.test.ts             # 8 testů
 node --test --import tsx src/lib/errors.test.ts                # 5 testů
 node --test --import tsx src/lib/pasteTarget.test.ts           # 6 testů
 node --test --import tsx src/lib/clipboardCopy.test.ts         # 6 testů
-node --test --import tsx src/lib/printTime.test.ts             # 14 testů
+node --test --import tsx src/lib/printTime.test.ts             # 19 testů
 node --test --import tsx src/lib/printTime.server.test.ts      # 4 testy
-node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 11 testů
+node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
+node --test --import tsx src/lib/overlapCheck.test.ts          # 13 testů
+node --test --import tsx src/lib/overlapResolver.test.ts       # 11 testů
+node --test --import tsx src/lib/overlapResolver.server.test.ts    # 7 testů
+node --test --import tsx src/lib/scheduleSlotFinder.test.ts    # 11 testů
+node --experimental-test-module-mocks --test --import tsx src/lib/scheduleSlotFinder.server.test.ts  # 7 testů
 ```
+
+`scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 
 ## Co aplikace dnes umí
 
@@ -214,6 +221,14 @@ Návratová hodnota při `ok: true` obsahuje i `effectivelyBypassed` — SPOČÍ
 
 Nikdy neduplikovat tuto logiku — `scheduleValidationServer.ts` je jediný zdroj pravdy pro serverovou validaci harmonogramu i výpočet end. Platí pro POST `/api/blocks`, PUT `/api/blocks/[id]` a POST `/api/blocks/batch`. Stará `validateBlockScheduleFromDb` (validace bez výpočtu end) byla zrušena.
 
+Chain push (`resolveChainPushFromDb`) a auto-shift (`findNextFreePrintSlotFromDb`) od etapy 3
+umísťují bloky přes start-only snap (`snapStartToNextRunnableSlot`) + `expandPrintTime` podle
+per-blok `printMinutes` a `scheduleBypassed` — odsunutý blok smí pauznout přes odstávku a jeho
+end vždy sedí na kalendář. Kolize se zamčeným/vytištěným blokem = odmítnutí transakce s hláškou
+(žádné tiché přeskládání). Limit auto-shiftu (7 dní) platí pro posun STARTU, ne endu.
+Stará duration-based `findNextFreeSlot`/`findNextFreeSlotFromDb` zůstává jen pro klientské
+preview a ne-ZAKAZKA bloky (TODO Plán 4).
+
 ### Audit log — každá mutace v transakci
 
 Každá operace, která mění data viditelná uživateli, musí zapsat do `AuditLog` v rámci `$transaction`:
@@ -290,6 +305,7 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/lib/printTime.server.ts` — `loadMachineCalendar`/`expandPrintTimeFromDb` — DB fetch (weekShifts + companyDays) a napojení na `printTime.ts`
 - `src/lib/plannerTypes.ts` — `TYPE_LABELS`, `TYPE_BUILDER_CONFIG`, `CodebookOption`, `DURATION_OPTIONS`
 - `src/lib/auditFormatters.ts` — `FIELD_LABELS`, `fmtAuditVal`, `formatPragueMaybeToday`
+- `src/lib/weekShiftsTestFixtures.ts` — test-only fixtury pracovní doby (`mkDay`, `xl106Week`, ...), sdílené mezi `*.test.ts` soubory validace harmonogramu
 
 ### Planner — komponenty
 

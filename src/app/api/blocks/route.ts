@@ -9,7 +9,7 @@ import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { AppError, isAppError } from "@/lib/errors";
-import { findNextFreeSlotFromDb } from "@/lib/scheduleSlotFinder";
+import { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } from "@/lib/scheduleSlotFinder";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
 
@@ -98,14 +98,18 @@ export async function POST(request: NextRequest) {
       if (!autoShiftIfBusy || sched.kind === "INVALID_INPUT") {
         return NextResponse.json({ error: sched.error }, { status: 422 });
       }
-      // Auto-shift (série z přehledu): najdi nejbližší volný slot — Plán 3 přepíše
-      // findNextFreeSlot na start-only snap; do té doby zachováno staré chování.
-      const slot = await findNextFreeSlotFromDb(body.machine as string, startTime, durationMs);
+      // Auto-shift (série z přehledu): start-only snap + expanze — start se snapne na
+      // nejbližší aktivní slot a délka se rozloží přes pauzy, žádný teleport za souvislým oknem.
+      if (rawPrintMinutes == null) {
+        return NextResponse.json({ error: sched.error }, { status: 422 });
+      }
+      const slot = await findNextFreePrintSlotFromDb(body.machine as string, startTime, rawPrintMinutes);
       if (!slot.found) {
-        return NextResponse.json(
-          { error: `Auto-shift selhal: stroj ${body.machine} obsazen déle než 7 dní od ${originalStart.toISOString()}.` },
-          { status: 409 }
-        );
+        const msg =
+          slot.reason === "NO_CAPACITY"
+            ? `Auto-shift selhal: v kalendáři stroje ${body.machine} není dost pracovní doby pro ${rawPrintMinutes} min tisku.`
+            : `Auto-shift selhal: stroj ${body.machine} obsazen déle než 7 dní od ${originalStart.toISOString()}.`;
+        return NextResponse.json({ error: msg }, { status: 409 });
       }
       startTime = slot.startTime;
       endTime = slot.endTime;
@@ -163,7 +167,10 @@ export async function POST(request: NextRequest) {
             throw overlapErr;
           }
           // Race condition: slot byl mezi pre-check a transakcí obsazen.
-          const slot = await findNextFreeSlotFromDb(body.machine, startTime, durationMs);
+          const slot =
+            blockType === "ZAKAZKA" && rawPrintMinutes != null
+              ? await findNextFreePrintSlotFromDb(body.machine, startTime, rawPrintMinutes)
+              : await findNextFreeSlotFromDb(body.machine, startTime, durationMs);
           if (!slot.found) {
             throw new AppError(
               "AUTO_SHIFT_FAILED",
@@ -312,8 +319,7 @@ export async function POST(request: NextRequest) {
         shiftedMoves = await resolveChainPushFromDb(
           tx,
           body.machine,
-          { id: newBlock.id, startTime: newBlock.startTime, endTime: newBlock.endTime },
-          !bypassScheduleValidation
+          { id: newBlock.id, startTime: newBlock.startTime, endTime: newBlock.endTime }
         );
         if (shiftedMoves.length > 0) {
           await tx.auditLog.createMany({

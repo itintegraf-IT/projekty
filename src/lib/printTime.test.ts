@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pragueToUTC, utcToPragueHour } from "./dateUtils";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
-import { expandPrintTime, isMachineRunnableAt, computePrintMinutes, type CompanyDayInterval } from "./printTime";
+import { expandPrintTime, isMachineRunnableAt, computePrintMinutes, snapStartToNextRunnableSlot, type CompanyDayInterval } from "./printTime";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 // Směny: MORNING 6–14 (360–840), AFTERNOON 14–22 (840–1320), NIGHT 22–6 (1320–360 wrap)
@@ -186,4 +186,44 @@ test("DST spring-forward: printMinutes = reálné minuty (24/7 stroj, noc s 23 h
   if (!r.ok) return;
   assert.equal(r.end.getTime() - start.getTime(), 12 * 3600000); // reálných 12 h
   assert.equal(utcToPragueHour(r.end), 9); // civilně 09:00 (hodina „zmizela")
+});
+
+// ── snapStartToNextRunnableSlot ──────────────────────────────────────────────
+
+test("snap: runnable start se nemění", () => {
+  const t = pragueToUTC("2026-08-18", 10); // úterý 10:00 — plný provoz
+  assert.deepEqual(snapStartToNextRunnableSlot("XL_106", t, SHIFTS, NO_CD), t);
+});
+
+test("snap: sobota (odstávka) → neděle 22:00 (začátek noční)", () => {
+  const t = pragueToUTC("2026-08-22", 12); // sobota 12:00
+  assert.deepEqual(
+    snapStartToNextRunnableSlot("XL_106", t, SHIFTS, NO_CD),
+    pragueToUTC("2026-08-23", 22)
+  );
+});
+
+test("snap: CompanyDay přeskočí i uvnitř aktivní směny", () => {
+  const cd: CompanyDayInterval[] = [
+    { start: pragueToUTC("2026-08-18", 0), end: pragueToUTC("2026-08-19", 0) }, // celé úterý
+  ];
+  const t = pragueToUTC("2026-08-18", 10);
+  assert.deepEqual(
+    snapStartToNextRunnableSlot("XL_106", t, SHIFTS, cd),
+    pragueToUTC("2026-08-19", 0) // středa 00:00 — první runnable slot po odstávce
+  );
+});
+
+test("snap: nezarovnaný čas se zarovná NAHORU na slot grid", () => {
+  const t = new Date(pragueToUTC("2026-08-18", 10).getTime() + 7 * 60 * 1000); // 10:07
+  assert.deepEqual(
+    snapStartToNextRunnableSlot("XL_106", t, SHIFTS, NO_CD),
+    pragueToUTC("2026-08-18", 10, 30)
+  );
+});
+
+test("snap: žádný runnable slot do limitu → null", () => {
+  const t = pragueToUTC("2026-08-22", 12); // sobota 12:00, provoz až Ne 22:00
+  const limit = pragueToUTC("2026-08-23", 12).getTime(); // limit = neděle poledne
+  assert.equal(snapStartToNextRunnableSlot("XL_106", t, SHIFTS, NO_CD, limit), null);
 });

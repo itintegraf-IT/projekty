@@ -138,3 +138,31 @@ export function computePrintMinutes(
   }
   return minutes;
 }
+
+/**
+ * Posune start na nejbližší runnable 30min slot (weekShifts + companyDays přes
+ * isMachineRunnableAt). Start-only náhrada duration-based snapu
+ * (snapToNextValidStartWithTemplates): blok se položí na první aktivní slot
+ * a délka se rozloží expanzí — blok delší než související okno se už neteleportuje.
+ *
+ * Nezarovnaný `proposed` se zarovná NAHORU na slot grid. Vrací null, když
+ * v [proposed, limitMs] žádný runnable slot není (default limit = MAX_SPAN_DAYS).
+ *
+ * Precondition (jako expandPrintTime): weekShifts musí pokrývat všechny týdny
+ * prohledávaného okna — volající odpovídá za kompletní fetch.
+ */
+export function snapStartToNextRunnableSlot(
+  machine: string,
+  proposed: Date,
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayInterval[],
+  limitMs: number = proposed.getTime() + MAX_SPAN_DAYS * 24 * 60 * 60 * 1000
+): Date | null {
+  let t = Math.ceil(proposed.getTime() / SLOT_MS) * SLOT_MS;
+  while (t <= limitMs) {
+    const slot = new Date(t);
+    if (isMachineRunnableAt(machine, slot, weekShifts, companyDays)) return slot;
+    t += SLOT_MS;
+  }
+  return null;
+}

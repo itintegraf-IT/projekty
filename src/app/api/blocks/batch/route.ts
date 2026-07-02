@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
-import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import { checkBlockOverlap, assertNoOverlapForBlocks, findIntraBatchOverlap } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { AppError, isAppError } from "@/lib/errors";
 import { emitSSE } from "@/lib/eventBus";
@@ -110,6 +110,25 @@ export async function POST(request: NextRequest) {
           if (!sched.ok) throw new AppError("SCHEDULE_VIOLATION", sched.error);
           computedEnds.set(u.id, { end: sched.end, printMinutes: pm, bypassed: sched.effectivelyBypassed });
         }
+
+        // Intra-group pre-check: re-expanze mohla sourozencům změnit délky → překryv
+        // UVNITŘ dávky je neřešitelný (chain push sourozence neposouvá) → konkrétní
+        // hláška místo generické 409 z finální pojistky.
+        const pair = findIntraBatchOverlap(
+          zakazkaUpdates.map((u) => ({
+            id: u.id,
+            orderNumber: existingBlocks.find((b) => b.id === u.id)?.orderNumber ?? null,
+            machine: u.machine,
+            start: new Date(u.startTime),
+            end: computedEnds.get(u.id)!.end,
+          }))
+        );
+        if (pair) {
+          throw new AppError(
+            "OVERLAP",
+            `Bloky #${pair[0].orderNumber ?? pair[0].id} a #${pair[1].orderNumber ?? pair[1].id} se po přepočtu délek překrývají mezi sebou — přesuň je jednotlivě nebo zvol jiné místo.`
+          );
+        }
       }
 
       const updated: Awaited<ReturnType<typeof tx.block.update>>[] = [];
@@ -167,7 +186,6 @@ export async function POST(request: NextRequest) {
             tx,
             u.machine,
             { id: u.id, startTime: new Date(u.startTime), endTime: computedEnds.get(u.id)?.end ?? new Date(u.endTime) },
-            !bypassScheduleValidation,
             movedIds
           );
           shiftedMoves.push(...moves);

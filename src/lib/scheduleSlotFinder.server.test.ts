@@ -20,7 +20,7 @@ await mock.module("@/lib/prisma", {
 });
 
 // Import testované funkce AŽ PO nastavení mocků
-const { findNextFreeSlotFromDb } = await import("@/lib/scheduleSlotFinder");
+const { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } = await import("@/lib/scheduleSlotFinder");
 
 // ─── Pomocné konstanty pro testy ─────────────────────────────────────────────
 const MACHINE = "XL_105";
@@ -89,5 +89,55 @@ describe("findNextFreeSlotFromDb", () => {
     if (!result.found) {
       assert.equal(result.reason, "MAX_SHIFT_EXCEEDED");
     }
+  });
+});
+
+describe("findNextFreePrintSlotFromDb (tiskové hodiny)", () => {
+  beforeEach(() => {
+    mockBlocks.length = 0;
+    mockCompanyDays.length = 0;
+    mockWeekShifts.length = 0;
+  });
+
+  it("kolize s blokem → start za jeho koncem, end z expanze", async () => {
+    mockBlocks.push({
+      startTime: new Date("2026-09-15T10:00:00.000Z"),
+      endTime: new Date("2026-09-15T16:00:00.000Z"),
+    });
+    const r = await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
+    assert.equal(r.found, true);
+    if (r.found) {
+      assert.equal(r.startTime.toISOString(), "2026-09-15T16:00:00.000Z");
+      assert.equal(r.endTime.toISOString(), "2026-09-15T20:00:00.000Z");
+      assert.equal(r.wasShifted, true);
+    }
+  });
+
+  it("firemní odstávka NENÍ blocker — start se snapne za ni a blok nepauzne zbytečně", async () => {
+    // Odstávka celý den 15. 9.: start 10:00Z není runnable → snap na konec odstávky.
+    // OPRAVENO oproti brief hand-computed hodnotě: konec odstávky 00:00Z 16. 9. = 02:00
+    // Praha (středa) je STÁLE v nočním blackoutu XL_105 (isHardcodedBlocked: XL_105 je
+    // blokován KAŽDOU noc 22:00–06:00, ne jen v neděli) — ověřeno shodně se sesterským
+    // testem "firemní odstávka brání slotu" výše (findNextFreeSlotFromDb) na identickém
+    // scénáři. Snap tedy pokračuje na 06:00 Praha = 04:00Z, žádná pauza v expanzi.
+    mockCompanyDays.push({
+      startDate: new Date("2026-09-15T00:00:00.000Z"),
+      endDate: new Date("2026-09-16T00:00:00.000Z"),
+    });
+    const r = await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
+    assert.equal(r.found, true);
+    if (r.found) {
+      assert.equal(r.startTime.toISOString(), "2026-09-16T04:00:00.000Z");
+      assert.equal(r.endTime.toISOString(), "2026-09-16T08:00:00.000Z");
+    }
+  });
+
+  it("> 7 dní obsazeno → MAX_SHIFT_EXCEEDED", async () => {
+    mockBlocks.push({
+      startTime: new Date("2026-09-15T00:00:00.000Z"),
+      endTime: new Date("2026-09-30T00:00:00.000Z"),
+    });
+    const r = await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
+    assert.deepEqual(r, { found: false, reason: "MAX_SHIFT_EXCEEDED" });
   });
 });

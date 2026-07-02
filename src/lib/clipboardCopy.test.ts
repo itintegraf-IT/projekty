@@ -5,7 +5,7 @@ import { copyTextToClipboard } from "./clipboardCopy.js";
 // V node:test prostředí jsou `navigator` a `document` undefined (nebo částečné).
 // Testy ručně přiřazují globální symboly a po sobě uklízí, aby neovlivnily ostatní testy.
 
-type Win = typeof globalThis & {
+type Win = {
   navigator?: { clipboard?: { writeText?: (s: string) => Promise<void> } };
   document?: {
     createElement: (tag: string) => Record<string, unknown> & { value?: string; style: Record<string, string>; setAttribute: (k: string, v: string) => void; select: () => void };
@@ -15,7 +15,7 @@ type Win = typeof globalThis & {
 };
 
 function cleanupGlobals() {
-  const w = globalThis as Win;
+  const w = globalThis as unknown as Win;
   delete w.navigator;
   delete w.document;
 }
@@ -28,7 +28,7 @@ test("copyTextToClipboard: SSR — bez navigator/document vrátí false bez cras
 
 test("copyTextToClipboard: moderní navigator.clipboard.writeText úspěch", async () => {
   const calls: string[] = [];
-  const w = globalThis as Win;
+  const w = globalThis as unknown as Win;
   w.navigator = {
     clipboard: {
       writeText: async (s: string) => { calls.push(s); },
@@ -48,7 +48,7 @@ test("copyTextToClipboard: moderní navigator.clipboard.writeText úspěch", asy
 
 test("copyTextToClipboard: navigator.clipboard chybí → fallback na execCommand", async () => {
   const created: Array<{ value?: string }> = [];
-  const w = globalThis as Win;
+  const w = globalThis as unknown as Win;
   w.navigator = {}; // bez clipboard property
   w.document = {
     createElement: () => {
@@ -73,7 +73,7 @@ test("copyTextToClipboard: navigator.clipboard chybí → fallback na execComman
 });
 
 test("copyTextToClipboard: navigator.clipboard.writeText throw → fallback na execCommand", async () => {
-  const w = globalThis as Win;
+  const w = globalThis as unknown as Win;
   w.navigator = {
     clipboard: {
       writeText: async () => { throw new Error("permission denied"); },
@@ -98,7 +98,7 @@ test("copyTextToClipboard: navigator.clipboard.writeText throw → fallback na e
 });
 
 test("copyTextToClipboard: obě metody selžou → vrátí false", async () => {
-  const w = globalThis as Win;
+  const w = globalThis as unknown as Win;
   w.navigator = {
     clipboard: {
       writeText: async () => { throw new Error("permission denied"); },
@@ -121,7 +121,7 @@ test("copyTextToClipboard: obě metody selžou → vrátí false", async () => {
 });
 
 test("copyTextToClipboard: fallback execCommand throw → vrátí false bez crashe", async () => {
-  const w = globalThis as Win;
+  const w = globalThis as unknown as Win;
   w.navigator = {}; // forcujeme fallback
   w.document = {
     createElement: () => ({

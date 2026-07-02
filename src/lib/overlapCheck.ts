@@ -2,6 +2,15 @@ import { AppError } from "@/lib/errors";
 
 type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
 
+/** Span bloku v batch dávce po serverovém přepočtu endů. */
+export type BatchSpan = {
+  id: number;
+  orderNumber: string | null;
+  machine: string;
+  start: Date;
+  end: Date;
+};
+
 /**
  * Zkontroluje, zda na daném stroji v daném časovém rozsahu existuje jiný blok.
  * Pokud ano, vyhodí AppError("OVERLAP", ...).
@@ -29,6 +38,30 @@ export async function checkBlockOverlap(
       `Blok koliduje s blokem #${conflict.orderNumber ?? conflict.id} na stroji ${machine}.`
     );
   }
+}
+
+/**
+ * Pure pre-check překryvu UVNITŘ jedné batch dávky (per stroj, half-open [start, end)).
+ * Re-expanze (tiskové hodiny) může sourozencům v lasso přesunu změnit délky — vzniklý
+ * intra-group překryv chain push neřeší (sourozenci jsou v excludeIds), takže si zaslouží
+ * konkrétní hlášku místo generické 409 z finální pojistky. Vrací první kolidující pár.
+ */
+export function findIntraBatchOverlap(spans: BatchSpan[]): [BatchSpan, BatchSpan] | null {
+  const byMachine = new Map<string, BatchSpan[]>();
+  for (const s of spans) {
+    const arr = byMachine.get(s.machine) ?? [];
+    arr.push(s);
+    byMachine.set(s.machine, arr);
+  }
+  for (const arr of byMachine.values()) {
+    const sorted = [...arr].sort((a, b) => a.start.getTime() - b.start.getTime());
+    let maxEndSpan = sorted[0]!;
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i]!.start.getTime() < maxEndSpan.end.getTime()) return [maxEndSpan, sorted[i]!];
+      if (sorted[i]!.end.getTime() > maxEndSpan.end.getTime()) maxEndSpan = sorted[i]!;
+    }
+  }
+  return null;
 }
 
 /**
