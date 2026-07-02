@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="cs" class="dark">
+<head>
+<meta charset="utf-8" />
+<style>
+  :root.dark{
+    --bg:oklch(0.145 0 0); --surface:oklch(0.205 0 0); --surface-2:oklch(0.24 0 0);
+    --border:oklch(1 0 0 / 10%); --text:oklch(0.985 0 0); --text-muted:oklch(0.72 0 0);
+    --obalka:#facc15; --vnitrky:#22d3ee; --serie:#a78bfa; --ta:#94a3b8;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;padding:26px;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;}
+  h1{font-size:13px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);margin:0 0 18px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:920px;}
+  .variant{}
+  .vh{font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--text);margin-bottom:3px;}
+  .vh .rec{color:#4ade80;font-size:9px;font-weight:800;margin-left:6px;letter-spacing:.08em;}
+  .vd{font-size:11px;color:var(--text-muted);line-height:1.45;margin-bottom:9px;min-height:30px;}
+
+  .block{position:relative;border-radius:12px;padding:9px 11px;overflow:hidden;height:118px;
+    background:linear-gradient(170deg,#18694a 0%,#115237 100%);border:1px solid rgba(255,255,255,.09);}
+  .row1{display:flex;align-items:flex-start;gap:6px;}
+  .ordno{font-size:14px;font-weight:800;color:#fff;}
+  .ordsub{font-size:11px;font-weight:600;color:rgba(255,255,255,.62);margin-left:6px;}
+  .cluster{margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:55%;}
+  .statusrow{display:flex;gap:5px;margin-top:8px;}
+  .sbadge{border-radius:6px;padding:3px 7px;font-size:8px;font-weight:800;letter-spacing:.04em;line-height:1.3;}
+  .sbadge .v{font-size:10px;}
+  .sb-data{background:#f0b429;color:#1a1206;} .sb-mat{background:#14653a;color:#b7f3d0;border:1px solid rgba(255,255,255,.14);} .sb-exp{background:#2a3a44;color:#cdd9e1;}
+  .desc{font-size:10px;color:rgba(255,255,255,.6);margin-top:7px;}
+
+  /* chip typy */
+  .mchip{font-size:9px;font-weight:800;letter-spacing:.02em;padding:2px 6px;border-radius:5px;line-height:1.4;white-space:nowrap;}
+  .c-serie{background:color-mix(in oklab,var(--serie) 26%,transparent);color:#ddd6fe;border:1px solid color-mix(in oklab,var(--serie) 50%,transparent);}
+  .c-ta{background:color-mix(in oklab,var(--ta) 22%,transparent);color:#e2e8f0;border:1px solid color-mix(in oklab,var(--ta) 45%,transparent);}
+  .c-combo{background:rgba(15,23,42,.55);color:#e2e8f0;border:1px solid rgba(148,163,184,.4);font-weight:700;}
+
+  .ovbadges{position:absolute;right:9px;bottom:8px;display:flex;gap:5px;}
+  .ovb{font-size:8px;font-weight:900;letter-spacing:.05em;padding:3px 7px;border-radius:6px;}
+  .ovb.obalka{background:var(--obalka);color:#1a1206;} .ovb.vnitrky{background:var(--vnitrky);color:#06222a;}
+
+  /* subtilní text varianta D */
+  .metaline{display:flex;gap:10px;margin-top:7px;font-size:10px;color:rgba(255,255,255,.62);font-weight:600;}
+  .metaline b{color:#fff;font-weight:700;}
+
+  .shortwrap{margin-top:26px;max-width:920px;}
+  .short{position:relative;border-radius:10px;height:44px;display:flex;align-items:center;gap:8px;padding:0 10px;margin-bottom:9px;
+    background:linear-gradient(170deg,#18694a 0%,#115237 100%);border:1px solid rgba(255,255,255,.09);}
+  .short .ordno{font-size:12px;} .short .cluster{margin-left:auto;}
+  .note{font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.5;}
+</style>
+</head>
+<body>
+  <h1>Série + Tiskové archy na bloku — 4 varianty</h1>
+
+  <div class="grid">
+
+    <!-- A: oba neutrální chipy -->
+    <div class="variant">
+      <div class="vh">A — Série + Archy jako chipy</div>
+      <div class="vd">Dva chipy vpravo nahoře vedle status chipů: fialový „S 1,3" + šedý „TA 1,5,6". Maximum informace.</div>
+      <div class="block">
+        <div class="row1">
+          <div><span class="ordno">17975</span><span class="ordsub">Park Lane</span></div>
+          <div class="cluster">
+            <span class="mchip c-serie">S 1,3</span>
+            <span class="mchip c-ta">TA 1,5,6</span>
+          </div>
+        </div>
+        <div class="statusrow">
+          <div class="sb-data sbadge">DATA<br><span class="v">08.06.!</span></div>
+          <div class="sb-mat sbadge">MAT.<br><span class="v">SKLADEM ✓</span></div>
+          <div class="sb-exp sbadge">EXP.<br><span class="v">24.06.</span></div>
+        </div>
+        <div class="ovbadges"><span class="ovb obalka">OBÁLKA</span><span class="ovb vnitrky">VNITŘKY</span></div>
+      </div>
+    </div>
+
+    <!-- B: jen série -->
+    <div class="variant">
+      <div class="vh">B — Jen Série<span class="rec">★ DOPORUČENO</span></div>
+      <div class="vd">Jen fialový chip „S 1,3" (kapacitně klíčová informace). Archy zůstávají v detailu. Nejčistší, nezahlcuje.</div>
+      <div class="block">
+        <div class="row1">
+          <div><span class="ordno">17975</span><span class="ordsub">Park Lane</span></div>
+          <div class="cluster">
+            <span class="mchip c-serie">SÉRIE 1,3</span>
+          </div>
+        </div>
+        <div class="statusrow">
+          <div class="sb-data sbadge">DATA<br><span class="v">08.06.!</span></div>
+          <div class="sb-mat sbadge">MAT.<br><span class="v">SKLADEM ✓</span></div>
+          <div class="sb-exp sbadge">EXP.<br><span class="v">24.06.</span></div>
+        </div>
+        <div class="ovbadges"><span class="ovb obalka">OBÁLKA</span><span class="ovb vnitrky">VNITŘKY</span></div>
+      </div>
+    </div>
+
+    <!-- C: kombinovaný jeden chip -->
+    <div class="variant">
+      <div class="vh">C — Jeden kombinovaný chip</div>
+      <div class="vd">Jedna neutrální plaketka „S1,3 · A1,5,6". Kompaktní, obě info na jednom místě, méně barev.</div>
+      <div class="block">
+        <div class="row1">
+          <div><span class="ordno">17975</span><span class="ordsub">Park Lane</span></div>
+          <div class="cluster">
+            <span class="mchip c-combo">S 1,3 · A 1,5,6</span>
+          </div>
+        </div>
+        <div class="statusrow">
+          <div class="sb-data sbadge">DATA<br><span class="v">08.06.!</span></div>
+          <div class="sb-mat sbadge">MAT.<br><span class="v">SKLADEM ✓</span></div>
+          <div class="sb-exp sbadge">EXP.<br><span class="v">24.06.</span></div>
+        </div>
+        <div class="ovbadges"><span class="ovb obalka">OBÁLKA</span><span class="ovb vnitrky">VNITŘKY</span></div>
+      </div>
+    </div>
+
+    <!-- D: subtilní text pod popisem -->
+    <div class="variant">
+      <div class="vh">D — Subtilní řádek pod popisem</div>
+      <div class="vd">Tlumený textový řádek „⑂ série 1,3 · ▦ archy 1,5,6". Splývá s blokem, nesoupeří s barevnými štítky.</div>
+      <div class="block">
+        <div class="row1">
+          <div><span class="ordno">17975</span><span class="ordsub">Park Lane</span></div>
+        </div>
+        <div class="statusrow">
+          <div class="sb-data sbadge">DATA<br><span class="v">08.06.!</span></div>
+          <div class="sb-mat sbadge">MAT.<br><span class="v">SKLADEM ✓</span></div>
+          <div class="sb-exp sbadge">EXP.<br><span class="v">24.06.</span></div>
+        </div>
+        <div class="metaline"><span>⑂ série <b>1, 3</b></span><span>▦ archy <b>1, 5, 6</b></span></div>
+        <div class="ovbadges"><span class="ovb obalka">OBÁLKA</span><span class="ovb vnitrky">VNITŘKY</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- krátké bloky -->
+  <div class="shortwrap">
+    <div class="vh" style="margin-bottom:10px">Jak to vypadá na KRÁTKÝCH blocích (varianta A vs B)</div>
+    <div class="short">
+      <span class="ordno">18002</span><span class="ordsub" style="margin-left:5px">Katalog</span>
+      <div class="cluster">
+        <span class="mchip c-serie">S 2</span>
+        <span class="mchip c-ta">TA 3,4</span>
+        <span class="ovb obalka" style="font-size:8px;font-weight:900;padding:3px 7px;border-radius:6px;background:var(--obalka);color:#1a1206">OB.</span>
+      </div>
+    </div>
+    <div class="note" style="margin:-2px 0 14px">↑ Varianta A (oba) — na krátkém bloku už je hustě.</div>
+    <div class="short">
+      <span class="ordno">18002</span><span class="ordsub" style="margin-left:5px">Katalog</span>
+      <div class="cluster">
+        <span class="mchip c-serie">S 2</span>
+        <span class="ovb obalka" style="font-size:8px;font-weight:900;padding:3px 7px;border-radius:6px;background:var(--obalka);color:#1a1206">OB.</span>
+      </div>
+    </div>
+    <div class="note" style="margin:-2px 0 0">↑ Varianta B (jen série) — vzdušnější i na krátkém bloku.</div>
+  </div>
+</body>
+</html>

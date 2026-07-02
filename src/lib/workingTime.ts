@@ -6,7 +6,7 @@ import { isDateTimeActive } from "@/lib/shifts";
 
 const SLOT_MS = 30 * 60 * 1000;
 
-function isBlockedSlotDynamic(
+export function isBlockedSlotDynamic(
   machine: string,
   date: Date,
   weekShifts: MachineWeekShiftsRow[]

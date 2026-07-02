@@ -73,6 +73,8 @@ model Block {
   expediceNote                                String?
   expeditionPublishedAt                       DateTime?
   expeditionSortOrder                         Int?
+  printMinutes                                Int?
+  scheduleBypassed                            Boolean      @default(false)
   Block_Block_recurrenceParentIdToBlock       Block?       @relation("Block_recurrenceParentIdToBlock", fields: [recurrenceParentId], references: [id])
   other_Block_Block_recurrenceParentIdToBlock Block[]      @relation("Block_recurrenceParentIdToBlock")
   Reservation                                 Reservation? @relation(fields: [reservationId], references: [id])

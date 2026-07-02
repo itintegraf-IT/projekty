@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **37/37 testů zelené** (viz níže)
+- celá test suite: **51/51 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -23,6 +23,7 @@ node --test --import tsx src/lib/dateUtils.test.ts             # 8 testů
 node --test --import tsx src/lib/errors.test.ts                # 5 testů
 node --test --import tsx src/lib/pasteTarget.test.ts           # 6 testů
 node --test --import tsx src/lib/clipboardCopy.test.ts         # 6 testů
+node --test --import tsx src/lib/printTime.test.ts             # 14 testů
 node --experimental-test-module-mocks --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
 ```
 
