@@ -980,9 +980,14 @@ function BlockCard({
   const showDatesCompact = !isTiskar && MODE_FULL && clampedHeight < 60  && block.type !== "UDRZBA"; // kompaktní chip řádek (48–59px)
   const showDates        = showDatesFull;
   const showSpec   = clampedHeight >= 80;  // 3. řádek — specifikace
-  const showDesc   = MODE_FULL && clampedHeight >= 66; // popis za číslem zakázky (jen u větších bloků)
-  // Počet řádků popisu — roste s výškou bloku (13px/řádek, od ~55px výšky)
-  const descLineClamp = Math.max(2, Math.floor((clampedHeight - 55) / 13));
+  // Popis za číslem zakázky. Zobrazujeme v celém FULL módu (≥48px), ne až od 66px —
+  // jinak bloky v pásmu 48–65px (typicky 2–2,5h při odzoomu) neukazovaly popis,
+  // zatímco menší COMPACT/TINY bloky ho ukazují. Číslo zakázky výšku řádku určuje,
+  // takže 1řádkový popis v tomto pásmu nestojí žádný prostor navíc.
+  const showDesc   = MODE_FULL && clampedHeight >= 48;
+  // Počet řádků popisu — v úzkém pásmu (48–65px) přesně 1 řádek (víc se nevejde vedle
+  // datového řádku), od 66px roste s výškou bloku (13px/řádek).
+  const descLineClamp = clampedHeight < 66 ? 1 : Math.max(2, Math.floor((clampedHeight - 55) / 13));
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const glow = s.glow;
@@ -1586,9 +1591,12 @@ function BlockCard({
       })()}
 
       {/* Výrobní štítky OBÁLKA/VNITŘKY — vpravo dole (FULL mode, je tam prostor).
-          U TISKAŘE je spodní pruh obsazen tlačítkem Hotovo / SplitChipem → zvednout výš. */}
+          U TISKAŘE je spodní pruh obsazen tlačítkem Hotovo / SplitChipem → zvednout výš.
+          Resize handle sedí v rohu (bottom:0 right:0, 20×20) — když je přítomný
+          (blok není zamčený a nejsme v tiskařském režimu, kde je chip výš), odsuneme
+          chip doleva o šířku handle (right:26), aby nezakrýval úchyt pro zkrácení/prodloužení. */}
       {MODE_FULL && (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
-        <div style={{ position: "absolute", right: 6, bottom: isTiskar ? 32 : 4, display: "flex", gap: 5, zIndex: 4, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", right: (!block.locked && !isTiskar) ? 26 : 6, bottom: isTiskar ? 32 : 4, display: "flex", gap: 5, zIndex: 4, pointerEvents: "none" }}>
           <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} />
         </div>
       )}
