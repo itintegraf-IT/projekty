@@ -19,6 +19,7 @@ import {
   utcToPragueDateStr,
 } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
+import { formatProductionTypeChip } from "@/lib/productionTags";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
@@ -765,11 +766,15 @@ function MiniChip({ label, accent, textColor }: { label: string; accent: string;
   );
 }
 
-// ─── OvBadges — výrobní štítky OBÁLKA / VNITŘKY ───────────────────────────────
-// Fragment (bez wrapperu) — lze vložit do existujícího flex clusteru i do
-// absolutně pozicovaného kontejneru. abbreviated = zkrácené OB./VN. pro krátké bloky.
-function OvBadges({ obalka, vnitrky, abbreviated }: { obalka?: boolean; vnitrky?: boolean; abbreviated?: boolean }) {
-  if (!obalka && !vnitrky) return null;
+// ─── ProductionChips — typový chip OBÁLKA / VNITŘKY / TA·série ─────────────────
+// Fragment (bez wrapperu) — lze vložit do flex clusteru i absolutního kontejneru.
+// V praxi je nastavené vždy jen jedno (OBÁLKA nebo VNITŘKY nebo TA); série se
+// spojí za tiskové archy. abbreviated = zkrácené OB./VN. pro krátké bloky.
+function ProductionChips({ obalka, vnitrky, tiskoveArchy, serie, abbreviated }: {
+  obalka?: boolean; vnitrky?: boolean; tiskoveArchy?: string | null; serie?: string | null; abbreviated?: boolean;
+}) {
+  const typeChip = formatProductionTypeChip(tiskoveArchy, serie);
+  if (!obalka && !vnitrky && !typeChip) return null;
   const pill = (bg: string, fg: string, text: string) => (
     <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.04em", padding: "2px 6px", borderRadius: 5, background: bg, color: fg, lineHeight: 1, whiteSpace: "nowrap", flexShrink: 0 }}>{text}</span>
   );
@@ -777,6 +782,7 @@ function OvBadges({ obalka, vnitrky, abbreviated }: { obalka?: boolean; vnitrky?
     <>
       {obalka && pill("#facc15", "#1a1206", abbreviated ? "OB." : "OBÁLKA")}
       {vnitrky && pill("#22d3ee", "#06222a", abbreviated ? "VN." : "VNITŘKY")}
+      {typeChip && pill("#a5b4fc", "#1e1b4b", typeChip)}
     </>
   );
 }
@@ -1165,7 +1171,7 @@ function BlockCard({
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && <>
                 <span style={{
                     ...dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
@@ -1222,37 +1228,45 @@ function BlockCard({
                 </span>
               )}
             </div>
-            {/* Pravá část: status chips + série + výrobní štítky */}
-            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || block.obalka || block.vnitrky) && (
-              <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
-                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
-                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
-                {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                  <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
-                )}
-                <OvBadges obalka={block.obalka} vnitrky={block.vnitrky} abbreviated />
-              </div>
+            {/* Uprostřed: typový chip (OBÁLKA/VNITŘKY/TA·série), vystředěný spacery */}
+            {(block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
+              <>
+                <div style={{ flex: 1, minWidth: 6 }} />
+                <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} abbreviated />
+              </>
             )}
-            {/* Hotovo mini tlačítko — jen pro TISKAR */}
-            {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && (
-              <button onClick={(e) => { e.stopPropagation(); setPrintPending(true); onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false)); }} disabled={printPending}
-                style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "none", cursor: printPending ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: isPrintDone ? "rgba(100,116,139,0.3)" : "rgba(34,197,94,0.35)", color: isPrintDone ? "var(--text-muted)" : "#22c55e", opacity: printPending ? 0.5 : 1, transition: "all 0.12s ease-out", fontFamily: "inherit" }}
-                title={isPrintDone ? "Vrátit hotovo" : "Označit jako hotovo"}>
-                {printPending ? "·" : isPrintDone ? "↩" : "✓"}
-              </button>
-            )}
-            {splitPartner && clampedHeight >= 32 && (() => {
-              const { state, time } = getSplitChipState(splitPartner);
-              return (
-                <SplitChip
-                  partnerMachine={splitPartner.machine}
-                  state={state}
-                  time={time}
-                  onClick={() => onSplitChipClick?.(splitPartner.id)}
-                />
-              );
-            })()}
+            <div style={{ flex: 1, minWidth: 6 }} />
+            {/* Vpravo: status chipy + série marker + tiskař + split */}
+            <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+              {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
+                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
+                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
+                  {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                    <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
+                  )}
+                </div>
+              )}
+              {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && (
+                <button onClick={(e) => { e.stopPropagation(); setPrintPending(true); onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false)); }} disabled={printPending}
+                  style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "none", cursor: printPending ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: isPrintDone ? "rgba(100,116,139,0.3)" : "rgba(34,197,94,0.35)", color: isPrintDone ? "var(--text-muted)" : "#22c55e", opacity: printPending ? 0.5 : 1, transition: "all 0.12s ease-out", fontFamily: "inherit" }}
+                  title={isPrintDone ? "Vrátit hotovo" : "Označit jako hotovo"}>
+                  {printPending ? "·" : isPrintDone ? "↩" : "✓"}
+                </button>
+              )}
+              {splitPartner && clampedHeight >= 32 && (() => {
+                const { state, time } = getSplitChipState(splitPartner);
+                return (
+                  <SplitChip
+                    partnerMachine={splitPartner.machine}
+                    state={state}
+                    time={time}
+                    onClick={() => onSplitChipClick?.(splitPartner.id)}
+                  />
+                );
+              })()}
+            </div>
           </div>
         );
       })()}
@@ -1279,7 +1293,7 @@ function BlockCard({
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, minWidth: 0, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={{
                     ...chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
@@ -1337,29 +1351,37 @@ function BlockCard({
                 </span>
               )}
             </div>
-            {/* Pravá část: status chips + série + split + výrobní štítky */}
-            {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1 || block.obalka || block.vnitrky) && (
-              <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-                {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
-                {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
-                {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
-                {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                  <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
-                )}
-                {(splitTotal ?? 0) > 1 && (
-                  <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
-                )}
-                <OvBadges obalka={block.obalka} vnitrky={block.vnitrky} abbreviated />
-              </div>
+            {/* Uprostřed: typový chip (OBÁLKA/VNITŘKY/TA·série), vystředěný spacery */}
+            {(block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
+              <>
+                <div style={{ flex: 1, minWidth: 6 }} />
+                <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} abbreviated />
+              </>
             )}
-            {/* Hotovo mini tlačítko — jen pro TISKAR */}
-            {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && (
-              <button onClick={(e) => { e.stopPropagation(); setPrintPending(true); onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false)); }} disabled={printPending}
-                style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "none", cursor: printPending ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: isPrintDone ? "rgba(100,116,139,0.3)" : "rgba(34,197,94,0.35)", color: isPrintDone ? "var(--text-muted)" : "#22c55e", opacity: printPending ? 0.5 : 1, transition: "all 0.12s ease-out", fontFamily: "inherit" }}
-                title={isPrintDone ? "Vrátit hotovo" : "Označit jako hotovo"}>
-                {printPending ? "·" : isPrintDone ? "↩" : "✓"}
-              </button>
-            )}
+            <div style={{ flex: 1, minWidth: 6 }} />
+            {/* Vpravo: status chipy + série marker + split marker + tiskař */}
+            <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+              {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
+                <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
+                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
+                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
+                  {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
+                    <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
+                  )}
+                  {(splitTotal ?? 0) > 1 && (
+                    <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
+                  )}
+                </div>
+              )}
+              {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && (
+                <button onClick={(e) => { e.stopPropagation(); setPrintPending(true); onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false)); }} disabled={printPending}
+                  style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "none", cursor: printPending ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: isPrintDone ? "rgba(100,116,139,0.3)" : "rgba(34,197,94,0.35)", color: isPrintDone ? "var(--text-muted)" : "#22c55e", opacity: printPending ? 0.5 : 1, transition: "all 0.12s ease-out", fontFamily: "inherit" }}
+                  title={isPrintDone ? "Vrátit hotovo" : "Označit jako hotovo"}>
+                  {printPending ? "·" : isPrintDone ? "↩" : "✓"}
+                </button>
+              )}
+            </div>
           </div>
         );
       })()}
@@ -1562,9 +1584,9 @@ function BlockCard({
 
       {/* Výrobní štítky OBÁLKA/VNITŘKY — vpravo dole (FULL mode, je tam prostor).
           U TISKAŘE je spodní pruh obsazen tlačítkem Hotovo / SplitChipem → zvednout výš. */}
-      {MODE_FULL && (block.obalka || block.vnitrky) && (
+      {MODE_FULL && (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
         <div style={{ position: "absolute", right: 6, bottom: isTiskar ? 32 : 4, display: "flex", gap: 5, zIndex: 4, pointerEvents: "none" }}>
-          <OvBadges obalka={block.obalka} vnitrky={block.vnitrky} />
+          <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} />
         </div>
       )}
 
