@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { computeChainPush, type BlockInterval } from "./overlapResolver";
 import { pragueToUTC } from "./dateUtils";
 import type { CompanyDayInterval } from "./printTime";
-import { xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
+import { xl106Week, mkDay, W1, W2 } from "./weekShiftsTestFixtures";
 
 // ── Jednoduché scénáře: úterý 16. 6. 2026, prázdné weekShifts → hardcoded
 // fallback XL_105 (24/7 mimo neděli odpoledne) = souvislý provoz. ────────────
@@ -179,6 +179,61 @@ describe("computeChainPush — re-expanze přes víkendovou odstávku (XL_106)",
     assert.equal(r.ok, true);
     if (r.ok) {
       assert.deepEqual(r.moves[0], { id: 2, startTime: P("2026-08-22", 6), endTime: P("2026-08-22", 10) });
+    }
+  });
+
+  it("MIN SEGMENT: odsunutý blok s 0,5h kusem se posune CELÝ za odstávku", () => {
+    // Anchor končí Pá 21:30 → 4h blok by měl kusy 0,5+3,5 → pravidlo ho pošle celý na Ne 22:00.
+    const r = computeChainPush(
+      "XL_106",
+      { id: 1, startTime: P("2026-08-21", 10), endTime: new Date(P("2026-08-21", 21).getTime() + 30 * 60000) },
+      [{ id: 2, startTime: P("2026-08-21", 12), endTime: P("2026-08-21", 16), locked: false, printMinutes: 240, scheduleBypassed: false }],
+      SHIFTS,
+      NO_CD
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.deepEqual(r.moves[0], { id: 2, startTime: P("2026-08-23", 22), endTime: P("2026-08-24", 2) });
+    }
+  });
+
+  it("MIN SEGMENT nouzová pojistka: když se blok nevejde nikam bez porušení, pauza se povolí", () => {
+    // Kalendář jen Pá 6–22 (16 h) v každém týdnu; 990min (16,5h) blok se na KAŽDÉ Pá pozici
+    // rozpadne na 16 h + 0,5 h → kus 0,5 h < 60 min porušuje pravidlo úplně všude.
+    //
+    // POZN. k fixture (odchylka od brief zadání, zdůvodněno komentářem dle pravidel úkolu):
+    // Se 2 týdny (W1/W2) dle brief návrhu placeAfter escapuje do NEDEFINOVANÉHO 3. týdne,
+    // který tiše spadne na hardcoded fallback rozvrh (isHardcodedBlocked — pro XL_106 prakticky
+    // 24/7 mimo So a Ne do 22:00) → tam už 990min blok NEPORUŠUJE (dost hodin na oba kusy ≥60 min)
+    // a nouzová pojistka se nikdy nevyvolá (ověřeno přímým behem přes expandPrintTime). Aby test
+    // reálně vyčerpal placeAfter (g < 100) BEZ úniku do hardcoded fallbacku, kalendář musí mít
+    // Pá-only týdny definované po celou dobu, kterou 100 iterací (každá = 1 týden posunu na
+    // konec pauzy) prochází → 105 po sobě jdoucích týdnů (W1 + rezerva), počínaje 2026-08-17.
+    // Se 100+ definovanými týdny placeAfter(min=60) skutečně vyčerpá cyklus a vrátí null →
+    // fallback placeAfter(min=0) umístí blok na PRVNÍ pozici (Pá1 06:00) s pauzou (16 h + 0,5 h).
+    const WEEK_COUNT = 105;
+    function mondayPlusWeeks(n: number): string {
+      const d = new Date(`${W1}T00:00:00.000Z`);
+      d.setUTCDate(d.getUTCDate() + n * 7);
+      return d.toISOString().slice(0, 10);
+    }
+    const fridayOnlyWeeks = Array.from({ length: WEEK_COUNT }, (_, i) => mondayPlusWeeks(i));
+    const sparse = [0, 1, 2, 3, 4, 5, 6].flatMap((d) =>
+      fridayOnlyWeeks.map((w) => mkDay(w, d, d === 5 ? { m: true, a: true } : { active: false }))
+    );
+    const r = computeChainPush(
+      "XL_106",
+      { id: 1, startTime: P("2026-08-21", 5, 30), endTime: P("2026-08-21", 6) }, // anchor reálně překrývá blok 2 (half-open)
+      [{ id: 2, startTime: P("2026-08-21", 5, 30), endTime: P("2026-08-21", 6), locked: false, printMinutes: 990, scheduleBypassed: false }],
+      sparse,
+      NO_CD
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.moves.length, 1);
+      // start Pá1 06:00, end Pá2 06:30 (16 h Pá1 + 0,5 h Pá2)
+      assert.deepEqual(r.moves[0]!.startTime, P("2026-08-21", 6));
+      assert.deepEqual(r.moves[0]!.endTime, new Date(P("2026-08-28", 6).getTime() + 30 * 60000));
     }
   });
 });

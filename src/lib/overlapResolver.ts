@@ -2,6 +2,8 @@ import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import {
   expandPrintTime,
   snapStartToNextRunnableSlot,
+  violatesMinPrintSegment,
+  MIN_PRINT_SEGMENT_MINUTES,
   SLOT_MS,
   type CompanyDayInterval,
 } from "@/lib/printTime";
@@ -81,7 +83,11 @@ export function computeChainPush(
       return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
     }
 
-    const pos = placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays);
+    // Nejdřív s pravidlem minimálního segmentu; když nevyjde, z nouze bez něj
+    // (blok, který se bez porušení nevejde nikam, se radši pauzne než neumístí).
+    const pos =
+      placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, MIN_PRINT_SEGMENT_MINUTES) ??
+      placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, 0);
     if (!pos) return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
 
     moves.push({ id: next.id, startTime: pos.start, endTime: pos.end });
@@ -102,7 +108,8 @@ function placeAfter(
   bypassed: boolean,
   locked: BlockInterval[],
   weekShifts: MachineWeekShiftsRow[],
-  companyDays: CompanyDayInterval[]
+  companyDays: CompanyDayInterval[],
+  minSegmentMinutes: number
 ): { start: Date; end: Date } | null {
   let cursorMs = Math.ceil(fromMs / SLOT_MS) * SLOT_MS;
 
@@ -127,6 +134,12 @@ function placeAfter(
     if (!snapped) return null;
     const exp = expandPrintTime(machine, snapped, printMinutes, weekShifts, companyDays, false);
     if (!exp.ok) return null;
+    if (violatesMinPrintSegment(exp.segments, minSegmentMinutes)) {
+      // Kus pod minimem → blok se nedělí, přeskoč na konec první pauzy (celý za odstávku).
+      const firstPause = exp.segments.find((s) => s.kind === "pause")!;
+      cursorMs = Math.ceil(firstPause.end.getTime() / SLOT_MS) * SLOT_MS;
+      continue;
+    }
     const lockHit = locked.find(
       (l) => l.startTime.getTime() < exp.end.getTime() && l.endTime.getTime() > snapped.getTime()
     );

@@ -149,4 +149,26 @@ describe("findNextFreePrintSlot (tiskové hodiny)", () => {
     const r = findNextFreePrintSlot("XL_106", P("2026-08-21", 10), 2400, [], sparse, NO_CD);
     assert.deepEqual(r, { found: false, reason: "NO_CAPACITY" });
   });
+
+  it("MIN SEGMENT: kandidát s 0,5h kusem se přeskočí za pauzu", () => {
+    // Pá 21:30 + 4 h → kusy 0,5+3,5 → start se posune na Ne 22:00 (souvislé 22–02).
+    const r = findNextFreePrintSlot("XL_106", P("2026-08-21", 21, 30), 240, [], SHIFTS_106, NO_CD);
+    assert.equal(r.found, true);
+    if (r.found) {
+      assert.deepEqual(r.startTime, P("2026-08-23", 22));
+      assert.deepEqual(r.endTime, P("2026-08-24", 2));
+      assert.equal(r.wasShifted, true);
+    }
+  });
+
+  it("MIN SEGMENT: vyhovující dělení (kusy ≥ 1 h) se nechá pauznout", () => {
+    // Pá 20:00 + 4 h → kusy 2+2 → zůstává na místě s pauzou.
+    const r = findNextFreePrintSlot("XL_106", P("2026-08-21", 20), 240, [], SHIFTS_106, NO_CD);
+    assert.equal(r.found, true);
+    if (r.found) {
+      assert.deepEqual(r.startTime, P("2026-08-21", 20));
+      assert.deepEqual(r.endTime, P("2026-08-24", 0));
+      assert.equal(r.wasShifted, false);
+    }
+  });
 });

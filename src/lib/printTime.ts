@@ -139,6 +139,25 @@ export function computePrintMinutes(
   return minutes;
 }
 
+/** Minimální délka jednoho tiskového kusu při rozdělení bloku pauzou (rozhodnutí 2. 7. 2026). */
+export const MIN_PRINT_SEGMENT_MINUTES = 60;
+
+/**
+ * True, když expanze obsahuje pauzu A některý tiskový segment je kratší než minimum.
+ * Souvislá expanze (bez pauzy) neporušuje nikdy — pravidlo krotí jen dělení bloku.
+ * Vynucuje se VÝHRADNĚ v automatice (chain push, auto-shift); ruční umístění
+ * plánovačem pravidlu nepodléhá (validateAndComputeEnd helper nevolá).
+ */
+export function violatesMinPrintSegment(
+  segments: PrintSegment[],
+  minMinutes: number = MIN_PRINT_SEGMENT_MINUTES
+): boolean {
+  if (!segments.some((s) => s.kind === "pause")) return false;
+  return segments.some(
+    (s) => s.kind === "print" && s.end.getTime() - s.start.getTime() < minMinutes * 60000
+  );
+}
+
 /**
  * Posune start na nejbližší runnable 30min slot (weekShifts + companyDays přes
  * isMachineRunnableAt). Start-only náhrada duration-based snapu

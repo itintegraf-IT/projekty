@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pragueToUTC, utcToPragueHour } from "./dateUtils";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
-import { expandPrintTime, isMachineRunnableAt, computePrintMinutes, snapStartToNextRunnableSlot, type CompanyDayInterval } from "./printTime";
+import { expandPrintTime, isMachineRunnableAt, computePrintMinutes, snapStartToNextRunnableSlot, violatesMinPrintSegment, MIN_PRINT_SEGMENT_MINUTES, type CompanyDayInterval } from "./printTime";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 // Směny: MORNING 6–14 (360–840), AFTERNOON 14–22 (840–1320), NIGHT 22–6 (1320–360 wrap)
@@ -226,4 +226,28 @@ test("snap: žádný runnable slot do limitu → null", () => {
   const t = pragueToUTC("2026-08-22", 12); // sobota 12:00, provoz až Ne 22:00
   const limit = pragueToUTC("2026-08-23", 12).getTime(); // limit = neděle poledne
   assert.equal(snapStartToNextRunnableSlot("XL_106", t, SHIFTS, NO_CD, limit), null);
+});
+
+// ── violatesMinPrintSegment ──────────────────────────────────────────────────
+
+test("minSegment: expanze bez pauzy neporušuje nikdy (i 30min blok)", () => {
+  const start = pragueToUTC("2026-08-18", 10);
+  const r = expandPrintTime("XL_106", start, 30, SHIFTS, NO_CD);
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(violatesMinPrintSegment(r.segments), false);
+});
+
+test("minSegment: 0,5h kus u pauzy → porušuje (scénář ze screenshotu)", () => {
+  // Pá 21:30 + 4 h: 0,5 h do 22:00, pauza víkend, 3,5 h od Ne 22:00 → head 30 min < 60
+  const start = pragueToUTC("2026-08-21", 21, 30);
+  const r = expandPrintTime("XL_106", start, 240, SHIFTS, NO_CD);
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(violatesMinPrintSegment(r.segments), true);
+});
+
+test("minSegment: kusy 12h+15h (Gardena) → neporušuje", () => {
+  const start = pragueToUTC("2026-08-21", 10);
+  const r = expandPrintTime("XL_106", start, 27 * 60, SHIFTS, NO_CD);
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(violatesMinPrintSegment(r.segments), false);
 });

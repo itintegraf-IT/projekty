@@ -7,6 +7,8 @@ import { serializeWeekShifts } from "@/lib/scheduleValidation";
 import {
   expandPrintTime,
   snapStartToNextRunnableSlot,
+  violatesMinPrintSegment,
+  MIN_PRINT_SEGMENT_MINUTES,
   MAX_SPAN_DAYS,
   type CompanyDayInterval,
 } from "@/lib/printTime";
@@ -150,16 +152,29 @@ export function findNextFreePrintSlot(
   blockedIntervals: BlockedInterval[],
   weekShifts: MachineWeekShiftsRow[],
   companyDays: CompanyDayInterval[],
-  maxShiftMs: number = MAX_AUTO_SHIFT_MS
+  maxShiftMs: number = MAX_AUTO_SHIFT_MS,
+  minSegmentMinutes: number = MIN_PRINT_SEGMENT_MINUTES
 ): PrintSlotSearchResult {
   const limit = proposedStart.getTime() + maxShiftMs;
   let candidate = proposedStart;
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const snapped = snapStartToNextRunnableSlot(machine, candidate, weekShifts, companyDays, limit);
-    if (!snapped) return { found: false, reason: "MAX_SHIFT_EXCEEDED" };
+    if (!snapped) {
+      // Nouzová pojistka: pravidlo minimálního segmentu nikdy nesmí způsobit selhání
+      // tam, kde by umístění bez něj uspělo — zkus znovu bez pravidla (jen jednou).
+      return minSegmentMinutes > 0
+        ? findNextFreePrintSlot(machine, proposedStart, printMinutes, blockedIntervals, weekShifts, companyDays, maxShiftMs, 0)
+        : { found: false, reason: "MAX_SHIFT_EXCEEDED" };
+    }
     const exp = expandPrintTime(machine, snapped, printMinutes, weekShifts, companyDays, false);
     if (!exp.ok) return { found: false, reason: "NO_CAPACITY" };
+
+    if (violatesMinPrintSegment(exp.segments, minSegmentMinutes)) {
+      const firstPause = exp.segments.find((s) => s.kind === "pause")!;
+      candidate = firstPause.end;
+      continue;
+    }
 
     const conflict = blockedIntervals.find(
       (b) => b.start.getTime() < exp.end.getTime() && b.end.getTime() > snapped.getTime()
@@ -174,7 +189,10 @@ export function findNextFreePrintSlot(
     }
     candidate = conflict.end;
   }
-  return { found: false, reason: "MAX_SHIFT_EXCEEDED" };
+  // Vyčerpání MAX_ITERATIONS — nouzová pojistka: zkus znovu bez pravidla (jen jednou).
+  return minSegmentMinutes > 0
+    ? findNextFreePrintSlot(machine, proposedStart, printMinutes, blockedIntervals, weekShifts, companyDays, maxShiftMs, 0)
+    : { found: false, reason: "MAX_SHIFT_EXCEEDED" };
 }
 
 /**

@@ -34,6 +34,7 @@ Oba problémy jsou jeden: limit 24 h je jen symptom modelu „blok = souvislé o
 | Vzhled | **„Viditelná pauza"** — segmenty (tiskne → pauza → dotiskne) spojené jako 1 zakázka; pauza propouští šrafování odstávky |
 | Hranice segmentů | **Automatická** (= okraj odstávky, dané kalendářem). Žádná ručně tažená hranice. Poměr před/po řídí posun celého bloku; resize mění celkové tiskové hodiny |
 | Kolize při dropu | Nezamčené navazující → chain push (jako dnes). **Zamčený blok → drop se odmítne s hláškou**, žádné tiché přeskládání |
+| Minimální segment pauzy (doplněno 2. 7. po testu etapy 3) | **Automatika (chain push, auto-shift) smí blok rozdělit pauzou jen když každý tiskový kus ≥ 1 h** (`MIN_PRINT_SEGMENT_MINUTES = 60`; bloky < 2 h se nedělí nikdy — posunou se celé za odstávku). Nouzová pojistka: když žádná pozice v horizontu minimum nesplní, pauza se povolí i s menším kusem. **Ruční drop pravidlu nepodléhá** — explicitní umístění plánovačem se respektuje |
 | Zadání délky | Rozšířený dropdown `DURATION_OPTIONS`, **max 40 h** (80 položek × 30 min). Serverová validace `0 < printMinutes ≤ 2400` |
 | Zakázky > 40 h | Plánují se jako víc paketů — mimo scope |
 | Deadline | Když vypočítaný konec spadne za `deadlineExpedice` → vizuální varování na bloku |
@@ -100,7 +101,7 @@ Opravy: načítat weekShifts pro **všechny** týdny spanu (dnes jen 2 — vzor 
 
 ### 3.6 Chain push (re-expanze)
 
-`computeChainPush`: `BlockInterval` ponese `printMinutes` + `scheduleBypassed`; odsunutý blok se umísťuje přes `expandPrintTime` na každé kandidátní pozici (ne `ns + dur`), kurzor `pEnd` roste podle re-expandovaného endu. Posuny jsou monotónně dopředné → konverguje. `resolveChainPushFromDb`: post-check nahradit verifikací `end == expandPrintTime(...)`; okno dimenzovat z re-expandovaných endů; weekShifts načítat vždy. Kolize se zamčeným blokem, kterou nelze vyřešit → transakce se odmítne s hláškou „koliduje se zamčeným blokem X — vyber jiné místo".
+`computeChainPush`: `BlockInterval` ponese `printMinutes` + `scheduleBypassed`; odsunutý blok se umísťuje přes `expandPrintTime` na každé kandidátní pozici (ne `ns + dur`), kurzor `pEnd` roste podle re-expandovaného endu. Posuny jsou monotónně dopředné → konverguje. `resolveChainPushFromDb`: post-check nahradit verifikací `end == expandPrintTime(...)`; okno dimenzovat z re-expandovaných endů; weekShifts načítat vždy. Kolize se zamčeným blokem, kterou nelze vyřešit → transakce se odmítne s hláškou „koliduje se zamčeným blokem X — vyber jiné místo". Kandidátní pozice, jejíž expanze poruší minimální segment (viz rozhodnutí výše), se přeskočí na konec první pauzy; bez vyhovující pozice fallback bez pravidla (pauza z nouze). Důsledek: za blokem posunutým celým za odstávku může v plánu zůstat mezera — chain push zachovává pořadí, nezaplňuje díry.
 
 ### 3.7 Overlap
 
@@ -108,7 +109,7 @@ Opravy: načítat weekShifts pro **všechny** týdny spanu (dnes jen 2 — vzor 
 
 ### 3.8 Auto-shift / `findNextFreeSlot`
 
-Snap start-only + expanze; kolizní test na expandovaném spanu. `MAX_AUTO_SHIFT_MS` (7 dní) vztahovat na **posun startu**, ne endu (40h blok na jednosměnném stroji má span > 7 dní — nesmí to být falešný MAX_SHIFT_EXCEEDED). Fetch okno dimenzovat na worst-case span (ne `+durationMs`).
+Snap start-only + expanze; kolizní test na expandovaném spanu. `MAX_AUTO_SHIFT_MS` (7 dní) vztahovat na **posun startu**, ne endu (40h blok na jednosměnném stroji má span > 7 dní — nesmí to být falešný MAX_SHIFT_EXCEEDED). Fetch okno dimenzovat na worst-case span (ne `+durationMs`). Kandidát porušující minimální segment se přeskočí na konec první pauzy (stejné pravidlo + fallback jako u chain pushe); limit 7 dní se i pak měří na posun startu.
 
 ### 3.9 Změna kalendáře po naplánování
 
