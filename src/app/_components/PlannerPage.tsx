@@ -21,6 +21,8 @@ import {
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
+import { blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
+import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
@@ -1495,7 +1497,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           ...shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
         ];
         const applyBatch = async (snaps: typeof beforeSnaps) => {
-          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
+          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: false, bypassOverlapCheck: true }) });
           if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
           const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
         };
@@ -1557,7 +1559,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       ];
       if (prevSnaps.length > 0) {
         const applyBatch = async (snaps: typeof prevSnaps) => {
-          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
+          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: false, bypassOverlapCheck: true }) });
           if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
           const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
         };
@@ -1679,6 +1681,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       tiskoveArchy: block.tiskoveArchy ?? null,
       serie: block.serie ?? null,
       recurrenceType: "NONE",
+      ...(block.type === "ZAKAZKA" ? { printMinutes: blockPrintMinutes(block) } : {}),
     };
 
     undoStack.current = undoStack.current.slice(-MAX_HISTORY + 1);
@@ -1784,6 +1787,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       obalka: b.obalka ?? false, vnitrky: b.vnitrky ?? false,
       tiskoveArchy: b.tiskoveArchy ?? null, serie: b.serie ?? null,
       recurrenceType: "NONE",
+      ...(b.type === "ZAKAZKA" ? { printMinutes: blockPrintMinutes(b) } : {}),
     }));
     let restoredIds: number[] = [];
     undoStack.current = undoStack.current.slice(-MAX_HISTORY + 1);
@@ -2037,6 +2041,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       specifikace: bSpecifikace || null,
       recurrenceType: bRecurrenceType,
       autoShiftIfBusy: true,
+      ...(type === "ZAKAZKA" ? { printMinutes: Math.round(durationHours * 60) } : {}),
     };
     setSeriesScheduling(true);
     let parentId: number | null = null;
@@ -2262,13 +2267,32 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const item = queue.find((q) => q.id === itemId) ?? reservationQueue.find((r) => r.id === itemId);
     if (!item) return;
     const durationMs = item.durationHours * 60 * 60 * 1000;
-    // Snap na pracovní dobu — kontrolujeme celou délku bloku, ne jen 30 min.
-    const rawSnapped = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(machine, rawStartTime, durationMs, machineWeekShifts)
-      : rawStartTime;
-    const startTime = rawSnapped;
-    if (workingTimeLockRef.current && rawSnapped.getTime() !== rawStartTime.getTime()) {
-      showToast("Blok umístěn do nejbližšího dostupného slotu (mimo pracovní dobu).", "info");
+    // ZAKAZKA → model tiskových hodin: start-only snap, server dopočítá autoritativní end z printMinutes.
+    // REZERVACE / UDRZBA → starý duration-based snap (server tyto typy nevaliduje přes tiskové hodiny).
+    const isZakazka = item.type === "ZAKAZKA";
+    const pm = Math.round(item.durationHours * 60);
+    let startTime = rawStartTime;
+    if (workingTimeLockRef.current) {
+      if (isZakazka) {
+        const snapped = snapStartToNextRunnableSlot(
+          machine, rawStartTime, machineWeekShifts, companyDayIntervalsFor(machine, companyDays)
+        );
+        if (!snapped) {
+          showToast("V okolí není žádný pracovní slot — nelze naplánovat.", "error");
+          setDraggingQueueItem(null);
+          return;
+        }
+        if (snapped.getTime() !== rawStartTime.getTime()) {
+          showToast("Blok umístěn do nejbližšího dostupného slotu (mimo pracovní dobu).", "info");
+        }
+        startTime = snapped;
+      } else {
+        const rawSnapped = snapToNextValidStartWithTemplates(machine, rawStartTime, durationMs, machineWeekShifts);
+        if (rawSnapped.getTime() !== rawStartTime.getTime()) {
+          showToast("Blok umístěn do nejbližšího dostupného slotu (mimo pracovní dobu).", "info");
+        }
+        startTime = rawSnapped;
+      }
     }
     const rType = item.recurrenceType ?? "NONE";
     const rCount = rType !== "NONE" ? Math.max(1, item.recurrenceCount ?? 1) : 1;
@@ -2316,7 +2340,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const res1 = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...baseBody, startTime: startTime.toISOString(), endTime: firstEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true }),
+        body: JSON.stringify({
+          ...baseBody,
+          startTime: startTime.toISOString(),
+          endTime: firstEnd.toISOString(),
+          ...(isZakazka ? { printMinutes: pm } : {}),
+          bypassScheduleValidation: !workingTimeLockRef.current,
+          resolveChain: true,
+        }),
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
@@ -2344,6 +2375,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               ...baseBody,
               startTime: curStart.toISOString(),
               endTime: curEnd.toISOString(),
+              ...(isZakazka ? { printMinutes: pm } : {}),
               recurrenceParentId: parentBlock.id,
               bypassScheduleValidation: !workingTimeLockRef.current,
               resolveChain: true,
@@ -2379,9 +2411,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (!src) return;
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
-    const newStart = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, rawStart, durationMs, machineWeekShifts)
-      : rawStart;
+    const isZakazka = src.type === "ZAKAZKA";
+    let newStart = rawStart;
+    if (workingTimeLockRef.current) {
+      if (isZakazka) {
+        const snapped = snapStartToNextRunnableSlot(
+          target.machine, rawStart, machineWeekShifts, companyDayIntervalsFor(target.machine, companyDays)
+        );
+        if (!snapped) {
+          showToast("V okolí není žádný pracovní slot — nelze vložit.", "error");
+          return;
+        }
+        newStart = snapped;
+      } else {
+        newStart = snapToNextValidStartWithTemplates(target.machine, rawStart, durationMs, machineWeekShifts);
+      }
+    }
+    // Naivní end jako fallback — server pro ZAKAZKA autoritativně přepočítá z printMinutes.
     const newEnd = new Date(newStart.getTime() + durationMs);
     try {
       const res = await fetch("/api/blocks", {
@@ -2395,6 +2441,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           jobPresetId: src.jobPresetId,
           startTime: newStart.toISOString(),
           endTime: newEnd.toISOString(),
+          ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
           description: src.description,
           locked: false,
           deadlineExpedice: src.deadlineExpedice,
@@ -2457,10 +2504,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
     const anchorBlock = group.find((b) => new Date(b.startTime).getTime() === anchorMs)!;
     const anchorDuration = new Date(anchorBlock.endTime).getTime() - anchorMs;
-    // Snap anchor pokud je lock zapnutý — kontrolujeme celou délku anchor bloku
-    const snappedTarget = workingTimeLockRef.current
-      ? snapToNextValidStartWithTemplates(target.machine, target.time, anchorDuration, machineWeekShifts)
-      : target.time;
+    const allZakazka = group.every((b) => b.type === "ZAKAZKA");
+    // Snap anchor pokud je lock zapnutý. Čistě ZAKAZKA skupina: start-only snap
+    // (délku rozloží server expanzí přes printMinutes u každého bloku zvlášť).
+    // Smíšená skupina: starý duration-based snap přes celou délku anchor bloku.
+    let snappedTarget: Date;
+    if (workingTimeLockRef.current) {
+      if (allZakazka) {
+        const snapped = snapStartToNextRunnableSlot(
+          target.machine, target.time, machineWeekShifts, companyDayIntervalsFor(target.machine, companyDays)
+        );
+        if (!snapped) {
+          showToast("V okolí není žádný pracovní slot — nelze vložit.", "error");
+          return;
+        }
+        snappedTarget = snapped;
+      } else {
+        snappedTarget = snapToNextValidStartWithTemplates(target.machine, target.time, anchorDuration, machineWeekShifts);
+      }
+    } else {
+      snappedTarget = target.time;
+    }
     const pasteMs = snappedTarget.getTime();
 
     // POST všechny bloky sekvenčně — při prvním selhání se zastaví a žádný lokální stav se nezmění
@@ -2471,6 +2535,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
         const newStart = new Date(pasteMs + offsetMs);
         const newEnd = new Date(newStart.getTime() + durationMs);
+        const isZakazka = src.type === "ZAKAZKA";
         const res = await fetch("/api/blocks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2478,6 +2543,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             orderNumber: src.orderNumber, machine: target.machine, type: src.type, blockVariant: src.blockVariant,
             jobPresetId: src.jobPresetId,
             startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
+            ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
             description: src.description, locked: false,
             deadlineExpedice: src.deadlineExpedice,
             dataStatusId: src.dataStatusId, dataStatusLabel: src.dataStatusLabel, dataRequiredDate: src.dataRequiredDate, dataOk: src.dataOk,

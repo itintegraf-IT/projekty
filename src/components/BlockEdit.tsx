@@ -19,6 +19,7 @@ import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
 import { parseProductionTags, serializeProductionTags } from "@/lib/productionTags";
 import { MultiSelectDropdown } from "@/components/MultiSelectDropdown";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
+import { blockPrintMinutes } from "@/lib/printTimeClient";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
@@ -112,8 +113,13 @@ export function BlockEdit({
   const [showOrderNumberPrompt, setShowOrderNumberPrompt] = useState(false);
   const [promptOrderNumber, setPromptOrderNumber] = useState("");
 
-  // Délka tisku
-  const currentDurationHours = (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
+  // Délka tisku — pro ZAKAZKA vychází z printMinutes (tiskové hodiny), ne z elapsed
+  // start→end. Elapsed může u pozastaveného bloku vzrůst na hodnotu mimo DURATION_OPTIONS
+  // (např. 26 h), zatímco printMinutes zůstává skutečnou tiskovou délkou (např. 10 h) —
+  // select by jinak spadl na hodnotu, kterou <option> nenabízí.
+  const currentDurationHours = type === "ZAKAZKA"
+    ? blockPrintMinutes(block) / 60
+    : (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
   const [durationHours, setDurationHours] = useState(currentDurationHours);
 
   // Termín expedice
@@ -355,11 +361,17 @@ export function BlockEdit({
           body: JSON.stringify({
             startTime: newStart.toISOString(),
             endTime: newEnd.toISOString(),
+            // Tiskové hodiny výskytu — server dopočítá autoritativní end z nového startu.
+            printMinutes: blockPrintMinutes(orig),
             dataRequiredDate: resolved.dataRequiredDate || null,
             deadlineExpedice: resolved.deadlineExpedice || null,
             // resolveChain — server umístí výskyt a případně odsune navazující bloky
             // (chain push) v téže transakci; finální pojistka ověří výsledek.
             resolveChain: true,
+            // bypassScheduleValidation zůstává true záměrně — výskyty série jsou
+            // deadline-driven na přesné datum. Server od etapy 2 ukládá spočítanou
+            // konformitu (effectivelyBypassed), takže výskyt na konformním místě
+            // se bypass flagem "neotráví".
             bypassScheduleValidation: true,
           }),
         });
@@ -582,7 +594,12 @@ export function BlockEdit({
       vnitrky,
       tiskoveArchy: serializeProductionTags(tiskoveArchy),
       serie: serializeProductionTags(serie),
-      endTime: new Date(new Date(block.startTime).getTime() + durationHours * 3600000).toISOString(),
+      // ZAKAZKA: posíláme printMinutes (tiskové hodiny) — server dopočítá autoritativní
+      // end z uloženého startu (explicitní-pm PUT větev z etapy 2). Ne-ZAKAZKA typy
+      // (REZERVACE, UDRZBA) model tiskových hodin nemají, tam zůstává prostý endTime.
+      ...(type === "ZAKAZKA"
+        ? { printMinutes: Math.round(durationHours * 60) }
+        : { endTime: new Date(new Date(block.startTime).getTime() + durationHours * 3600000).toISOString() }),
     };
   }
 

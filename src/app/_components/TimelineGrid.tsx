@@ -3,6 +3,8 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
+import { computePrintMinutes, snapStartToNextRunnableSlot } from "@/lib/printTime";
+import { blockPrintMinutes, companyDayIntervalsFor, snapGroupDeltaStartOnly } from "@/lib/printTimeClient";
 import {
   addDaysToCivilDate,
   civilDateDayOfWeek,
@@ -79,6 +81,8 @@ export type Block = {
   startTime: string;
   endTime: string;
   type: string;
+  printMinutes?: number | null;
+  scheduleBypassed?: boolean;
   blockVariant?: BlockVariant | null;
   jobPresetId: number | null;
   jobPresetLabel: string | null;
@@ -170,7 +174,7 @@ type DragInternalState =
     }
   | {
       type: "multi-move";
-      blocks: Array<{ id: number; machine: string; originalStart: Date; originalEnd: Date }>;
+      blocks: Array<{ id: number; machine: string; type: string; originalStart: Date; originalEnd: Date }>;
       startClientY: number;
       startClientX: number;
       startScrollTop: number;
@@ -2104,6 +2108,8 @@ export default function TimelineGrid({
   workingTimeLockRef.current = workingTimeLock;
   const machineWeekShiftsRef = useRef(machineWeekShifts);
   machineWeekShiftsRef.current = machineWeekShifts;
+  const companyDaysRef = useRef(companyDays);
+  companyDaysRef.current = companyDays;
 
   useEffect(() => { slotHeightRef.current = slotHeight; }, [slotHeight]);
   useEffect(() => { blocksRef.current = blocks; }, [blocks]);
@@ -2412,16 +2418,42 @@ export default function TimelineGrid({
         const newMachine  = clientXToMachine(e.clientX);
         const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
         const requestedStart = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
+        const sourceBlock = blocksRef.current.find((b) => b.id === ds.blockId);
+        const isZakazka = sourceBlock?.type === "ZAKAZKA";
         let newStart = requestedStart;
         if (workingTimeLockRef.current) {
-          newStart = snapToNextValidStartWithTemplates(newMachine, requestedStart, duration, machineWeekShiftsRef.current ?? []);
+          if (isZakazka) {
+            const snapped = snapStartToNextRunnableSlot(
+              newMachine,
+              requestedStart,
+              machineWeekShiftsRef.current ?? [],
+              companyDayIntervalsFor(newMachine, companyDaysRef.current ?? [])
+            );
+            if (!snapped) {
+              callbacksRef.current.onError?.("V okolí není žádný pracovní slot — blok nelze umístit.");
+              return;
+            }
+            newStart = snapped;
+          } else {
+            newStart = snapToNextValidStartWithTemplates(newMachine, requestedStart, duration, machineWeekShiftsRef.current ?? []);
+          }
           if (newStart.getTime() !== requestedStart.getTime()) {
             callbacksRef.current.onInfo?.("Blok přesunut mimo pracovní dobu — automaticky umístěn do nejbližšího dostupného slotu.");
           }
         }
-        const newEnd      = new Date(newStart.getTime() + duration);
+        const body: Record<string, unknown> = {
+          startTime: newStart.toISOString(),
+          machine: newMachine,
+          bypassScheduleValidation: !workingTimeLockRef.current,
+          resolveChain: true,
+        };
+        if (isZakazka && sourceBlock) {
+          body.printMinutes = blockPrintMinutes(sourceBlock);
+        } else {
+          body.endTime = new Date(newStart.getTime() + duration).toISOString();
+        }
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startTime: newStart.toISOString(), endTime: newEnd.toISOString(), machine: newMachine, bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true }) });
+          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
@@ -2458,9 +2490,26 @@ export default function TimelineGrid({
         const newMachine = clientXToMachine(e.clientX);
         if (workingTimeLockRef.current) {
           const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
-          const { deltaMs: snapped, wasSnapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWeekShiftsRef.current ?? []);
-          deltaMs = snapped;
-          if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
+          const zakazkaOnly = blocksOnNewMachine.every((b) => b.type === "ZAKAZKA");
+          if (zakazkaOnly) {
+            const r = snapGroupDeltaStartOnly(
+              blocksOnNewMachine.map((b) => ({ machine: b.machine, originalStart: b.originalStart })),
+              deltaMs,
+              machineWeekShiftsRef.current ?? [],
+              companyDaysRef.current ?? []
+            );
+            if (!r) {
+              callbacksRef.current.onError?.("V okolí není žádný pracovní slot — bloky nelze umístit.");
+              return;
+            }
+            deltaMs = r.deltaMs;
+            if (r.wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
+          } else {
+            // smíšený výběr: starý duration-based snap (ne-ZAKAZKA server nevaliduje)
+            const { deltaMs: snapped, wasSnapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWeekShiftsRef.current ?? []);
+            deltaMs = snapped;
+            if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
+          }
         }
         const updates    = ds.blocks.map(b => ({
           id:        b.id,
@@ -2505,7 +2554,7 @@ export default function TimelineGrid({
       const selBlocks = blocksRef.current.filter(b => ids.has(b.id) && !b.locked);
       dragStateRef.current = {
         type: "multi-move",
-        blocks: selBlocks.map(b => ({ id: b.id, machine: b.machine, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
+        blocks: selBlocks.map(b => ({ id: b.id, machine: b.machine, type: b.type, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
         startClientY: e.clientY, startClientX: e.clientX, startScrollTop: sst,
         anchorBlockId: block.id,
       };
@@ -2540,6 +2589,31 @@ export default function TimelineGrid({
   }
 
   async function handleSplitBlockAt(block: Block, splitAt: Date) {
+    // Model tiskových hodin: dopředu spočítat tiskové minuty obou částí, PŘED jakoukoli
+    // mutací — tail POST musí poslat printMinutes, jinak server dopočítá pm z elapsed span
+    // (u pozastaveného bloku = ~3× víc, nebo 422 při elapsed > 2400 — tichá korupce plánu).
+    let headPm: number | null = null;
+    let tailPm: number | null = null;
+    if (block.type === "ZAKAZKA") {
+      const totalPm = blockPrintMinutes(block);
+      if (block.scheduleBypassed === true) {
+        // Bypassnutý blok: computePrintMinutes není bypass-aware → elapsed-based split.
+        headPm = Math.round((splitAt.getTime() - new Date(block.startTime).getTime()) / 60000);
+      } else {
+        headPm = computePrintMinutes(
+          block.machine,
+          new Date(block.startTime),
+          splitAt,
+          machineWeekShiftsRef.current ?? [],
+          companyDayIntervalsFor(block.machine, companyDaysRef.current ?? [])
+        );
+      }
+      tailPm = totalPm - headPm;
+      if (headPm <= 0 || tailPm <= 0) {
+        callbacksRef.current.onError?.("Nelze rozdělit v tomto místě — jedna část by neměla žádný tiskový čas.");
+        return;
+      }
+    }
     try {
       // Krok 1: zkrátit původní blok
       const res1 = await fetch(`/api/blocks/${block.id}`, {
@@ -2600,6 +2674,7 @@ export default function TimelineGrid({
           lakStatusLabel: block.lakStatusLabel,
           specifikace: block.specifikace,
           splitGroupId: rootSplitGroupId,
+          ...(block.type === "ZAKAZKA" ? { printMinutes: tailPm } : {}),
         }),
       });
       if (!res2.ok) {
