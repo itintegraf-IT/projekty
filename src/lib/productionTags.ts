@@ -4,6 +4,16 @@
  * parse/serialize/zobrazení. Vše defenzivní — nevalidní vstup nikdy nehodí výjimku.
  */
 
+/**
+ * Barvy typových chipů (OBÁLKA / VNITŘKY / TA·série) — jediný zdroj pravdy.
+ * Používá se na bloku v plánu (TimelineGrid), na DTP kartě i v detailu bloku.
+ */
+export const PRODUCTION_CHIP_COLORS = {
+  obalka:  { bg: "#facc15", fg: "#1a1206" },
+  vnitrky: { bg: "#22d3ee", fg: "#06222a" },
+  type:    { bg: "#a5b4fc", fg: "#1e1b4b" },
+} as const;
+
 export function parseProductionTags(value: string | null | undefined): string[] {
   if (!value) return [];
   try {

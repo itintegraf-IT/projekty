@@ -10,7 +10,7 @@ import {
 import type { Block } from "@/app/_components/TimelineGrid";
 import type { CodebookOption } from "@/lib/plannerTypes";
 import { badgeColorVar } from "@/lib/badgeColors";
-import { formatProductionTypeChip } from "@/lib/productionTags";
+import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 
 // ─── Sdílené typy ─────────────────────────────────────────────────────────────
 type OnStatusChange = (
@@ -312,9 +312,9 @@ function BlockCard({
       />
       {(block.obalka || block.vnitrky || typeChip) && (
         <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
-          {block.obalka && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: "#facc15", color: "#1a1206", lineHeight: 1 }}>OBÁLKA</span>}
-          {block.vnitrky && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: "#22d3ee", color: "#06222a", lineHeight: 1 }}>VNITŘKY</span>}
-          {typeChip && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: "#a5b4fc", color: "#1e1b4b", lineHeight: 1 }}>{typeChip}</span>}
+          {block.obalka && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.obalka.bg, color: PRODUCTION_CHIP_COLORS.obalka.fg, lineHeight: 1 }}>OBÁLKA</span>}
+          {block.vnitrky && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.vnitrky.bg, color: PRODUCTION_CHIP_COLORS.vnitrky.fg, lineHeight: 1 }}>VNITŘKY</span>}
+          {typeChip && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.type.bg, color: PRODUCTION_CHIP_COLORS.type.fg, lineHeight: 1 }}>{typeChip}</span>}
         </div>
       )}
     </div>

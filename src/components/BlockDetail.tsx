@@ -12,7 +12,7 @@ import { formatCivilDate, formatPragueDateTime, formatPragueDateShort, formatPra
 import DatePickerField from "@/app/_components/DatePickerField";
 import { getSplitChipState } from "@/lib/splitHelpers";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
-import { formatProductionTags } from "@/lib/productionTags";
+import { formatProductionTags, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -231,11 +231,13 @@ export function BlockDetail({
                 <div className="flex items-baseline gap-2">
                   <span className="text-[10px] text-slate-500 w-16 flex-shrink-0">Typ tisku</span>
                   <span className="flex gap-1.5">
-                    {block.obalka && <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded" style={{ background: "#facc15", color: "#1a1206" }}>OBÁLKA</span>}
-                    {block.vnitrky && <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded" style={{ background: "#22d3ee", color: "#06222a" }}>VNITŘKY</span>}
+                    {block.obalka && <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded" style={{ background: PRODUCTION_CHIP_COLORS.obalka.bg, color: PRODUCTION_CHIP_COLORS.obalka.fg }}>OBÁLKA</span>}
+                    {block.vnitrky && <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded" style={{ background: PRODUCTION_CHIP_COLORS.vnitrky.bg, color: PRODUCTION_CHIP_COLORS.vnitrky.fg }}>VNITŘKY</span>}
                   </span>
                 </div>
               )}
+              {/* Detail záměrně verbose — plné labely přes formatProductionTags (ne compactTagChip
+                  jako chip na bloku); tady je prostor a chceme jednoznačnost. */}
               {block.tiskoveArchy && <Row label="Tiskové archy" value={formatProductionTags(block.tiskoveArchy)} />}
               {block.serie && <Row label="Série" value={formatProductionTags(block.serie)} />}
             </div>

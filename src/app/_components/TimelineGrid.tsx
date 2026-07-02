@@ -19,7 +19,7 @@ import {
   utcToPragueDateStr,
 } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
-import { formatProductionTypeChip } from "@/lib/productionTags";
+import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
 import { Lock, Clock, Hourglass } from "lucide-react";
@@ -775,14 +775,17 @@ function ProductionChips({ obalka, vnitrky, tiskoveArchy, serie, abbreviated }: 
 }) {
   const typeChip = formatProductionTypeChip(tiskoveArchy, serie);
   if (!obalka && !vnitrky && !typeChip) return null;
-  const pill = (bg: string, fg: string, text: string) => (
-    <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.04em", padding: "2px 6px", borderRadius: 5, background: bg, color: fg, lineHeight: 1, whiteSpace: "nowrap", flexShrink: 0 }}>{text}</span>
+  // clamp = na krátkých blocích (abbreviated) dlouhý TA·série chip zkrátit ellipsis,
+  // aby nikdy nevytlačil číslo zakázky (nejdůležitější info na bloku).
+  const pill = (bg: string, fg: string, text: string, clamp?: boolean) => (
+    <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.04em", padding: "2px 6px", borderRadius: 5, background: bg, color: fg, lineHeight: 1, whiteSpace: "nowrap", flexShrink: clamp ? 1 : 0, ...(clamp ? { maxWidth: 132, overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>{text}</span>
   );
+  const C = PRODUCTION_CHIP_COLORS;
   return (
     <>
-      {obalka && pill("#facc15", "#1a1206", abbreviated ? "OB." : "OBÁLKA")}
-      {vnitrky && pill("#22d3ee", "#06222a", abbreviated ? "VN." : "VNITŘKY")}
-      {typeChip && pill("#a5b4fc", "#1e1b4b", typeChip)}
+      {obalka && pill(C.obalka.bg, C.obalka.fg, abbreviated ? "OB." : "OBÁLKA")}
+      {vnitrky && pill(C.vnitrky.bg, C.vnitrky.fg, abbreviated ? "VN." : "VNITŘKY")}
+      {typeChip && pill(C.type.bg, C.type.fg, typeChip, abbreviated)}
     </>
   );
 }
@@ -1171,7 +1174,7 @@ function BlockCard({
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
               {!isTiskar && <>
                 <span style={{
                     ...dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
@@ -1293,7 +1296,7 @@ function BlockCard({
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={{
                     ...chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
