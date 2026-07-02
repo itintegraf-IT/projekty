@@ -7,7 +7,9 @@ import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from "@/lib/blockSerialization";
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
-import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
+import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
+import { computePrintMinutes } from "@/lib/printTime";
+import { loadMachineCalendar } from "@/lib/printTime.server";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { emitSSE } from "@/lib/eventBus";
@@ -127,24 +129,22 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     // Server-side validace pracovní doby:
     // Validujeme pokud se mění startTime/endTime/machine NEBO pokud se typ mění na ZAKAZKA
     // (blok mohl být mimo provoz jako REZERVACE a přejmenovat se na ZAKAZKA).
+    //
+    // Sémantika printMinutes (viz docs/superpowers/sdd task-4-brief.md):
+    //  1) explicitní body.printMinutes → autoritativní
+    //  2) resize (mění se JEN endTime, start/machine beze změny) → inverze z nového endu
+    //     (bypass blok → prostý elapsed)
+    //  3) move (mění se start/machine) NEBO end beze změny → printMinutes ze záznamu;
+    //     klientův poslaný endTime se u move IGNORUJE (drag & drop vždy posílá start+end,
+    //     naivní end by u bloku s pauzami dal špatnou inverzi — viz Finding A)
+    //  4) změna typu na ZAKAZKA → odvodit ze spanu; pryč z ZAKAZKA → printMinutes null, scheduleBypassed false
+    //
+    // Výpočet samotný běží AŽ uvnitř $transaction (derivováno z in-tx `oldBlock`), aby
+    // nedošlo k TOCTOU race mezi pre-tx čtením a zápisem (Finding B).
     const timingChanged = allowed.startTime !== undefined || allowed.endTime !== undefined || allowed.machine !== undefined;
-    const typeChangingToZakazka = (allowed.type as string | undefined) === "ZAKAZKA";
-    if (timingChanged || typeChangingToZakazka) {
-      const existing = await prisma.block.findUnique({
-        where: { id },
-        select: { startTime: true, endTime: true, machine: true, type: true },
-      });
-      if (existing) {
-        const checkType = (allowed.type as string | undefined) ?? existing.type;
-        if (checkType === "ZAKAZKA") {
-          const checkMachine = (allowed.machine as string | undefined) ?? existing.machine;
-          const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : existing.startTime;
-          const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : existing.endTime;
-          const scheduleError = await validateBlockScheduleFromDb(checkMachine, checkStart, checkEnd, checkType, bypassScheduleValidation);
-          if (scheduleError) return NextResponse.json({ error: scheduleError.error }, { status: 422 });
-        }
-      }
-    }
+    const typeChangesToZakazka = allowed.type === "ZAKAZKA";
+    const needsScheduleComputation =
+      timingChanged || typeChangesToZakazka || allowed.type !== undefined || typeof body.printMinutes === "number";
 
     const AUDITED_FIELDS = [
       "dataStatusLabel", "dataRequiredDate", "dataOk",
@@ -176,6 +176,70 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         }
       }
 
+      // ── Výpočet computed*/end/printMinutes/scheduleBypassed (uvnitř tx, derivováno z in-tx oldBlock) ──
+      // Viz sémantika printMinutes v komentáři nad `needsScheduleComputation` výše.
+      let computedEnd: Date | null = null;
+      let computedPrintMinutes: number | null = null;
+      let computedBypassed: boolean | null = null;
+
+      if (needsScheduleComputation) {
+        const checkMachine = (allowed.machine as string | undefined) ?? oldBlock.machine;
+        const checkType = (allowed.type as string | undefined) ?? oldBlock.type;
+        const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : oldBlock.startTime;
+        const requestedEnd = allowed.endTime ? new Date(allowed.endTime as string) : oldBlock.endTime;
+
+        if (checkType !== "ZAKAZKA") {
+          // Z ZAKAZKA pryč (nebo ne-ZAKAZKA blok): printMinutes vyčistit, end = požadovaný.
+          computedEnd = requestedEnd;
+          computedPrintMinutes = null;
+          computedBypassed = false;
+        } else {
+          // Detekce move vs. resize — dnešní drag-move klient posílá VŽDY start i end
+          // (end = newStart + starý span). Nelze tedy rozeznat move od resize podle
+          // "endTime se změnilo" — to je pravda i u move. Rozhoduje start/machine:
+          const startOrMachineChanged =
+            (allowed.startTime !== undefined && checkStart.getTime() !== oldBlock.startTime.getTime())
+            || (allowed.machine !== undefined && checkMachine !== oldBlock.machine);
+          const isResize = !startOrMachineChanged
+            && allowed.endTime !== undefined
+            && requestedEnd.getTime() !== oldBlock.endTime.getTime();
+          // Bypass INPUT do validace: request flag rozhoduje JEN při skutečné změně pozice/délky
+          // (move/resize). Pouhá přítomnost endTime v payloadu (BlockEdit posílá end vždy)
+          // nesmí bypass blok tiše re-expandovat — jinak se flag ztratí uložením popisu.
+          const bypass = (startOrMachineChanged || isResize) ? bypassScheduleValidation : oldBlock.scheduleBypassed;
+
+          let pm: number | null;
+          if (typeof body.printMinutes === "number") {
+            pm = body.printMinutes;                              // 1) explicitní
+          } else if (isResize) {
+            // 2) resize — inverze z nového endu (start/machine beze změny)
+            if (bypass) {
+              pm = Math.round((requestedEnd.getTime() - checkStart.getTime()) / 60000);
+            } else {
+              const cal = await loadMachineCalendar(tx, checkMachine, checkStart);
+              pm = computePrintMinutes(checkMachine, checkStart, requestedEnd, cal.weekShifts, cal.companyDays);
+            }
+          } else if (oldBlock.printMinutes != null && oldBlock.type === "ZAKAZKA") {
+            // 3) move (start/machine změna) nebo end beze změny — printMinutes ze záznamu.
+            // Klientův poslaný endTime se zde záměrně ignoruje.
+            pm = oldBlock.printMinutes;
+          } else {
+            // fallback (legacy blok bez printMinutes / změna typu na ZAKAZKA): odvodit ze spanu
+            pm = Math.round((oldBlock.endTime.getTime() - oldBlock.startTime.getTime()) / 60000);
+          }
+
+          const sched = await validateAndComputeEnd(tx, checkMachine, checkStart, pm, requestedEnd, "ZAKAZKA", bypass);
+          if (!sched.ok) {
+            throw new AppError("SCHEDULE_VIOLATION", sched.error);
+          }
+          computedEnd = sched.end;
+          computedPrintMinutes = pm;
+          // Uložit SPOČÍTANOU pravdu, ne echo bypass flagu — bypass request na místě,
+          // které kalendáři sedí, blok trvale neoznačí (effectivelyBypassed = false).
+          computedBypassed = sched.effectivelyBypassed;
+        }
+      }
+
       // ── DATA chip auto-derivace (potřebuje oldBlock) ──
       // Pravidlo 1: Změna dataRequiredDate → vymazat chip + dataOk=false
       //   Spouští se JEN pokud se datum skutečně změnilo (ne jen proto, že ho klient poslal znovu).
@@ -200,7 +264,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       if (!bypassOverlapCheck && !resolveChain) {
         const checkMachine = (allowed.machine as string | undefined) ?? oldBlock.machine;
         const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : oldBlock.startTime;
-        const checkEnd = allowed.endTime ? new Date(allowed.endTime as string) : oldBlock.endTime;
+        const checkEnd = computedEnd ?? oldBlock.endTime;
         if (
           checkStart.getTime() !== oldBlock.startTime.getTime() ||
           checkEnd.getTime() !== oldBlock.endTime.getTime() ||
@@ -279,7 +343,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.orderNumber !== undefined && { orderNumber: String(allowed.orderNumber) }),
           ...(allowed.machine !== undefined && { machine: allowed.machine as string }),
           ...(allowed.startTime !== undefined && { startTime: new Date(allowed.startTime as string) }),
-          ...(allowed.endTime !== undefined && { endTime: new Date(allowed.endTime as string) }),
+          ...(computedEnd !== null && { endTime: computedEnd }),
+          ...(computedEnd !== null && { printMinutes: computedPrintMinutes }),
+          ...(computedBypassed !== null && { scheduleBypassed: computedBypassed }),
           ...(allowed.type !== undefined && { type: allowed.type as string }),
           // Pokud se type mění pryč od ZAKAZKA, vyčistit printCompleted
           ...(typeChangingAwayFromZakazka && {
@@ -437,7 +503,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       // ── Chain push navazujících bloků + tvrdá pojistka ──
       // Jen pro ZAKAZKA a jen když se reálně měnil čas/stroj.
       let shiftedMoves: AppliedMove[] = [];
-      if (resultingType === "ZAKAZKA" && (timingChanged || typeChangingToZakazka)) {
+      if (resultingType === "ZAKAZKA" && (timingChanged || typeChangesToZakazka)) {
         if (resolveChain) {
           shiftedMoves = await resolveChainPushFromDb(
             tx,

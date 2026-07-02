@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **51/51 testů zelené** (viz níže)
+- celá test suite: **55/55 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -24,10 +24,9 @@ node --test --import tsx src/lib/errors.test.ts                # 5 testů
 node --test --import tsx src/lib/pasteTarget.test.ts           # 6 testů
 node --test --import tsx src/lib/clipboardCopy.test.ts         # 6 testů
 node --test --import tsx src/lib/printTime.test.ts             # 14 testů
-node --experimental-test-module-mocks --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
+node --test --import tsx src/lib/printTime.server.test.ts      # 4 testy
+node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 11 testů
 ```
-
-Pozor: `scheduleValidationServer.test.ts` vyžaduje flag `--experimental-test-module-mocks` (používá `mock.module()` pro mock Prismy). Bez něj selže s `mock.module is not a function`.
 
 ## Co aplikace dnes umí
 
@@ -196,18 +195,24 @@ logger.error("[blocks] chyba při uložení", err);
 
 `console.log/warn/error` v API routes jsou zakázány — logger v produkci píše strukturovaný JSON, v dévě barevný text.
 
-### Validace harmonogramu — vždy `validateBlockScheduleFromDb`
+### Validace harmonogramu — vždy `validateAndComputeEnd`
 
-Kdykoliv API route přijímá `startTime`/`endTime` bloku typu ZAKAZKA, musí volat:
+Kdykoliv API route přijímá `startTime` bloku typu ZAKAZKA, musí volat `validateAndComputeEnd` a uložit **end vrácený funkcí** — nikdy end z klienta. Funkce nejen validuje, ale i počítá autoritativní end přes „tiskové hodiny" (expanze přes weekShifts + companyDays, odstávky se překlenou pauzou):
 
 ```typescript
-import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
+import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 
-const err = await validateBlockScheduleFromDb(machine, start, end, type, bypassFlag);
-if (err) return NextResponse.json(err, { status: 409 });
+const sched = await validateAndComputeEnd(
+  db, machine, startTime, printMinutes, fallbackEnd, blockType, bypassFlag
+);
+if (!sched.ok) return NextResponse.json({ error: sched.error }, { status: 422 });
+const end = sched.end; // autoritativní, nikdy nepřebírat end z requestu
+const scheduleBypassed = sched.effectivelyBypassed; // uložit TOTO, nikdy echo bypass flagu
 ```
 
-Nikdy neduplikovat tuto logiku — `scheduleValidationServer.ts` je jediný zdroj pravdy pro serverovou validaci harmonogramu. Platí pro POST `/api/blocks`, PUT `/api/blocks/[id]` a POST `/api/blocks/batch`.
+Návratová hodnota při `ok: true` obsahuje i `effectivelyBypassed` — SPOČÍTANOU pravdu o konformitě umístění s kalendářem (bypass request na místě, které kalendáři sedí, vrací `false`). Do `Block.scheduleBypassed` se ukládá výhradně tato hodnota, nikdy surový `bypassScheduleValidation` z requestu. Při `ok: false` je k dispozici `kind`: `"INVALID_INPUT"` (vadné printMinutes / nezarovnaný start — auto-shift NESMÍ maskovat, vždy 422) vs. `"PLACEMENT"` (mimo provoz / odstávka / horizont — auto-shift povolen).
+
+Nikdy neduplikovat tuto logiku — `scheduleValidationServer.ts` je jediný zdroj pravdy pro serverovou validaci harmonogramu i výpočet end. Platí pro POST `/api/blocks`, PUT `/api/blocks/[id]` a POST `/api/blocks/batch`. Stará `validateBlockScheduleFromDb` (validace bez výpočtu end) byla zrušena.
 
 ### Audit log — každá mutace v transakci
 
@@ -280,7 +285,9 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 
 - `src/lib/errors.ts` — `AppError`, `isAppError`, `AppErrorCode` — použít v každé API route
 - `src/lib/logger.ts` — `logger.info/warn/error` — použít místo console v API routes
-- `src/lib/scheduleValidationServer.ts` — `validateBlockScheduleFromDb` — serverová validace harmonogramu
+- `src/lib/scheduleValidationServer.ts` — `validateAndComputeEnd` — validuje ZAKAZKA blok a vrací autoritativní end + `effectivelyBypassed` (spočítaná pravda pro `scheduleBypassed`, nikdy echo request flagu; jediný zdroj pravdy pro endTime; nahrazuje zrušenou `validateBlockScheduleFromDb`)
+- `src/lib/printTime.ts` — `expandPrintTime`/`computePrintMinutes`/`isMachineRunnableAt` — jádro „tiskových hodin" (čisté funkce, žádná DB)
+- `src/lib/printTime.server.ts` — `loadMachineCalendar`/`expandPrintTimeFromDb` — DB fetch (weekShifts + companyDays) a napojení na `printTime.ts`
 - `src/lib/plannerTypes.ts` — `TYPE_LABELS`, `TYPE_BUILDER_CONFIG`, `CodebookOption`, `DURATION_OPTIONS`
 - `src/lib/auditFormatters.ts` — `FIELD_LABELS`, `fmtAuditVal`, `formatPragueMaybeToday`
 

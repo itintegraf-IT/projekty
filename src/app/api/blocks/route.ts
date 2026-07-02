@@ -5,7 +5,7 @@ import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeBlock } from "@/lib/blockSerialization";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
-import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
+import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { AppError, isAppError } from "@/lib/errors";
@@ -75,14 +75,31 @@ export async function POST(request: NextRequest) {
     const durationMs = endTime.getTime() - startTime.getTime();
     let wasShifted = false;
 
-    const scheduleError = await validateBlockScheduleFromDb(
-      body.machine as string, startTime, endTime, blockType, bypassScheduleValidation
+    // printMinutes: explicitně od klienta, jinak odvozeno z end−start (zpětná kompatibilita —
+    // starý klient posílá end se sémantikou end−start = tiskový čas).
+    // TODO(Plán 4): odstranit — klient bude posílat printMinutes explicitně
+    const rawPrintMinutes: number | null =
+      typeof body.printMinutes === "number"
+        ? body.printMinutes
+        : blockType === "ZAKAZKA"
+          ? Math.round((endTime.getTime() - startTime.getTime()) / 60000)
+          : null;
+
+    // scheduleBypassed = SPOČÍTANÁ pravda z validace (effectivelyBypassed), nikdy echo
+    // request flagu — bypass request na konformním místě se NEoznačí jako bypass.
+    let effectiveBypassed = false;
+
+    const sched = await validateAndComputeEnd(
+      prisma, body.machine as string, startTime, rawPrintMinutes, endTime, blockType, bypassScheduleValidation
     );
-    if (scheduleError) {
-      if (!autoShiftIfBusy) {
-        return NextResponse.json({ error: scheduleError.error }, { status: 422 });
+    if (!sched.ok) {
+      // Auto-shift smí maskovat jen PLACEMENT chyby (mimo provoz / odstávka / horizont);
+      // INVALID_INPUT (vadné printMinutes / nezarovnaný start) → vždy rovnou 422.
+      if (!autoShiftIfBusy || sched.kind === "INVALID_INPUT") {
+        return NextResponse.json({ error: sched.error }, { status: 422 });
       }
-      // Auto-shift: najdi nejbližší volný slot
+      // Auto-shift (série z přehledu): najdi nejbližší volný slot — Plán 3 přepíše
+      // findNextFreeSlot na start-only snap; do té doby zachováno staré chování.
       const slot = await findNextFreeSlotFromDb(body.machine as string, startTime, durationMs);
       if (!slot.found) {
         return NextResponse.json(
@@ -93,11 +110,15 @@ export async function POST(request: NextRequest) {
       startTime = slot.startTime;
       endTime = slot.endTime;
       wasShifted = true;
+      effectiveBypassed = false; // slot pochází ze souvislé pracovní doby → konformní
       logger.info("[POST /api/blocks] auto-shift applied (pre-tx)", {
         machine: body.machine,
         originalStart: originalStart.toISOString(),
         newStart: startTime.toISOString(),
       });
+    } else {
+      endTime = sched.end; // autoritativní end ze serveru — klientův end se ignoruje
+      effectiveBypassed = sched.effectivelyBypassed;
     }
 
     // Pokud je přítomno reservationId — ověřit existenci (mimo transakci)
@@ -152,6 +173,16 @@ export async function POST(request: NextRequest) {
           startTime = slot.startTime;
           endTime = slot.endTime;
           wasShifted = true;
+          // Po posunu startu přepočítat autoritativní end znovu přes validateAndComputeEnd
+          // (stejná pravidla jako v pre-tx větvi — end nesmí zůstat ze starého slotu).
+          const sched2 = await validateAndComputeEnd(
+            tx, body.machine, startTime, rawPrintMinutes, endTime, blockType, bypassScheduleValidation
+          );
+          if (!sched2.ok) {
+            throw new AppError("AUTO_SHIFT_FAILED", sched2.error);
+          }
+          endTime = sched2.end;
+          effectiveBypassed = sched2.effectivelyBypassed;
           logger.info("[POST /api/blocks] auto-shift applied (race recovery)", {
             machine: body.machine,
             originalStart: originalStart.toISOString(),
@@ -172,6 +203,8 @@ export async function POST(request: NextRequest) {
           blockVariant: finalVariant,
           description: body.description ?? null,
           locked: body.locked ?? false,
+          printMinutes: finalType === "ZAKAZKA" ? rawPrintMinutes : null,
+          scheduleBypassed: finalType === "ZAKAZKA" ? effectiveBypassed : false,
           deadlineExpedice: parseNullableCivilDateForDb(body.deadlineExpedice),
           // DATA — auto-derivace: dataOk = true pokud chip nastaven
           dataStatusId: body.dataStatusId ?? null,

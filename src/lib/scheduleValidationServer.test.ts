@@ -1,177 +1,131 @@
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import { before, describe, it, mock } from "node:test";
+import { pragueToUTC } from "./dateUtils";
+import { validateAndComputeEnd } from "./scheduleValidationServer";
+import type { PrismaClientLike } from "./printTime.server";
 
-// ─── Mocky (musí být před prvním importem testované funkce) ───────────────────
-// Prisma mock — nahradí DB volání testovými daty
-const mockWeekShifts: unknown[] = [];
-const mockCompanyDays: unknown[] = [];
+function dbRow(weekStart: string, dayOfWeek: number, over: Record<string, unknown> = {}) {
+  return {
+    machine: "XL_106", weekStart: new Date(`${weekStart}T00:00:00.000Z`), dayOfWeek,
+    isActive: true, morningOn: true, afternoonOn: true, nightOn: true,
+    morningStartMin: 360, morningEndMin: 840,
+    afternoonStartMin: 840, afternoonEndMin: 1320,
+    nightStartMin: 1320, nightEndMin: 360,
+    ...over,
+  };
+}
+function xl106DbWeek(weekStart: string) {
+  return [
+    dbRow(weekStart, 1), dbRow(weekStart, 2), dbRow(weekStart, 3), dbRow(weekStart, 4),
+    dbRow(weekStart, 5, { nightOn: false }),
+    dbRow(weekStart, 6, { isActive: false, morningOn: false, afternoonOn: false, nightOn: false }),
+    dbRow(weekStart, 0, { morningOn: false, afternoonOn: false }),
+  ];
+}
+function fakeDb(weekShiftRows: unknown[], companyDayRows: { startDate: Date; endDate: Date }[] = []) {
+  return {
+    machineWeekShifts: { findMany: async () => weekShiftRows },
+    companyDay: { findMany: async () => companyDayRows },
+  } as PrismaClientLike;
+}
+const FULL_CAL = fakeDb([...xl106DbWeek("2026-08-17"), ...xl106DbWeek("2026-08-24"),
+  ...xl106DbWeek("2026-08-31"), ...xl106DbWeek("2026-09-07")]);
 
-await mock.module("@/lib/prisma", {
-  namedExports: {
-    prisma: {
-      machineWeekShifts: {
-        findMany: mock.fn(async () => mockWeekShifts),
-      },
-      companyDay: {
-        findMany: mock.fn(async () => mockCompanyDays),
-      },
-    },
-  },
+test("ZAKAZKA: validní start + 27h → ok s pauznutým endem (Po 13:00)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10), 27 * 60,
+    new Date(0), "ZAKAZKA", false);
+  assert.deepEqual(r, { ok: true, end: pragueToUTC("2026-08-24", 13), effectivelyBypassed: false });
 });
 
-// scheduleValidation mock — kontrolujeme výsledky validace
-let scheduleViolationResult: string | null = null;
-
-await mock.module("@/lib/scheduleValidation", {
-  namedExports: {
-    serializeWeekShifts: mock.fn(() => []),
-    checkScheduleViolationWithTemplates: mock.fn(() => scheduleViolationResult),
-  },
+test("ZAKAZKA: start v odstávce → chyba (kind PLACEMENT)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-22", 12), 4 * 60,
+    new Date(0), "ZAKAZKA", false);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.match(r.error, /mimo provoz/);
+  assert.equal(r.kind, "PLACEMENT");
 });
 
-// Import testované funkce AŽ PO nastavení mocků
-const { validateBlockScheduleFromDb } = await import("@/lib/scheduleValidationServer");
+test("ZAKAZKA: printMinutes chybí (null) → chyba (kind INVALID_INPUT)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10), null,
+    new Date(0), "ZAKAZKA", false);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.kind, "INVALID_INPUT");
+});
 
-// ─── Pomocné konstanty pro testy ─────────────────────────────────────────────
-const MACHINE = "XL_105";
-const START = new Date("2026-04-15T06:00:00.000Z");
-const END   = new Date("2026-04-15T14:00:00.000Z");
+test("ZAKAZKA: printMinutes > 2400 → chyba (limit 40 h, kind INVALID_INPUT)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10), 2430,
+    new Date(0), "ZAKAZKA", false);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.match(r.error, /40/);
+  assert.equal(r.kind, "INVALID_INPUT");
+});
 
-// ─── Testy ───────────────────────────────────────────────────────────────────
-describe("validateBlockScheduleFromDb", () => {
-  describe("Non-ZAKAZKA typy — okamžitý null (bez DB volání)", () => {
-    it("REZERVACE vrátí null bez validace", async () => {
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "REZERVACE", false);
-      assert.equal(result, null);
-    });
+test("ZAKAZKA: printMinutes není násobek 30 → chyba (kind INVALID_INPUT)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10), 45,
+    new Date(0), "ZAKAZKA", false);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.kind, "INVALID_INPUT");
+});
 
-    it("UDRZBA vrátí null bez validace", async () => {
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "UDRZBA", false);
-      assert.equal(result, null);
-    });
+test("ZAKAZKA: nezarovnaný start → chyba (ne crash, kind INVALID_INPUT)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10, 15), 60,
+    new Date(0), "ZAKAZKA", false);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.kind, "INVALID_INPUT");
+});
 
-    it("Libovolný neznámý typ vrátí null", async () => {
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "NEEXISTUJICI_TYP", false);
-      assert.equal(result, null);
-    });
-  });
+test("bypass: end = start + printMinutes, mimo kalendář → effectivelyBypassed true", async () => {
+  const start = pragueToUTC("2026-08-22", 12); // sobota
+  const r = await validateAndComputeEnd(fakeDb([]), "XL_106", start, 120, new Date(0), "ZAKAZKA", true);
+  assert.deepEqual(r, { ok: true, end: new Date(start.getTime() + 120 * 60000), effectivelyBypassed: true });
+});
 
-  describe("ZAKAZKA — bez porušení", () => {
-    before(() => {
-      scheduleViolationResult = null;
-      mockCompanyDays.length = 0;
-    });
+test("bypass request na konformním místě → effectivelyBypassed false (spočítaná pravda)", async () => {
+  const start = pragueToUTC("2026-08-21", 10); // pátek 10:00 — plný provoz
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", start, 120, new Date(0), "ZAKAZKA", true);
+  assert.deepEqual(r, { ok: true, end: new Date(start.getTime() + 120 * 60000), effectivelyBypassed: false });
+});
 
-    it("vrátí null pokud není žádné porušení", async () => {
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", false);
-      assert.equal(result, null);
-    });
+test("bypass: CompanyDay zůstává tvrdý zákaz (kind PLACEMENT)", async () => {
+  const start = pragueToUTC("2026-08-19", 10);
+  const db = fakeDb([], [{ startDate: pragueToUTC("2026-08-19", 0), endDate: pragueToUTC("2026-08-20", 0) }]);
+  const r = await validateAndComputeEnd(db, "XL_106", start, 120, new Date(0), "ZAKAZKA", true);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.match(r.error, /odstávky/);
+  assert.equal(r.kind, "PLACEMENT");
+});
 
-    it("vrátí null v bypass módu bez company days", async () => {
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", true);
-      assert.equal(result, null);
-    });
-  });
+test("non-bypass: CompanyDay uvnitř pauzy NEvadí (blok ji překlene)", async () => {
+  // odstávka celá středa; blok út 18:00 + 12h → pauza přes středu, end čt 06:00
+  const db = fakeDb(
+    [...xl106DbWeek("2026-08-17"), ...xl106DbWeek("2026-08-24"), ...xl106DbWeek("2026-08-31"), ...xl106DbWeek("2026-09-07")],
+    [{ startDate: pragueToUTC("2026-08-19", 0), endDate: pragueToUTC("2026-08-20", 0) }]
+  );
+  const r = await validateAndComputeEnd(db, "XL_106", pragueToUTC("2026-08-18", 18), 12 * 60,
+    new Date(0), "ZAKAZKA", false);
+  assert.deepEqual(r, { ok: true, end: pragueToUTC("2026-08-20", 6), effectivelyBypassed: false });
+});
 
-  describe("ZAKAZKA — schedule violation", () => {
-    before(() => {
-      scheduleViolationResult = "Blok zasahuje mimo pracovní hodiny.";
-      mockCompanyDays.length = 0;
-    });
+test("HORIZON_EXCEEDED → srozumitelná chyba (kind PLACEMENT)", async () => {
+  const off = (wk: string) => [0, 1, 2, 3, 4, 5, 6].map((d) =>
+    dbRow(wk, d, { isActive: false, morningOn: false, afternoonOn: false, nightOn: false }));
+  const db = fakeDb([...xl106DbWeek("2026-08-17"), ...off("2026-08-24"), ...off("2026-08-31"), ...off("2026-09-07"), ...off("2026-09-14")]);
+  const r = await validateAndComputeEnd(db, "XL_106", pragueToUTC("2026-08-21", 10), 40 * 60,
+    new Date(0), "ZAKAZKA", false);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.match(r.error, /dost pracovní doby/);
+  assert.equal(r.kind, "PLACEMENT");
+});
 
-    it("vrátí error pokud checkScheduleViolationWithTemplates hlásí porušení", async () => {
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", false);
-      assert.ok(result !== null);
-      assert.equal(result.error, "Blok zasahuje mimo pracovní hodiny.");
-    });
-
-    it("v bypass módu schedule violation ignoruje (vrátí null)", async () => {
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", true);
-      assert.equal(result, null);
-    });
-  });
-
-  describe("ZAKAZKA — company day konflikty", () => {
-    before(() => {
-      scheduleViolationResult = null;
-    });
-
-    it("vrátí error pokud blok zasahuje do odstávky (machine === null = obě)", async () => {
-      mockCompanyDays.length = 0;
-      mockCompanyDays.push({ id: 1, label: "Vánoce", machine: null, startDate: START, endDate: END });
-
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", false);
-      assert.ok(result !== null);
-      assert.equal(result.error, "Blok zasahuje do plánované odstávky.");
-    });
-
-    it("vrátí error pokud blok zasahuje do odstávky pro stejný stroj", async () => {
-      mockCompanyDays.length = 0;
-      mockCompanyDays.push({ id: 2, label: "Oprava XL_105", machine: MACHINE, startDate: START, endDate: END });
-
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", false);
-      assert.ok(result !== null);
-      assert.equal(result.error, "Blok zasahuje do plánované odstávky.");
-    });
-
-    it("ignoruje odstávku pro jiný stroj", async () => {
-      mockCompanyDays.length = 0;
-      mockCompanyDays.push({ id: 3, label: "Oprava XL_106", machine: "XL_106", startDate: START, endDate: END });
-
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", false);
-      assert.equal(result, null);
-    });
-
-    it("company day blokuje i v bypass módu (bypass neobchází odstávky)", async () => {
-      mockCompanyDays.length = 0;
-      mockCompanyDays.push({ id: 4, label: "Celozávodní dovolená", machine: null, startDate: START, endDate: END });
-
-      const result = await validateBlockScheduleFromDb(MACHINE, START, END, "ZAKAZKA", true);
-      assert.ok(result !== null);
-      assert.equal(result.error, "Blok zasahuje do plánované odstávky.");
-    });
-  });
-
-  // ─── Sprint G2: integrační test ověřující load & forward override dat ────────
-  // Tento test NEověřuje vnitřní logiku validátoru (to dělají override testy
-  // v scheduleValidation.test.ts) — jen potvrzuje, že validateBlockScheduleFromDb
-  // správně načte MachineWeekShifts z DB (včetně override sloupců) a předá je dál.
-  describe("ZAKAZKA — override integration (Sprint G2)", () => {
-    before(() => {
-      scheduleViolationResult = null;
-      mockCompanyDays.length = 0;
-      mockWeekShifts.length = 0;
-      // Pondělí 2026-04-13 s overridem morningEndMin=780 (13:00 místo 14:00)
-      mockWeekShifts.push({
-        machine: MACHINE,
-        weekStart: "2026-04-13",
-        dayOfWeek: 1,
-        isActive: true,
-        morningOn: true,
-        afternoonOn: true,
-        nightOn: false,
-        morningStartMin: null,
-        morningEndMin: 780,
-        afternoonStartMin: null,
-        afternoonEndMin: null,
-        nightStartMin: null,
-        nightEndMin: null,
-      });
-    });
-
-    it("předává override-ridden weekShifts do serializeWeekShifts", async () => {
-      // Scenář: blok 13:15–13:45 (Prague time, DST = UTC+2)
-      // by měl být blokován — morning shift končí v 13:00 podle overridu.
-      scheduleViolationResult = "Blok zasahuje mimo pracovní hodiny.";
-      const result = await validateBlockScheduleFromDb(
-        MACHINE,
-        new Date("2026-04-13T11:15:00.000Z"), // Prague 13:15
-        new Date("2026-04-13T11:45:00.000Z"), // Prague 13:45
-        "ZAKAZKA",
-        false
-      );
-      assert.ok(result !== null);
-      assert.equal(result.error, "Blok zasahuje mimo pracovní hodiny.");
-    });
-  });
+test("UDRZBA: bez validace, end = fallbackEnd", async () => {
+  const fb = pragueToUTC("2026-08-23", 15); // neděle — pro údržbu OK
+  const r = await validateAndComputeEnd(fakeDb([]), "XL_106", pragueToUTC("2026-08-23", 12), null, fb, "UDRZBA", false);
+  assert.deepEqual(r, { ok: true, end: fb, effectivelyBypassed: false });
 });

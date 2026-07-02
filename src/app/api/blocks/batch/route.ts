@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
-import { validateBlockScheduleFromDb } from "@/lib/scheduleValidationServer";
+import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { AppError, isAppError } from "@/lib/errors";
@@ -64,6 +64,8 @@ export async function POST(request: NextRequest) {
           endTime: true,
           orderNumber: true,
           updatedAt: true,
+          printMinutes: true,
+          scheduleBypassed: true,
         },
       });
 
@@ -89,14 +91,24 @@ export async function POST(request: NextRequest) {
         return existing?.type === "ZAKAZKA";
       });
 
+      // Lasso MOVE: klientův endTime se pro ZAKAZKA ignoruje — printMinutes VŽDY ze záznamu
+      // (fallback: odvození ze starého spanu), end počítá server per blok.
+      const computedEnds = new Map<number, { end: Date; printMinutes: number; bypassed: boolean }>();
       if (zakazkaUpdates.length > 0) {
         for (const u of zakazkaUpdates) {
-          const scheduleError = await validateBlockScheduleFromDb(
-            u.machine, new Date(u.startTime), new Date(u.endTime), "ZAKAZKA", bypassScheduleValidation
+          const existing = existingBlocks.find((b) => b.id === u.id)!;
+          // TODO(Plán 4): odstranit — klient bude posílat printMinutes explicitně
+          const pm = existing.printMinutes
+            ?? Math.round((existing.endTime.getTime() - existing.startTime.getTime()) / 60000);
+          // Bypass INPUT je sticky OR (lasso UX — přesun skupiny nesmí re-expandovat
+          // bypass členy); ULOŽÍ se ale spočítaná pravda (effectivelyBypassed), takže
+          // bypass blok přesunutý na konformní místo se z bypass režimu sám vyčistí.
+          const bypass = bypassScheduleValidation || existing.scheduleBypassed;
+          const sched = await validateAndComputeEnd(
+            tx, u.machine, new Date(u.startTime), pm, new Date(u.endTime), "ZAKAZKA", bypass
           );
-          if (scheduleError) {
-            throw new AppError("SCHEDULE_VIOLATION", scheduleError.error);
-          }
+          if (!sched.ok) throw new AppError("SCHEDULE_VIOLATION", sched.error);
+          computedEnds.set(u.id, { end: sched.end, printMinutes: pm, bypassed: sched.effectivelyBypassed });
         }
       }
 
@@ -107,19 +119,26 @@ export async function POST(request: NextRequest) {
       // Pro lasso batch (bloky se nepřekrývají navzájem) pořadí nehraje roli.
       const reversed = [...updates].reverse();
       for (const u of reversed) {
+        const computed = computedEnds.get(u.id);
+        const effectiveEnd = computed?.end ?? new Date(u.endTime);
+
         // Časný overlap check — přeskočit při bypassOverlapCheck NEBO resolveChain
         // (u resolveChain smí blok přistát na obsazené místo, chain push to vyřeší a finální
         // assertNoOverlapForBlocks ověří výsledek — konzistentně s PUT route).
         if (!bypassOverlapCheck && !resolveChain) {
-          await checkBlockOverlap(u.machine, new Date(u.startTime), new Date(u.endTime), u.id, tx);
+          await checkBlockOverlap(u.machine, new Date(u.startTime), effectiveEnd, u.id, tx);
         }
 
         const result = await tx.block.update({
           where: { id: u.id },
           data: {
             startTime: new Date(u.startTime),
-            endTime: new Date(u.endTime),
+            endTime: effectiveEnd,
             machine: u.machine,
+            ...(computed && {
+              printMinutes: computed.printMinutes,
+              scheduleBypassed: computed.bypassed,
+            }),
           },
         });
         updated.push(result);
@@ -147,7 +166,7 @@ export async function POST(request: NextRequest) {
           const moves = await resolveChainPushFromDb(
             tx,
             u.machine,
-            { id: u.id, startTime: new Date(u.startTime), endTime: new Date(u.endTime) },
+            { id: u.id, startTime: new Date(u.startTime), endTime: computedEnds.get(u.id)?.end ?? new Date(u.endTime) },
             !bypassScheduleValidation,
             movedIds
           );
@@ -193,6 +212,7 @@ export async function POST(request: NextRequest) {
         const old = existingBlocks.find((b) => b.id === u.id);
         const updatedBlock = updated.find((b) => b.id === u.id);
         const orderNumber = updatedBlock?.orderNumber ?? old?.orderNumber ?? null;
+        const effectiveEnd = computedEnds.get(u.id)?.end ?? new Date(u.endTime);
 
         auditRows.push({
           blockId: u.id,
@@ -202,7 +222,7 @@ export async function POST(request: NextRequest) {
           action: "UPDATE",
           field: "startTime/endTime/machine",
           oldValue: undefined,
-          newValue: `${u.machine} ${u.startTime}–${u.endTime}`,
+          newValue: `${u.machine} ${u.startTime}–${effectiveEnd.toISOString()}`,
         });
       }
 
