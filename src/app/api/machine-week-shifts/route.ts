@@ -7,9 +7,11 @@ import { civilDateToUTCMidnight, parseCivilDateWriteInput, normalizeCivilDateInp
 import { emitSSE } from "@/lib/eventBus";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { SHIFT_EDIT_RANGES, fmtHHMM } from "@/lib/shifts";
-import { findConflictingBlocks } from "@/lib/findConflictingBlocks";
-import { checkScheduleViolationWithTemplates } from "@/lib/scheduleValidation";
+import { findConflictingBlocks, conflictWindowWhere, computeConflictWindow, neighborWeekStarts } from "@/lib/findConflictingBlocks";
+import { checkScheduleViolationWithTemplates, serializeWeekShifts } from "@/lib/scheduleValidation";
 import { checkRateLimit } from "@/lib/rateLimiter";
+import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
+import type { SessionUser } from "@/lib/auth";
 
 function errorStatus(code: string): number {
   if (code === "FORBIDDEN") return 403;
@@ -92,8 +94,13 @@ function addDaysStr(dateStr: string, days: number): string {
  * Pro stroje, které nemají žádný záznam pro `weekStart`,
  * auto-seedni 7 řádků z předchozího týdne (nebo prázdné, pokud ani ten není).
  * Používá $transaction + createMany (skipDuplicates pro idempotenci).
+ *
+ * Po seedu (jen když reálně vzniknou nové řádky) spustí detekci driftu na strojích,
+ * které byly seedovány — seed kopíruje předchozí týden, takže drift vznikne jen když
+ * se rozvrh reálně liší od fallbacku, na kterém bloky dosud stály. Bez `$transaction`
+ * (createMany je jediný zápis) — detekce/notifikace jdou přímo přes `prisma`.
  */
-async function ensureWeekSeeded(weekStartStr: string): Promise<void> {
+async function ensureWeekSeeded(weekStartStr: string, session: SessionUser): Promise<void> {
   const weekStartDate = civilDateToUTCMidnight(weekStartStr);
   const existing = await prisma.machineWeekShifts.findMany({
     where: { weekStart: weekStartDate },
@@ -141,6 +148,10 @@ async function ensureWeekSeeded(weekStartStr: string): Promise<void> {
   if (seeds.length === 0) return;
   await prisma.machineWeekShifts.createMany({ data: seeds, skipDuplicates: true });
   logger.info("[machine-week-shifts] auto-seeded week", { weekStart: weekStartStr, count: seeds.length });
+
+  const { from, to } = computeConflictWindow(weekStartStr);
+  const drifted = await detectCalendarDrift(prisma, missingMachines, from, to, new Date());
+  await notifyCalendarDrift(prisma, drifted, session, `Auto-seed týdne ${weekStartStr}`);
 }
 
 export async function GET(req: Request) {
@@ -156,7 +167,7 @@ export async function GET(req: Request) {
       if (parsed !== weekStartStrFromDateStr(parsed))
         throw new AppError("VALIDATION_ERROR", "weekStart musí být pondělí");
 
-      await ensureWeekSeeded(parsed);
+      await ensureWeekSeeded(parsed, session);
 
       const rows = await prisma.machineWeekShifts.findMany({
         where: { weekStart: civilDateToUTCMidnight(parsed) },
@@ -318,13 +329,21 @@ export async function PUT(req: Request) {
       // Re-check cascade v transakci (TOCTOU protection).
       // Mezi findConflictingBlocks (před transakcí) a commitem mohl jiný uživatel
       // vytvořit konfliktní blok — tento re-check to zachytí.
+      // Okno + validační řádky shodné s findConflictingBlocks (span-overlap +6h a fetch
+      // sousedních týdnů) — jinak by re-check trpěl stejným bugem, který opravuje (spec 3.9).
+      // `conflictWindowWhere` je jediný zdroj pravdy pro tvar where klauzule (viz
+      // findConflictingBlocks.ts) — obě místa tak nemohou nezávisle prohodit strany srovnání.
       if (!force) {
-        const weekEnd = new Date(weekStartDate);
-        weekEnd.setUTCDate(weekEnd.getUTCDate() + 7);
-        const blocks = await tx.block.findMany({
-          where: { machine, startTime: { gte: weekStartDate, lt: weekEnd } },
-          select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
-        });
+        const [prevWeek, nextWeek] = neighborWeekStarts(parsedWeek);
+        const [blocks, neighborRawRows] = await Promise.all([
+          tx.block.findMany({
+            where: { machine, ...conflictWindowWhere(parsedWeek) },
+            select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
+          }),
+          tx.machineWeekShifts.findMany({
+            where: { machine, weekStart: { in: [civilDateToUTCMidnight(prevWeek), civilDateToUTCMidnight(nextWeek)] } },
+          }),
+        ]);
         const synthRows: MachineWeekShiftsRow[] = normalized.map((r) => ({
           machine,
           weekStart: parsedWeek,
@@ -340,8 +359,9 @@ export async function PUT(req: Request) {
           nightStartMin: r.nightStartMin,
           nightEndMin: r.nightEndMin,
         }));
+        const allRows = [...synthRows, ...serializeWeekShifts(neighborRawRows)];
         for (const b of blocks) {
-          const violation = checkScheduleViolationWithTemplates(machine, b.startTime, b.endTime, synthRows);
+          const violation = checkScheduleViolationWithTemplates(machine, b.startTime, b.endTime, allRows);
           if (violation) {
             throw new AppError("CONFLICT", "SHIFT_SHRINK_CASCADE_RACE");
           }
@@ -398,6 +418,12 @@ export async function PUT(req: Request) {
           newValue: afterPayload,
         },
       });
+
+      // Detekce driftu PO zápisu směn — tx vidí vlastní upserty. Force i ne-force cesta
+      // shodně (force typicky = vědomé zmenšení směn → notifikace o driftu je žádoucí i tak).
+      const { from: driftFrom, to: driftTo } = computeConflictWindow(parsedWeek);
+      const drifted = await detectCalendarDrift(tx, [machine], driftFrom, driftTo, new Date());
+      await notifyCalendarDrift(tx, drifted, session, `Změna směn ${machine.replace("_", " ")} (týden ${parsedWeek})`);
 
       return await tx.machineWeekShifts.findMany({
         where: { machine, weekStart: weekStartDate },

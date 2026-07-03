@@ -13,7 +13,7 @@ import DatePickerField from "@/app/_components/DatePickerField";
 import { getSplitChipState } from "@/lib/splitHelpers";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { formatProductionTags, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
-import { blockPrintMinutes } from "@/lib/printTimeClient";
+import { blockPrintMinutes, type CalendarDriftInfo } from "@/lib/printTimeClient";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -77,6 +77,8 @@ export function BlockDetail({
   canEdit,
   onBlockUpdate,
   allBlocks,
+  calendarDrift,
+  onReflow,
 }: {
   block: Block;
   onClose: () => void;
@@ -84,9 +86,14 @@ export function BlockDetail({
   canEdit?: boolean;
   onBlockUpdate?: (updated: Block) => void;
   allBlocks?: Block[];
+  /** Drift kalendáře (etapa 6) — spočítáno v PlannerPage (má weekShifts/companyDays ve state). */
+  calendarDrift?: CalendarDriftInfo | null;
+  /** POST [id]/reflow — jen ADMIN/PLANOVAT (PlannerPage předává undefined pro ostatní role). */
+  onReflow?: (blockId: number) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [detailRejectionReason, setDetailRejectionReason] = useState("");
+  const [reflowing, setReflowing] = useState(false);
   const [blockHistory, setBlockHistory] = useState<AuditLogEntry[]>([]);
   const [reservation, setReservation] = useState<{
     id: number;
@@ -263,6 +270,46 @@ export function BlockDetail({
             <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2">
               <div className="text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">Termín</div>
               <Row label="Expedice" value={formatDate(block.deadlineExpedice)} />
+            </div>
+          </>
+        )}
+
+        {/* Drift kalendáře (etapa 6) — uložený start/end bloku nesedí na aktuální
+            kalendář pracovní doby/odstávek. Informace pro všechny role; tlačítko
+            „Přepočítat" jen když volající předá onReflow (PlannerPage gatuje na
+            ADMIN/PLANOVAT stejně jako ostatní editační akce v tomto komponentu). */}
+        {calendarDrift && (
+          <>
+            <Separator className="my-1 bg-slate-800" />
+            <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 space-y-1.5">
+              <div className="text-[10px] font-semibold text-amber-400 flex items-center gap-1">
+                ⚠ Konec nesedí na aktuální kalendář
+              </div>
+              {calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd && (
+                <div className="text-slate-400">
+                  (správně do {formatPragueDateTime(calendarDrift.expectedEnd)})
+                </div>
+              )}
+              {onReflow && (
+                <button
+                  onClick={async () => {
+                    setReflowing(true);
+                    try {
+                      await onReflow(block.id);
+                    } finally {
+                      setReflowing(false);
+                    }
+                  }}
+                  disabled={reflowing}
+                  style={{
+                    fontSize: 10, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none",
+                    background: "#f59e0b", color: "#1f2937",
+                    cursor: reflowing ? "not-allowed" : "pointer", opacity: reflowing ? 0.6 : 1,
+                  }}
+                >
+                  {reflowing ? "Přepočítávám…" : "Přepočítat"}
+                </button>
+              )}
             </div>
           </>
         )}
@@ -513,6 +560,9 @@ export function BlockDetail({
                   {log.action === "EXPEDITION_UNPUBLISH" && <span style={{ color: "#f59e0b" }}> · Odebrána z expedice</span>}
                   {log.action === "AUTO_SHIFT" && log.oldValue && log.newValue && (
                     <span style={{ color: "#f59e0b" }}> · Automaticky posunuto: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span></span>
+                  )}
+                  {log.action === "AUTO_REFLOW" && log.oldValue && log.newValue && (
+                    <span style={{ color: "#f59e0b" }}> · ⟳ přepočet dle kalendáře: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span></span>
                   )}
                   {log.action === "NOTE_CREATE" && log.newValue && (
                     <span> · <span style={{ color: "#f59e0b" }}>📝 Přidána poznámka tiskaře:</span> <span style={{ color: "var(--text)" }}>{log.newValue}</span></span>

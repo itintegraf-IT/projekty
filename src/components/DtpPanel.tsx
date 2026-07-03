@@ -306,9 +306,27 @@ function BlockCard({
         </span>
       </div>
 
+      {block.description && (
+        <div style={{
+          fontSize: 10, color: "var(--text)", opacity: 0.82, lineHeight: 1.3, marginBottom: 4,
+          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+          overflow: "hidden", wordBreak: "break-word",
+        }}>
+          {block.description}
+        </div>
+      )}
+
       <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5 }}>
         {MACHINE_LABELS[block.machine] ?? block.machine} · {blockDurationLabel(block)}
       </div>
+
+      {(block.obalka || block.vnitrky || typeChip) && (
+        <div style={{ display: "flex", gap: 5, marginBottom: 6, flexWrap: "wrap" }}>
+          {block.obalka && <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 8px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.obalka.bg, color: PRODUCTION_CHIP_COLORS.obalka.fg, lineHeight: 1 }}>OBÁLKA</span>}
+          {block.vnitrky && <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 8px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.vnitrky.bg, color: PRODUCTION_CHIP_COLORS.vnitrky.fg, lineHeight: 1 }}>VNITŘKY</span>}
+          {typeChip && <span style={{ fontSize: 9, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 8px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.type.bg, color: PRODUCTION_CHIP_COLORS.type.fg, lineHeight: 1 }}>{typeChip}</span>}
+        </div>
+      )}
 
       <StatusChipSelect
         block={block}
@@ -323,13 +341,6 @@ function BlockCard({
           });
         }}
       />
-      {(block.obalka || block.vnitrky || typeChip) && (
-        <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap" }}>
-          {block.obalka && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.obalka.bg, color: PRODUCTION_CHIP_COLORS.obalka.fg, lineHeight: 1 }}>OBÁLKA</span>}
-          {block.vnitrky && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.vnitrky.bg, color: PRODUCTION_CHIP_COLORS.vnitrky.fg, lineHeight: 1 }}>VNITŘKY</span>}
-          {typeChip && <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.05em", padding: "3px 7px", borderRadius: 6, background: PRODUCTION_CHIP_COLORS.type.bg, color: PRODUCTION_CHIP_COLORS.type.fg, lineHeight: 1 }}>{typeChip}</span>}
-        </div>
-      )}
     </div>
   );
 }

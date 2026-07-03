@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pragueToUTC } from "./dateUtils";
-import { loadMachineCalendar, expandPrintTimeFromDb, type PrismaClientLike } from "./printTime.server";
+import {
+  loadMachineCalendar,
+  loadMachineCalendarRange,
+  expandPrintTimeFromDb,
+  type PrismaClientLike,
+} from "./printTime.server";
 import type { serializeWeekShifts } from "./scheduleValidation";
 
 type WeekShiftRow = Parameters<typeof serializeWeekShifts>[0][number];
@@ -51,6 +56,20 @@ test("loadMachineCalendar: start v pondělí ráno dotahuje i PŘEDCHOZÍ týden
   const where = db.calls.weekWhere as { machine: string; weekStart: { in: Date[] } };
   const weeks = where.weekStart.in.map((d) => d.toISOString().slice(0, 10)).sort();
   assert.ok(weeks.includes("2026-08-17"), `chybí předchozí týden: ${weeks.join(", ")}`);
+});
+
+test("loadMachineCalendarRange: dotaz pokrývá týdny [from−1d, to] a companyDay okno [from, to)", async () => {
+  const db = fakeDb([], []);
+  const from = pragueToUTC("2026-08-21", 10);
+  const to = pragueToUTC("2026-08-28", 10);
+  await loadMachineCalendarRange(db, "XL_106", from, to);
+  const weekWhere = db.calls.weekWhere as { machine: string; weekStart: { in: Date[] } };
+  assert.equal(weekWhere.machine, "XL_106");
+  const weeks = weekWhere.weekStart.in.map((d) => d.toISOString().slice(0, 10)).sort();
+  assert.deepEqual(weeks, ["2026-08-17", "2026-08-24"]);
+  const cdWhere = db.calls.cdWhere as { startDate: { lt: Date }; endDate: { gt: Date } };
+  assert.equal(cdWhere.endDate.gt.getTime(), from.getTime());
+  assert.equal(cdWhere.startDate.lt.getTime(), to.getTime());
 });
 
 test("expandPrintTimeFromDb: start Po 00:30 v koncovce nedělní noci projde (week-boundary wrap, nález 3. 7.)", async () => {

@@ -3,8 +3,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { parseCompanyDayDateTimeInput, serializeCompanyDay } from "@/lib/companyDaySerialization";
+import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
+import { emitSSE } from "@/lib/eventBus";
 
 const VALID_MACHINES = ["XL_105", "XL_106"] as const;
+const ALL_MACHINES = ["XL_105", "XL_106"];
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -34,10 +37,33 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   try {
-    const updated = await prisma.companyDay.update({
-      where: { id: numId },
-      data: { startDate: parsedStart, endDate: parsedEnd, label, machine: machine ?? null },
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.companyDay.findUnique({ where: { id: numId } });
+      if (!existing) {
+        throw Object.assign(new Error("Company day not found"), { code: "P2025" });
+      }
+
+      const result = await tx.companyDay.update({
+        where: { id: numId },
+        data: { startDate: parsedStart, endDate: parsedEnd, label, machine: machine ?? null },
+      });
+
+      // Union starého a nového intervalu/stroje — zrušení/zkrácení odstávky mění kalendář
+      // stejně jako přidání, takže drift může vzniknout na obou koncích úpravy.
+      const windowStart = existing.startDate.getTime() < parsedStart.getTime() ? existing.startDate : parsedStart;
+      const windowEnd = existing.endDate.getTime() > parsedEnd.getTime() ? existing.endDate : parsedEnd;
+      const machines =
+        existing.machine === null || machine == null
+          ? ALL_MACHINES
+          : Array.from(new Set([existing.machine, machine]));
+
+      const drifted = await detectCalendarDrift(tx, machines, windowStart, windowEnd, new Date());
+      await notifyCalendarDrift(tx, drifted, session, `Odstávka „${label}"`);
+
+      return result;
     });
+
+    emitSSE("schedule:changed", { sourceUserId: session.id });
     return NextResponse.json(serializeCompanyDay(updated));
   } catch (err: unknown) {
     const code = (err as { code?: string }).code;
@@ -63,7 +89,20 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
   }
 
   try {
-    await prisma.companyDay.delete({ where: { id: numId } });
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.companyDay.findUnique({ where: { id: numId } });
+      if (!existing) {
+        throw Object.assign(new Error("Company day not found"), { code: "P2025" });
+      }
+
+      await tx.companyDay.delete({ where: { id: numId } });
+
+      const machines = existing.machine === null ? ALL_MACHINES : [existing.machine];
+      const drifted = await detectCalendarDrift(tx, machines, existing.startDate, existing.endDate, new Date());
+      await notifyCalendarDrift(tx, drifted, session, `Zrušení odstávky „${existing.label}"`);
+    });
+
+    emitSSE("schedule:changed", { sourceUserId: session.id });
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {
     const code = (err as { code?: string }).code;

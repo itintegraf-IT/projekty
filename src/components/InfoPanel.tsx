@@ -74,6 +74,9 @@ export function InfoPanel({ logs, onClose, onJumpToBlock }: {
                   {log.action === "AUTO_SHIFT" && log.oldValue && log.newValue && (
                     <span style={{ color: "#f59e0b" }}> · Automaticky posunuto: <span style={{ color: "var(--text)" }}>{fmtVal(log.oldValue, "startTime")} → {fmtVal(log.newValue, "startTime")}</span></span>
                   )}
+                  {log.action === "AUTO_REFLOW" && log.oldValue && log.newValue && (
+                    <span style={{ color: "#f59e0b" }}> · ⟳ přepočet dle kalendáře: <span style={{ color: "var(--text)" }}>{fmtVal(log.oldValue, "startTime")} → {fmtVal(log.newValue, "startTime")}</span></span>
+                  )}
                 </div>
               </div>
             ))}

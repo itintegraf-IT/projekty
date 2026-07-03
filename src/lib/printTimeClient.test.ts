@@ -7,6 +7,7 @@ import {
   snapGroupDeltaStartOnly,
   getBlockSegments,
   printMidpoint,
+  blockCalendarDrift,
 } from "./printTimeClient";
 import { xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
 
@@ -139,4 +140,96 @@ test("printMidpoint: bez segmentů (souvislý blok) → midpoint z printMinutes/
     printMinutes: 240, scheduleBypassed: false,
   };
   assert.deepEqual(printMidpoint(b, SHIFTS, []), pragueToUTC("2026-08-18", 10));
+});
+
+const NOW = pragueToUTC("2026-08-01", 0); // dávno před všemi fixturami níže → "endTime > now" splněno všude, pokud netestujeme opak
+
+test("blockCalendarDrift: sedící blok (end == expanze) → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12),
+    printMinutes: 240, scheduleBypassed: false, printCompletedAt: null,
+  };
+  assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
+});
+
+test("blockCalendarDrift: end nesedí na expanzi → END_MISMATCH + expectedEnd", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-25", 0), // špatný end (stejná fixtura jako getBlockSegments drift test)
+    printMinutes: 27 * 60, scheduleBypassed: false, printCompletedAt: null,
+  };
+  const drift = blockCalendarDrift(b, SHIFTS, [], NOW);
+  assert.ok(drift);
+  assert.equal(drift!.reason, "END_MISMATCH");
+  assert.deepEqual(drift!.expectedEnd, pragueToUTC("2026-08-24", 13));
+});
+
+test("blockCalendarDrift: start mimo provoz (odstávka) → START_NOT_RUNNABLE", () => {
+  const b = {
+    // sobota je v xl106Week celá off (víkendová odstávka Pá 22 – Ne 22)
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14),
+    printMinutes: 240, scheduleBypassed: false, printCompletedAt: null,
+  };
+  const drift = blockCalendarDrift(b, SHIFTS, [], NOW);
+  assert.ok(drift);
+  assert.equal(drift!.reason, "START_NOT_RUNNABLE");
+  assert.equal(drift!.expectedEnd, null);
+});
+
+test("blockCalendarDrift: bypass blok → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-25", 0), // stejný "špatný" end jako drift test výše
+    printMinutes: 27 * 60, scheduleBypassed: true, printCompletedAt: null,
+  };
+  assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
+});
+
+test("blockCalendarDrift: vytištěný blok (printCompletedAt nastaven) → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-25", 0), // stejný "špatný" end
+    printMinutes: 27 * 60, scheduleBypassed: false, printCompletedAt: "2026-08-24T13:00:00.000Z",
+  };
+  assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
+});
+
+test("blockCalendarDrift: blok v minulosti (endTime <= now) → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-25", 0), // stejný "špatný" end — i tak null, protože už skončil
+    printMinutes: 27 * 60, scheduleBypassed: false, printCompletedAt: null,
+  };
+  const pastNow = pragueToUTC("2026-08-25", 0); // now === endTime → endTime <= now
+  assert.equal(blockCalendarDrift(b, SHIFTS, [], pastNow), null);
+});
+
+test("blockCalendarDrift: nezarovnaný start (mimo 30min grid) → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: new Date(pragueToUTC("2026-08-18", 8).getTime() + 5 * 60000), // +5 min mimo slot grid
+    endTime: pragueToUTC("2026-08-18", 12),
+    printMinutes: 240, scheduleBypassed: false, printCompletedAt: null,
+  };
+  assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
+});
+
+test("blockCalendarDrift: printMinutes null → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12),
+    printMinutes: null, scheduleBypassed: false, printCompletedAt: null,
+  };
+  assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
+});
+
+test("blockCalendarDrift: ne-ZAKAZKA blok → null (i s driftovým endem)", () => {
+  const b = {
+    type: "UDRZBA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-25", 0),
+    printMinutes: 27 * 60, scheduleBypassed: false, printCompletedAt: null,
+  };
+  assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
 });

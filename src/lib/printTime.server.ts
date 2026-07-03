@@ -36,25 +36,25 @@ export type MachineCalendar = {
 };
 
 /**
- * Načte kalendář stroje pro okno [start, start + MAX_SPAN_DAYS]:
+ * Načte kalendář stroje pro libovolné okno [from, to]:
  * weekShifts pro VŠECHNY dotčené týdny (precondition expandPrintTime — týden
- * mimo fetch by tiše spadl na hardcoded fallback) + companyDays v okně.
+ * mimo fetch by tiše spadl na hardcoded fallback) + companyDays overlap [from, to).
  */
-export async function loadMachineCalendar(
+export async function loadMachineCalendarRange(
   db: PrismaClientLike,
   machine: string,
-  start: Date
+  from: Date,
+  to: Date
 ): Promise<MachineCalendar> {
-  const windowEnd = new Date(start.getTime() + MAX_SPAN_DAYS * DAY_MS);
   const weekStarts = new Set<string>();
   // Kotva o den DŘÍV: noční směna přetéká přes půlnoc — slot Po 0:00–6:00 řídí NEDĚLNÍ
   // řádek předchozího týdne. Bez něj by start na hranici týdnů falešně padal na
   // START_NOT_RUNNABLE (nález z testování 3. 7.). Vzor: resolveChainPushFromDb (anchor−1d).
-  for (let t = start.getTime() - DAY_MS; t <= windowEnd.getTime(); t += DAY_MS) {
+  for (let t = from.getTime() - DAY_MS; t <= to.getTime(); t += DAY_MS) {
     weekStarts.add(weekStartStrFromDateStr(pragueOf(new Date(t)).dateStr));
   }
   // DST fall-back ošetření: 24h UTC krok může přeskočit civilní datum (vzor scheduleSlotFinder.ts:86)
-  weekStarts.add(weekStartStrFromDateStr(pragueOf(windowEnd).dateStr));
+  weekStarts.add(weekStartStrFromDateStr(pragueOf(to).dateStr));
 
   const [rawWeekShifts, cdRows] = await Promise.all([
     db.machineWeekShifts.findMany({
@@ -65,8 +65,8 @@ export async function loadMachineCalendar(
     }),
     db.companyDay.findMany({
       where: {
-        startDate: { lt: windowEnd },
-        endDate: { gt: start },
+        startDate: { lt: to },
+        endDate: { gt: from },
         OR: [{ machine: null }, { machine }],
       },
       select: { startDate: true, endDate: true },
@@ -77,6 +77,15 @@ export async function loadMachineCalendar(
     weekShifts: serializeWeekShifts(rawWeekShifts),
     companyDays: cdRows.map((c) => ({ start: c.startDate, end: c.endDate })),
   };
+}
+
+/** Kalendář pro okno [start, start + MAX_SPAN_DAYS] — worst-case span jedné expandPrintTime. */
+export async function loadMachineCalendar(
+  db: PrismaClientLike,
+  machine: string,
+  start: Date
+): Promise<MachineCalendar> {
+  return loadMachineCalendarRange(db, machine, start, new Date(start.getTime() + MAX_SPAN_DAYS * DAY_MS));
 }
 
 /** Expand nad DB kalendářem — jediná serverová cesta k výpočtu endu bloku. */

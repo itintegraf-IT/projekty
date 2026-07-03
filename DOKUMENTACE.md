@@ -44,6 +44,15 @@ Používané modely:
 - `MachineScheduleException`
 - `CompanyDay`
 
+Pokud se pracovní doba nebo odstávka stroje dodatečně změní (např. se zruší směna, na kterou
+už byla naplánovaná zakázka), může se stát, že již uložený blok „nesedí na kalendář" — jeho
+konec neodpovídá tomu, co by vyšlo z aktuální pracovní doby. Takový blok dostane na timeline
+oranžový štítek „⚠ KALENDÁŘ" a stroj s takovými bloky zobrazí nahoře banner s počtem
+dotčených bloků. Uživatel s rolí `ADMIN` nebo `PLANOVAT` může kliknout na tlačítko
+„Přepočítat" (přímo v banneru nebo v detailu konkrétního bloku) — blok se přepočítá podle
+aktuální pracovní doby a přeplánuje se i navazující fronta zakázek na stroji, pokud je to
+potřeba.
+
 ### Rezervace
 
 Modul `/rezervace` je určen pro role `ADMIN`, `PLANOVAT`, `OBCHODNIK`.

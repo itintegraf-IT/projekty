@@ -275,6 +275,15 @@ describe("computePlanStability", () => {
     const result = computePlanStability([], 0);
     assert.equal(result.stabilityPercent, 100);
   });
+
+  it("regrese FIX 6b: span field 'startTime/endTime' (AUTO_SHIFT/AUTO_REFLOW) se nepočítá jako move", () => {
+    const auditLogs = [
+      { blockId: 1, field: "startTime/endTime" },
+      { blockId: 2, field: "startTime" },
+    ];
+    const result = computePlanStability(auditLogs, 10);
+    assert.equal(result.rescheduleCount, 1);
+  });
 });
 
 // ---------------------------------------------------------------------------

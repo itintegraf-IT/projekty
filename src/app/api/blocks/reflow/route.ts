@@ -1,0 +1,88 @@
+import { logger } from "@/lib/logger";
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/auth";
+import { isAppError } from "@/lib/errors";
+import { serializeBlock } from "@/lib/blockSerialization";
+import { reflowMachineInTx } from "@/lib/reflow.server";
+import { emitSSE } from "@/lib/eventBus";
+
+const MACHINES = ["XL_105", "XL_106"] as const;
+
+/** Mapping AppError kódů z chain push (resolveChainPushFromDb) — vzor `[id]/reflow/route.ts`. */
+function errorStatus(code: string): number {
+  if (code === "NOT_FOUND") return 404;
+  if (code === "FORBIDDEN") return 403;
+  if (code === "PRESET_INVALID") return 400;
+  if (code === "SCHEDULE_VIOLATION") return 422;
+  if (code === "CONFLICT") return 409;
+  if (code === "OVERLAP") return 409;
+  return 500;
+}
+
+/**
+ * Hromadné „Přepočítat" pro celý stroj — najde a přepočítá všechny ZAKAZKA bloky,
+ * jejichž uložený `endTime` nesedí na aktuální kalendář (drift). Statická cesta
+ * `/api/blocks/reflow` má v Next.js prioritu před dynamickou `/api/blocks/[id]` —
+ * kolize jmen mezi segmenty není.
+ */
+export async function POST(request: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!["ADMIN", "PLANOVAT"].includes(session.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = (await request.json().catch(() => null)) as { machine?: string } | null;
+  const machine = body?.machine;
+  if (!machine || typeof machine !== "string" || !MACHINES.includes(machine as (typeof MACHINES)[number])) {
+    return NextResponse.json({ error: `Neznámý stroj: ${machine ?? ""}` }, { status: 400 });
+  }
+
+  try {
+    const result = await prisma.$transaction(
+      (tx) => reflowMachineInTx(tx, machine, { id: session.id, username: session.username }, new Date()),
+      { timeout: 30000, maxWait: 5000 }
+    );
+
+    // Všechna dotčená id: reflownuté bloky + id bloků odsunutých jejich chain pushem
+    // (reflowMachineInTx je sesbírá do movedIds). movedCount = počet unikátních
+    // chain-push id MIMO reflowed (reflownuté už jsou v prvním setu, ale movedIds z
+    // reflowMachineInTx je z definice bez reflowed vlastních id — chain push posouvá
+    // JINÉ, navazující bloky).
+    const reflowedIds = result.reflowed.map((r) => r.id);
+    const allIds = [...new Set([...reflowedIds, ...result.movedIds])];
+
+    if (allIds.length === 0) {
+      return NextResponse.json({ reflowed: result.reflowed, skipped: result.skipped, movedCount: 0, blocks: [] });
+    }
+
+    const blocks = await prisma.block.findMany({
+      where: { id: { in: allIds } },
+      include: {
+        Reservation: { select: { confirmedAt: true } },
+        notes: { orderBy: { createdAt: "desc" as const } },
+      },
+    });
+    const serializedBlocks = blocks.map(serializeBlock);
+
+    emitSSE("block:batch-updated", { blocks: serializedBlocks, sourceUserId: session.id });
+
+    return NextResponse.json({
+      reflowed: result.reflowed,
+      skipped: result.skipped,
+      movedCount: result.movedIds.length,
+      blocks: serializedBlocks,
+    });
+  } catch (error: unknown) {
+    if (isAppError(error)) {
+      logger.warn(`[POST /api/blocks/reflow] přepočet zastaven`, { machine, code: error.code, message: error.message });
+      return NextResponse.json(
+        { error: `Přepočet zastaven: ${error.message}`, code: error.code },
+        { status: errorStatus(error.code) }
+      );
+    }
+    logger.error("[POST /api/blocks/reflow]", error);
+    return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
+  }
+}

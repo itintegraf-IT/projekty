@@ -70,7 +70,7 @@ export async function GET() {
       ],
     };
 
-    if (["MTZ", "DTP"].includes(session.role)) {
+    if (["MTZ", "DTP", "ADMIN", "PLANOVAT"].includes(session.role)) {
       const notifications = await prisma.notification.findMany({
         where: { targetRole: session.role, ...readFilter },
         orderBy: [{ isRead: "asc" }, { createdAt: "desc" }],
@@ -82,14 +82,6 @@ export async function GET() {
       const notifications = await prisma.notification.findMany({
         where: { targetUserId: session.id, ...readFilter },
         orderBy: [{ isRead: "asc" }, { createdAt: "desc" }],
-        take: 50,
-      });
-      return NextResponse.json(notifications);
-    }
-    if (["ADMIN", "PLANOVAT"].includes(session.role)) {
-      const notifications = await prisma.notification.findMany({
-        where: readFilter,
-        orderBy: { createdAt: "desc" },
         take: 50,
       });
       return NextResponse.json(notifications);

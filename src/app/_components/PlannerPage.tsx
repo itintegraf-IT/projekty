@@ -21,7 +21,7 @@ import {
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
-import { blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
+import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
 import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
@@ -871,9 +871,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       .catch(() => { /* zachovat poslední validní data a count — neměnit stav */ });
   }, [currentUser.role]);
 
-  // Načtení notifikací (DTP + MTZ + OBCHODNIK)
+  // Načtení notifikací (DTP + MTZ + OBCHODNIK + ADMIN + PLANOVAT — CALENDAR_DRIFT etapa 6)
   const fetchNotifications = useCallback(() => {
-    if (!["DTP", "MTZ", "OBCHODNIK"].includes(currentUser.role)) return;
+    if (!["DTP", "MTZ", "OBCHODNIK", "ADMIN", "PLANOVAT"].includes(currentUser.role)) return;
     fetch("/api/notifications")
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data: NotificationItem[]) => {
@@ -987,6 +987,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     [machineWeekShifts, refetchWeekShifts, showToast],
   );
 
+  // Sdílený merge serverových bloků do lokálního state — vzor SSE `block:batch-updated`
+  // (viz handleSSEEvent níže). Používá se jak pro SSE listener, tak pro lokální aplikaci
+  // response z reflow fetchů (mutující klient SSE událost sám od sebe nedostane — server
+  // ji záměrně nedoručuje původci, viz `src/app/api/events/route.ts`). NIKDY nepřidává
+  // bloky (jen map přes prev, žádný concat) — ochrana proti fantomu smazaného bloku.
+  // editingBlockIdsRef guard chrání rozeditovaný blok. setSelectedBlock sync je KRITICKÝ:
+  // BlockDetail počítá calendarDrift ze selectedBlock, bez tohoto řádku by drift sekce
+  // v otevřeném detailu po přepočtu nezmizela.
+  const applyServerBlocks = useCallback((serverBlocks: Block[]) => {
+    const serverMap = new Map(serverBlocks.map((b) => [b.id, b]));
+    setBlocks((prev) =>
+      prev.map((b) => {
+        if (editingBlockIdsRef.current.has(b.id)) return b;
+        return serverMap.get(b.id) ?? b;
+      })
+    );
+    setSelectedBlock((sel) => (sel ? (serverMap.get(sel.id) ?? sel) : sel));
+  }, []);
+
   // ── SSE real-time sync ─────────────────────────────────────────────────
   const handleSSEEvent = useCallback((msg: SSEMessage) => {
     const { type, payload } = msg;
@@ -1050,15 +1069,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (type === "block:batch-updated") {
       const serverBlocks = payload.blocks as Block[];
       if (!Array.isArray(serverBlocks)) return;
-      const serverMap = new Map(serverBlocks.map((b) => [b.id, b]));
-      setBlocks((prev) =>
-        prev.map((b) => {
-          if (editingBlockIdsRef.current.has(b.id)) return b;
-          return serverMap.get(b.id) ?? b;
-        })
-      );
-      // Sync vybraného bloku (jako u block:updated) — posunutý blok v detail panelu nesmí zůstat zastaralý.
-      setSelectedBlock((sel) => (sel ? (serverMap.get(sel.id) ?? sel) : sel));
+      applyServerBlocks(serverBlocks);
     }
 
     if (type === "block:note-created") {
@@ -1098,8 +1109,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         .then((r) => r.ok ? r.json() : null)
         .then((shifts) => { if (shifts) setMachineWeekShifts(shifts); })
         .catch(() => {});
+      // Refresh CompanyDays — company-days mutace (POST/PUT/DELETE) taky emitují schedule:changed,
+      // bez tohoto refetche zůstávají u ostatních klientů stale companyDays → drift štítky lžou do reloadu.
+      fetch("/api/company-days")
+        .then((r) => r.ok ? r.json() : null)
+        .then((days) => { if (days) setCompanyDays(days); })
+        .catch(() => {});
     }
-  }, [showToast]);
+  }, [showToast, applyServerBlocks]);
 
   const handleSSEReconnect = useCallback(() => {
     // Po reconnectu: full fetch bloků
@@ -2263,6 +2280,55 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     } catch { /* noop */ }
   }
 
+  // ── Kalendářní revalidace (etapa 6) — hromadné „Přepočítat" pro celý stroj (banner
+  // v hlavičce sloupce TimelineGrid) a pro jeden blok (tlačítko v BlockDetail). Server
+  // emituje SSE block:batch-updated, ale NEDORUČUJE ho původci (záměrný vzor,
+  // src/app/api/events/route.ts) — proto tady navíc lokálně aplikujeme bloky z response
+  // přes applyServerBlocks, jinak by se mutujícímu uživateli obrazovka nikdy nedorovnala.
+  async function handleReflowMachine(machine: string) {
+    try {
+      const res = await fetch("/api/blocks/reflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ machine }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error ?? "Přepočet se nepodařilo dokončit.", "error");
+        return;
+      }
+      if (Array.isArray(data.blocks) && data.blocks.length) applyServerBlocks(data.blocks);
+      const reflowedCount = Array.isArray(data.reflowed) ? data.reflowed.length : 0;
+      const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : 0;
+      showToast(
+        `Přepočteno ${reflowedCount} bloků${skippedCount > 0 ? `, přeskočeno ${skippedCount} (zamčené/nevejde se)` : ""}`,
+        "success"
+      );
+    } catch (error) {
+      console.error("Reflow machine failed", error);
+      showToast("Přepočet se nepodařilo dokončit.", "error");
+    }
+  }
+
+  async function handleReflowBlock(blockId: number) {
+    try {
+      const res = await fetch(`/api/blocks/${blockId}/reflow`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error ?? "Přepočet se nepodařilo dokončit.", "error");
+        return;
+      }
+      applyServerBlocks([data.block, ...(data.moves ?? [])]);
+      showToast(data.changed ? "Blok přepočítán podle aktuálního kalendáře." : "Blok už na kalendář sedí.", "success");
+    } catch (error) {
+      console.error("Reflow block failed", error);
+      showToast("Přepočet se nepodařilo dokončit.", "error");
+    }
+  }
+
   async function handleQueueDrop(itemId: number | string, machine: string, rawStartTime: Date) {
     const item = queue.find((q) => q.id === itemId) ?? reservationQueue.find((r) => r.id === itemId);
     if (!item) return;
@@ -3127,8 +3193,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             </div>
           )}
 
-          {/* Bell — inbox (DTP/MTZ/OBCHODNIK) */}
-          {["DTP", "MTZ", "OBCHODNIK"].includes(currentUser.role) && (
+          {/* Bell — inbox (DTP/MTZ/OBCHODNIK + ADMIN/PLANOVAT — CALENDAR_DRIFT etapa 6) */}
+          {["DTP", "MTZ", "OBCHODNIK", "ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => { setShowInboxPanel(true); fetchNotifications(); }}
@@ -3250,6 +3316,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onBlockVariantChange={canEdit ? handleBlockVariantChange : undefined}
             onExpeditionPublish={canEdit ? handleExpeditionPublish : undefined}
             onExpeditionUnpublish={canEdit ? handleExpeditionUnpublish : undefined}
+            onReflowMachine={canEdit ? handleReflowMachine : undefined}
             onDataChipDoubleClick={canEditData && !canEditDataDate ? handleDataChipDoubleClick : undefined}
             onShiftBoundsChange={canEdit ? updateShiftBounds : undefined}
             onOpenNotes={canSeeNotes ? (b) => setNotesDialogBlockId(b.id) : undefined}
@@ -3291,8 +3358,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           document.body.style.userSelect = "none";
         }} />}
 
-        {/* InboxPanel pro DTP/MTZ/OBCHODNIK — mimo canEdit aside */}
-        {["DTP", "MTZ", "OBCHODNIK"].includes(currentUser.role) && showInboxPanel && (
+        {/* InboxPanel pro DTP/MTZ/OBCHODNIK + ADMIN/PLANOVAT (CALENDAR_DRIFT etapa 6) — mimo canEdit aside */}
+        {["DTP", "MTZ", "OBCHODNIK", "ADMIN", "PLANOVAT"].includes(currentUser.role) && showInboxPanel && (
           <aside style={{ width: 320, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             <InboxPanel
               notifications={notifications}
@@ -3358,7 +3425,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             />
           ) : selectedBlock ? (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-              <BlockDetail block={selectedBlock} onClose={() => setSelectedBlock(null)} onDelete={handleDeleteBlock} canEdit={canEdit} onBlockUpdate={handleBlockUpdate} allBlocks={blocks} />
+              <BlockDetail
+                block={selectedBlock}
+                onClose={() => setSelectedBlock(null)}
+                onDelete={handleDeleteBlock}
+                canEdit={canEdit}
+                onBlockUpdate={handleBlockUpdate}
+                allBlocks={blocks}
+                calendarDrift={blockCalendarDrift(selectedBlock, machineWeekShifts, companyDays, new Date())}
+                onReflow={canEdit ? handleReflowBlock : undefined}
+              />
             </div>
           ) : (
             <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "var(--surface)", borderLeft: "1px solid var(--border)" }}>

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { parseCompanyDayDateTimeInput, serializeCompanyDay } from "@/lib/companyDaySerialization";
+import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
+import { emitSSE } from "@/lib/eventBus";
 
 const VALID_MACHINES = ["XL_105", "XL_106"] as const;
 
@@ -31,8 +33,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Neplatný formát datumu a času" }, { status: 400 });
   }
 
-  const day = await prisma.companyDay.create({
-    data: { startDate: parsedStart, endDate: parsedEnd, label, machine: machine ?? null },
+  const day = await prisma.$transaction(async (tx) => {
+    const created = await tx.companyDay.create({
+      data: { startDate: parsedStart, endDate: parsedEnd, label, machine: machine ?? null },
+    });
+
+    const machines = machine ? [machine] : ["XL_105", "XL_106"];
+    const drifted = await detectCalendarDrift(tx, machines, parsedStart, parsedEnd, new Date());
+    await notifyCalendarDrift(tx, drifted, session, `Odstávka „${label}"`);
+
+    return created;
   });
+
+  emitSSE("schedule:changed", { sourceUserId: session.id });
   return NextResponse.json(serializeCompanyDay(day), { status: 201 });
 }

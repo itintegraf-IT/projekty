@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } fr
 import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, type CompanyDayInterval } from "@/lib/printTime";
-import { blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, type PrintSegment } from "@/lib/printTimeClient";
+import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
 import {
   addDaysToCivilDate,
   civilDateDayOfWeek,
@@ -14,6 +14,7 @@ import {
   daysInCivilMonth,
   diffCivilDateDays,
   formatPragueDateShort,
+  formatPragueDateTime,
   normalizeCivilDateInput,
   pragueOf,
   pragueToUTC,
@@ -21,6 +22,7 @@ import {
   utcToPragueDateStr,
 } from "@/lib/dateUtils";
 import { badgeColorVar } from "@/lib/badgeColors";
+import { computeShadeParity } from "@/lib/blockShades";
 import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
@@ -275,6 +277,9 @@ interface TimelineGridProps {
   pasteSourceIsZakazka?: boolean;
   /** Pravým klikem na prázdný grid — nastaví pasteTarget a okamžitě vloží blok. */
   onPasteHere?: (machine: string, time: Date) => void;
+  /** Banner stroje „Přepočítat" (hromadný reflow driftujících bloků) — implementace
+   *  (fetch + confirm + toast) žije v PlannerPage, TimelineGrid jen renderuje chip/tlačítko. */
+  onReflowMachine?: (machine: string) => Promise<void>;
 }
 
 type QueueDropPreview = {
@@ -916,6 +921,8 @@ function BlockCard({
   splitPart, splitTotal,
   splitPartner, onSplitChipClick,
   pauseOverlays, contentHeight,
+  calendarDrift,
+  shadeParity,
 }: {
   block: Block;
   top: number;
@@ -928,6 +935,12 @@ function BlockCard({
   now: Date;
   splitPart?: number;
   splitTotal?: number;
+  // Drift kalendáře (uložený end/start bloku nesedí na aktuální expanzi tiskových hodin) —
+  // informační badge pro VŠECHNY role (viz níže), akce (banner „Přepočítat") je jen na stroji.
+  calendarDrift?: CalendarDriftInfo | null;
+  // Střídání odstínů — parita 0 (základní) / 1 (světlejší) pro odlišení sousedících
+  // zakázek téže barvy; počítá rodič (computeShadeParity), undefined = neúčastní se.
+  shadeParity?: 0 | 1;
   // Pauza (mimo provoz) uvnitř bloku, který zasahuje přes odstávku/nepracovní čas —
   // pixelové offsety (top/height) relativní k bloku, předpočítané v rodiči (má dateToY/viewStart/slotHeight).
   pauseOverlays?: { key: string; top: number; height: number }[];
@@ -1012,6 +1025,16 @@ function BlockCard({
     : isOverdue
     ? BLOCK_OVERDUE
     : (BLOCK_STYLES[getBlockStyleKey(block.type, block.blockVariant)] ?? BLOCK_STYLES["ZAKAZKA"]);
+
+  // Střídání odstínů — světlý/tmavý wash přes gradient, aby šla vidět hranice mezi
+  // sousedícími zakázkami/rezervacemi téže barvy. Aplikuje se jen na plné barevné
+  // stavy; dokončený tisk a bloky po termínu mají vlastní tlumený vzhled → beze změny.
+  const shadeEligible = !isPrintDone && !isOverdue && shadeParity != null;
+  const shadedBackground = shadeEligible
+    ? shadeParity === 1
+      ? `linear-gradient(rgba(255,255,255,0.30), rgba(255,255,255,0.30)), ${s.gradient}`
+      : `linear-gradient(rgba(6,10,20,0.10), rgba(6,10,20,0.10)), ${s.gradient}`
+    : s.gradient;
 
   // Badge accenty — custom barva z číselníku, fallback na dnešní chování per-field
   const dataKey    = block.dataStatusId     ? (badgeColorMap?.[block.dataStatusId]     ?? null) : null;
@@ -1152,7 +1175,7 @@ function BlockCard({
         boxShadow: block.locked
           ? `${shadow}, 0 0 0 1px rgba(251,191,36,0.35)`
           : shadow,
-        background: s.gradient,
+        background: shadedBackground,
         display: "flex", flexDirection: "column",
         overflow: "hidden", userSelect: "none",
         transition: isDragging ? "none" : "box-shadow 0.15s",
@@ -1208,6 +1231,38 @@ function BlockCard({
         </span>
       )}
 
+      {/* Drift kalendáře štítek — druhé patro stacku pravého horního rohu, pod deadline
+          badge (etapa 6). Informační pro VŠECHNY role (i TISKAR/VIEWER) — akce
+          „Přepočítat" je jen v banneru stroje / BlockDetail, gatované na ADMIN/PLANOVAT.
+          Parita s deadline badge: TINY jen „⚠", pod TINY nic. */}
+      {!!calendarDrift && (MODE_FULL || MODE_COMPACT || MODE_TINY) && (
+        <span
+          title={
+            calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd
+              ? `Konec nesedí na aktuální kalendář (správně do ${formatPragueDateTime(calendarDrift.expectedEnd)})`
+              : "Umístění bloku nesedí na aktuální kalendář"
+          }
+          style={{
+            position: "absolute",
+            top: isPastDeadline ? 22 : 4,
+            right: 4,
+            background: "#f59e0b",
+            color: "#1f2937",
+            fontSize: 9,
+            fontWeight: 800,
+            lineHeight: 1,
+            borderRadius: 4,
+            padding: "1px 5px",
+            zIndex: 4,
+            userSelect: "none",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {MODE_TINY ? "⚠" : "⚠ KALENDÁŘ"}
+        </span>
+      )}
+
       {/* Tiskařské poznámky — oranžový pruh nahoře přes celou šířku + badge v rohu */}
       {hasTiskarNotes && (
         <>
@@ -1231,8 +1286,8 @@ function BlockCard({
             onClick={onOpenNotes ? (e) => { e.stopPropagation(); onOpenNotes(block); } : undefined}
             style={{
               position: "absolute",
-              // Odsunuto níž, když je zároveň deadline štítek ve stejném rohu.
-              top: isPastDeadline ? 22 : 7,
+              // Odsunuto níž o každý přítomný badge nad ním ve stejném rohu (deadline, drift).
+              top: 7 + (isPastDeadline ? 18 : 0) + (calendarDrift ? 18 : 0),
               right: 4,
               background: "#f59e0b",
               color: "#1f2937",
@@ -2188,6 +2243,7 @@ export default function TimelineGrid({
   pasteSlotDurationMs,
   pasteSourceIsZakazka,
   onPasteHere,
+  onReflowMachine,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -2207,6 +2263,8 @@ export default function TimelineGrid({
     previewMin: number;
   } | null>(null);
   const shiftEdgePreviewRef = useRef(shiftEdgePreview);
+  // Banner stroje „Přepočítat" — brání double-clicku během probíhajícího hromadného reflow.
+  const [reflowingMachine, setReflowingMachine] = useState<string | null>(null);
   const dragStateRef    = useRef<DragInternalState | null>(null);
   const dragDidMove     = useRef(false);
   const viewStartRef    = useRef<Date | null>(null);
@@ -2228,6 +2286,20 @@ export default function TimelineGrid({
     for (const b of blocks) {
       const segs = getBlockSegments(b, machineWeekShifts ?? [], companyDays ?? []);
       if (segs) m.set(b.id, segs);
+    }
+    return m;
+  }, [blocks, machineWeekShifts, companyDays]);
+
+  // ── Precompute drift kalendáře (uložený end nesedí na aktuální expanzi) — vzor
+  // blockSegmentsMap výše: hook musí být před early returnem (if (!viewStart)) níže.
+  // `now` bereme jednou za render (ne per blok) — drift se nemění plynutím času tak
+  // rychle, aby to vadilo; mapa se přepočítá při změně bloků/kalendáře, což stačí.
+  const driftMap = useMemo(() => {
+    const nowForDrift = new Date();
+    const m = new Map<number, CalendarDriftInfo>();
+    for (const b of blocks) {
+      const drift = blockCalendarDrift(b, machineWeekShifts ?? [], companyDays ?? [], nowForDrift);
+      if (drift) m.set(b.id, drift);
     }
     return m;
   }, [blocks, machineWeekShifts, companyDays]);
@@ -2810,6 +2882,12 @@ export default function TimelineGrid({
       const totalPm = blockPrintMinutes(block);
       if (block.scheduleBypassed === true) {
         // Bypassnutý blok: computePrintMinutes není bypass-aware → elapsed-based split.
+        // Runnable guard (isMachineRunnableAt, viz else větev) se zde záměrně NEaplikuje —
+        // bypass blok byl umístěn PRÁVĚ MIMO runnable kalendář (to bypass znamená), guard
+        // by na jeho vlastním rozsahu skoro vždy padal. Head/tail payloady níže nesou
+        // bypassScheduleValidation:true, takže server obě části validuje bypass-větví
+        // (end = start + pm, bez nároku na runnable start) — 422 z kalendářového důvodu
+        // zde nehrozí.
         headPm = Math.round((splitAt.getTime() - new Date(block.startTime).getTime()) / 60000);
       } else {
         // Guard: splitAt musí padnout na runnable slot (tiskovou část kalendáře), jinak
@@ -2834,12 +2912,27 @@ export default function TimelineGrid({
         return;
       }
     }
+    // Sticky-bypass parity (Task 8, etapa 6): zdrojový blok s scheduleBypassed=true byl umístěn
+    // MIMO kalendář (start typicky leží v pauze/odstávce) — bez explicitního bypass flagu by
+    // server na head PUT zkusil kalendářní expanzi/inverzi na nerunnable startu a spadl (nebo
+    // tiše seškrtal tiskový čas), tail POST by pak selhal na 422 AŽ PO commitu hlavy (rozbitý
+    // mezistav: hlava zkrácená, ocas neexistuje). Sticky = jen REQUEST flag; server si
+    // effectivelyBypassed dopočítá sám (část, která náhodou sedí na kalendář, se uloží jako
+    // scheduleBypassed=false — to je správně, viz validateAndComputeEnd).
+    const isBypassSource = block.type === "ZAKAZKA" && block.scheduleBypassed === true;
     try {
       // Krok 1: zkrátit původní blok
       const res1 = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endTime: splitAt.toISOString() }),
+        body: JSON.stringify({
+          endTime: splitAt.toISOString(),
+          // pm jen pro bypass zdroj — ne-bypass head PUT posílá pouze endTime a server si
+          // printMinutes NEZÁVISLE invertuje z čerstvého kalendáře (computePrintMinutes
+          // v transakci); klientsky spočítané pm by při stale kalendáři tiše posunulo
+          // hranici splitu (nález review T8). Tail POST pm potřebuje vždy (nový blok).
+          ...(isBypassSource ? { printMinutes: headPm, bypassScheduleValidation: true } : {}),
+        }),
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
@@ -2895,6 +2988,7 @@ export default function TimelineGrid({
           specifikace: block.specifikace,
           splitGroupId: rootSplitGroupId,
           ...(block.type === "ZAKAZKA" ? { printMinutes: tailPm } : {}),
+          ...(isBypassSource ? { bypassScheduleValidation: true } : {}),
         }),
       });
       if (!res2.ok) {
@@ -2908,6 +3002,30 @@ export default function TimelineGrid({
     }
   }
 
+  // ── Banner stroje „Přepočítat" — počet driftujících bloků per stroj z driftMap
+  // (O(n) přes blocks, n je malé — počet bloků na gridu). Jen ADMIN/PLANOVAT (canEdit)
+  // vidí chip + tlačítko (akce); badge na kartě už informaci nese pro všechny role.
+  const driftCountByMachine = new Map<string, number>();
+  for (const b of blocks) {
+    if (!driftMap.has(b.id)) continue;
+    driftCountByMachine.set(b.machine, (driftCountByMachine.get(b.machine) ?? 0) + 1);
+  }
+
+  async function handleReflowClick(machine: string) {
+    const n = driftCountByMachine.get(machine) ?? 0;
+    if (n === 0 || !onReflowMachine || reflowingMachine) return;
+    const machineLabel = machine.replace("_", " ");
+    if (!window.confirm(`Přepočítat ${n} bloků na ${machineLabel}? Bloky se posunou na nejbližší platné sloty (zamčené se přeskočí).`)) {
+      return;
+    }
+    setReflowingMachine(machine);
+    try {
+      await onReflowMachine(machine);
+    } finally {
+      setReflowingMachine(null);
+    }
+  }
+
   // ── Sticky header ──────────────────────────────────────────────────────────
   const header = (
     <div style={{ position: "sticky", top: 0, zIndex: 30, display: "flex", flexShrink: 0, backgroundColor: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
@@ -2917,14 +3035,43 @@ export default function TimelineGrid({
       <div style={{ width: TIME_COL_W, flexShrink: 0, borderRight: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 8px" }}>
         <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "var(--text-muted)", textTransform: "uppercase" }}>ČAS</span>
       </div>
-      {visibleMachines.flatMap((machine, idx) => [
+      {visibleMachines.flatMap((machine, idx) => {
+        const driftCount = driftCountByMachine.get(machine) ?? 0;
+        return [
         idx > 0 ? <div key={`hgap-${idx}`} style={{ width: TIME_COL_W, flexShrink: 0, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "var(--text-muted)", textTransform: "uppercase" }}>ČAS</span>
         </div> : null,
-        <div key={machine} style={{ flex: 1, padding: "8px 12px", color: "var(--text)" }} className="text-xs font-bold">
-          {machine.replace("_", "\u00a0")}
+        <div key={machine} style={{ flex: 1, padding: "8px 12px", color: "var(--text)", display: "flex", alignItems: "center", gap: 8 }} className="text-xs font-bold">
+          <span>{machine.replace("_", "\u00a0")}</span>
+          {canEdit && driftCount > 0 && (
+            <>
+              <span
+                title="Počet bloků, jejichž umístění nesedí na aktuální kalendář pracovní doby/odstávek"
+                style={{
+                  fontSize: 10, fontWeight: 700, color: "#1f2937", background: "#f59e0b",
+                  borderRadius: 4, padding: "1px 6px", lineHeight: 1.4, whiteSpace: "nowrap",
+                }}
+              >
+                ⚠ {driftCount} nesedí na kalendář
+              </span>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); void handleReflowClick(machine); }}
+                disabled={reflowingMachine === machine}
+                style={{
+                  fontSize: 10, fontWeight: 600, color: "#fff",
+                  background: reflowingMachine === machine ? "rgba(59,130,246,0.5)" : "#3b82f6",
+                  border: "none", borderRadius: 4, padding: "2px 8px", lineHeight: 1.4,
+                  cursor: reflowingMachine === machine ? "default" : "pointer", whiteSpace: "nowrap",
+                }}
+              >
+                {reflowingMachine === machine ? "Přepočítávám…" : "Přepočítat"}
+              </button>
+            </>
+          )}
         </div>,
-      ])}
+      ];
+      })}
     </div>
   );
 
@@ -2966,6 +3113,22 @@ export default function TimelineGrid({
       arr.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
     }
     return map;
+  })();
+
+  // ── Precompute střídání odstínů (parita 0/1 per barevný bucket, per stroj) ──
+  // Počítá se přes VŠECHNY bloky stroje (ne jen viditelné), aby střídání zůstalo
+  // stabilní i při scrollu. Vlastní světlý/tmavý wash aplikuje BlockCard.
+  const shadeParityByBlockId = (() => {
+    const byMachine = new Map<string, Block[]>();
+    for (const b of blocks) {
+      if (!byMachine.has(b.machine)) byMachine.set(b.machine, []);
+      byMachine.get(b.machine)!.push(b);
+    }
+    const merged = new Map<number, 0 | 1>();
+    for (const arr of byMachine.values()) {
+      for (const [id, parity] of computeShadeParity(arr)) merged.set(id, parity);
+    }
+    return merged;
   })();
 
   // ── Precompute markers ─────────────────────────────────────────────────────
@@ -3164,7 +3327,7 @@ export default function TimelineGrid({
 
           {/* ── Datum sloupec ─────────────────────────────────────────────── */}
           <div style={{ width: DATE_COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>
-            {days.map((d) => (
+            {days.map((d, di) => (
               <div
                 key={d.y}
                 style={{
@@ -3193,6 +3356,10 @@ export default function TimelineGrid({
                     : "transparent",
                 }}
               >
+                {/* Zebra každý druhý den — zrcadlí grid, ať návaznost řádku nezmizí na levé ose */}
+                {di % 2 !== 0 && !d.isWeekend && !d.isCompanyDay && (
+                  <div className="tl-day-alt" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
+                )}
                 {/* Sticky label — drží se viditelnosti celý den při scrollování */}
                 <div style={{
                   position: "sticky",
@@ -3227,6 +3394,12 @@ export default function TimelineGrid({
               e.preventDefault();
             } : undefined}
           >
+            {/* Zebra každý druhý den — parita s gridem i datum-sloupcem */}
+            {days.map((d, di) =>
+              di % 2 !== 0 && !d.isWeekend && !d.isCompanyDay ? (
+                <div key={`ltz-${d.y}`} className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />
+              ) : null
+            )}
             {/* Firemní den overlay (hodinová přesnost) */}
             {companyDays?.map((cd) => {
               if (!viewStart) return null;
@@ -3336,6 +3509,12 @@ export default function TimelineGrid({
                       e.preventDefault();
                     } : undefined}
                   >
+                    {/* Zebra každý druhý den — parita s gridem */}
+                    {days.map((d, di) =>
+                      di % 2 !== 0 && !d.isWeekend && !d.isCompanyDay ? (
+                        <div key={`mtz-${colIdx}-${d.y}`} className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />
+                      ) : null
+                    )}
                     {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
                       <div
                         key={m.key}
@@ -3708,6 +3887,8 @@ export default function TimelineGrid({
                       onOpenNotes={onOpenNotes}
                       splitPartner={splitPartner}
                       onSplitChipClick={onSplitChipClick}
+                      calendarDrift={driftMap.get(block.id)}
+                      shadeParity={shadeParityByBlockId.get(block.id)}
                     />
                   );
                 })}

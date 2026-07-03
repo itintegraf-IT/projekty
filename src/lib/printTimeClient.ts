@@ -4,6 +4,7 @@ import {
   snapStartToNextRunnableSlot,
   SLOT_MS,
   type CompanyDayInterval,
+  type ExpandResult,
   type PrintSegment,
 } from "@/lib/printTime";
 
@@ -81,30 +82,95 @@ export function snapGroupDeltaStartOnly(
 }
 
 /**
+ * Sdílený guard + expanzní krok pro getBlockSegments/blockCalendarDrift: ověří
+ * ZAKAZKA/ne-bypass/platné printMinutes/zarovnaný start a spustí expandPrintTime.
+ * Vrací null, jen když NĚKTERÝ guard selže (ne-ZAKAZKA/bypass/pm neplatné/
+ * nezarovnaný start) — to volající mapuje na "bez štítku" (getBlockSegments)
+ * resp. "nelze posoudit" (blockCalendarDrift). Když guardy projdou, vrací vždy
+ * `ExpandResult` (i `ok: false` s reasonem) — jeho klasifikaci (fail vs. end
+ * mismatch vs. sedí) už řeší každá volající funkce podle vlastní sémantiky.
+ */
+function tryExpandForBlock(
+  b: { type: string; machine: string; startTime: string | Date; printMinutes?: number | null; scheduleBypassed?: boolean | null },
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayClientRow[]
+): ExpandResult | null {
+  if (b.type !== "ZAKAZKA" || b.scheduleBypassed) return null;
+  const pm = b.printMinutes;
+  if (pm == null || !Number.isFinite(pm) || pm <= 0) return null;
+  const start = new Date(b.startTime);
+  if (start.getTime() % SLOT_MS !== 0) return null;
+  try {
+    return expandPrintTime(b.machine, start, pm, weekShifts, companyDayIntervalsFor(b.machine, companyDays), false);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Segmenty bloku pro vykreslení pauz. Vrací null, když overlay nedává smysl:
  * ne-ZAKAZKA, chybějící/neplatné printMinutes, bypass blok (kreslí se slitě záměrně),
  * expanze selže, expanze nesedí na uložený end (drift kalendáře — segmenty by lhaly;
- * detekci driftu řeší etapa 6), nebo expanze nemá žádnou pauzu (overlay netřeba).
+ * detekci driftu řeší `blockCalendarDrift`), nebo expanze nemá žádnou pauzu (overlay netřeba).
  */
 export function getBlockSegments(
   b: { type: string; machine: string; startTime: string | Date; endTime: string | Date; printMinutes?: number | null; scheduleBypassed?: boolean },
   weekShifts: MachineWeekShiftsRow[],
   companyDays: CompanyDayClientRow[]
 ): PrintSegment[] | null {
-  if (b.type !== "ZAKAZKA" || b.scheduleBypassed) return null;
-  const pm = b.printMinutes;
-  if (pm == null || !Number.isFinite(pm) || pm <= 0) return null;
-  const start = new Date(b.startTime);
-  if (start.getTime() % SLOT_MS !== 0) return null;
-  let exp: ReturnType<typeof expandPrintTime>;
-  try {
-    exp = expandPrintTime(b.machine, start, pm, weekShifts, companyDayIntervalsFor(b.machine, companyDays), false);
-  } catch {
-    return null;
-  }
-  if (!exp.ok) return null;
+  const exp = tryExpandForBlock(b, weekShifts, companyDays);
+  if (!exp || !exp.ok) return null;
   if (exp.end.getTime() !== new Date(b.endTime).getTime()) return null;
   return exp.segments.some((s) => s.kind === "pause") ? exp.segments : null;
+}
+
+export type CalendarDriftInfo = {
+  reason: "END_MISMATCH" | "START_NOT_RUNNABLE" | "HORIZON_EXCEEDED";
+  expectedEnd: Date | null;
+};
+
+/**
+ * Klientský protějšek `detectCalendarDrift` (calendarDrift.server.ts) — posuzuje
+ * JEDEN blok na zobrazovaném gridu, aby se dal vykreslit vizuální štítek driftu
+ * hned, bez čekání na server notifikaci. Klasifikace MUSÍ sedět se serverovou
+ * (server notifikuje, klient kreslí — rozchod by matl uživatele).
+ *
+ * Vrací null (bez štítku) pro: vytištěný blok (printCompletedAt), blok
+ * v minulosti (endTime <= now), a guardy sdílené s getBlockSegments přes
+ * tryExpandForBlock (ne-ZAKAZKA, bypass, printMinutes null/≤0, nezarovnaný
+ * start) — v tomto pořadí. Jinak expandPrintTime: fail → drift s reasonem
+ * z expanze (expectedEnd null — nelze spočítat), ok a end nesedí na uložený
+ * → END_MISMATCH s expectedEnd, ok a sedí → null (žádný drift).
+ *
+ * Klient nemá pojem „okna" (server filtruje endTime > max(windowStart, now),
+ * protože posuzuje jen dávku dotčenou mutací kalendáře) — okno je serverová
+ * optimalizace dotazu, ne klasifikační pravidlo; pro jeden blok je endTime > now
+ * ekvivalentní. Při změně guard sady na serveru promítnout ZDE i do WHERE
+ * v detectCalendarDrift (parita ověřena review 3. 7. 2026 podmínka po podmínce).
+ */
+export function blockCalendarDrift(
+  b: {
+    type: string;
+    machine: string;
+    scheduleBypassed?: boolean | null;
+    printMinutes?: number | null;
+    startTime: string | Date;
+    endTime: string | Date;
+    printCompletedAt?: string | Date | null;
+  },
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayClientRow[],
+  now: Date
+): CalendarDriftInfo | null {
+  if (b.printCompletedAt) return null;
+  const endTime = new Date(b.endTime);
+  if (endTime.getTime() <= now.getTime()) return null;
+
+  const exp = tryExpandForBlock(b, weekShifts, companyDays);
+  if (!exp) return null; // guard selhal (ne-ZAKAZKA/bypass/pm neplatné/nezarovnaný start) — nelze posoudit
+  if (!exp.ok) return { reason: exp.reason, expectedEnd: null };
+  if (exp.end.getTime() !== endTime.getTime()) return { reason: "END_MISMATCH", expectedEnd: exp.end };
+  return null;
 }
 
 /**
