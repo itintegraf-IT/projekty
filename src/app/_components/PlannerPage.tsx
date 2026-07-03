@@ -45,8 +45,9 @@ import {
   type JobPresetDraftValues,
 } from "@/lib/jobPresets";
 import { ZoomSlider } from "@/components/ZoomSlider";
-import { InfoPanel, type AuditLogEntry } from "@/components/InfoPanel";
-import { InboxPanel, type NotificationItem } from "@/components/InboxPanel";
+import { useNotifications } from "@/hooks/useNotifications";
+import { NotificationBell } from "@/components/NotificationBell";
+import { NotificationsPanel, type NotifTab } from "@/components/NotificationsPanel";
 import { BlockNotesDialog } from "@/components/BlockNotesDialog";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 import type { NoteRole } from "@/lib/blockNotePermissions";
@@ -543,12 +544,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     pendingPayload: { machine: string; weekStart: string; days: ShiftDayPayload[] };
   } | null>(null);
   const [showShutdowns, setShowShutdowns] = useState(false);
-  const [showInfoPanel, setShowInfoPanel] = useState(false);
-  const [todayAuditLogs, setTodayAuditLogs] = useState<AuditLogEntry[]>([]);
-  const [auditNewCount, setAuditNewCount] = useState(0);
-  const [showInboxPanel, setShowInboxPanel] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [notifNewCount, setNotifNewCount] = useState(0);
+  const notif = useNotifications(currentUser.role);
+  const [showNotifPanel, setShowNotifPanel] = useState(false);
+  const [notifTab, setNotifTab] = useState<NotifTab>("inbox");
 
   // ── Toast systém ──
   const { toasts, showToast, dismissToast } = useToast();
@@ -852,43 +850,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       showToast("Nepodařilo se načíst číselníky a presety.", "error");
     });
   }, []);
-
-  // Načtení dnešních audit logů (jen pro ADMIN + PLANOVAT)
-  const fetchTodayAudit = useCallback(() => {
-    if (!["ADMIN", "PLANOVAT"].includes(currentUser.role)) return;
-    fetch("/api/audit/today")
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data: AuditLogEntry[]) => {
-        setTodayAuditLogs(data);
-        const lastSeen = localStorage.getItem("auditLastSeen");
-        const lastSeenTime = lastSeen ? new Date(lastSeen).getTime() : 0;
-        const newCount = data.filter((l) => new Date(l.createdAt).getTime() > lastSeenTime).length;
-        setAuditNewCount(newCount);
-      })
-      .catch(() => { /* zachovat poslední validní data a count — neměnit stav */ });
-  }, [currentUser.role]);
-
-  // Načtení notifikací (DTP + MTZ + OBCHODNIK + ADMIN + PLANOVAT — CALENDAR_DRIFT etapa 6)
-  const fetchNotifications = useCallback(() => {
-    if (!["DTP", "MTZ", "OBCHODNIK", "ADMIN", "PLANOVAT"].includes(currentUser.role)) return;
-    fetch("/api/notifications")
-      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((data: NotificationItem[]) => {
-        setNotifications(data);
-        setNotifNewCount(data.filter((n) => !n.isRead).length);
-      })
-      .catch(() => { /* zachovat poslední validní stav */ });
-  }, [currentUser.role]);
-
-  useEffect(() => {
-    fetchTodayAudit();
-    fetchNotifications();
-    const interval = setInterval(() => { fetchTodayAudit(); fetchNotifications(); }, 60_000);
-    return () => clearInterval(interval);
-  }, [fetchTodayAudit, fetchNotifications]);
 
   // Refresh MachineWeekShifts při návratu do okna —
   // zajišťuje, že klientský snap používá aktuální data i po změně v jiné relaci
@@ -1206,15 +1167,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
-  function handleOpenInfoPanel() {
-    setShowInfoPanel(true);
-    fetchTodayAudit();
-    localStorage.setItem("auditLastSeen", new Date().toISOString());
-    setAuditNewCount(0);
+  function handleNotifTabChange(tab: NotifTab) {
+    setNotifTab(tab);
+    if (tab === "activity") {
+      notif.fetchAudit();
+      notif.markAuditSeen();
+    }
+  }
+
+  function openNotifPanel() {
+    setShowNotifPanel(true);
+    setNotifTab("inbox");
+    notif.fetchNotifications();
   }
 
   function handleJumpToBlock(orderNumber: string) {
-    setShowInfoPanel(false);
+    setShowNotifPanel(false);
     setFilterText(orderNumber);
     const match = blocks.find((b) => b.orderNumber === orderNumber);
     if (match) setSelectedBlock(match);
@@ -1305,10 +1273,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   async function handleMarkRead(notifId: number) {
-    const r = await fetch(`/api/notifications/${notifId}/read`, { method: "PATCH" });
-    if (!r.ok) { showToast("Nepodařilo se označit jako přečtené", "error"); return; }
-    setNotifications((prev) => prev.map((n) => n.id === notifId ? { ...n, isRead: true } : n));
-    setNotifNewCount((prev) => Math.max(0, prev - 1));
+    const ok = await notif.markRead(notifId);
+    if (!ok) showToast("Nepodařilo se označit jako přečtené", "error");
   }
 
   const effectiveDaysBack = isTiskar ? 1 : daysBack;
@@ -3160,70 +3126,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
           <ThemeToggle />
 
-          {/* Bell — audit (ADMIN/PLANOVAT) */}
-          {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={handleOpenInfoPanel}
-                title="Aktivita DTP a MTZ za poslední 3 dny"
-                style={{
-                  width: 28, height: 28, borderRadius: 8,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  background: showInfoPanel ? "rgba(59,130,246,0.14)" : "var(--surface-2)",
-                  border: `1px solid ${showInfoPanel ? "rgba(59,130,246,0.35)" : "var(--border)"}`,
-                  color: showInfoPanel ? "#3b82f6" : "var(--text-muted)",
-                  cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                </svg>
-              </button>
-              {auditNewCount > 0 && (
-                <span style={{
-                  position: "absolute", top: -3, right: -3,
-                  width: 14, height: 14, borderRadius: "50%",
-                  background: "#ef4444", color: "#fff",
-                  fontSize: 8, fontWeight: 700,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  pointerEvents: "none",
-                }}>{auditNewCount > 9 ? "9+" : auditNewCount}</span>
-              )}
-            </div>
-          )}
-
-          {/* Bell — inbox (DTP/MTZ/OBCHODNIK + ADMIN/PLANOVAT — CALENDAR_DRIFT etapa 6) */}
-          {["DTP", "MTZ", "OBCHODNIK", "ADMIN", "PLANOVAT"].includes(currentUser.role) && (
-            <div style={{ position: "relative" }}>
-              <button
-                onClick={() => { setShowInboxPanel(true); fetchNotifications(); }}
-                title="Upozornění"
-                style={{
-                  width: 28, height: 28, borderRadius: 8,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  background: showInboxPanel ? "rgba(59,130,246,0.14)" : "var(--surface-2)",
-                  border: `1px solid ${showInboxPanel ? "rgba(59,130,246,0.35)" : "var(--border)"}`,
-                  color: showInboxPanel ? "#3b82f6" : "var(--text-muted)",
-                  cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                  <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                </svg>
-              </button>
-              {notifNewCount > 0 && (
-                <span style={{
-                  position: "absolute", top: -3, right: -3,
-                  width: 14, height: 14, borderRadius: "50%",
-                  background: "#ef4444", color: "#fff",
-                  fontSize: 8, fontWeight: 700,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  pointerEvents: "none",
-                }}>{notifNewCount > 9 ? "9+" : notifNewCount}</span>
-              )}
-            </div>
+          {/* Sloučený zvonek — Upozornění + Aktivita */}
+          {notif.canSeeInbox && (
+            <NotificationBell
+              count={notif.totalBadge}
+              active={showNotifPanel}
+              onClick={openNotifPanel}
+              title="Upozornění a aktivita"
+            />
           )}
 
           {/* Lasso badge */}
@@ -3358,14 +3268,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           document.body.style.userSelect = "none";
         }} />}
 
-        {/* InboxPanel pro DTP/MTZ/OBCHODNIK + ADMIN/PLANOVAT (CALENDAR_DRIFT etapa 6) — mimo canEdit aside */}
-        {["DTP", "MTZ", "OBCHODNIK", "ADMIN", "PLANOVAT"].includes(currentUser.role) && showInboxPanel && (
+        {/* Sloučený notifikační panel — Upozornění + Aktivita (vlevo) */}
+        {notif.canSeeInbox && showNotifPanel && (
           <aside style={{ width: 320, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <InboxPanel
-              notifications={notifications}
-              onClose={() => setShowInboxPanel(false)}
+            <NotificationsPanel
+              canSeeAudit={notif.canSeeAudit}
+              activeTab={notifTab}
+              onTabChange={handleNotifTabChange}
+              onClose={() => setShowNotifPanel(false)}
+              notifications={notif.notifications}
+              auditLogs={notif.auditLogs}
+              notifNewCount={notif.notifNewCount}
+              auditNewCount={notif.auditNewCount}
               onMarkRead={handleMarkRead}
-              onJumpToBlock={(orderNumber) => { setShowInboxPanel(false); setFilterText(orderNumber); }}
+              onJumpToBlock={handleJumpToBlock}
             />
           </aside>
         )}
@@ -3386,13 +3302,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
         {/* PRAVÁ ČÁST – detail nebo builder */}
         {canEdit && <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-          {showInfoPanel ? (
-            <InfoPanel
-              logs={todayAuditLogs}
-              onClose={() => setShowInfoPanel(false)}
-              onJumpToBlock={handleJumpToBlock}
-            />
-          ) : showShutdowns ? (
+          {showShutdowns ? (
             <ShutdownManager
               companyDays={companyDays}
               onAdd={handleAddCompanyDay}
