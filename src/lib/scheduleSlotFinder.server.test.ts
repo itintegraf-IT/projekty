@@ -9,10 +9,12 @@ const mockBlocks: Array<{ startTime: Date; endTime: Date }> = [];
 const mockCompanyDays: Array<{ startDate: Date; endDate: Date }> = [];
 const mockWeekShifts: unknown[] = [];
 
+const weekShiftsFindManyMock = mock.fn(async () => mockWeekShifts);
+
 await mock.module("@/lib/prisma", {
   namedExports: {
     prisma: {
-      machineWeekShifts: { findMany: mock.fn(async () => mockWeekShifts) },
+      machineWeekShifts: { findMany: weekShiftsFindManyMock },
       block: { findMany: mock.fn(async () => mockBlocks) },
       companyDay: { findMany: mock.fn(async () => mockCompanyDays) },
     },
@@ -139,5 +141,22 @@ describe("findNextFreePrintSlotFromDb (tiskové hodiny)", () => {
     });
     const r = await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
     assert.deepEqual(r, { found: false, reason: "MAX_SHIFT_EXCEEDED" });
+  });
+});
+
+describe("findNextFreePrintSlotFromDb — okno kalendáře (week-boundary wrap, nález 3. 7.)", () => {
+  beforeEach(() => {
+    mockBlocks.length = 0;
+    mockCompanyDays.length = 0;
+    mockWeekShifts.length = 0;
+  });
+
+  it("start v pondělí ráno dotahuje weekShifts i PŘEDCHOZÍHO týdne (nedělní noc přes půlnoc)", async () => {
+    weekShiftsFindManyMock.mock.resetCalls();
+    // Po 21. 9. 2026 00:30 Praha = 2026-09-20T22:30Z — předchozí týden = 14. 9.
+    await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-20T22:30:00.000Z"), 60);
+    const args = (weekShiftsFindManyMock.mock.calls as unknown as { arguments: [{ where: { weekStart: { in: Date[] } } }] }[])[0]!.arguments[0];
+    const weeks = args.where.weekStart.in.map((d) => d.toISOString().slice(0, 10));
+    assert.ok(weeks.includes("2026-09-14"), `chybí předchozí týden: ${weeks.join(", ")}`);
   });
 });

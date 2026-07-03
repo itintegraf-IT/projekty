@@ -518,9 +518,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
                 userId: session.id,
                 username: session.username,
                 action: "AUTO_SHIFT",
-                field: "startTime",
-                oldValue: m.oldStartTime.toISOString(),
-                newValue: m.startTime.toISOString(),
+                field: "startTime/endTime",
+                oldValue: `${m.oldStartTime.toISOString()}–${m.oldEndTime.toISOString()}`,
+                newValue: `${m.startTime.toISOString()}–${m.endTime.toISOString()}`,
               })),
             });
           }

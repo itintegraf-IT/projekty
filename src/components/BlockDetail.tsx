@@ -13,6 +13,7 @@ import DatePickerField from "@/app/_components/DatePickerField";
 import { getSplitChipState } from "@/lib/splitHelpers";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { formatProductionTags, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
+import { blockPrintMinutes } from "@/lib/printTimeClient";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -25,12 +26,25 @@ function formatDate(iso: string | null): string {
   return formatCivilDate(iso);
 }
 
-function durationHuman(startIso: string, endIso: string): string {
-  const mins = (new Date(endIso).getTime() - new Date(startIso).getTime()) / 60000;
+function minsToHuman(mins: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (m === 0) return `${h} hod`;
   return `${h} hod ${m} min`;
+}
+
+/**
+ * Řádek „Délka" v detailu bloku: ZAKAZKA s tiskovými minutami odlišnými od
+ * uplynulého času bloku (blok obsahuje pauzu přes odstávku/mimo provoz) zobrazí
+ * obojí — kolik reálně tiskne stroj a kolik trvá blok na časové ose celkem.
+ * Jinak (rovnají se, nebo ne-ZAKAZKA) zůstává dnešní jednoduchý text.
+ */
+function blockLengthLabel(block: Block): string {
+  const elapsedMins = Math.round((new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 60000);
+  if (block.type !== "ZAKAZKA") return minsToHuman(elapsedMins);
+  const pm = blockPrintMinutes(block);
+  if (pm === elapsedMins) return minsToHuman(elapsedMins);
+  return `${minsToHuman(pm)} tisku (${minsToHuman(elapsedMins)} celkem)`;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -191,7 +205,7 @@ export function BlockDetail({
           </div>
           <Row label="Začátek" value={formatDateTime(block.startTime)} />
           <Row label="Konec"   value={formatDateTime(block.endTime)} />
-          <Row label="Délka"   value={durationHuman(block.startTime, block.endTime)} />
+          <Row label="Délka"   value={blockLengthLabel(block)} />
           {block.locked && <Row label="Stav" value="Zamčeno" />}
         </div>
 

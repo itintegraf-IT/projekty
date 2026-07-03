@@ -11,6 +11,7 @@ import type { Block } from "@/app/_components/TimelineGrid";
 import type { CodebookOption } from "@/lib/plannerTypes";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
+import { blockPrintMinutes } from "@/lib/printTimeClient";
 
 // ─── Sdílené typy ─────────────────────────────────────────────────────────────
 type OnStatusChange = (
@@ -57,10 +58,22 @@ function formatCardDate(startTimeStr: string): { label: string; urgent: boolean 
   return { label: dayLabel, urgent: false };
 }
 
-function blockDurationLabel(block: Block): string {
-  const ms = new Date(block.endTime).getTime() - new Date(block.startTime).getTime();
-  const h = ms / 3_600_000;
+function fmtHours(mins: number): string {
+  const h = mins / 60;
   return h % 1 === 0 ? `${h} hod` : `${h.toFixed(1)} hod`;
+}
+
+/**
+ * ZAKAZKA s tiskovými minutami odlišnými od uplynulého času bloku (pauza přes
+ * odstávku/mimo provoz uvnitř bloku) zobrazí obojí — tisk i celkovou délku na
+ * časové ose. Jinak (rovnají se, nebo ne-ZAKAZKA) zůstává dnešní jednoduchý text.
+ */
+function blockDurationLabel(block: Block): string {
+  const elapsedMins = Math.round((new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 60000);
+  if (block.type !== "ZAKAZKA") return fmtHours(elapsedMins);
+  const pm = blockPrintMinutes(block);
+  if (pm === elapsedMins) return fmtHours(elapsedMins);
+  return `Tisk ${fmtHours(pm)} · celkem ${fmtHours(elapsedMins)}`;
 }
 
 // ─── DtpPanel ─────────────────────────────────────────────────────────────────

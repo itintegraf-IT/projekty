@@ -39,6 +39,20 @@ export function fmtAuditVal(val: string | null, field: string | null): string {
   if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
     return formatCivilDate(val);
   }
+  // Span "start–end" (AUTO_SHIFT řádky po re-expanzi) — formátovat obě půlky.
+  // Guard MUSÍ být striktní ISO tvar: new Date() je benevolentní a český free-text
+  // („dodávka 1–2") by se jinak mis-formátoval na data — server píše výhradně toISOString().
+  if (val.includes("–")) {
+    const ISO = /^\d{4}-\d{2}-\d{2}T/;
+    const [a, b] = val.split("–");
+    if (a && b && ISO.test(a.trim()) && ISO.test(b.trim())) {
+      const da = new Date(a.trim());
+      const db = new Date(b.trim());
+      if (!Number.isNaN(da.getTime()) && !Number.isNaN(db.getTime())) {
+        return `${formatPragueDateTime(da)} – ${formatPragueDateTime(db)}`;
+      }
+    }
+  }
   if (val.includes("T")) {
     const d = new Date(val);
     if (!Number.isNaN(d.getTime())) return formatPragueDateTime(d);

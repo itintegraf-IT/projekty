@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pragueToUTC } from "./dateUtils";
-import { blockPrintMinutes, companyDayIntervalsFor, snapGroupDeltaStartOnly } from "./printTimeClient";
+import {
+  blockPrintMinutes,
+  companyDayIntervalsFor,
+  snapGroupDeltaStartOnly,
+  getBlockSegments,
+  printMidpoint,
+} from "./printTimeClient";
 import { xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
 
 const SHIFTS = [...xl106Week(W1), ...xl106Week(W2)];
@@ -73,4 +79,64 @@ test("blockPrintMinutes: nezarovnaný elapsed fallback se zarovná na 30min grid
     blockPrintMinutes({ type: "UDRZBA", printMinutes: null, startTime: "2026-08-18T08:00:00.000Z", endTime: "2026-08-18T12:25:00.000Z" }),
     265
   );
+});
+
+test("getBlockSegments: pauznutý blok vrací print/pause segmenty sedící na end", () => {
+  // Pá 10:00 + 27 h (Gardena): print Pá 10–22, pause víkend, print Ne 22 – Po 13
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-24", 13),
+    printMinutes: 27 * 60, scheduleBypassed: false,
+  };
+  const segs = getBlockSegments(b, SHIFTS, []);
+  assert.ok(segs);
+  assert.deepEqual(segs!.map((s) => s.kind), ["print", "pause", "print"]);
+  assert.deepEqual(segs![1]!.start, pragueToUTC("2026-08-21", 22));
+  assert.deepEqual(segs![1]!.end, pragueToUTC("2026-08-23", 22));
+});
+
+test("getBlockSegments: souvislý blok (bez pauzy) → null (overlay není potřeba)", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12),
+    printMinutes: 240, scheduleBypassed: false,
+  };
+  assert.equal(getBlockSegments(b, SHIFTS, []), null);
+});
+
+test("getBlockSegments: drift kalendáře (end nesedí na expand) → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-25", 0), // špatný end
+    printMinutes: 27 * 60, scheduleBypassed: false,
+  };
+  assert.equal(getBlockSegments(b, SHIFTS, []), null);
+});
+
+test("getBlockSegments: bypass blok → null", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-22", 12), endTime: pragueToUTC("2026-08-22", 16),
+    printMinutes: 240, scheduleBypassed: true,
+  };
+  assert.equal(getBlockSegments(b, SHIFTS, []), null);
+});
+
+test("printMidpoint: Gardena 27 h → polovina (13,5 h) odpracována Ne 23:30", () => {
+  // Pá 10–22 = 12 h; zbytek 1,5 h od Ne 22:00 → 23:30
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-24", 13),
+    printMinutes: 27 * 60, scheduleBypassed: false,
+  };
+  assert.deepEqual(printMidpoint(b, SHIFTS, []), pragueToUTC("2026-08-23", 23, 30));
+});
+
+test("printMidpoint: bez segmentů (souvislý blok) → midpoint z printMinutes/2 od startu", () => {
+  const b = {
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12),
+    printMinutes: 240, scheduleBypassed: false,
+  };
+  assert.deepEqual(printMidpoint(b, SHIFTS, []), pragueToUTC("2026-08-18", 10));
 });

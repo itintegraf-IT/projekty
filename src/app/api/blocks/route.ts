@@ -77,7 +77,8 @@ export async function POST(request: NextRequest) {
 
     // printMinutes: explicitně od klienta, jinak odvozeno z end−start (zpětná kompatibilita —
     // starý klient posílá end se sémantikou end−start = tiskový čas).
-    // TODO(Plán 4): odstranit — klient bude posílat printMinutes explicitně
+    // Fallback z elapsed zůstává trvale — kryje legacy bloky (pm=null) a přímé API klienty;
+    // hlavní klient posílá printMinutes explicitně (etapa 4).
     const rawPrintMinutes: number | null =
       typeof body.printMinutes === "number"
         ? body.printMinutes
@@ -329,9 +330,9 @@ export async function POST(request: NextRequest) {
               userId: session.id,
               username: session.username,
               action: "AUTO_SHIFT",
-              field: "startTime",
-              oldValue: m.oldStartTime.toISOString(),
-              newValue: m.startTime.toISOString(),
+              field: "startTime/endTime",
+              oldValue: `${m.oldStartTime.toISOString()}–${m.oldEndTime.toISOString()}`,
+              newValue: `${m.startTime.toISOString()}–${m.endTime.toISOString()}`,
             })),
           });
         }
@@ -352,7 +353,10 @@ export async function POST(request: NextRequest) {
     if (shiftedMoves.length > 0) {
       const shiftedBlocks = await prisma.block.findMany({
         where: { id: { in: shiftedMoves.map((m) => m.id) } },
-        include: { Reservation: { select: { confirmedAt: true } } },
+        include: {
+          Reservation: { select: { confirmedAt: true } },
+          notes: { orderBy: { createdAt: "desc" as const } },
+        },
       });
       serializedShifted = shiftedBlocks.map(serializeBlock);
       emitSSE("block:batch-updated", { blocks: serializedShifted, sourceUserId: session.id });

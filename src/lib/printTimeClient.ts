@@ -1,10 +1,19 @@
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
-import { snapStartToNextRunnableSlot, type CompanyDayInterval } from "@/lib/printTime";
+import {
+  expandPrintTime,
+  snapStartToNextRunnableSlot,
+  SLOT_MS,
+  type CompanyDayInterval,
+  type PrintSegment,
+} from "@/lib/printTime";
 
 /**
  * Klient-safe helpery modelu tiskových hodin (žádná DB, žádný server import).
  * Mutační cesty klienta jimi připravují payload — end vždy autoritativně počítá server.
  */
+
+export type CompanyDayClientRow = { machine?: string | null; startDate: string | Date; endDate: string | Date };
+export type { PrintSegment };
 
 /**
  * Délka bloku v minutách pro payload: ZAKAZKA = printMinutes (fallback elapsed), jinak elapsed.
@@ -69,4 +78,55 @@ export function snapGroupDeltaStartOnly(
     wasSnapped = true;
   }
   return { deltaMs: delta, wasSnapped };
+}
+
+/**
+ * Segmenty bloku pro vykreslení pauz. Vrací null, když overlay nedává smysl:
+ * ne-ZAKAZKA, chybějící/neplatné printMinutes, bypass blok (kreslí se slitě záměrně),
+ * expanze selže, expanze nesedí na uložený end (drift kalendáře — segmenty by lhaly;
+ * detekci driftu řeší etapa 6), nebo expanze nemá žádnou pauzu (overlay netřeba).
+ */
+export function getBlockSegments(
+  b: { type: string; machine: string; startTime: string | Date; endTime: string | Date; printMinutes?: number | null; scheduleBypassed?: boolean },
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayClientRow[]
+): PrintSegment[] | null {
+  if (b.type !== "ZAKAZKA" || b.scheduleBypassed) return null;
+  const pm = b.printMinutes;
+  if (pm == null || !Number.isFinite(pm) || pm <= 0) return null;
+  const start = new Date(b.startTime);
+  if (start.getTime() % SLOT_MS !== 0) return null;
+  let exp: ReturnType<typeof expandPrintTime>;
+  try {
+    exp = expandPrintTime(b.machine, start, pm, weekShifts, companyDayIntervalsFor(b.machine, companyDays), false);
+  } catch {
+    return null;
+  }
+  if (!exp.ok) return null;
+  if (exp.end.getTime() !== new Date(b.endTime).getTime()) return null;
+  return exp.segments.some((s) => s.kind === "pause") ? exp.segments : null;
+}
+
+/**
+ * Bod, kde je odpracována polovina tiskových minut (default bod splitu).
+ * Fallback bez segmentů: start + printMinutes/2 (souvislý blok). Null jen když pm chybí.
+ */
+export function printMidpoint(
+  b: Parameters<typeof getBlockSegments>[0],
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayClientRow[]
+): Date | null {
+  const pm = b.type === "ZAKAZKA" ? b.printMinutes : null;
+  if (pm == null || !Number.isFinite(pm) || pm <= 0) return null;
+  const half = Math.round(pm / 2 / 30) * 30; // zarovnat na slot
+  const segs = getBlockSegments(b, weekShifts, companyDays);
+  if (!segs) return new Date(new Date(b.startTime).getTime() + half * 60000);
+  let remaining = half;
+  for (const s of segs) {
+    if (s.kind !== "print") continue;
+    const segMin = Math.round((s.end.getTime() - s.start.getTime()) / 60000);
+    if (remaining <= segMin) return new Date(s.start.getTime() + remaining * 60000);
+    remaining -= segMin;
+  }
+  return new Date(new Date(b.endTime).getTime());
 }

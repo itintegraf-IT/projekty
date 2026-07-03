@@ -1,10 +1,10 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
-import { computePrintMinutes, snapStartToNextRunnableSlot } from "@/lib/printTime";
-import { blockPrintMinutes, companyDayIntervalsFor, snapGroupDeltaStartOnly } from "@/lib/printTimeClient";
+import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, type CompanyDayInterval } from "@/lib/printTime";
+import { blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, type PrintSegment } from "@/lib/printTimeClient";
 import {
   addDaysToCivilDate,
   civilDateDayOfWeek,
@@ -207,6 +207,9 @@ type DragPreview = {
   machine: string;
   resizeEnd?: Date;
   resizeStart?: Date;
+  /** Tiskové minuty v okně [resizeStart, resizeEnd) — jen pro honest resize (ZAKAZKA + lock).
+   *  Když je vyplněno, tooltip ukazuje "X h tisku (Y h celkem)" místo prosté délky. */
+  resizePrintMinutes?: number;
 } | null;
 
 
@@ -263,8 +266,13 @@ interface TimelineGridProps {
   pasteTarget?: { machine: string; time: Date } | null;
   clipboardHasContent?: boolean;
   /** Délka zdrojového bloku v ms — používá se pro snap markeru na pracovní dobu,
-   *  aby marker ukazoval stejnou pozici, na kterou skutečný paste vloží blok. */
+   *  aby marker ukazoval stejnou pozici, na kterou skutečný paste vloží blok.
+   *  Pro ZAKAZKA zdroj je to tiskové minuty (blockPrintMinutes) × 60000, ne elapsed. */
   pasteSlotDurationMs?: number;
+  /** True, když zdroj schránky je ZAKAZKA (single i celá skupina) — marker pak
+   *  používá start-only snap přes tiskové hodiny (snapStartToNextRunnableSlot),
+   *  stejně jako handlePaste/handleGroupPaste v PlannerPage. */
+  pasteSourceIsZakazka?: boolean;
   /** Pravým klikem na prázdný grid — nastaví pasteTarget a okamžitě vloží blok. */
   onPasteHere?: (machine: string, time: Date) => void;
 }
@@ -347,6 +355,42 @@ function snapToSlot(date: Date): Date {
   const targetHour = Math.floor(minuteOfDay / 60);
   const targetMinute = minuteOfDay % 60;
   return pragueToUTC(targetDateStr, targetHour, targetMinute);
+}
+
+// ─── Honest preview cache (poctivé náhledy přes tiskové hodiny) ───────────────
+// mousemove střílí kontinuálně — expanze (walk přes weekShifts+companyDays) se
+// smí spočítat max 1× per kandidátní slot, ne 1× per pixel. Cache je module-scope
+// (přežívá remounty komponenty), klíčovaná na `${machine}|${startMs}|${printMinutes}`
+// a čistí se při každém mousedown (handleBlockMouseDown/handleResizeMouseDown) —
+// staré weekShifts/companyDays reference by jinak mohly vrátit zastaralý výsledek
+// po jejich změně (řeší se čištěním, ne invalidací podle referencí — cache je malá
+// a žije jen po dobu jednoho dragu).
+const previewExpandCache = new Map<string, ReturnType<typeof expandPrintTime>>();
+
+function clearPreviewExpandCache() {
+  previewExpandCache.clear();
+}
+
+/** Memo wrapper nad expandPrintTime pro live náhledy. Nikdy nevyhazuje — expanze
+ *  se selhá vrátí jako ok:false, aby volající mohl spadnout na naivní matematiku. */
+function expandPrintTimeCached(
+  machine: string,
+  start: Date,
+  printMinutes: number,
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayInterval[]
+): ReturnType<typeof expandPrintTime> {
+  const key = `${machine}|${start.getTime()}|${printMinutes}`;
+  const cached = previewExpandCache.get(key);
+  if (cached) return cached;
+  let result: ReturnType<typeof expandPrintTime>;
+  try {
+    result = expandPrintTime(machine, start, printMinutes, weekShifts, companyDays, false);
+  } catch {
+    result = { ok: false, reason: "START_NOT_RUNNABLE" };
+  }
+  previewExpandCache.set(key, result);
+  return result;
 }
 
 const MONTH_ABBR = ["Led","Úno","Bře","Dub","Kvě","Čvn","Čvc","Srp","Zář","Říj","Lis","Pro"];
@@ -871,6 +915,7 @@ function BlockCard({
   onOpenNotes,
   splitPart, splitTotal,
   splitPartner, onSplitChipClick,
+  pauseOverlays, contentHeight,
 }: {
   block: Block;
   top: number;
@@ -883,6 +928,12 @@ function BlockCard({
   now: Date;
   splitPart?: number;
   splitTotal?: number;
+  // Pauza (mimo provoz) uvnitř bloku, který zasahuje přes odstávku/nepracovní čas —
+  // pixelové offsety (top/height) relativní k bloku, předpočítané v rodiči (má dateToY/viewStart/slotHeight).
+  pauseOverlays?: { key: string; top: number; height: number }[];
+  // Výška prvního print segmentu v px — když blok má segmenty, volba layout modu (MODE_FULL/…)
+  // se řídí touto výškou místo clampedHeight, aby obsah nepropadl do pauzy. Beze změny pozice/výšky divu.
+  contentHeight?: number;
   onClick: (e: React.MouseEvent) => void;
   onDoubleClick: () => void;
   onMouseDown?: (e: React.MouseEvent) => void;
@@ -929,7 +980,16 @@ function BlockCard({
   const isPozastaveno = block.type === "ZAKAZKA" && block.blockVariant === "POZASTAVENO";
   const isUnconfirmedReservation = block.type === "REZERVACE" && block.reservationId != null && !block.reservationConfirmedAt;
   const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
+  // Deadline štítek — nezávislé na isOverdue (to je „konec bloku je v minulosti").
+  // Tady srovnáváme civilní datum konce (Praha) s civilním datem deadlineExpedice:
+  // string porovnání dateStr je DST-safe a přesně odpovídá „po deadline dni", i když
+  // je blok ještě naplánovaný do budoucna (na rozdíl od isOverdue běží nezávisle na `now`).
+  const isPastDeadline = block.type === "ZAKAZKA" && !!block.deadlineExpedice
+    && utcToPragueDateStr(new Date(block.endTime)) > block.deadlineExpedice;
   const clampedHeight = Math.max(height, 20);
+  // Layout mody se řídí výškou prvního print segmentu (obsah se má vejít do tiskové části,
+  // ne propadnout do pauzy) — pro bloky bez segmentů (99 % plánu) je to prostě clampedHeight.
+  const layoutHeight  = contentHeight ?? clampedHeight;
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
   const dataDisplayLabel = block.dataStatusLabel?.trim() || "";
@@ -975,23 +1035,25 @@ function BlockCard({
     block.specifikace
   );
 
-  // Výškové mody (vzájemně se vylučují)
-  const MODE_FULL    = clampedHeight >= 48;                              // plný layout (od ~1h při zoom=26)
-  const MODE_COMPACT = !MODE_FULL && clampedHeight >= 44 && block.type !== "UDRZBA";
-  const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && clampedHeight >= 24; // micro tečky
+  // Výškové mody (vzájemně se vylučují). Řídí se layoutHeight (výška prvního print segmentu,
+  // pokud blok segmenty má) — u bloku s pauzou uprostřed se obsah vejde do tiskové části
+  // a nepropadne do vizuální pauzy uprostřed bloku.
+  const MODE_FULL    = layoutHeight >= 48;                              // plný layout (od ~1h při zoom=26)
+  const MODE_COMPACT = !MODE_FULL && layoutHeight >= 44 && block.type !== "UDRZBA";
+  const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && layoutHeight >= 24; // micro tečky
   // Výškové prahy pro FULL mode
-  const showDatesFull    = !isTiskar && MODE_FULL && clampedHeight >= 60 && block.type !== "UDRZBA"; // plný DateBadge řádek (≥60px)
-  const showDatesCompact = !isTiskar && MODE_FULL && clampedHeight < 60  && block.type !== "UDRZBA"; // kompaktní chip řádek (48–59px)
+  const showDatesFull    = !isTiskar && MODE_FULL && layoutHeight >= 60 && block.type !== "UDRZBA"; // plný DateBadge řádek (≥60px)
+  const showDatesCompact = !isTiskar && MODE_FULL && layoutHeight < 60  && block.type !== "UDRZBA"; // kompaktní chip řádek (48–59px)
   const showDates        = showDatesFull;
-  const showSpec   = clampedHeight >= 80;  // 3. řádek — specifikace
+  const showSpec   = layoutHeight >= 80;  // 3. řádek — specifikace
   // Popis za číslem zakázky. Zobrazujeme v celém FULL módu (≥48px), ne až od 66px —
   // jinak bloky v pásmu 48–65px (typicky 2–2,5h při odzoomu) neukazovaly popis,
   // zatímco menší COMPACT/TINY bloky ho ukazují. Číslo zakázky výšku řádku určuje,
   // takže 1řádkový popis v tomto pásmu nestojí žádný prostor navíc.
-  const showDesc   = MODE_FULL && clampedHeight >= 48;
+  const showDesc   = MODE_FULL && layoutHeight >= 48;
   // Počet řádků popisu — v úzkém pásmu (48–65px) přesně 1 řádek (víc se nevejde vedle
   // datového řádku), od 66px roste s výškou bloku (13px/řádek).
-  const descLineClamp = clampedHeight < 66 ? 1 : Math.max(2, Math.floor((clampedHeight - 55) / 13));
+  const descLineClamp = layoutHeight < 66 ? 1 : Math.max(2, Math.floor((layoutHeight - 55) / 13));
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const glow = s.glow;
@@ -1116,6 +1178,36 @@ function BlockCard({
       {/* Modrý selection overlay */}
       {multiSelected && <div style={{ position: "absolute", inset: 0, borderRadius: 6, background: "rgba(255,230,0,0.12)", pointerEvents: "none", zIndex: 1 }} />}
 
+      {/* Deadline štítek — pravý horní roh (FULL/COMPACT plný text, TINY jen ⚠).
+          Fixní pozice top:4/right:4 — když je zároveň přítomný 📝 badge tiskařských
+          poznámek (stejný roh), ten se odsune níž (viz jeho `top` níž), aby nekolidovaly.
+          zIndex 4 — nad content (2–3), pod drag/resize stavy (5–20) i paste marker (25).
+          Pod MODE_TINY (layoutHeight < 24, „micro tečky") se nezobrazuje vůbec —
+          na bloku bez jakéhokoliv textového obsahu by badge jen kolidoval s okrajem. */}
+      {isPastDeadline && (MODE_FULL || MODE_COMPACT || MODE_TINY) && (
+        <span
+          title={`Po termínu expedice (${block.deadlineExpedice})`}
+          style={{
+            position: "absolute",
+            top: 4,
+            right: 4,
+            background: "#b91c1c",
+            color: "#fff",
+            fontSize: 9,
+            fontWeight: 800,
+            lineHeight: 1,
+            borderRadius: 4,
+            padding: "1px 5px",
+            zIndex: 4,
+            userSelect: "none",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {MODE_TINY ? "⚠" : "⚠ PO DEADLINE"}
+        </span>
+      )}
+
       {/* Tiskařské poznámky — oranžový pruh nahoře přes celou šířku + badge v rohu */}
       {hasTiskarNotes && (
         <>
@@ -1139,7 +1231,8 @@ function BlockCard({
             onClick={onOpenNotes ? (e) => { e.stopPropagation(); onOpenNotes(block); } : undefined}
             style={{
               position: "absolute",
-              top: 7,
+              // Odsunuto níž, když je zároveň deadline štítek ve stejném rohu.
+              top: isPastDeadline ? 22 : 7,
               right: 4,
               background: "#f59e0b",
               color: "#1f2937",
@@ -1629,6 +1722,27 @@ function BlockCard({
         </div>
       )}
 
+      {/* ── Pauza (mimo provoz) uvnitř bloku — ztmavený „můstek" mezi print segmenty.
+          Přerušované vodorovné okraje + červené šrafování odstávky (kreslí se NAD blokem,
+          zIndex 2) dohromady vizuálně odliší od splitu (samostatné bloky s ✂ chipy).
+          Levý accent bar bloku zůstává průběžný — drží identitu jedné zakázky. ── */}
+      {pauseOverlays?.map((seg) => (
+        <div key={seg.key} style={{
+          position: "absolute", top: seg.top, height: seg.height, left: 0, right: 0,
+          background: "rgba(10,15,28,0.55)",
+          borderTop: "2px dashed rgba(148,163,184,0.7)",
+          borderBottom: "2px dashed rgba(148,163,184,0.7)",
+          pointerEvents: "none",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          {seg.height >= 40 && (
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "rgba(203,213,225,0.85)", background: "rgba(2,6,23,0.6)", padding: "1px 8px", borderRadius: 6 }}>
+              ⏸ PAUZA — mimo provoz
+            </span>
+          )}
+        </div>
+      ))}
+
       {/* ── Poznámka MTZ — inline editační popover (fixed = unikne overflow:hidden) ── */}
       {noteOpen && noteRect && (
         <div
@@ -1735,6 +1849,17 @@ function BlockCard({
           : `${fmtDay(startD)} ${fmtTime(startD)} – ${fmtDay(endD)} ${fmtTime(endD)}`;
         const machineLabel = block.machine === "XL_105" ? "XL 105" : "XL 106";
         const hasDateInfo = block.dataRequiredDate || block.materialRequiredDate || block.deadlineExpedice;
+        // Řádek délky: ZAKAZKA s tiskovými minutami odlišnými od uplynulého času bloku
+        // (pauza přes odstávku/mimo provoz uvnitř bloku) zobrazí tisk i celek zvlášť.
+        const fmtHoursTip = (mins: number) => {
+          const h = mins / 60;
+          return h % 1 === 0 ? `${h} h` : `${h.toFixed(1)} h`;
+        };
+        const elapsedMinsTip = Math.round((endD.getTime() - startD.getTime()) / 60000);
+        const pmTip = block.type === "ZAKAZKA" ? blockPrintMinutes(block) : null;
+        const durationLabel = (pmTip != null && pmTip !== elapsedMinsTip)
+          ? `Tisk: ${fmtHoursTip(pmTip)} · Celkem: ${fmtHoursTip(elapsedMinsTip)}`
+          : `Délka: ${fmtHoursTip(elapsedMinsTip)}`;
         return createPortal(
           <div style={{
             position: "fixed",
@@ -1776,6 +1901,10 @@ function BlockCard({
             {/* Čas */}
             <div style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", lineHeight: 1.4 }}>
               {timeLabel}
+            </div>
+            {/* Délka — tisk vs. celkový čas na ose, když se liší (blok obsahuje pauzu) */}
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", lineHeight: 1.4 }}>
+              {durationLabel}
             </div>
             {/* Termíny */}
             {hasDateInfo && (
@@ -2057,6 +2186,7 @@ export default function TimelineGrid({
   pasteTarget,
   clipboardHasContent,
   pasteSlotDurationMs,
+  pasteSourceIsZakazka,
   onPasteHere,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
@@ -2088,6 +2218,20 @@ export default function TimelineGrid({
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const blocksRef       = useRef(blocks);
   const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
+
+  // ── Precompute segmenty tiskových hodin (pauza uvnitř bloku) — jen bloky, kde
+  // getBlockSegments vrátí non-null (ZAKAZKA, ne bypass, expanze sedí na uložený end
+  // a obsahuje pauzu). 99 % bloků zde nemá záznam → renderují beze změny. Hook musí být
+  // před případným early returnem (if (!viewStart)) níže — proto žije zde nahoře. ────
+  const blockSegmentsMap = useMemo(() => {
+    const m = new Map<number, PrintSegment[]>();
+    for (const b of blocks) {
+      const segs = getBlockSegments(b, machineWeekShifts ?? [], companyDays ?? []);
+      if (segs) m.set(b.id, segs);
+    }
+    return m;
+  }, [blocks, machineWeekShifts, companyDays]);
+
   // ── Right-click na prázdný grid: pozice myši pro výpočet času v "Vložit zde" ──
   const ctxGridMouseRef = useRef<{ x: number; y: number } | null>(null);
   // Lokální menu styl pro položky kontextového menu nad prázdným gridem
@@ -2121,7 +2265,11 @@ export default function TimelineGrid({
 
   useEffect(() => { shiftEdgePreviewRef.current = shiftEdgePreview; }, [shiftEdgePreview]);
 
-  useEffect(() => { queueDragItemRef.current = queueDragItem ?? null; }, [queueDragItem]);
+  useEffect(() => {
+    // Nový queue drag start (null → item) čistí cache, stejně jako mousedown na bloku.
+    if (queueDragItem && !queueDragItemRef.current) clearPreviewExpandCache();
+    queueDragItemRef.current = queueDragItem ?? null;
+  }, [queueDragItem]);
 
   useEffect(() => {
     setNow(new Date());
@@ -2234,14 +2382,36 @@ export default function TimelineGrid({
           return e.clientX >= r.left && e.clientX <= r.right;
         });
         if (activeColIdx >= 0 && el && vs) {
+          const machine = visibleMachines[activeColIdx];
           const rect = el.getBoundingClientRect();
           const previewHeight = qdItem.durationHours * 2 * sh;
           const timelineY = e.clientY - rect.top + el.scrollTop - previewHeight / 2;
-          const snappedY = dateToY(snapToSlot(yToDate(timelineY, vs, sh)), vs, sh);
+          const rawSnapped = snapToSlot(yToDate(timelineY, vs, sh));
+
+          // Honest preview: jen ZAKAZKA + zapnutý zámek. Start se snapuje na nejbližší
+          // runnable slot (stejně jako handleQueueDrop v PlannerPage) a výška se rozloží
+          // expanzí přes tiskové hodiny — ne naivních durationHours*2*sh pixelů.
+          let snappedStart = rawSnapped;
+          let height = previewHeight;
+          if (workingTimeLockRef.current && qdItem.type === "ZAKAZKA") {
+            const weekShifts = machineWeekShiftsRef.current ?? [];
+            const cdIntervals = companyDayIntervalsFor(machine, companyDaysRef.current ?? []);
+            const snapped = snapStartToNextRunnableSlot(machine, rawSnapped, weekShifts, cdIntervals);
+            if (snapped) {
+              snappedStart = snapped;
+              const pm = Math.round(qdItem.durationHours * 60);
+              const exp = expandPrintTimeCached(machine, snappedStart, pm, weekShifts, cdIntervals);
+              if (exp.ok) height = dateToY(exp.end, vs, sh) - dateToY(snappedStart, vs, sh);
+            }
+            // snapped === null (žádný runnable slot v horizontu) → fallback na rawSnapped/naivní výšku,
+            // stejně jako u ostatních previews — preview nikdy neblokuje samotný drag.
+          }
+
+          const snappedY = dateToY(snappedStart, vs, sh);
           const previewEl = queuePreviewRefs.current[activeColIdx];
           if (previewEl) {
             previewEl.style.top = `${snappedY}px`;
-            previewEl.style.height = `${Math.max(previewHeight, sh)}px`;
+            previewEl.style.height = `${Math.max(height, sh)}px`;
             previewEl.style.display = "block";
           }
           queuePreviewRefs.current.forEach((r, i) => { if (i !== activeColIdx && r) r.style.display = "none"; });
@@ -2285,14 +2455,43 @@ export default function TimelineGrid({
         const newMachine     = clientXToMachine(e.clientX);
         const snappedStart   = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         const snappedTop     = dateToY(snappedStart, vs, sh);
-        setDragPreview({ blockId: ds.blockId, top: snappedTop, height: originalHeight, machine: newMachine });
+
+        // Honest ghost: jen ZAKAZKA + zapnutý zámek. Jinak (nebo při selhání expanze)
+        // dnešní naivní výška = stejná jako originál (blok se jen posouvá, délka se nemění).
+        let height = originalHeight;
+        const sourceBlock = blocksRef.current.find((b) => b.id === ds.blockId);
+        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA" && !sourceBlock.scheduleBypassed) {
+          const pm = blockPrintMinutes(sourceBlock);
+          const exp = expandPrintTimeCached(
+            newMachine, snappedStart, pm,
+            machineWeekShiftsRef.current ?? [],
+            companyDayIntervalsFor(newMachine, companyDaysRef.current ?? [])
+          );
+          if (exp.ok) height = dateToY(exp.end, vs, sh) - snappedTop;
+        }
+        setDragPreview({ blockId: ds.blockId, top: snappedTop, height, machine: newMachine });
       } else if (ds.type === "resize") {
         const originalTop    = dateToY(ds.originalStart, vs, sh);
         const originalHeight = dateToY(ds.originalEnd, vs, sh) - originalTop;
         const rawEnd         = yToDate(originalTop + Math.max(sh, originalHeight + deltaY), vs, sh);
         const snappedEnd     = snapToSlot(rawEnd);
-        const snappedHeight  = Math.max(sh, dateToY(snappedEnd, vs, sh) - originalTop);
-        setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine, resizeEnd: snappedEnd, resizeStart: ds.originalStart });
+        let finalEnd         = snappedEnd;
+        let resizePrintMinutes: number | undefined;
+
+        const sourceBlock = blocksRef.current.find((b) => b.id === ds.blockId);
+        // Guard nezarovnaného startu (legacy bloky) — computePrintMinutes by v mousemove smyčce házel (vzor getBlockSegments).
+        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA" && !sourceBlock.scheduleBypassed && snappedEnd.getTime() > ds.originalStart.getTime() && ds.originalStart.getTime() % SLOT_MS === 0) {
+          const weekShifts = machineWeekShiftsRef.current ?? [];
+          const cdIntervals = companyDayIntervalsFor(ds.originalMachine, companyDaysRef.current ?? []);
+          const pm = computePrintMinutes(ds.originalMachine, ds.originalStart, snappedEnd, weekShifts, cdIntervals);
+          const exp = expandPrintTimeCached(ds.originalMachine, ds.originalStart, Math.max(30, pm), weekShifts, cdIntervals);
+          if (exp.ok) {
+            finalEnd = exp.end;
+            resizePrintMinutes = Math.max(30, pm);
+          }
+        }
+        const snappedHeight = Math.max(sh, dateToY(finalEnd, vs, sh) - originalTop);
+        setDragPreview({ blockId: ds.blockId, top: originalTop, height: snappedHeight, machine: ds.originalMachine, resizeEnd: finalEnd, resizeStart: ds.originalStart, resizePrintMinutes });
       } else if (ds.type === "multi-move") {
         const deltaMs    = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
         const newMachine = clientXToMachine(e.clientX);
@@ -2544,6 +2743,7 @@ export default function TimelineGrid({
     e.preventDefault();
     const vs = viewStartRef.current;
     if (!vs) return;
+    clearPreviewExpandCache();
     const sh     = slotHeightRef.current;
     const top    = dateToY(new Date(block.startTime), vs, sh);
     const height = dateToY(new Date(block.endTime), vs, sh) - top;
@@ -2570,6 +2770,7 @@ export default function TimelineGrid({
     e.preventDefault();
     const vs = viewStartRef.current;
     if (!vs) return;
+    clearPreviewExpandCache();
     dragStateRef.current = { type: "resize", blockId: block.id, originalMachine: block.machine, startClientY: e.clientY, startClientX: e.clientX, startScrollTop: scrollRef.current?.scrollTop ?? 0, originalStart: new Date(block.startTime), originalEnd: new Date(block.endTime) };
     dragDidMove.current  = false;
     const sh     = slotHeightRef.current;
@@ -2580,11 +2781,22 @@ export default function TimelineGrid({
 
   function calcSplitAt(clientY: number, block: Block): Date {
     const vs = viewStartRef.current;
-    const mid = snapToSlot(new Date((new Date(block.startTime).getTime() + new Date(block.endTime).getTime()) / 2));
-    if (!vs) return mid;
-    const rawSplit = snapToSlot(yToDate(clientYToTimelineY(clientY), vs));
     const blockStart = new Date(block.startTime);
     const blockEnd   = new Date(block.endTime);
+    const calendarMid = snapToSlot(new Date((blockStart.getTime() + blockEnd.getTime()) / 2));
+    // Default bod splitu: polovina TISKOVÝCH minut (ne kalendářní mid) — plánovač u bloku
+    // s pauzou (přes odstávku) chce dělit podle odpracovaného tisku, ne podle hodin na ose.
+    // printMidpoint může u malých pm (zaokrouhlení na slot) degenerovat na block.endTime —
+    // takový výsledek není "uvnitř" bloku, proto padá zpět na kalendářní mid.
+    let mid = calendarMid;
+    if (block.type === "ZAKAZKA") {
+      const pmMid = printMidpoint(block, machineWeekShiftsRef.current ?? [], companyDaysRef.current ?? []);
+      if (pmMid && pmMid > blockStart && pmMid < blockEnd) {
+        mid = snapToSlot(pmMid);
+      }
+    }
+    if (!vs) return mid;
+    const rawSplit = snapToSlot(yToDate(clientYToTimelineY(clientY), vs));
     return rawSplit > blockStart && rawSplit < blockEnd ? rawSplit : mid;
   }
 
@@ -2600,12 +2812,20 @@ export default function TimelineGrid({
         // Bypassnutý blok: computePrintMinutes není bypass-aware → elapsed-based split.
         headPm = Math.round((splitAt.getTime() - new Date(block.startTime).getTime()) / 60000);
       } else {
+        // Guard: splitAt musí padnout na runnable slot (tiskovou část kalendáře), jinak
+        // by hlava commitla PUTem hned teď, ale tail POST se startem v pauze by spadl na
+        // START_NOT_RUNNABLE (422) AŽ PO té — plán by zůstal v rozbitém mezistavu.
+        const cdIntervals = companyDayIntervalsFor(block.machine, companyDaysRef.current ?? []);
+        if (!isMachineRunnableAt(block.machine, splitAt, machineWeekShiftsRef.current ?? [], cdIntervals)) {
+          callbacksRef.current.onError?.("Nelze rozdělit uvnitř pauzy — zvol místo v tiskové části.");
+          return;
+        }
         headPm = computePrintMinutes(
           block.machine,
           new Date(block.startTime),
           splitAt,
           machineWeekShiftsRef.current ?? [],
-          companyDayIntervalsFor(block.machine, companyDaysRef.current ?? [])
+          cdIntervals
         );
       }
       tailPm = totalPm - headPm;
@@ -3338,15 +3558,27 @@ export default function TimelineGrid({
                     Skryje se když je schránka prázdná — bez clipboardu marker nemá smysl
                     a slib „Sem (Ctrl+V)" by byl matoucí. */}
                 {pasteTarget && clipboardHasContent && pasteTarget.machine === machine && viewStart && (() => {
-                  // Snap na pracovní dobu pokud lock zapnutý. Používáme skutečnou délku
-                  // zdrojového bloku (pasteSlotDurationMs), aby marker přesně odpovídal
-                  // pozici, kam handlePaste blok skutečně vloží. Fallback 30 min, pokud
-                  // duration není k dispozici (např. když je clipboard prázdný a target
-                  // je jen z grid clicku).
-                  const snapDurationMs = pasteSlotDurationMs ?? (30 * 60 * 1000);
-                  const effectiveTime = workingTimeLock && machineWeekShifts
-                    ? snapToNextValidStartWithTemplates(pasteTarget.machine, pasteTarget.time, snapDurationMs, machineWeekShifts)
-                    : pasteTarget.time;
+                  // Snap na pracovní dobu pokud lock zapnutý, aby marker přesně odpovídal
+                  // pozici, kam handlePaste/handleGroupPaste blok skutečně vloží.
+                  // ZAKAZKA zdroj (single i celá skupina): start-only snap přes tiskové
+                  // hodiny (stejná cesta jako handlePasteWithTarget/handleGroupPasteWithTarget
+                  // v PlannerPage) — délka bloku se nesnapuje, jen start na runnable slot.
+                  // Jinak (ne-ZAKAZKA nebo smíšená skupina): starý duration-based snap přes
+                  // pasteSlotDurationMs. Fallback 30 min, pokud duration není k dispozici
+                  // (např. když je clipboard prázdný a target je jen z grid clicku).
+                  let effectiveTime = pasteTarget.time;
+                  if (workingTimeLock && machineWeekShifts) {
+                    if (pasteSourceIsZakazka) {
+                      const snapped = snapStartToNextRunnableSlot(
+                        pasteTarget.machine, pasteTarget.time, machineWeekShifts,
+                        companyDayIntervalsFor(pasteTarget.machine, companyDays ?? [])
+                      );
+                      effectiveTime = snapped ?? pasteTarget.time;
+                    } else {
+                      const snapDurationMs = pasteSlotDurationMs ?? (30 * 60 * 1000);
+                      effectiveTime = snapToNextValidStartWithTemplates(pasteTarget.machine, pasteTarget.time, snapDurationMs, machineWeekShifts);
+                    }
+                  }
                   const top = dateToY(effectiveTime, viewStart, slotHeight);
                   // Pokud je marker mimo viewport (cíl daleko mimo daysAhead/daysBack), nevykresluj
                   if (top < 0 || top > totalHeight) return null;
@@ -3406,6 +3638,21 @@ export default function TimelineGrid({
                   const splitPartner = isTiskar
                     ? findSplitPartner(block, blocks, assignedMachine ?? "")
                     : null;
+                  // Segmenty tiskových hodin (pauza uvnitř bloku) — O(1) lookup z předpočítané mapy.
+                  // Pauza overlaye = pixelové offsety relativní k top bloku; contentHeight = výška
+                  // prvního print segmentu (layout mod se do ní vejde, nepropadne do pauzy).
+                  const segs = blockSegmentsMap.get(block.id);
+                  const pauseOverlays = segs
+                    ?.filter((seg) => seg.kind === "pause")
+                    .map((seg) => {
+                      const segTop = dateToY(seg.start, viewStart, slotHeight) - top;
+                      const segH   = dateToY(seg.end, viewStart, slotHeight) - dateToY(seg.start, viewStart, slotHeight);
+                      return { key: seg.start.toISOString(), top: segTop, height: segH };
+                    });
+                  const firstPrintSeg = segs?.find((seg) => seg.kind === "print");
+                  const contentHeight = firstPrintSeg
+                    ? dateToY(firstPrintSeg.end, viewStart, slotHeight) - dateToY(firstPrintSeg.start, viewStart, slotHeight)
+                    : undefined;
 
                   return (
                     <BlockCard
@@ -3415,6 +3662,8 @@ export default function TimelineGrid({
                       splitTotal={splitTotal}
                       top={top}
                       height={height}
+                      pauseOverlays={pauseOverlays}
+                      contentHeight={contentHeight}
                       dimmed={dimmed}
                       selected={selected}
                       isDragging={false}
@@ -3509,9 +3758,16 @@ export default function TimelineGrid({
                   const fmtTime = end.toLocaleTimeString("cs-CZ", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Prague" });
                   const totalMs = end.getTime() - start.getTime();
                   const totalMin = Math.round(totalMs / 60000);
-                  const h = Math.floor(totalMin / 60);
-                  const m = totalMin % 60;
-                  const fmtDur = h > 0 ? (m > 0 ? `${h}h ${m}min` : `${h}h`) : `${m}min`;
+                  const fmtHm = (min: number) => {
+                    const h = Math.floor(min / 60);
+                    const m = min % 60;
+                    return h > 0 ? (m > 0 ? `${h}h ${m}min` : `${h}h`) : `${m}min`;
+                  };
+                  // Honest resize (ZAKAZKA + lock, expanze uspěla): "X h tisku (Y h celkem)".
+                  // Jinak (dnešní chování) jen prostá délka intervalu.
+                  const durLabel = dragPreview.resizePrintMinutes != null
+                    ? `${fmtHm(dragPreview.resizePrintMinutes)} tisku (${fmtHm(totalMin)} celkem)`
+                    : fmtHm(totalMin);
                   return (
                     <div style={{
                       position: "absolute",
@@ -3531,7 +3787,7 @@ export default function TimelineGrid({
                     }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa", fontVariantNumeric: "tabular-nums" }}>→ {fmtTime}</span>
                       <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>|</span>
-                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>{fmtDur}</span>
+                      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>{durLabel}</span>
                     </div>
                   );
                 })()}

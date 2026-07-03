@@ -34,14 +34,49 @@ function dbRow(weekStart: string, dayOfWeek: number) {
   };
 }
 
-test("loadMachineCalendar: dotaz pokrývá všechny týdny [start, start+MAX_SPAN_DAYS]", async () => {
+test("loadMachineCalendar: dotaz pokrývá všechny týdny [start−1d, start+MAX_SPAN_DAYS]", async () => {
   const db = fakeDb([], []);
   await loadMachineCalendar(db, "XL_106", pragueToUTC("2026-08-21", 10));
   const where = db.calls.weekWhere as { machine: string; weekStart: { in: Date[] } };
   assert.equal(where.machine, "XL_106");
-  // 21. 8. 2026 (pátek, týden od 17. 8.) + 21 dní = 11. 9. (týden od 7. 9.) → 4 týdny
+  // 21. 8. 2026 (pátek, týden od 17. 8.; −1d = čtvrtek, týž týden) + 21 dní = 11. 9. → 4 týdny
   const weeks = where.weekStart.in.map((d) => d.toISOString().slice(0, 10)).sort();
   assert.deepEqual(weeks, ["2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07"]);
+});
+
+test("loadMachineCalendar: start v pondělí ráno dotahuje i PŘEDCHOZÍ týden (noční wrap)", async () => {
+  const db = fakeDb([], []);
+  // Po 24. 8. 00:30 Praha — nedělní noc (22–06) patří týdnu od 17. 8.
+  await loadMachineCalendar(db, "XL_106", pragueToUTC("2026-08-24", 0, 30));
+  const where = db.calls.weekWhere as { machine: string; weekStart: { in: Date[] } };
+  const weeks = where.weekStart.in.map((d) => d.toISOString().slice(0, 10)).sort();
+  assert.ok(weeks.includes("2026-08-17"), `chybí předchozí týden: ${weeks.join(", ")}`);
+});
+
+test("expandPrintTimeFromDb: start Po 00:30 v koncovce nedělní noci projde (week-boundary wrap, nález 3. 7.)", async () => {
+  // Rozvrh: neděle nightOn=true (noc Ne 22:00 – Po 06:00), pondělí ráno OFF.
+  // Fake DB FILTRUJE podle dotazovaných weekStarts — věrně simuluje chybějící týden.
+  const rows: WeekShiftRow[] = [];
+  for (const wk of ["2026-08-17", "2026-08-24"]) {
+    rows.push({ ...dbRow(wk, 0), morningOn: false, afternoonOn: false });                  // ne jen noc
+    rows.push({ ...dbRow(wk, 1), morningOn: false });                                     // po bez rána
+    for (const dow of [2, 3, 4, 5, 6]) rows.push(dbRow(wk, dow));
+  }
+  const inner = fakeDb(rows, []);
+  const filteringDb: PrismaClientLike = {
+    machineWeekShifts: {
+      findMany: async (args) => {
+        const wanted = new Set(args.where.weekStart.in.map((d: Date) => d.toISOString().slice(0, 10)));
+        return rows.filter((r) => wanted.has(new Date(r.weekStart).toISOString().slice(0, 10)));
+      },
+    },
+    companyDay: inner.companyDay,
+  };
+  // Po 24. 8. 00:30 Praha — runnable JEN díky nedělnímu řádku týdne od 17. 8.
+  const r = await expandPrintTimeFromDb(filteringDb, "XL_106", pragueToUTC("2026-08-24", 0, 30), 60, false);
+  assert.equal(r.ok, true, `expanze selhala: ${r.ok ? "" : r.reason}`);
+  if (!r.ok) return;
+  assert.equal(r.end.getTime(), pragueToUTC("2026-08-24", 1, 30).getTime());
 });
 
 test("loadMachineCalendar: companyDays filtr machine=null OR machine + okno", async () => {

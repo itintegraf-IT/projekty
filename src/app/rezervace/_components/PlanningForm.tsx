@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { Reservation } from "./RezervacePage";
+import { DURATION_OPTIONS } from "@/lib/plannerTypes";
 
 interface Props {
   reservation: Reservation;
@@ -14,13 +15,6 @@ interface CodebookOption {
   label: string;
   isWarning: boolean;
 }
-
-const DURATION_OPTIONS = Array.from({ length: 48 }, (_, i) => {
-  const totalMinutes = (i + 1) * 30;
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  return { label: `${h}:${m.toString().padStart(2, "0")}`, hours: totalMinutes / 60 };
-});
 
 const labelStyle: React.CSSProperties = {
   fontSize: 10,

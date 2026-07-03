@@ -9,13 +9,14 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **123/123 testů zelené** (viz níže)
+- celá test suite: **132/132 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
 - copy/paste UX fix dokončen 27. 5. 2026 (5 Tasků, plán `docs/superpowers/plans/2026-05-27-copy-paste-ux-fix.md`)
 - clipboard text-copy fix (HTTP secure-context) 27. 5. 2026 (helper `src/lib/clipboardCopy.ts`)
 - tiskové hodiny — etapa 4 (klientské mutační cesty + 40h dropdown) dokončena 2. 7. 2026 — viz sekci „Klientské mutační cesty" níže
+- tiskové hodiny — etapa 5 (vykreslení pauz + poctivé náhledy + deadline štítek + rezervace 40 h) dokončena 2. 7. 2026 — viz sekci „Vykreslení pauz a poctivé náhledy" níže
 
 ### Spuštění testů
 
@@ -25,14 +26,14 @@ node --test --import tsx src/lib/errors.test.ts                # 5 testů
 node --test --import tsx src/lib/pasteTarget.test.ts           # 6 testů
 node --test --import tsx src/lib/clipboardCopy.test.ts         # 6 testů
 node --test --import tsx src/lib/printTime.test.ts             # 22 testů
-node --test --import tsx src/lib/printTime.server.test.ts      # 4 testy
+node --test --import tsx src/lib/printTime.server.test.ts      # 6 testy
 node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
 node --test --import tsx src/lib/overlapCheck.test.ts          # 13 testů
 node --test --import tsx src/lib/overlapResolver.test.ts       # 13 testů
 node --test --import tsx src/lib/overlapResolver.server.test.ts    # 7 testů
 node --test --import tsx src/lib/scheduleSlotFinder.test.ts    # 13 testů
-node --experimental-test-module-mocks --test --import tsx src/lib/scheduleSlotFinder.server.test.ts  # 7 testů
-node --test --import tsx src/lib/printTimeClient.test.ts      # 7 testů
+node --experimental-test-module-mocks --test --import tsx src/lib/scheduleSlotFinder.server.test.ts  # 8 testů
+node --test --import tsx src/lib/printTimeClient.test.ts      # 13 testů
 ```
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
@@ -261,10 +262,75 @@ Resize zůstává **klientsky beze změny** — server je autoritativní pro end
 což odpovídá `MAX_PRINT_MINUTES` v `src/lib/printTime.ts` — dropdown proto nikdy nenabídne
 hodnotu, kterou by server odmítl.
 
-Mezistavy zůstávají vědomě neřešené a jsou naplánované na etapu 5: preview během tažení (drag/
-paste marker v `TimelineGrid`) ještě používá starý duration-based snap pro vykreslení a
-nezobrazuje, kam blok skutečně pauzne přes odstávku — vizuální rozpor s výsledkem po uložení
-řeší až etapa 5.
+Mezistavy etapy 4 (drag preview a paste marker kreslily duration-based snap a u bloků
+pauznutých přes odstávku lhaly o výsledné pozici/délce) jsou od etapy 5 **VYŘEŠENÉ** —
+viz následující sekci.
+
+#### Vykreslení pauz a poctivé náhledy (etapa 5, 2. 7. 2026)
+
+Blok ZAKAZKA, který přes tiskové hodiny pauzne (odstávka / mimo provoz uvnitř intervalu),
+se kreslí jako JEDEN div přes celý interval start–end; pauzy uvnitř jsou overlay (ztmavený
+„můstek" s přerušovanými vodorovnými okraji a štítkem „⏸ PAUZA — mimo provoz" od 40 px
+výšky). Levý accent bar bloku zůstává průběžný — pauza se tak vizuálně odliší od splitu
+(split = samostatné bloky s ✂ chipy).
+
+- `getBlockSegments(block, weekShifts, companyDays)` (`src/lib/printTimeClient.ts`) vrací
+  `PrintSegment[]` jen když overlay dává smysl: ZAKAZKA, ne bypass, platné `printMinutes`,
+  zarovnaný start, expanze uspěje A sedí na uložený `endTime`, a obsahuje aspoň jednu pauzu.
+  Jinak `null` → blok se kreslí slitě beze změny (99 % plánu). `TimelineGrid` segmenty
+  předpočítává v `useMemo` mapě (`blockSegmentsMap`, O(1) lookup per blok; memo je záměrně
+  před early-returnem komponenty — rules-of-hooks).
+- Layout mode karty (`MODE_FULL`/`MODE_COMPACT`/`MODE_TINY` + prahy pro datové řádky,
+  specifikaci a popis) se u segmentovaného bloku řídí výškou PRVNÍHO print segmentu
+  (`contentHeight`), ne celkovou výškou divu — obsah karty nepropadne do vizuální pauzy.
+- **Poctivé náhledy** (jen ZAKAZKA + zapnutý zámek pracovní doby, ne bypass blok; při
+  selhání expanze fallback na starou naivní geometrii — preview nikdy neblokuje drag):
+  - drag ghost: výška z expanze `printMinutes` na kandidátním startu (ne původní výška),
+  - resize: live snap endu na hranu tiskového segmentu (`computePrintMinutes` →
+    re-expanze; alignment guard vynechá legacy bloky s nezarovnaným startem) + tooltip
+    „X h tisku (Y h celkem)" (`dragPreview.resizePrintMinutes`),
+  - queue drop preview: start-only snap + výška z expanze místo `durationHours × slot`,
+  - paste marker: viz sekce Copy/Paste flow níže.
+
+  Expanze v mousemove smyčce jde přes module-scope cache (`expandPrintTimeCached`, klíč
+  `machine|start|pm`), čištěnou při každém mousedown / startu queue dragu.
+- **Deadline štítek**: ZAKAZKA, jejíž `endTime` je civilně (Praha) PO datu
+  `deadlineExpedice`, dostane červený badge „⚠ PO DEADLINE" (v TINY módu jen „⚠",
+  pod TINY nic) v pravém horním rohu; 📝 badge tiskařských poznámek se v tom případě
+  odsune níž. Nezávislé na `isOverdue` (ten srovnává konec bloku s `now`).
+- **Délky „tisk vs. celkem"**: hover tooltip bloku („Tisk: X h · Celkem: Y h"),
+  `BlockDetail` (řádek Délka — „X hod tisku (Y hod celkem)") i `DtpPanel`
+  („Tisk X hod · celkem Y hod") zobrazují u ZAKAZKA s `printMinutes ≠ elapsed` obě
+  hodnoty; jinak prostou délku. Zdroj: `blockPrintMinutes` z `printTimeClient.ts`.
+- **Split**: default bod = `printMidpoint` (polovina TISKOVÝCH minut, ne kalendářní
+  střed osy); když degeneruje mimo vnitřek bloku (malé pm po zaokrouhlení na slot),
+  fallback na kalendářní střed. Split uvnitř pauzy je zakázán guardem
+  (`isMachineRunnableAt`) s toastem „Nelze rozdělit uvnitř pauzy" — jinak by hlava
+  commitla PUT a tail POST spadl na 422 až po ní (rozbitý mezistav). Bypass blok dál
+  dělí elapsed-based.
+- **Rezervace**: `PlanningForm` (`/rezervace`) používá sdílené `DURATION_OPTIONS`
+  z `src/lib/plannerTypes.ts` (strop 40 h) místo dřívější vlastní 24h kopie.
+- **AUTO_SHIFT audit** (POST `/api/blocks`, PUT `[id]`, batch): `field:
+  "startTime/endTime"`, old/new hodnoty jsou span `"<startISO>–<endISO>"` (en-dash) —
+  end se při odsunu re-expanduje, takže patří do auditu. `fmtAuditVal`
+  (`src/lib/auditFormatters.ts`) má en-dash-aware větev se striktním ISO guardem
+  (formátuje jen `"<ISO>–<ISO>"` páry — český free-text s pomlčkou propadá na raw;
+  batch UPDATE řádky s machine prefixem se dál renderují surově jako dřív). Pozn.:
+  self-shift AUTO_SHIFT řádek v PUT
+  (`[id]/route.ts`) zůstává single-ISO (jiná datová cesta) — formatter zvládá oba
+  tvary. POST shifted-refetch nově includuje `notes` (parita SSE payloadu s ostatními
+  cestami). TODO komentáře k elapsed fallbacku v POST/batch přeformulovány na trvalý
+  stav — fallback kryje legacy bloky (pm=null) a přímé API klienty, NELZE ho odstranit.
+
+Zbývající vědomé mezistavy (etapa 6 / nízká priorita):
+
+1. **Drift kalendáře** — blok, jehož uložený end nesedí na aktuální expanzi (kalendář se
+   změnil po uložení), se kreslí slitě BEZ štítku (`getBlockSegments` vrací null záměrně —
+   segmenty by lhaly). Detekce driftu + akce „Přepočítat" = etapa 6.
+2. **Smíšené lasso** (ZAKAZKA + ne-ZAKAZKA dohromady) dál používá duration-based skupinový
+   snap — vzácný případ.
+3. **Série preview** v builderu dál duration-based (kolizní vizuál) — samotné mutace série
+   jsou správně (start-only + printMinutes).
 
 ### Audit log — každá mutace v transakci
 
@@ -340,9 +406,9 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/lib/scheduleValidationServer.ts` — `validateAndComputeEnd` — validuje ZAKAZKA blok a vrací autoritativní end + `effectivelyBypassed` (spočítaná pravda pro `scheduleBypassed`, nikdy echo request flagu; jediný zdroj pravdy pro endTime; nahrazuje zrušenou `validateBlockScheduleFromDb`)
 - `src/lib/printTime.ts` — `expandPrintTime`/`computePrintMinutes`/`isMachineRunnableAt` — jádro „tiskových hodin" (čisté funkce, žádná DB)
 - `src/lib/printTime.server.ts` — `loadMachineCalendar`/`expandPrintTimeFromDb` — DB fetch (weekShifts + companyDays) a napojení na `printTime.ts`
-- `src/lib/printTimeClient.ts` — `blockPrintMinutes`/`companyDayIntervalsFor`/`snapGroupDeltaStartOnly` — klient-safe helpery (žádná DB) pro mutační cesty ZAKAZKA bloků; start-only snap přes `snapStartToNextRunnableSlot`, end vždy dopočítá server
+- `src/lib/printTimeClient.ts` — `blockPrintMinutes`/`companyDayIntervalsFor`/`snapGroupDeltaStartOnly`/`getBlockSegments`/`printMidpoint` — klient-safe helpery (žádná DB) pro mutační cesty a vykreslení ZAKAZKA bloků; start-only snap přes `snapStartToNextRunnableSlot`, end vždy dopočítá server; `getBlockSegments` vrací print/pause segmenty pro overlay pauz (null = kreslit slitě), `printMidpoint` = bod poloviny tiskových minut (default split)
 - `src/lib/plannerTypes.ts` — `TYPE_LABELS`, `TYPE_BUILDER_CONFIG`, `CodebookOption`, `DURATION_OPTIONS`
-- `src/lib/auditFormatters.ts` — `FIELD_LABELS`, `fmtAuditVal`, `formatPragueMaybeToday`
+- `src/lib/auditFormatters.ts` — `FIELD_LABELS`, `fmtAuditVal` (umí i en-dash span `"ISO–ISO"` z AUTO_SHIFT/batch auditních řádků), `formatPragueMaybeToday`
 - `src/lib/weekShiftsTestFixtures.ts` — test-only fixtury pracovní doby (`mkDay`, `xl106Week`, ...), sdílené mezi `*.test.ts` soubory validace harmonogramu
 
 ### Planner — komponenty
@@ -367,7 +433,7 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 
 - Ctrl+C / Ctrl+X / right-click → Kopírovat **automaticky nastavují pasteTarget** na pozici za zdrojovým blokem (helper `src/lib/pasteTarget.ts`). Ctrl+V tak funguje hned, bez nutnosti klikat do prázdného gridu.
 - Skutečné vložení (`handlePasteWithTarget`/`handleGroupPasteWithTarget` v `PlannerPage.tsx`): pro ZAKAZKA blok se start snapuje **jen podle `snapStartToNextRunnableSlot`** (start-only, tiskové hodiny) a payload nese `printMinutes` (`blockPrintMinutes`) — end dopočítá server. Ne-ZAKAZKA bloky beze změny používají duration-based `snapToNextValidStartWithTemplates`.
-- Vizuální marker pasteTargetu se kreslí v `TimelineGrid` jako přerušovaná modrá čára „⎘ Sem (Ctrl+V)" ve sloupci cílového stroje. **Pozor:** marker zatím vždy počítá snap přes starý duration-based `snapToNextValidStartWithTemplates` (i pro ZAKAZKA) — u bloků, které mají skutečně pauznout přes odstávku, tak marker neodpovídá přesně místu, kam paste ve skutečnosti vloží. Sjednocení vykreslení s výsledným start-only chováním je naplánováno na etapu 5.
+- Vizuální marker pasteTargetu se kreslí v `TimelineGrid` jako přerušovaná modrá čára „⎘ Sem (Ctrl+V)" ve sloupci cílového stroje. Od etapy 5 je marker poctivý: pro ZAKAZKA zdroj (single i celá skupina — prop `pasteSourceIsZakazka`) snapuje start přes `snapStartToNextRunnableSlot` (tiskové hodiny), tedy stejnou cestou jako skutečný paste; pro ne-ZAKAZKA/smíšenou skupinu zůstává duration-based snap přes `pasteSlotDurationMs` (pro ZAKAZKA zdroje počítaný z `blockPrintMinutes`, ne elapsed).
 - Pravý klik na prázdný grid nabízí „⎘ Vložit zde" — kompletně mouse-only workflow.
 - Esc čistí: multi-select, copiedBlock, isCut, pasteTarget, clipboardGroupRef.
 - SSE `block:deleted` vyčistí copiedBlock/clipboardGroupRef/selectedBlockIds pokud obsahují smazaný blok (prevence „fantom paste" se starou referencí).

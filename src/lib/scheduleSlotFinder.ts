@@ -91,7 +91,8 @@ export async function findNextFreeSlotFromDb(
 
   // Týdny, kterých se okno dotýká
   const weekStarts = new Set<string>();
-  for (let t = proposedStart.getTime(); t <= windowEnd.getTime(); t += 24 * 60 * 60 * 1000) {
+  // Kotva o den dřív — noční směna přes půlnoc na hranici týdnů (viz loadMachineCalendar).
+  for (let t = proposedStart.getTime() - 24 * 60 * 60 * 1000; t <= windowEnd.getTime(); t += 24 * 60 * 60 * 1000) {
     weekStarts.add(weekStartStrFromDateStr(pragueOf(new Date(t)).dateStr));
   }
   // DST fall-back ošetření: 24h UTC krok může v říjnu přeskočit civilní datum,
@@ -210,7 +211,8 @@ export async function findNextFreePrintSlotFromDb(
   const windowEnd = new Date(proposedStart.getTime() + maxShiftMs + MAX_SPAN_DAYS * DAY_MS);
 
   const weekStarts = new Set<string>();
-  for (let t = proposedStart.getTime(); t <= windowEnd.getTime(); t += DAY_MS) {
+  // Kotva o den dřív — noční směna přes půlnoc na hranici týdnů (viz loadMachineCalendar).
+  for (let t = proposedStart.getTime() - DAY_MS; t <= windowEnd.getTime(); t += DAY_MS) {
     weekStarts.add(weekStartStrFromDateStr(pragueOf(new Date(t)).dateStr));
   }
   // DST fall-back ošetření: 24h UTC krok může přeskočit civilní datum.

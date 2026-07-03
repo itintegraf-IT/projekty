@@ -47,7 +47,10 @@ export async function loadMachineCalendar(
 ): Promise<MachineCalendar> {
   const windowEnd = new Date(start.getTime() + MAX_SPAN_DAYS * DAY_MS);
   const weekStarts = new Set<string>();
-  for (let t = start.getTime(); t <= windowEnd.getTime(); t += DAY_MS) {
+  // Kotva o den DŘÍV: noční směna přetéká přes půlnoc — slot Po 0:00–6:00 řídí NEDĚLNÍ
+  // řádek předchozího týdne. Bez něj by start na hranici týdnů falešně padal na
+  // START_NOT_RUNNABLE (nález z testování 3. 7.). Vzor: resolveChainPushFromDb (anchor−1d).
+  for (let t = start.getTime() - DAY_MS; t <= windowEnd.getTime(); t += DAY_MS) {
     weekStarts.add(weekStartStrFromDateStr(pragueOf(new Date(t)).dateStr));
   }
   // DST fall-back ošetření: 24h UTC krok může přeskočit civilní datum (vzor scheduleSlotFinder.ts:86)

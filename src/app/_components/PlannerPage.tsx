@@ -3257,18 +3257,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             pasteTarget={pasteTarget}
             clipboardHasContent={!!copiedBlock || clipboardGroupRef.current.length > 0}
             onPasteHere={handlePasteHere}
+            // ZAKAZKA zdroj (single i celá skupina, stejná podmínka jako handlePasteWithTarget /
+            // handleGroupPasteWithTarget) → marker používá start-only snap přes tiskové hodiny,
+            // délka bloku je pro tento snap irelevantní. Jinak (ne-ZAKAZKA nebo smíšená skupina)
+            // marker používá starý duration-based snap a potřebuje pasteSlotDurationMs.
+            pasteSourceIsZakazka={
+              clipboardGroupRef.current.length > 0
+                ? clipboardGroupRef.current.every((b) => b.type === "ZAKAZKA")
+                : copiedBlock?.type === "ZAKAZKA"
+            }
             pasteSlotDurationMs={(() => {
               // Délka pro snap markeru = max délka v aktuálním clipboardu.
               // Pro single copy = délka zdroje; pro group = max ze skupiny (anchor pozice).
+              // ZAKAZKA blok: tiskové minuty (blockPrintMinutes), ne elapsed — server/handlePaste
+              // pro ZAKAZKA taky posílá printMinutes, ne surový (endTime-startTime) rozsah.
+              const durationMsFor = (b: Block) =>
+                b.type === "ZAKAZKA" ? blockPrintMinutes(b) * 60000 : new Date(b.endTime).getTime() - new Date(b.startTime).getTime();
               if (clipboardGroupRef.current.length > 0) {
-                return Math.max(
-                  ...clipboardGroupRef.current.map((b) =>
-                    new Date(b.endTime).getTime() - new Date(b.startTime).getTime()
-                  )
-                );
+                return Math.max(...clipboardGroupRef.current.map(durationMsFor));
               }
               if (copiedBlock) {
-                return new Date(copiedBlock.endTime).getTime() - new Date(copiedBlock.startTime).getTime();
+                return durationMsFor(copiedBlock);
               }
               return undefined;
             })()}

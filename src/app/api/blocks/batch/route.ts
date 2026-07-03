@@ -97,7 +97,8 @@ export async function POST(request: NextRequest) {
       if (zakazkaUpdates.length > 0) {
         for (const u of zakazkaUpdates) {
           const existing = existingBlocks.find((b) => b.id === u.id)!;
-          // TODO(Plán 4): odstranit — klient bude posílat printMinutes explicitně
+          // Fallback z elapsed zůstává trvale — kryje legacy bloky (pm=null) a přímé API klienty;
+          // hlavní klient posílá printMinutes explicitně (etapa 4).
           const pm = existing.printMinutes
             ?? Math.round((existing.endTime.getTime() - existing.startTime.getTime()) / 60000);
           // Bypass INPUT je sticky OR (lasso UX — přesun skupiny nesmí re-expandovat
@@ -201,9 +202,9 @@ export async function POST(request: NextRequest) {
               userId: session.id,
               username: session.username,
               action: "AUTO_SHIFT",
-              field: "startTime",
-              oldValue: m.oldStartTime.toISOString(),
-              newValue: m.startTime.toISOString(),
+              field: "startTime/endTime",
+              oldValue: `${m.oldStartTime.toISOString()}–${m.oldEndTime.toISOString()}`,
+              newValue: `${m.startTime.toISOString()}–${m.endTime.toISOString()}`,
             })),
           });
         }
