@@ -12,9 +12,11 @@ import {
   computeAvgLeadTimeDays,
   computeMaintenanceRatio,
   computePlanStability,
+  blockDurationHours,
 } from "@/lib/reportMetrics";
+import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
+import { MACHINES } from "@/lib/machines";
 
-const MACHINES = ["XL_105", "XL_106"] as const;
 const ALLOWED_ROLES = new Set(["ADMIN"]);
 
 export async function GET(request: NextRequest) {
@@ -64,17 +66,20 @@ export async function GET(request: NextRequest) {
 // ---------------------------------------------------------------------------
 
 async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date, endUtc: Date) {
-  const [blocks, auditLogs, rawWeekShifts, reservations, _companyDays] = await Promise.all([
+  const [blocks, auditLogs, rawWeekShifts, reservations, companyDays] = await Promise.all([
     prisma.block.findMany({
       where: { startTime: { lt: endUtc }, endTime: { gt: startUtc } },
-      select: { id: true, machine: true, type: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true },
+      select: { id: true, machine: true, type: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true, printMinutes: true, scheduleBypassed: true },
     }),
     prisma.auditLog.findMany({
       where: { createdAt: { gte: startUtc, lt: endUtc }, action: "UPDATE" },
       select: { blockId: true, field: true, username: true },
     }),
     prisma.machineWeekShifts.findMany({
-      where: { weekStart: { gte: new Date(new Date(startUtc).setUTCDate(startUtc.getUTCDate() - 7)), lt: endUtc } },
+      // 28 d zpět: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
+      // rangeStart a expanze potřebuje i týden před startem bloku (noční prev-tail).
+      // Starší legacy bloky degradují bezpečně na elapsed fallback (segments=null).
+      where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: endUtc } },
     }),
     prisma.reservation.findMany({
       where: {
@@ -99,7 +104,15 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     endTime: b.endTime,
     printCompletedAt: b.printCompletedAt,
     createdAt: b.createdAt,
+    printMinutes: b.printMinutes,
+    scheduleBypassed: b.scheduleBypassed,
   }));
+
+  // Segmenty 1× per blok — denní smyčka by expanzi opakovala až 30×.
+  const segMap = new Map<(typeof blockInputs)[number], PrintSegment[] | null>();
+  for (const b of blockInputs) {
+    segMap.set(b, b.type === "ZAKAZKA" ? blockReportSegments(b, weekShifts, companyDays) : null);
+  }
 
   // Per-machine metrics
   const machines: Record<string, { utilization: number; productionHours: number; maintenanceHours: number; availableHours: number }> = {};
@@ -127,8 +140,10 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     const entry: { date: string; XL_105: number; XL_106: number } = { date: cur, XL_105: 0, XL_106: 0 };
     for (const machine of MACHINES) {
       const avail = computeAvailableHours(machine, cur, cur, weekShifts);
-      const prod = computeBlockHours(dayBlocks, machine, "ZAKAZKA");
-      entry[machine] = computeUtilization(prod, avail);
+      const prodMin = dayBlocks
+        .filter((b) => b.machine === machine && b.type === "ZAKAZKA")
+        .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd), 0);
+      entry[machine] = computeUtilization(prodMin / 60, avail);
     }
     dailyUtilization.push(entry);
     cur = addDaysToCivilDate(cur, 1);
@@ -181,17 +196,23 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 // ---------------------------------------------------------------------------
 
 async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Date, endUtc: Date) {
-  const [blocks, rawWeekShifts, reservations] = await Promise.all([
+  const [blocks, rawWeekShifts, reservations, companyDays] = await Promise.all([
     prisma.block.findMany({
       where: { startTime: { lt: endUtc }, endTime: { gt: startUtc } },
-      select: { id: true, machine: true, type: true, description: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true },
+      select: { id: true, machine: true, type: true, description: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true, printMinutes: true, scheduleBypassed: true },
     }),
     prisma.machineWeekShifts.findMany({
-      where: { weekStart: { gte: new Date(new Date(startUtc).setUTCDate(startUtc.getUTCDate() - 7)), lt: endUtc } },
+      // 28 d zpět: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
+      // rangeStart a expanze potřebuje i týden před startem bloku (noční prev-tail).
+      // Starší legacy bloky degradují bezpečně na elapsed fallback (segments=null).
+      where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: endUtc } },
     }),
     prisma.reservation.findMany({
       where: { status: { in: ["SUBMITTED", "QUEUE_READY"] } },
       select: { status: true, createdAt: true },
+    }),
+    prisma.companyDay.findMany({
+      where: { startDate: { lt: endUtc }, endDate: { gt: startUtc } },
     }),
   ]);
 
@@ -204,7 +225,15 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     endTime: b.endTime,
     printCompletedAt: b.printCompletedAt,
     createdAt: b.createdAt,
+    printMinutes: b.printMinutes,
+    scheduleBypassed: b.scheduleBypassed,
   }));
+
+  // Segmenty 1× per blok — denní smyčka by expanzi opakovala až 30×.
+  const segMap = new Map<(typeof blockInputs)[number], PrintSegment[] | null>();
+  for (const b of blockInputs) {
+    segMap.set(b, b.type === "ZAKAZKA" ? blockReportSegments(b, weekShifts, companyDays) : null);
+  }
 
   // Per-machine metrics
   const machines: Record<string, { plannedCapacity: number; freeHours: number; availableHours: number }> = {};
@@ -212,9 +241,9 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
   for (const machine of MACHINES) {
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts);
     // All block types count as planned
-    const plannedHours = blocks
+    const plannedHours = blockInputs
       .filter((b) => b.machine === machine)
-      .reduce((sum, b) => sum + (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60), 0);
+      .reduce((sum, b) => sum + blockDurationHours(b), 0);
     const freeHours = Math.max(0, Math.round((availableHours - plannedHours) * 100) / 100);
     const plannedCapacity = computeUtilization(plannedHours, availableHours);
     machines[machine] = { plannedCapacity, freeHours, availableHours };
@@ -233,7 +262,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
       const avail = computeAvailableHours(machine, cur, cur, weekShifts);
       const planned = dayBlocks
         .filter((b) => b.machine === machine)
-        .reduce((sum, b) => sum + (b.endTime.getTime() - b.startTime.getTime()) / (1000 * 60 * 60), 0);
+        .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd), 0) / 60;
       entry[machine] = computeUtilization(planned, avail);
     }
     dailyCapacity.push(entry);

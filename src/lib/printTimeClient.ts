@@ -124,6 +124,51 @@ export function getBlockSegments(
   return exp.segments.some((s) => s.kind === "pause") ? exp.segments : null;
 }
 
+/**
+ * Segmenty bloku pro reportové metriky. Na rozdíl od getBlockSegments vrací
+ * segmenty i pro souvislý blok bez pauzy (reporty potřebují průnik tiskového
+ * času s oknem dne/směny vždy, ne jen kvůli overlay) a nevyžaduje přítomnost
+ * pauzy. Null = nelze spolehlivě expandovat (guardy tryExpandForBlock, expanze
+ * selže, nebo drift endu) — volající počítá konzervativní fallback z celého
+ * spanu přes printOverlapMinutes(null, …).
+ */
+export function blockReportSegments(
+  b: { type: string; machine: string; startTime: string | Date; endTime: string | Date; printMinutes?: number | null; scheduleBypassed?: boolean | null },
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayClientRow[]
+): PrintSegment[] | null {
+  const exp = tryExpandForBlock(b, weekShifts, companyDays);
+  if (!exp || !exp.ok) return null;
+  if (exp.end.getTime() !== new Date(b.endTime).getTime()) return null;
+  return exp.segments;
+}
+
+/**
+ * Tiskové minuty bloku uvnitř okna [winStart, winEnd). Se segmenty sčítá průnik
+ * print segmentů s oknem; bez nich (null) konzervativně průnik celého spanu
+ * start–end (ne-ZAKAZKA, bypass, legacy pm=null, drift). Čistá intervalová
+ * matematika — okno nemusí být zarovnané na sloty.
+ */
+export function printOverlapMinutes(
+  segments: PrintSegment[] | null,
+  b: { startTime: string | Date; endTime: string | Date },
+  winStart: Date,
+  winEnd: Date
+): number {
+  if (winEnd.getTime() <= winStart.getTime()) return 0;
+  const clip = (s: number, e: number) =>
+    Math.max(0, Math.min(e, winEnd.getTime()) - Math.max(s, winStart.getTime()));
+  if (!segments) {
+    return clip(new Date(b.startTime).getTime(), new Date(b.endTime).getTime()) / 60000;
+  }
+  let ms = 0;
+  for (const seg of segments) {
+    if (seg.kind !== "print") continue;
+    ms += clip(seg.start.getTime(), seg.end.getTime());
+  }
+  return ms / 60000;
+}
+
 export type CalendarDriftInfo = {
   reason: "END_MISMATCH" | "START_NOT_RUNNABLE" | "HORIZON_EXCEEDED";
   expectedEnd: Date | null;

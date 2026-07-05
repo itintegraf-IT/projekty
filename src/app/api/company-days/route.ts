@@ -4,8 +4,7 @@ import { getSession } from "@/lib/auth";
 import { parseCompanyDayDateTimeInput, serializeCompanyDay } from "@/lib/companyDaySerialization";
 import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
 import { emitSSE } from "@/lib/eventBus";
-
-const VALID_MACHINES = ["XL_105", "XL_106"] as const;
+import { MACHINES } from "@/lib/machines";
 
 export async function GET() {
   const days = await prisma.companyDay.findMany({ orderBy: { startDate: "asc" } });
@@ -23,7 +22,7 @@ export async function POST(req: Request) {
   if (!startDate || !endDate || !label) {
     return NextResponse.json({ error: "Chybí povinná pole" }, { status: 400 });
   }
-  if (machine != null && !VALID_MACHINES.includes(machine)) {
+  if (machine != null && !MACHINES.includes(machine)) {
     return NextResponse.json({ error: "Neplatná hodnota stroje" }, { status: 400 });
   }
 
@@ -32,13 +31,16 @@ export async function POST(req: Request) {
   if (!parsedStart || !parsedEnd) {
     return NextResponse.json({ error: "Neplatný formát datumu a času" }, { status: 400 });
   }
+  if (parsedEnd.getTime() <= parsedStart.getTime()) {
+    return NextResponse.json({ error: "Konec odstávky musí být po jejím začátku." }, { status: 400 });
+  }
 
   const day = await prisma.$transaction(async (tx) => {
     const created = await tx.companyDay.create({
       data: { startDate: parsedStart, endDate: parsedEnd, label, machine: machine ?? null },
     });
 
-    const machines = machine ? [machine] : ["XL_105", "XL_106"];
+    const machines = machine ? [machine] : [...MACHINES];
     const drifted = await detectCalendarDrift(tx, machines, parsedStart, parsedEnd, new Date());
     await notifyCalendarDrift(tx, drifted, session, `Odstávka „${label}"`);
 

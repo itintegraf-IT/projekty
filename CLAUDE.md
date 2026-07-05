@@ -1,6 +1,6 @@
 # CLAUDE.md — Repo Truth
 
-Aktualizováno podle stavu repozitáře k 3. 7. 2026.
+Aktualizováno podle stavu repozitáře k 4. 7. 2026.
 
 Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asistenty. Pokud se aplikace změní, aktualizuj nejdřív tento soubor a až potom navazující dokumentaci.
 
@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **212/212 testů zelené** (viz níže)
+- celá test suite: **366/366 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -18,30 +18,42 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - tiskové hodiny — etapa 4 (klientské mutační cesty + 40h dropdown) dokončena 2. 7. 2026 — viz sekci „Klientské mutační cesty" níže
 - tiskové hodiny — etapa 5 (vykreslení pauz + poctivé náhledy + deadline štítek + rezervace 40 h) dokončena 2. 7. 2026 — viz sekci „Vykreslení pauz a poctivé náhledy" níže
 - tiskové hodiny — etapa 6 (kalendářní revalidace: drift detekce, notifikace, reflow endpointy, sticky-bypass split fix) dokončena 3. 7. 2026 — viz sekci „Kalendářní revalidace" níže
+- tiskové hodiny — etapa 7 (reporty přes tiskové hodiny: retro/outlook dashboard + denní report počítají vytížení z tiskového času, ne z kalendářní délky bloku) dokončena 4. 7. 2026 — viz sekci „Reporty přes tiskové hodiny" níže
 
 ### Spuštění testů
 
 ```bash
-node --test --import tsx src/lib/dateUtils.test.ts             # 8 testů
-node --test --import tsx src/lib/errors.test.ts                # 5 testů
-node --test --import tsx src/lib/pasteTarget.test.ts           # 6 testů
-node --test --import tsx src/lib/clipboardCopy.test.ts         # 6 testů
-node --test --import tsx src/lib/printTime.test.ts             # 22 testů
-node --test --import tsx src/lib/printTime.server.test.ts      # 7 testů
-node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
-node --test --import tsx src/lib/overlapCheck.test.ts          # 13 testů
-node --test --import tsx src/lib/overlapResolver.test.ts       # 13 testů
-node --test --import tsx src/lib/overlapResolver.server.test.ts    # 7 testů
-node --test --import tsx src/lib/scheduleSlotFinder.test.ts    # 13 testů
-node --experimental-test-module-mocks --test --import tsx src/lib/scheduleSlotFinder.server.test.ts  # 8 testů
-node --test --import tsx src/lib/printTimeClient.test.ts      # 22 testů
+node --test --import tsx src/lib/auditQuery.test.ts               # 17 testů
+node --test --import tsx src/lib/blockNotePermissions.test.ts      # 12 testů
+node --test --import tsx src/lib/blockShades.test.ts               # 8 testů
 node --test --import tsx src/lib/calendarDrift.server.test.ts      # 8 testů
+node --test --import tsx src/lib/clipboardCopy.test.ts             # 6 testů
+node --test --import tsx src/lib/dateUtils.test.ts                 # 8 testů
+node --test --import tsx src/lib/errors.test.ts                    # 5 testů
 node --test --import tsx src/lib/findConflictingBlocks.test.ts     # 11 testů
-node --test --import tsx src/lib/reflow.server.test.ts             # 20 testů
+node --test --import tsx src/lib/jobPresets.test.ts                # 17 testů
+node --test --import tsx src/lib/notifications.test.ts             # 6 testů
+node --test --import tsx src/lib/overlapCheck.test.ts              # 13 testů
+node --test --import tsx src/lib/overlapResolver.server.test.ts    # 7 testů
+node --test --import tsx src/lib/overlapResolver.test.ts           # 13 testů
+node --test --import tsx src/lib/pasteTarget.test.ts               # 6 testů
+node --test --import tsx src/lib/printTime.server.test.ts          # 7 testů
+node --test --import tsx src/lib/printTime.test.ts                 # 22 testů
+node --test --import tsx src/lib/printTimeClient.test.ts           # 32 testů
+node --test --import tsx src/lib/productionTags.test.ts            # 14 testů
+node --test --import tsx src/lib/reflow.server.test.ts             # 24 testů
 node --test --import tsx src/lib/reportMetrics.test.ts             # 31 testů
+node --experimental-test-module-mocks --test --import tsx src/lib/scheduleSlotFinder.server.test.ts  # 8 testů
+node --test --import tsx src/lib/scheduleSlotFinder.test.ts        # 13 testů
+node --test --import tsx src/lib/scheduleValidation.test.ts        # 19 testů
+node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
+node --test --import tsx src/lib/seriesPropagation.test.ts         # 6 testů
+node --test --import tsx src/lib/shiftRoster.test.ts               # 5 testů
+node --test --import tsx src/lib/shifts.test.ts                    # 29 testů
+node --test --import tsx src/lib/splitHelpers.test.ts              # 7 testů
 ```
 
-Celkem **212 testů** v 17 souborech.
+Celkem **366 testů** v 28 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 
@@ -359,8 +371,9 @@ pracovní doby / odstávky nesedí na živou expanzi) je od etapy 6 detekován a
   zápis). Audit řádek má action `AUTO_REFLOW` (field `"startTime/endTime"`, en-dash span,
   `fmtAuditVal` ho renderuje stejně jako `AUTO_SHIFT`) — záměrně JINÁ akce než `UPDATE`, aby
   dashboard stability (filtruje `action=UPDATE`) reflow nezapočítával jako nestabilitu.
-- **`findConflictingBlocks`** (validace při editaci `machine-week-shifts`/`company-days`,
-  TOCTOU re-check) má nově okno `[W, W+7d+6h)` (`computeConflictWindow`/`conflictWindowWhere`/
+- **`findConflictingBlocks`** (validace při editaci `machine-week-shifts`, TOCTOU re-check;
+  `company-days` mění kalendář bez blokace — jen drift notifikace dle spec 3.9) má nově
+  okno `[W, W+7d+6h)` (`computeConflictWindow`/`conflictWindowWhere`/
   `neighborWeekStarts`) a bere v potaz i DB řádky **sousedních týdnů** — stejný „noční směna
   přes půlnoc" vzor, který opravil fix 5c u `loadMachineCalendar`, platil i zde (editace
   týdne W mohla neviditelně rozbít bloky začínající Po 0:00–6:00 týdne W+1).
@@ -378,6 +391,96 @@ pracovní doby / odstávky nesedí na živou expanzi) je od etapy 6 detekován a
   `BlockDetail` drift sekce s vlastním Přepočítat, `AUTO_REFLOW` render větev v
   `InfoPanel`/`BlockDetail`.
 - Žádná migrace DB, žádný nový sloupec — drift je odvozená hodnota, nikdy persistovaná.
+
+#### Reporty přes tiskové hodiny (etapa 7, 4. 7. 2026)
+
+Retro/outlook dashboard (`/api/report/dashboard`) a denní report (`/api/report/daily` +
+`ReportView`) do etapy 7 počítaly vytížení/přítomnost bloku ve směně z kalendářní délky
+`endTime - startTime`. To u ZAKAZKA bloku pauznutého přes odstávku nadhodnocovalo vytížení
+(pauza se počítala jako produkce) a v denním reportu ukazovalo blok i ve směně, kdy stroj
+kvůli pauze reálně stál. Etapa 7 přepíná oba reporty na tiskový čas (`printMinutes` a jeho
+průnik se směnou/dnem), se stejným fallback-na-span principem jako etapa 5/6 (ne-ZAKAZKA,
+bypass, legacy `printMinutes=null`, drift → počítat konzervativně z celého uloženého spanu).
+Vědomý důsledek fallbacku: u DRIFTNUTÉHO bloku se v téže dashboard response rozcházejí
+totals (pm) a denní řady (span fallback) — designově inherentní (pm bez segmentů nejde
+rozdělit do dnů), tranzientní (drift je stav k opravě přes Přepočítat), konzistentní
+s plannerem (kreslí slitý span + oranžový badge).
+
+- **`blockReportSegments(block, weekShifts, companyDays)`** (`src/lib/printTimeClient.ts`) —
+  sourozenec `getBlockSegments`: sdílí guard+expanzi (`tryExpandForBlock`), ale na rozdíl od
+  něj vrací segmenty i pro souvislý blok BEZ pauzy (reporty potřebují průnik tiskového času
+  s oknem vždy, ne jen kvůli overlay) a nevyžaduje přítomnost pauzy. `null` = nelze spolehlivě
+  expandovat (guard selhal, expanze selhala, nebo drift — expanze nesedí na uložený `endTime`).
+- **`printOverlapMinutes(segments, block, winStart, winEnd)`** (`printTimeClient.ts`) — čistá
+  intervalová matematika, okno nemusí být zarovnané na sloty. Se segmenty (ne-null) sčítá
+  průnik jen `kind: "print"` segmentů s oknem; bez segmentů (`null`) konzervativně počítá
+  průnik celého spanu start–end (fallback pro ne-ZAKAZKA/bypass/legacy/drift bloky).
+- **Dashboard retro** (`handleRetro`): `computeBlockHours` (celkové hodiny per stroj/typ) i
+  denní `dailyUtilization` řada přešly z elapsed na `printMinutes`
+  (`blockDurationHours` v `reportMetrics.ts` — ZAKAZKA `pm/60`, jinak elapsed; fallback elapsed
+  když `pm` chybí/neplatné). Denní řada navíc sčítá `printOverlapMinutes` přes segmentovou mapu
+  (`segMap`, jedna expanze per blok, ne per den — denní smyčka by ji jinak opakovala až 30×).
+  `companyDays` se do `handleRetro` nově fetčí (dřív se selectovaly a zahazovaly).
+- **Dashboard outlook** (`handleOutlook`): stejný vzor — `plannedHours`/`dailyCapacity` přes
+  `blockDurationHours`/`printOverlapMinutes` + `segMap`; `companyDays` nově fetčováno (dřív
+  vůbec, protože outlook segmenty předtím neexistovaly). Response tvary (JSON shape) obou
+  handlerů beze změny — mění se jen zdroj čísel uvnitř, ne kontrakt.
+- **Okno `weekShifts` fetche** v obou handlerech posunuto z `−7d` na `−28d` před `rangeStart`:
+  blok protínající rozsah může začínat až `MAX_SPAN_DAYS` (21 d, `printTime.ts`) před ním a
+  expanze navíc potřebuje týden PŘED startem bloku (noční prev-tail, stejný vzor jako fix 5c
+  u `loadMachineCalendar`). Legacy bloky mimo pokryté okno bezpečně degradují na fallback span.
+- **Denní report** (`GET /api/report/daily`): response se mění z pole bloků na
+  `{ blocks, weekShifts, companyDays }` (**breaking change** kontraktu; jediný konzument je
+  `ReportView`, upraven současně) — kalendář se fetčuje v okně `±28d` kolem výrobního dne
+  (stejné zdůvodnění jako u dashboardu). `ReportView.blockPrintsInShift` nahrazuje starý
+  `blockOverlapsShift` (span-overlap) — nová verze volá `printOverlapMinutes` a blok se ve
+  směně ukáže, jen když se v ní skutečně tiskne (`> 0` min průniku); fallback span pro
+  ne-ZAKAZKA/bypass/legacy/drift zůstává zachován přes `segments === null`.
+- **Triage položky** (drobné nálezy z review etapy 6, doklizené v rámci etapy 7):
+  - `src/lib/machines.ts` — `MACHINES = ["XL_105", "XL_106"] as const` + `MachineId` typ,
+    jediný zdroj pravdy pro seznam strojů; nahradilo 5 lokálních kopií `VALID_MACHINES`/
+    `MACHINES` v serverových souborech (`company-days` GET/PUT, `machine-week-shifts`,
+    `blocks/reflow`, `report/dashboard`).
+  - `company-days` POST/PUT nově validují `endDate > startDate` → 400 „Konec odstávky musí
+    být po jejím začátku." (dřív šlo uložit odstávku s koncem před začátkem beze protestu).
+  - Obě reflow routes (`[id]/reflow`, `reflow`) mapují Prisma `P2028` (transakce vypršela)
+    na 503 „Přepočet trval příliš dlouho — zkuste to znovu, případně po menších částech."
+    místo generické 500.
+  - `ReflowDeps.preloadedCalendar` (`reflow.server.ts`) — `reflowMachineInTx` načte kalendář
+    stroje JEDNOU pro celé okno (`now−1d` až `now + (365+7+21) dní`) a předá ho každému
+    dílčímu `reflowBlockInTx` voláním místo aby si každý driftnutý blok tahal vlastní
+    kalendář zvlášť (výkon: 1 fetch místo N). Test `reflow.server.test.ts` pinuje přesné
+    hranice okna detekce driftu (`[now, now + MACHINE_REFLOW_WINDOW_DAYS d)`, konstanta 365)
+    proti tiché budoucí změně.
+  - TOCTOU DRY: `assertNoConflictingBlocks`/`fetchConflictingBlocks` (obě nové,
+    `findConflictingBlocks.ts`) sdílí jádro (fetch + `detectConflictsPure`) mezi pre-transakční
+    `findConflictingBlocks` (info toast před force save) a in-transaction re-check v
+    `machine-week-shifts` PUT — dřív měl PUT vlastní duplicitní inline re-check, který mohl
+    nezávisle rozjet tvar `where`/validačních řádků oproti `findConflictingBlocks`.
+  - `BlockDetail` drift sekce má `DRIFT_TITLES` mapu podle `CalendarDriftInfo["reason"]`
+    (`END_MISMATCH`/`START_NOT_RUNNABLE`/`HORIZON_EXCEEDED`) místo jednoho fixního nadpisu
+    pro všechny tři případy, které `blockCalendarDrift`/`detectCalendarDrift` mohou vrátit.
+- Hlavní soubory: `src/lib/reportMetrics.ts` (`blockDurationHours`), `src/lib/printTimeClient.ts`
+  (`blockReportSegments`, `printOverlapMinutes`), `src/lib/machines.ts`,
+  `src/app/api/report/dashboard/route.ts`, `src/app/api/report/daily/route.ts`,
+  `src/app/report/daily/ReportView.tsx`.
+
+Vědomě odloženo (rozhodnutí, ne opomenutí — mimo scope etapy 7):
+
+- **Stale klientský pm** (systémové riziko drag/resize/paste s neaktuálním `printMinutes` v
+  klientském stavu) — vyžaduje vlastní návrh, zaznamenáno v ledgeru etapy 6.
+- **Rate limit reflow endpointů** — konzistentní s ostatními mutacemi bloků (žádná z nich
+  rate limit nemá).
+- **Banner driftu vs. viditelné okno** — kosmetika, self-heal přes existující polling.
+- **M-A seed atribuce** — detail nálezu se nedochoval v ledgeru; prověřit při finále featury
+  (etapa 8).
+- **Fixní směnové sekce denního reportu** (`SHIFTS_105` bez noční, `SHIFTS_106` s noční vždy)
+  — pre-existující vzhled reportu, spec 3.10 ho nemění; segmentový filtr jen zajišťuje, že
+  v prázdné/stojící směně blok nebude.
+- **Retro/outlook TOTALS neklipují k rozsahu** (blok přesahující hranici rozsahu se počítá
+  celý, ne jen jeho část uvnitř) — pre-existující sémantika, etapa 7 mění jen zdroj délky
+  (`printMinutes` místo elapsed), ne klipovací chování; denní řady (`dailyUtilization`/
+  `dailyCapacity`) klip řeší už teď přes `printOverlapMinutes`.
 
 ### Audit log — každá mutace v transakci
 
@@ -453,21 +556,28 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/lib/scheduleValidationServer.ts` — `validateAndComputeEnd` — validuje ZAKAZKA blok a vrací autoritativní end + `effectivelyBypassed` (spočítaná pravda pro `scheduleBypassed`, nikdy echo request flagu; jediný zdroj pravdy pro endTime; nahrazuje zrušenou `validateBlockScheduleFromDb`)
 - `src/lib/printTime.ts` — `expandPrintTime`/`computePrintMinutes`/`isMachineRunnableAt` — jádro „tiskových hodin" (čisté funkce, žádná DB)
 - `src/lib/printTime.server.ts` — `loadMachineCalendar`/`expandPrintTimeFromDb` — DB fetch (weekShifts + companyDays) a napojení na `printTime.ts`
-- `src/lib/printTimeClient.ts` — `blockPrintMinutes`/`companyDayIntervalsFor`/`snapGroupDeltaStartOnly`/`getBlockSegments`/`printMidpoint`/`blockCalendarDrift` — klient-safe helpery (žádná DB) pro mutační cesty a vykreslení ZAKAZKA bloků; start-only snap přes `snapStartToNextRunnableSlot`, end vždy dopočítá server; `getBlockSegments` vrací print/pause segmenty pro overlay pauz (null = kreslit slitě), `printMidpoint` = bod poloviny tiskových minut (default split), `blockCalendarDrift` = živá detekce driftu pro badge (parita se serverovou `detectCalendarDrift`)
+- `src/lib/printTimeClient.ts` — `blockPrintMinutes`/`companyDayIntervalsFor`/`snapGroupDeltaStartOnly`/`getBlockSegments`/`printMidpoint`/`blockCalendarDrift`/`blockReportSegments`/`printOverlapMinutes` — klient-safe helpery (žádná DB) pro mutační cesty, vykreslení a reporting ZAKAZKA bloků; start-only snap přes `snapStartToNextRunnableSlot`, end vždy dopočítá server; `getBlockSegments` vrací print/pause segmenty pro overlay pauz (null = kreslit slitě), `printMidpoint` = bod poloviny tiskových minut (default split), `blockCalendarDrift` = živá detekce driftu pro badge (parita se serverovou `detectCalendarDrift`), `blockReportSegments` = segmenty i pro souvislý blok bez pauzy (reporty, etapa 7), `printOverlapMinutes` = tiskové minuty bloku uvnitř libovolného okna (den/směna)
+- `src/lib/reportMetrics.ts` — `blockDurationHours`/`computeBlockHours`/`computeUtilization`/`computeAvailableHours`/`computePlanStability`/... — čisté metriky pro `/api/report/dashboard`; `blockDurationHours` (etapa 7) je ZAKAZKA `printMinutes/60` s fallbackem na elapsed, jinak elapsed
+- `src/lib/machines.ts` — `MACHINES` (`["XL_105", "XL_106"] as const`) + `MachineId` — jediný zdroj pravdy pro seznam strojů (etapa 7, nahradilo 5 lokálních kopií)
 - `src/lib/calendarDrift.server.ts` — `detectCalendarDrift`/`notifyCalendarDrift` — serverová detekce driftnutých bloků (čisté READ, nic neupravuje) + zápis `Notification` typu `CALENDAR_DRIFT` po mutaci kalendáře
-- `src/lib/reflow.server.ts` — `reflowBlockInTx`/`reflowMachineInTx` — přepočet (re-expanze + chain push) jednoho bloku nebo celého stroje v transakci, audit action `AUTO_REFLOW`
+- `src/lib/reflow.server.ts` — `reflowBlockInTx`/`reflowMachineInTx` — přepočet (re-expanze + chain push) jednoho bloku nebo celého stroje v transakci, audit action `AUTO_REFLOW`; `ReflowDeps.preloadedCalendar` (etapa 7) — 1 kalendář pro celý hromadný reflow místo N per-blok fetchů
+- `src/lib/findConflictingBlocks.ts` — `findConflictingBlocks` (pre-transakční) / `assertNoConflictingBlocks` (in-tx TOCTOU re-check) — sdílí jádro `fetchConflictingBlocks` (etapa 7 DRY), okno `[W, W+7d+6h)` přes `computeConflictWindow`/`neighborWeekStarts`
 - `src/lib/plannerTypes.ts` — `TYPE_LABELS`, `TYPE_BUILDER_CONFIG`, `CodebookOption`, `DURATION_OPTIONS`
 - `src/lib/auditFormatters.ts` — `FIELD_LABELS`, `fmtAuditVal` (umí i en-dash span `"ISO–ISO"` z AUTO_SHIFT/batch auditních řádků), `formatPragueMaybeToday`
 - `src/lib/weekShiftsTestFixtures.ts` — test-only fixtury pracovní doby (`mkDay`, `xl106Week`, ...), sdílené mezi `*.test.ts` soubory validace harmonogramu
+- `src/lib/notifications.ts` — `countUnread`/`countNewSince`/`totalBadge` — čisté funkce pro badge počty (notifikační refaktor mimo etapu, commit `dtp` 3. 7. 2026)
 
 ### Planner — komponenty
 
 - `src/app/_components/PlannerPage.tsx` — hlavní orchestrátor (~3525 řádků po dekomposici)
 - `src/app/_components/TimelineGrid.tsx` — vizuální grid s drag & drop
 - `src/components/ZoomSlider.tsx` — custom zoom slider
-- `src/components/InfoPanel.tsx` — audit log panel + typ `AuditLogEntry`
-- `src/components/InboxPanel.tsx` — notifikační inbox + typ `NotificationItem`
-- `src/components/BlockDetail.tsx` — read-only detail bloku s historií
+- `src/components/InfoPanel.tsx` — audit log panel + typ `AuditLogEntry`; nově exportuje i `AuditList` (samotný seznam bez wrapperu — sdílí se s `NotificationsPanel`)
+- `src/components/InboxPanel.tsx` — notifikační inbox + typ `NotificationItem`; nově exportuje i `InboxList` (samotný seznam bez wrapperu — sdílí se s `NotificationsPanel`)
+- `src/hooks/useNotifications.ts` — hook sdružující fetch/state pro notifikace i audit (role-gated přes `INBOX_ROLES`/`AUDIT_ROLES`, 60s polling), počítá badge přes `src/lib/notifications.ts`
+- `src/components/NotificationBell.tsx` — jeden sloučený zvonek v headeru (nahradil dřívější dvě oddělené ikony inboxu a auditu)
+- `src/components/NotificationsPanel.tsx` — panel otevíraný zvonkem, taby „Upozornění" (`InboxList`) / „Aktivita" (`AuditList`)
+- `src/components/BlockDetail.tsx` — read-only detail bloku s historií; od etapy 6 i drift sekce (`DRIFT_TITLES` + tlačítko Přepočítat)
 - `src/components/BlockEdit.tsx` — editační formulář bloku
 - `src/components/ToastContainer.tsx` — toast notifikace
 

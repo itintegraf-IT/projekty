@@ -47,6 +47,14 @@ function blockLengthLabel(block: Block): string {
   return `${minsToHuman(pm)} tisku (${minsToHuman(elapsedMins)} celkem)`;
 }
 
+/** Nadpis drift sekce podle `reason` (Task 6, etapa 7) — místo jednoho fixního textu
+ * pro všechny tři případy `blockCalendarDrift`/`detectCalendarDrift` mohou vrátit. */
+const DRIFT_TITLES: Record<CalendarDriftInfo["reason"], string> = {
+  END_MISMATCH: "Blok nesedí na kalendář",
+  START_NOT_RUNNABLE: "Start bloku je mimo provoz stroje",
+  HORIZON_EXCEEDED: "Blok nejde podle kalendáře dopočítat",
+};
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2">
@@ -283,7 +291,7 @@ export function BlockDetail({
             <Separator className="my-1 bg-slate-800" />
             <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 space-y-1.5">
               <div className="text-[10px] font-semibold text-amber-400 flex items-center gap-1">
-                ⚠ Konec nesedí na aktuální kalendář
+                ⚠ {DRIFT_TITLES[calendarDrift.reason]}
               </div>
               {calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd && (
                 <div className="text-slate-400">

@@ -1,6 +1,6 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
-import { reflowBlockInTx, reflowMachineInTx, type ReflowOutcome } from "./reflow.server";
+import { reflowBlockInTx, reflowMachineInTx, MACHINE_REFLOW_WINDOW_DAYS, type ReflowOutcome } from "./reflow.server";
 import type { AppliedMove } from "./overlapResolver.server";
 import type { DriftedBlock } from "./calendarDrift.server";
 import { offWeek, xl106Week, W1 } from "./weekShiftsTestFixtures";
@@ -8,6 +8,8 @@ import { offWeek, xl106Week, W1 } from "./weekShiftsTestFixtures";
 // Úterý 16. 6. 2026, prázdné weekShifts → hardcoded fallback XL_105 (souvislý provoz
 // mimo pátek noc 22–6, sobotu celou a všední noci 22–6 — viz overlapResolver.server.test.ts).
 const H = (h: number) => new Date(`2026-06-16T${String(h).padStart(2, "0")}:00:00.000Z`);
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const actor = { id: 42, username: "planovac" };
 
@@ -341,9 +343,19 @@ describe("reflowBlockInTx", () => {
 });
 
 describe("reflowMachineInTx", () => {
-  /** Minimální fake tx — reflowMachineInTx samo o sobě nic přes tx nečte/nezapisuje,
-   * jen ho předává injektovaným deps (reflowBlock/detectDrift), takže stačí prázdný objekt. */
-  const fakeTx = {} as never;
+  /** Fake tx — reflowMachineInTx samo o sobě čte jen kalendář (loadMachineCalendarRange
+   * pro preloadedCalendar, T6), zbytek předává injektovaným deps (reflowBlock/detectDrift).
+   * machineWeekShifts/companyDay mock.fn slouží zároveň jako počítadlo volání loaderu. */
+  function mkFakeTx(opts: { weekShifts?: unknown[]; companyDays?: { startDate: Date; endDate: Date }[] } = {}) {
+    const weekShiftsFindMany = mock.fn(async () => opts.weekShifts ?? []);
+    const companyDayFindMany = mock.fn(async (_args: { where: { endDate: { gt: Date } } }) => opts.companyDays ?? []);
+    const tx = {
+      machineWeekShifts: { findMany: weekShiftsFindMany },
+      companyDay: { findMany: companyDayFindMany },
+    } as never;
+    return { tx, weekShiftsFindMany, companyDayFindMany };
+  }
+  const fakeTx = mkFakeTx().tx;
 
   function mkDrift(id: number, startTime: Date, orderNumber = `ORD-${id}`): DriftedBlock {
     return {
@@ -396,6 +408,29 @@ describe("reflowMachineInTx", () => {
     const detectArgs = detectDrift.mock.calls[0]!.arguments;
     assert.deepEqual(detectArgs[1], ["XL_105"]);
     assert.deepEqual(detectArgs[4], now);
+  });
+
+  it("1d) okno detekce driftu je přesně [now, now + MACHINE_REFLOW_WINDOW_DAYS d) — pin proti tiché změně", async () => {
+    // `now` jde do reflowMachineInTx jako explicitní parametr (ne přes deps) — lze
+    // assertnout přesné hranice okna, ne jen toleranci (souřadnice zachytí sám
+    // reflowMachineInTx, ne DB — detectDrift je mock, žádný skutečný findMany).
+    const detectDrift = mock.fn(async (_db: unknown, _machines: string[], _windowStart: Date, _windowEnd: Date, _now: Date) => []);
+    const reflowBlock = mock.fn(async (): Promise<ReflowOutcome> => {
+      throw new Error("nemělo se volat — žádný drift");
+    });
+
+    const now = H(0);
+    await reflowMachineInTx(fakeTx, "XL_105", actor, now, { reflowBlock, detectDrift });
+
+    assert.equal(detectDrift.mock.calls.length, 1);
+    const [, , windowStart, windowEnd] = detectDrift.mock.calls[0]!.arguments;
+
+    // Sanity: konstanta je pořád 365 (komentář, ne zdroj pravdy assertu).
+    assert.equal(MACHINE_REFLOW_WINDOW_DAYS, 365);
+
+    assert.deepEqual(windowStart, now);
+    assert.deepEqual(windowEnd, new Date(now.getTime() + MACHINE_REFLOW_WINDOW_DAYS * 86_400_000));
+    assert.equal(windowEnd.getTime() - windowStart.getTime(), MACHINE_REFLOW_WINDOW_DAYS * 86_400_000);
   });
 
   it("2) drifted + zamčený drifted → 1 reflowed, 1 skipped LOCKED, žádný abort (chyba se nepropaguje)", async () => {
@@ -473,5 +508,79 @@ describe("reflowMachineInTx", () => {
         return true;
       }
     );
+  });
+
+  it("6) preloadedCalendar (T6): 3 drifted bloky → kalendářový loader (machineWeekShifts.findMany) voláno právě 1×, ne 3×", async () => {
+    const { tx, weekShiftsFindMany, companyDayFindMany } = mkFakeTx();
+    const drift1 = mkDrift(1, H(10));
+    const drift2 = mkDrift(2, H(12));
+    const drift3 = mkDrift(3, H(14));
+    const detectDrift = mock.fn(async () => [drift1, drift2, drift3]);
+
+    const receivedCalendars: unknown[] = [];
+    const reflowBlock = mock.fn(
+      async (_tx: unknown, _blockId: number, _actor: unknown, deps?: { preloadedCalendar?: unknown }): Promise<ReflowOutcome> => {
+        receivedCalendars.push(deps?.preloadedCalendar);
+        return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [] };
+      }
+    );
+
+    const result = await reflowMachineInTx(tx, "XL_105", actor, H(0), { reflowBlock, detectDrift });
+
+    assert.equal(result.reflowed.length, 3);
+    // Loader (loadMachineCalendarRange → machineWeekShifts.findMany/companyDay.findMany)
+    // volaný právě JEDNOU pro celý běh, ne 1× per drifted blok (výkonová oprava T6).
+    assert.equal(weekShiftsFindMany.mock.calls.length, 1);
+    assert.equal(companyDayFindMany.mock.calls.length, 1);
+    // Všechny 3 volání reflowBlock dostanou TENTÝŽ preloadedCalendar objekt (žádný z nich
+    // si netáhne vlastní kalendář).
+    assert.equal(receivedCalendars.length, 3);
+    assert.ok(receivedCalendars[0] !== undefined);
+    assert.equal(receivedCalendars[0], receivedCalendars[1]);
+    assert.equal(receivedCalendars[1], receivedCalendars[2]);
+  });
+
+  it("7) drifted blok s startTime v minulosti (now−5d) → loader dostane from ≤ startTime (I-1 fix)", async () => {
+    // `detectCalendarDrift` vrací i BĚŽÍCÍ bloky se startem hluboko v minulosti (filtr
+    // startTime < windowEnd && endTime > max(windowStart, now)) — kotva kalendáře
+    // proto nesmí být jen `now−1d`, musí sahat i za nejstarší drifted startTime.
+    const { tx, companyDayFindMany } = mkFakeTx();
+    const now = H(0);
+    const oldStart = new Date(now.getTime() - 5 * DAY_MS); // start 5 dní před now
+    const runningDrift = mkDrift(1, oldStart);
+    const detectDrift = mock.fn(async () => [runningDrift]);
+    const reflowBlock = mock.fn(async (): Promise<ReflowOutcome> => ({ ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [] }));
+
+    await reflowMachineInTx(tx, "XL_105", actor, now, { reflowBlock, detectDrift });
+
+    assert.equal(companyDayFindMany.mock.calls.length, 1);
+    // loadMachineCalendarRange volá companyDay.findMany s `endDate: { gt: from }` — `from`
+    // je tedy přímo čitelné z argumentu (= calendarStart z reflowMachineInTx). Musí sahat
+    // aspoň na startTime nejstaršího drifted bloku (BEZ dalšího odečtení −1d zde —
+    // loadMachineCalendarRange si k `from` sama přidá interní −1d kotvu pro noční směnu
+    // přes půlnoc, viz printTime.server.ts — to pokrytí `startTime−1d` zajistí uvnitř).
+    // Před fixem I-1 by `from` bylo `now−1d` (2026-06-15), tedy PO `oldStart` — tenhle
+    // assert by na starém kódu spadl.
+    const cdArgs = companyDayFindMany.mock.calls[0]!.arguments[0];
+    const from = cdArgs.where.endDate.gt;
+    assert.ok(
+      from.getTime() <= oldStart.getTime(),
+      `from (${from.toISOString()}) musí být ≤ startTime nejstaršího drifted bloku (${oldStart.toISOString()})`
+    );
+  });
+
+  it("8) drifted=[] → loader (loadMachineCalendarRange) se VŮBEC nevolá (M-C fix)", async () => {
+    const { tx, weekShiftsFindMany, companyDayFindMany } = mkFakeTx();
+    const detectDrift = mock.fn(async () => []);
+    const reflowBlock = mock.fn(async (): Promise<ReflowOutcome> => {
+      throw new Error("nemělo se volat — žádný drift");
+    });
+
+    const result = await reflowMachineInTx(tx, "XL_105", actor, H(0), { reflowBlock, detectDrift });
+
+    assert.deepEqual(result.reflowed, []);
+    assert.deepEqual(result.skipped, []);
+    assert.equal(weekShiftsFindMany.mock.calls.length, 0);
+    assert.equal(companyDayFindMany.mock.calls.length, 0);
   });
 });

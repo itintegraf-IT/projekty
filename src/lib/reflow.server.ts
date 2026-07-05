@@ -1,4 +1,4 @@
-import { loadMachineCalendarRange } from "@/lib/printTime.server";
+import { loadMachineCalendarRange, type MachineCalendar } from "@/lib/printTime.server";
 import {
   expandPrintTime,
   isMachineRunnableAt,
@@ -32,6 +32,18 @@ export type ReflowOutcome =
 
 export type ReflowDeps = {
   resolveChainPush: typeof resolveChainPushFromDb;
+  /**
+   * Volitelný předem načtený kalendář — použije se MÍSTO per-blok
+   * `loadMachineCalendarRange`, když je předaný (výkonová optimalizace pro hromadný
+   * reflow: 1 kalendář místo N per-blok fetchů). Volající RUČÍ za pokrytí okna
+   * [start−1d, start+REFLOW_MAX_START_SHIFT_DAYS+MAX_SPAN_DAYS dní] pro KAŽDÝ blok,
+   * který s tímto kalendářem projde přes `reflowBlockInTx` — nedostatečně široký
+   * kalendář se TICHÝM PÁDEM přemapuje na `isHardcodedBlocked` fallback uvnitř
+   * `expandPrintTime`/`isMachineRunnableAt` (chybějící týden ve `weekShifts` ⇒
+   * fallback rozvrh, ne chyba). Když `preloadedCalendar` chybí, `reflowBlockInTx`
+   * si kalendář načte sám (per-blok, jako dřív).
+   */
+  preloadedCalendar?: MachineCalendar;
 };
 
 const defaultDeps: ReflowDeps = { resolveChainPush: resolveChainPushFromDb };
@@ -84,9 +96,16 @@ export async function reflowBlockInTx(
   const pm = block.printMinutes;
 
   // Kalendář pro celé okno, které reflow může potřebovat: až REFLOW_MAX_START_SHIFT_DAYS
-  // dní hledání runnable startu + worst-case MAX_SPAN_DAYS expanze za ním.
-  const calendarEnd = new Date(oldStart.getTime() + (REFLOW_MAX_START_SHIFT_DAYS + MAX_SPAN_DAYS) * DAY_MS);
-  const cal = await loadMachineCalendarRange(tx, block.machine, oldStart, calendarEnd);
+  // dní hledání runnable startu + worst-case MAX_SPAN_DAYS expanze za ním. Když volající
+  // (typicky reflowMachineInTx) předal preloadedCalendar, použije se ten místo per-blok
+  // fetchu — viz precondition u ReflowDeps.preloadedCalendar.
+  let cal: MachineCalendar;
+  if (deps.preloadedCalendar) {
+    cal = deps.preloadedCalendar;
+  } else {
+    const calendarEnd = new Date(oldStart.getTime() + (REFLOW_MAX_START_SHIFT_DAYS + MAX_SPAN_DAYS) * DAY_MS);
+    cal = await loadMachineCalendarRange(tx, block.machine, oldStart, calendarEnd);
+  }
 
   let newStart: Date;
   if (isMachineRunnableAt(block.machine, oldStart, cal.weekShifts, cal.companyDays)) {
@@ -190,6 +209,20 @@ const defaultReflowMachineDeps: ReflowMachineDeps = {
  * AppError z chain pushe (kolize se zamčeným/vytištěným následníkem) se NECHYTÁ —
  * bublá ven, celá transakce (volající `$transaction`) se odvolá. To je záměr: dílčí
  * částečně proběhlý reflow by byl matoucí, radši abort all s jasnou hláškou resolveru.
+ *
+ * Výkon: kalendář stroje se načte NEJVÝŠE JEDNOU (přeskočeno úplně, když `drifted` je
+ * prázdné — no-op nepotřebuje žádný kalendář). Dolní kotva NENÍ jen `now−1d`: detekce
+ * driftu vrací i BĚŽÍCÍ bloky, jejichž `startTime` je hluboko v minulosti (podmínka
+ * `detectCalendarDrift` je `startTime < windowEnd && endTime > max(windowStart, now)` —
+ * start běžícího bloku může být až ~MACHINE_REFLOW_WINDOW_DAYS zpět). `reflowBlockInTx`
+ * pro takový blok potřebuje kalendář pokrývající `[startTime−1d, ...]` (precondition
+ * `ReflowDeps.preloadedCalendar`), takže kotva je `min(now−1d, nejstarší drifted
+ * startTime)` — `drifted` je seřazené `startTime` asc (viz `detectCalendarDrift`), takže
+ * stačí `drifted[0]`. Horní kotva zůstává [now + (365+7+21) dní] (pokrývá `now` i
+ * worst-case posun startu o REFLOW_MAX_START_SHIFT_DAYS a expanzi MAX_SPAN_DAYS za
+ * NEJPOZDĚJŠÍM driftnutým blokem v okně) a předá se přes `preloadedCalendar` do každého
+ * `reflowBlockInTx` volání — místo aby si každý z N driftnutých bloků tahal vlastní
+ * kalendář zvlášť.
  */
 export async function reflowMachineInTx(
   tx: TxLike,
@@ -201,12 +234,29 @@ export async function reflowMachineInTx(
   const windowEnd = new Date(now.getTime() + MACHINE_REFLOW_WINDOW_DAYS * DAY_MS);
   const drifted = await deps.detectDrift(tx, [machine], now, windowEnd, now);
 
+  let preloadedCalendar: MachineCalendar | undefined;
+  if (drifted.length > 0) {
+    // Dolní kotva musí sahat i za NEJSTARŠÍ driftnutý blok, ne jen za `now−1d` — běžící
+    // blok může mít start až ~MACHINE_REFLOW_WINDOW_DAYS dní zpět (detekce driftu ho
+    // pořád vidí, dokud jeho endTime > now). `drifted[0]` je nejstarší díky asc řazení
+    // v `detectCalendarDrift`. `loadMachineCalendarRange` si k `from` sama přidá interní
+    // −1d kotvu (noční směna přes půlnoc), takže tady žádné další odečítání není třeba.
+    const calendarStart = new Date(Math.min(now.getTime() - DAY_MS, drifted[0]!.startTime.getTime()));
+    // Okno musí pokrýt worst-case blok: start až na hraně okna 365 d, forward snap
+    // až +REFLOW_MAX_START_SHIFT_DAYS a expanze až +MAX_SPAN_DAYS — jinak by konec
+    // expanze tiše spadl na hardcoded fallback a divergoval od per-blok cesty.
+    const calendarEnd = new Date(
+      now.getTime() + (MACHINE_REFLOW_WINDOW_DAYS + REFLOW_MAX_START_SHIFT_DAYS + MAX_SPAN_DAYS) * DAY_MS
+    );
+    preloadedCalendar = await loadMachineCalendarRange(tx, machine, calendarStart, calendarEnd);
+  }
+
   const reflowed: MachineReflowResult["reflowed"] = [];
   const skipped: MachineReflowResult["skipped"] = [];
   const movedIdSet = new Set<number>();
 
   for (const block of drifted) {
-    const outcome = await deps.reflowBlock(tx, block.id, actor);
+    const outcome = await deps.reflowBlock(tx, block.id, actor, { resolveChainPush: resolveChainPushFromDb, preloadedCalendar });
     if (!outcome.ok) {
       skipped.push({ id: block.id, orderNumber: block.orderNumber, reason: outcome.code });
       continue;

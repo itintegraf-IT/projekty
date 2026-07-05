@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { isAppError } from "@/lib/errors";
@@ -82,6 +83,13 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
   } catch (error: unknown) {
     if (isAppError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: errorStatus(error.code) });
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2028") {
+      logger.warn(`[POST /api/blocks/${id}/reflow] transakce vypršela (P2028)`);
+      return NextResponse.json(
+        { error: "Přepočet trval příliš dlouho — zkuste to znovu, případně po menších částech." },
+        { status: 503 },
+      );
     }
     logger.error(`[POST /api/blocks/${id}/reflow]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });

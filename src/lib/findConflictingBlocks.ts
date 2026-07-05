@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { civilDateToUTCMidnight } from "@/lib/dateUtils";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
 import { checkScheduleViolationWithTemplates, serializeWeekShifts } from "@/lib/scheduleValidation";
+import { AppError } from "@/lib/errors";
 
 export type ConflictingBlock = {
   id: number;
@@ -91,16 +92,32 @@ function buildSynthRows(machine: string, weekStartStr: string, newRows: WeekRowI
   }));
 }
 
+/** Strukturální podmnožina Prisma klienta potřebná pro fetch+detekci — funguje
+ * s top-level `prisma` i s `tx` uvnitř `$transaction` (obě volající místa: pre-transakční
+ * `findConflictingBlocks` a in-transaction TOCTOU re-check `assertNoConflictingBlocks`). */
+export type ConflictCheckClient = {
+  block: {
+    findMany: (args: {
+      where: { machine: string } & ReturnType<typeof conflictWindowWhere>;
+      select: { id: true; orderNumber: true; description: true; startTime: true; endTime: true };
+    }) => Promise<Array<{ id: number; orderNumber: string; description: string | null; startTime: Date; endTime: Date }>>;
+  };
+  machineWeekShifts: {
+    findMany: (args: {
+      where: { machine: string; weekStart: { in: Date[] } };
+    }) => Promise<Parameters<typeof serializeWeekShifts>[0]>;
+  };
+};
+
 /**
- * Najde bloky typu ZAKAZKA/DATA/MATERIAL, které po změně pracovní doby
- * spadnou mimo aktivní intervaly.
- *
- * Okno i validační řádky viz `computeConflictWindow`/`neighborWeekStarts` — span-overlap
- * okno chytá i bloky přesahující přes hranice editovaného týdne (spec 3.9) a fetch
- * sousedních týdnů zajišťuje, že se jejich sloty validují proti skutečnému rozvrhu,
- * ne proti `isHardcodedBlocked` fallbacku.
+ * Fetch bloků dotčených editací týdne (span-overlap okno + sousední týdny pro slotovou
+ * validaci) + čistá detekce (`detectConflictsPure`) — sdílené jádro pro `findConflictingBlocks`
+ * (pre-transakční, volá s `prisma`) i `assertNoConflictingBlocks` (in-transaction TOCTOU
+ * re-check, volá s `tx`). Viz `computeConflictWindow`/`neighborWeekStarts` pro odůvodnění
+ * okna a sousedních řádků (spec 3.9).
  */
-export async function findConflictingBlocks(
+async function fetchConflictingBlocks(
+  db: ConflictCheckClient,
   machine: string,
   weekStartStr: string,
   newRows: WeekRowInput[],
@@ -108,16 +125,51 @@ export async function findConflictingBlocks(
   const [prevWeek, nextWeek] = neighborWeekStarts(weekStartStr);
 
   const [blocks, neighborRawRows] = await Promise.all([
-    prisma.block.findMany({
+    db.block.findMany({
       where: { machine, ...conflictWindowWhere(weekStartStr) },
       select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
     }),
-    prisma.machineWeekShifts.findMany({
+    db.machineWeekShifts.findMany({
       where: { machine, weekStart: { in: [civilDateToUTCMidnight(prevWeek), civilDateToUTCMidnight(nextWeek)] } },
     }),
   ]);
 
   return detectConflictsPure(machine, weekStartStr, newRows, blocks, serializeWeekShifts(neighborRawRows));
+}
+
+/**
+ * Najde bloky typu ZAKAZKA/DATA/MATERIAL, které po změně pracovní doby
+ * spadnou mimo aktivní intervaly. Pre-transakční volání (top-level `prisma`) — použité
+ * pro info toast s výčtem konfliktů PŘED tím, než uživatel potvrdí force save.
+ */
+export async function findConflictingBlocks(
+  machine: string,
+  weekStartStr: string,
+  newRows: WeekRowInput[],
+): Promise<ConflictingBlock[]> {
+  return fetchConflictingBlocks(prisma, machine, weekStartStr, newRows);
+}
+
+/**
+ * TOCTOU re-check uvnitř `$transaction` (`machine-week-shifts` PUT) — mezi pre-transakčním
+ * `findConflictingBlocks` a commitem mohl jiný uživatel vytvořit konfliktní blok; toto
+ * volání běží na `tx` (vidí i rozpracovaný stav transakce) a při jakémkoli konfliktu
+ * hodí `AppError("CONFLICT", raceErrorMessage)` — volající ho nechává bublat (rollback
+ * celé transakce), NECHYTÁ ho zde. Stejné dotazy/stejné okno jako `findConflictingBlocks`
+ * (obě volají `fetchConflictingBlocks`) — žádné dvě místa v kódu nemohou nezávisle
+ * rozjet tvar `where` nebo validačních řádků.
+ */
+export async function assertNoConflictingBlocks(
+  db: ConflictCheckClient,
+  machine: string,
+  weekStartStr: string,
+  newRows: WeekRowInput[],
+  raceErrorMessage: string,
+): Promise<void> {
+  const conflicts = await fetchConflictingBlocks(db, machine, weekStartStr, newRows);
+  if (conflicts.length > 0) {
+    throw new AppError("CONFLICT", raceErrorMessage);
+  }
 }
 
 /**

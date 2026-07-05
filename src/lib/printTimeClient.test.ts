@@ -8,6 +8,8 @@ import {
   getBlockSegments,
   printMidpoint,
   blockCalendarDrift,
+  blockReportSegments,
+  printOverlapMinutes,
 } from "./printTimeClient";
 import { xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
 
@@ -232,4 +234,93 @@ test("blockCalendarDrift: ne-ZAKAZKA blok → null (i s driftovým endem)", () =
     printMinutes: 27 * 60, scheduleBypassed: false, printCompletedAt: null,
   };
   assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
+});
+
+// ── blockReportSegments + printOverlapMinutes (etapa 7 — reporty) ───────────
+
+// Souvislý blok: Út 18. 8. Praha 8:00–12:00 (06:00Z–10:00Z), pm=240, žádná pauza.
+const CONT = {
+  type: "ZAKAZKA", machine: "XL_106", printMinutes: 240,
+  startTime: "2026-08-18T06:00:00.000Z", endTime: "2026-08-18T10:00:00.000Z",
+};
+// Blok přes víkendovou odstávku XL_106 (Pá 22:00 – Ne 22:00 Praha):
+// start Pá 21. 8. Praha 20:00 (18:00Z), pm=240 → 2 h print, pauza víkend, 2 h print,
+// end Po 00:00 Praha = 2026-08-23T22:00:00.000Z.
+const PAUSED = {
+  type: "ZAKAZKA", machine: "XL_106", printMinutes: 240,
+  startTime: "2026-08-21T18:00:00.000Z", endTime: "2026-08-23T22:00:00.000Z",
+};
+
+test("blockReportSegments: souvislý blok bez pauzy → segmenty (rozdíl od getBlockSegments)", () => {
+  const segs = blockReportSegments(CONT, SHIFTS, []);
+  assert.ok(segs);
+  assert.equal(segs!.length, 1);
+  assert.equal(segs![0].kind, "print");
+  assert.equal(segs![0].start.toISOString(), "2026-08-18T06:00:00.000Z");
+  assert.equal(segs![0].end.toISOString(), "2026-08-18T10:00:00.000Z");
+  // kontrast: getBlockSegments pro tentýž blok vrací null (overlay netřeba)
+  assert.equal(getBlockSegments(CONT, SHIFTS, []), null);
+});
+
+test("blockReportSegments: blok přes odstávku → print/pause/print", () => {
+  const segs = blockReportSegments(PAUSED, SHIFTS, []);
+  assert.ok(segs);
+  assert.deepEqual(segs!.map((s) => s.kind), ["print", "pause", "print"]);
+  assert.equal(segs![0].end.toISOString(), "2026-08-21T20:00:00.000Z");
+  assert.equal(segs![2].start.toISOString(), "2026-08-23T20:00:00.000Z");
+});
+
+test("blockReportSegments: drift endu → null", () => {
+  const segs = blockReportSegments({ ...CONT, endTime: "2026-08-18T11:00:00.000Z" }, SHIFTS, []);
+  assert.equal(segs, null);
+});
+
+test("blockReportSegments: bypass → null", () => {
+  assert.equal(blockReportSegments({ ...CONT, scheduleBypassed: true }, SHIFTS, []), null);
+});
+
+test("blockReportSegments: printMinutes null (legacy) → null", () => {
+  assert.equal(blockReportSegments({ ...CONT, printMinutes: null }, SHIFTS, []), null);
+});
+
+test("printOverlapMinutes: blok přes půlnoc se přes dva dny nedvojí (spec regrese)", () => {
+  // Po 24. 8. (W2) Praha 22:00 → Út 06:00, pm=480, souvislá noční směna.
+  const night = {
+    type: "ZAKAZKA", machine: "XL_106", printMinutes: 480,
+    startTime: "2026-08-24T20:00:00.000Z", endTime: "2026-08-25T04:00:00.000Z",
+  };
+  const segs = blockReportSegments(night, SHIFTS, []);
+  assert.ok(segs);
+  const day1 = printOverlapMinutes(segs, night, pragueToUTC("2026-08-24", 0, 0), pragueToUTC("2026-08-25", 0, 0));
+  const day2 = printOverlapMinutes(segs, night, pragueToUTC("2026-08-25", 0, 0), pragueToUTC("2026-08-26", 0, 0));
+  assert.equal(day1, 120);
+  assert.equal(day2, 360);
+  assert.equal(day1 + day2, 480); // = pm, žádné dvojité započtení
+});
+
+test("printOverlapMinutes: pauznutý blok má 0 minut v okně, kdy stroj stojí (spec regrese)", () => {
+  const segs = blockReportSegments(PAUSED, SHIFTS, []);
+  assert.ok(segs);
+  // Sobota (celý civilní den Praha) — blok stojí v pauze:
+  assert.equal(printOverlapMinutes(segs, PAUSED, pragueToUTC("2026-08-22", 0, 0), pragueToUTC("2026-08-23", 0, 0)), 0);
+  // Páteční odpolední směna 14–22 Praha — tiskne se 20:00–22:00:
+  assert.equal(printOverlapMinutes(segs, PAUSED, pragueToUTC("2026-08-21", 14, 0), pragueToUTC("2026-08-21", 22, 0)), 120);
+  // Nedělní noční směna 22–06 Praha — tiskne se 22:00–24:00:
+  assert.equal(printOverlapMinutes(segs, PAUSED, pragueToUTC("2026-08-23", 22, 0), pragueToUTC("2026-08-24", 6, 0)), 120);
+});
+
+test("printOverlapMinutes: segments=null → elapsed průnik (fallback pro ne-ZAKAZKA/legacy/drift)", () => {
+  const udrzba = { startTime: "2026-08-18T06:00:00.000Z", endTime: "2026-08-18T10:00:00.000Z" };
+  assert.equal(printOverlapMinutes(null, udrzba, new Date("2026-08-18T08:00:00.000Z"), new Date("2026-08-18T12:00:00.000Z")), 120);
+});
+
+test("printOverlapMinutes: okno mimo blok → 0; degenerované okno → 0", () => {
+  const segs = blockReportSegments(CONT, SHIFTS, []);
+  assert.equal(printOverlapMinutes(segs, CONT, new Date("2026-08-19T00:00:00.000Z"), new Date("2026-08-20T00:00:00.000Z")), 0);
+  assert.equal(printOverlapMinutes(segs, CONT, new Date("2026-08-18T08:00:00.000Z"), new Date("2026-08-18T08:00:00.000Z")), 0);
+});
+
+test("printOverlapMinutes: nezarovnané okno klipuje po minutách (intervalová matematika)", () => {
+  const segs = blockReportSegments(CONT, SHIFTS, []);
+  assert.equal(printOverlapMinutes(segs, CONT, new Date("2026-08-18T06:15:00.000Z"), new Date("2026-08-18T06:45:00.000Z")), 30);
 });

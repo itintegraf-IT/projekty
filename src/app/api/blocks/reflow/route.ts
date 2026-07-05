@@ -1,13 +1,13 @@
 import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { isAppError } from "@/lib/errors";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { reflowMachineInTx } from "@/lib/reflow.server";
 import { emitSSE } from "@/lib/eventBus";
-
-const MACHINES = ["XL_105", "XL_106"] as const;
+import { MACHINES } from "@/lib/machines";
 
 /** Mapping AppError kódů z chain push (resolveChainPushFromDb) — vzor `[id]/reflow/route.ts`. */
 function errorStatus(code: string): number {
@@ -80,6 +80,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: `Přepočet zastaven: ${error.message}`, code: error.code },
         { status: errorStatus(error.code) }
+      );
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2028") {
+      logger.warn("[POST /api/blocks/reflow] transakce vypršela (P2028)", { machine });
+      return NextResponse.json(
+        { error: "Přepočet trval příliš dlouho — zkuste to znovu, případně po menších částech." },
+        { status: 503 },
       );
     }
     logger.error("[POST /api/blocks/reflow]", error);

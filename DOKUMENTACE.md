@@ -112,6 +112,12 @@ Vlastnosti:
 - automatické vyvolání tisku po načtení
 - serverové API `GET /api/report/daily`
 
+Vytížení v reportech (denní report i dashboard s přehledy) počítá skutečný tiskový čas,
+ne kalendářní délku bloku: zakázka čekající přes odstávku (např. přes noc nebo o víkendu)
+tak nenafukuje vytížení stroje a nepočítá se dvakrát, i když blok reálně zasahuje přes
+půlnoc. V denním reportu se zakázka zobrazí jen ve směnách, kdy se na ní skutečně tiskne —
+ve směně, kdy stroj kvůli pauze stojí, se neukáže.
+
 ## Role a přístup
 
 | Role | Co typicky dělá |

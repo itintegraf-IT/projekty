@@ -180,11 +180,11 @@ describe("computeUtilization", () => {
 // ---------------------------------------------------------------------------
 describe("computeThroughput", () => {
   const blocks = [
-    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105" },
-    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-15T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105" },
-    { type: "ZAKAZKA", printCompletedAt: null, createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105" },
-    { type: "ODSTÁVKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105" },
-    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-20T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-19T06:00:00Z"), endTime: new Date("2026-04-19T10:00:00Z"), machine: "XL_105" },
+    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105", printMinutes: null },
+    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-15T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105", printMinutes: null },
+    { type: "ZAKAZKA", printCompletedAt: null, createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105", printMinutes: null },
+    { type: "ODSTÁVKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105", printMinutes: null },
+    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-20T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-19T06:00:00Z"), endTime: new Date("2026-04-19T10:00:00Z"), machine: "XL_105", printMinutes: null },
   ];
 
   it("counts only ZAKAZKA with printCompletedAt in range", () => {
@@ -202,8 +202,8 @@ describe("computeThroughput", () => {
 describe("computeAvgLeadTimeDays", () => {
   it("average lead time calculation", () => {
     const blocks = [
-      { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105" },
-      { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-16T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-15T06:00:00Z"), endTime: new Date("2026-04-15T10:00:00Z"), machine: "XL_105" },
+      { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105", printMinutes: null },
+      { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-16T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-15T06:00:00Z"), endTime: new Date("2026-04-15T10:00:00Z"), machine: "XL_105", printMinutes: null },
     ];
     // Block 1: 4 days, Block 2: 6 days → avg 5
     const result = computeAvgLeadTimeDays(blocks, "2026-04-13", "2026-04-17");
@@ -216,7 +216,7 @@ describe("computeAvgLeadTimeDays", () => {
 
   it("no completed blocks in range → 0", () => {
     const blocks = [
-      { type: "ZAKAZKA", printCompletedAt: null, createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105" },
+      { type: "ZAKAZKA", printCompletedAt: null, createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105", printMinutes: null },
     ];
     assert.equal(computeAvgLeadTimeDays(blocks, "2026-04-13", "2026-04-17"), 0);
   });
@@ -290,31 +290,35 @@ describe("computePlanStability", () => {
 // computeBlockHours
 // ---------------------------------------------------------------------------
 describe("computeBlockHours", () => {
-  const blocks = [
-    { type: "ZAKAZKA", machine: "XL_105", startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), printCompletedAt: null, createdAt: new Date() },
-    { type: "ZAKAZKA", machine: "XL_105", startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T14:00:00Z"), printCompletedAt: null, createdAt: new Date() },
-    { type: "ODSTÁVKA", machine: "XL_105", startTime: new Date("2026-04-15T06:00:00Z"), endTime: new Date("2026-04-15T10:00:00Z"), printCompletedAt: null, createdAt: new Date() },
-    { type: "ZAKAZKA", machine: "XL_106", startTime: new Date("2026-04-15T06:00:00Z"), endTime: new Date("2026-04-15T10:00:00Z"), printCompletedAt: null, createdAt: new Date() },
-  ];
-
-  it("sums hours for matching machine and type", () => {
-    // Block 1: 4h, Block 2: 8h = 12h total for XL_105 ZAKAZKA
-    assert.equal(computeBlockHours(blocks, "XL_105", "ZAKAZKA"), 12);
+  const mk = (over: Partial<Parameters<typeof computeBlockHours>[0][number]>) => ({
+    type: "ZAKAZKA", machine: "XL_106",
+    startTime: new Date("2026-08-21T18:00:00.000Z"),
+    endTime: new Date("2026-08-23T22:00:00.000Z"), // elapsed 52 h
+    printMinutes: 240 as number | null,
+    printCompletedAt: null, createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    ...over,
   });
 
-  it("filters by type", () => {
-    assert.equal(computeBlockHours(blocks, "XL_105", "ODSTÁVKA"), 4);
+  it("ZAKAZKA s printMinutes → tiskové hodiny, ne elapsed (pauznutý blok)", () => {
+    assert.equal(computeBlockHours([mk({})], "XL_106", "ZAKAZKA"), 4);
   });
-
-  it("filters by machine", () => {
-    assert.equal(computeBlockHours(blocks, "XL_106", "ZAKAZKA"), 4);
+  it("ZAKAZKA s printMinutes=null (legacy) → elapsed fallback", () => {
+    assert.equal(
+      computeBlockHours([mk({ printMinutes: null, endTime: new Date("2026-08-21T22:00:00.000Z") })], "XL_106", "ZAKAZKA"),
+      4,
+    );
   });
-
-  it("no matching blocks → 0", () => {
-    assert.equal(computeBlockHours(blocks, "XL_106", "ODSTÁVKA"), 0);
+  it("UDRZBA ignoruje printMinutes → elapsed", () => {
+    assert.equal(
+      computeBlockHours([mk({ type: "UDRZBA", printMinutes: 999, endTime: new Date("2026-08-21T20:00:00.000Z") })], "XL_106", "UDRZBA"),
+      2,
+    );
   });
-
-  it("empty array → 0", () => {
-    assert.equal(computeBlockHours([], "XL_105", "ZAKAZKA"), 0);
+  it("filtruje stroj a typ", () => {
+    assert.equal(computeBlockHours([mk({ machine: "XL_105" })], "XL_106", "ZAKAZKA"), 0);
+    assert.equal(computeBlockHours([mk({})], "XL_106", "UDRZBA"), 0);
+  });
+  it("prázdný vstup → 0", () => {
+    assert.equal(computeBlockHours([], "XL_106", "ZAKAZKA"), 0);
   });
 });

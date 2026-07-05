@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { addDaysToCivilDate, pragueToUTC } from "@/lib/dateUtils";
+import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
+import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 
 // ─── typy ───────────────────────────────────────────────────────────────────
 
@@ -17,7 +19,11 @@ interface Block {
   specifikace: string | null;
   locked: boolean;
   deadlineExpedice: string | null;
+  printMinutes?: number | null;
+  scheduleBypassed?: boolean;
 }
+
+type CompanyDayRow = { machine?: string | null; startDate: string; endDate: string };
 
 // ─── konstanty ───────────────────────────────────────────────────────────────
 
@@ -89,10 +95,16 @@ function fmtDuration(startIso: string, endIso: string): string {
   return `${h}h ${m}min`;
 }
 
-function blockOverlapsShift(block: Block, shiftStart: Date, shiftEnd: Date): boolean {
-  const bs = new Date(block.startTime).getTime();
-  const be = new Date(block.endTime).getTime();
-  return bs < shiftEnd.getTime() && be > shiftStart.getTime();
+// Průnik TISKOVÝCH segmentů se směnou — pauznutý blok se nesmí objevit ve
+// směně, kdy stroj stojí. Fallback (null) = span overlap jako dřív
+// (ne-ZAKAZKA, bypass, legacy, drift).
+function blockPrintsInShift(
+  block: Block,
+  segments: PrintSegment[] | null,
+  shiftStart: Date,
+  shiftEnd: Date,
+): boolean {
+  return printOverlapMinutes(segments, block, shiftStart, shiftEnd) > 0;
 }
 
 function getShiftBounds(dateStr: string, shift: Shift): { start: Date; end: Date } {
@@ -110,6 +122,8 @@ export default function ReportView() {
   const dateParam = searchParams.get("date") ?? "";
 
   const [blocks, setBlocks] = useState<Block[]>([]);
+  const [weekShifts, setWeekShifts] = useState<MachineWeekShiftsRow[]>([]);
+  const [companyDays, setCompanyDays] = useState<CompanyDayRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,8 +138,10 @@ export default function ReportView() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data: Block[]) => {
-        setBlocks(data);
+      .then((data: { blocks: Block[]; weekShifts: MachineWeekShiftsRow[]; companyDays: CompanyDayRow[] }) => {
+        setBlocks(data.blocks);
+        setWeekShifts(data.weekShifts);
+        setCompanyDays(data.companyDays);
         setLoading(false);
       })
       .catch((e) => {
@@ -166,6 +182,10 @@ export default function ReportView() {
 
   const xl105 = blocks.filter((b) => b.machine === "XL_105");
   const xl106 = blocks.filter((b) => b.machine === "XL_106");
+
+  // Segmenty 1× per blok — směnová smyčka (2–3× per stroj) by expanzi jinak opakovala.
+  const segMap = new Map<Block, PrintSegment[] | null>();
+  for (const b of blocks) segMap.set(b, blockReportSegments(b, weekShifts, companyDays));
 
   return (
     <>
@@ -238,8 +258,8 @@ export default function ReportView() {
 
         {/* ── Dvě strojové sekce ── */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          <MachineSection label="XL 105" blocks={xl105} shifts={SHIFTS_105} dateStr={dateParam} />
-          <MachineSection label="XL 106" blocks={xl106} shifts={SHIFTS_106} dateStr={dateParam} />
+          <MachineSection label="XL 105" blocks={xl105} shifts={SHIFTS_105} dateStr={dateParam} segMap={segMap} />
+          <MachineSection label="XL 106" blocks={xl106} shifts={SHIFTS_106} dateStr={dateParam} segMap={segMap} />
         </div>
       </div>
     </>
@@ -249,12 +269,13 @@ export default function ReportView() {
 // ─── sekce stroje ─────────────────────────────────────────────────────────────
 
 function MachineSection({
-  label, blocks, shifts, dateStr,
+  label, blocks, shifts, dateStr, segMap,
 }: {
   label: string;
   blocks: Block[];
   shifts: Shift[];
   dateStr: string;
+  segMap: Map<Block, PrintSegment[] | null>;
 }) {
   return (
     <div>
@@ -269,7 +290,7 @@ function MachineSection({
       <div style={{ border: "1px solid #e5e7eb", borderTop: "none", borderRadius: "0 0 7px 7px", overflow: "hidden" }}>
         {shifts.map((shift, si) => {
           const { start: shiftStart, end: shiftEnd } = getShiftBounds(dateStr, shift);
-          const shiftBlocks = blocks.filter((b) => blockOverlapsShift(b, shiftStart, shiftEnd));
+          const shiftBlocks = blocks.filter((b) => blockPrintsInShift(b, segMap.get(b) ?? null, shiftStart, shiftEnd));
 
           return (
             <div key={si} style={{ borderBottom: si < shifts.length - 1 ? "1px solid #e5e7eb" : "none" }}>

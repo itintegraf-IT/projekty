@@ -7,11 +7,11 @@ import { civilDateToUTCMidnight, parseCivilDateWriteInput, normalizeCivilDateInp
 import { emitSSE } from "@/lib/eventBus";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { SHIFT_EDIT_RANGES, fmtHHMM } from "@/lib/shifts";
-import { findConflictingBlocks, conflictWindowWhere, computeConflictWindow, neighborWeekStarts } from "@/lib/findConflictingBlocks";
-import { checkScheduleViolationWithTemplates, serializeWeekShifts } from "@/lib/scheduleValidation";
+import { findConflictingBlocks, assertNoConflictingBlocks, computeConflictWindow } from "@/lib/findConflictingBlocks";
 import { checkRateLimit } from "@/lib/rateLimiter";
 import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
 import type { SessionUser } from "@/lib/auth";
+import { MACHINES } from "@/lib/machines";
 
 function errorStatus(code: string): number {
   if (code === "FORBIDDEN") return 403;
@@ -20,8 +20,6 @@ function errorStatus(code: string): number {
   if (code === "CONFLICT" || code === "OVERLAP") return 409;
   return 500;
 }
-
-const MACHINES = ["XL_105", "XL_106"] as const;
 
 type DayInput = {
   dayOfWeek: number;
@@ -328,44 +326,11 @@ export async function PUT(req: Request) {
     const updated = await prisma.$transaction(async (tx) => {
       // Re-check cascade v transakci (TOCTOU protection).
       // Mezi findConflictingBlocks (před transakcí) a commitem mohl jiný uživatel
-      // vytvořit konfliktní blok — tento re-check to zachytí.
-      // Okno + validační řádky shodné s findConflictingBlocks (span-overlap +6h a fetch
-      // sousedních týdnů) — jinak by re-check trpěl stejným bugem, který opravuje (spec 3.9).
-      // `conflictWindowWhere` je jediný zdroj pravdy pro tvar where klauzule (viz
-      // findConflictingBlocks.ts) — obě místa tak nemohou nezávisle prohodit strany srovnání.
+      // vytvořit konfliktní blok — tento re-check to zachytí. Sdílené jádro s
+      // findConflictingBlocks (fetchConflictingBlocks) — obě volání tak nemohou
+      // nezávisle rozjet tvar where klauzule ani validačních řádků (spec 3.9).
       if (!force) {
-        const [prevWeek, nextWeek] = neighborWeekStarts(parsedWeek);
-        const [blocks, neighborRawRows] = await Promise.all([
-          tx.block.findMany({
-            where: { machine, ...conflictWindowWhere(parsedWeek) },
-            select: { id: true, orderNumber: true, description: true, startTime: true, endTime: true },
-          }),
-          tx.machineWeekShifts.findMany({
-            where: { machine, weekStart: { in: [civilDateToUTCMidnight(prevWeek), civilDateToUTCMidnight(nextWeek)] } },
-          }),
-        ]);
-        const synthRows: MachineWeekShiftsRow[] = normalized.map((r) => ({
-          machine,
-          weekStart: parsedWeek,
-          dayOfWeek: r.dayOfWeek,
-          isActive: r.isActive,
-          morningOn: r.morningOn,
-          afternoonOn: r.afternoonOn,
-          nightOn: r.nightOn,
-          morningStartMin: r.morningStartMin,
-          morningEndMin: r.morningEndMin,
-          afternoonStartMin: r.afternoonStartMin,
-          afternoonEndMin: r.afternoonEndMin,
-          nightStartMin: r.nightStartMin,
-          nightEndMin: r.nightEndMin,
-        }));
-        const allRows = [...synthRows, ...serializeWeekShifts(neighborRawRows)];
-        for (const b of blocks) {
-          const violation = checkScheduleViolationWithTemplates(machine, b.startTime, b.endTime, allRows);
-          if (violation) {
-            throw new AppError("CONFLICT", "SHIFT_SHRINK_CASCADE_RACE");
-          }
-        }
+        await assertNoConflictingBlocks(tx, machine, parsedWeek, normalized, "SHIFT_SHRINK_CASCADE_RACE");
       }
 
       for (const d of normalized) {

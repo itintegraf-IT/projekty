@@ -5,9 +5,7 @@ import { getSession } from "@/lib/auth";
 import { parseCompanyDayDateTimeInput, serializeCompanyDay } from "@/lib/companyDaySerialization";
 import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
 import { emitSSE } from "@/lib/eventBus";
-
-const VALID_MACHINES = ["XL_105", "XL_106"] as const;
-const ALL_MACHINES = ["XL_105", "XL_106"];
+import { MACHINES } from "@/lib/machines";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -26,7 +24,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (!startDate || !endDate || !label) {
     return NextResponse.json({ error: "Chybí povinná pole" }, { status: 400 });
   }
-  if (machine != null && !VALID_MACHINES.includes(machine)) {
+  if (machine != null && !MACHINES.includes(machine)) {
     return NextResponse.json({ error: "Neplatná hodnota stroje" }, { status: 400 });
   }
 
@@ -34,6 +32,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const parsedEnd = parseCompanyDayDateTimeInput(endDate);
   if (!parsedStart || !parsedEnd) {
     return NextResponse.json({ error: "Neplatný formát datumu a času" }, { status: 400 });
+  }
+  if (parsedEnd.getTime() <= parsedStart.getTime()) {
+    return NextResponse.json({ error: "Konec odstávky musí být po jejím začátku." }, { status: 400 });
   }
 
   try {
@@ -54,7 +55,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       const windowEnd = existing.endDate.getTime() > parsedEnd.getTime() ? existing.endDate : parsedEnd;
       const machines =
         existing.machine === null || machine == null
-          ? ALL_MACHINES
+          ? [...MACHINES]
           : Array.from(new Set([existing.machine, machine]));
 
       const drifted = await detectCalendarDrift(tx, machines, windowStart, windowEnd, new Date());
@@ -97,7 +98,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
 
       await tx.companyDay.delete({ where: { id: numId } });
 
-      const machines = existing.machine === null ? ALL_MACHINES : [existing.machine];
+      const machines = existing.machine === null ? [...MACHINES] : [existing.machine];
       const drifted = await detectCalendarDrift(tx, machines, existing.startDate, existing.endDate, new Date());
       await notifyCalendarDrift(tx, drifted, session, `Zrušení odstávky „${existing.label}"`);
     });
