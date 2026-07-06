@@ -95,8 +95,8 @@ function addDaysStr(dateStr: string, days: number): string {
  *
  * Po seedu (jen když reálně vzniknou nové řádky) spustí detekci driftu na strojích,
  * které byly seedovány — seed kopíruje předchozí týden, takže drift vznikne jen když
- * se rozvrh reálně liší od fallbacku, na kterém bloky dosud stály. Bez `$transaction`
- * (createMany je jediný zápis) — detekce/notifikace jdou přímo přes `prisma`.
+ * se rozvrh reálně liší od fallbacku, na kterém bloky dosud stály. Seed + detekce +
+ * notifikace běží v jedné `$transaction` (parita s PUT a company-days mutacemi).
  */
 async function ensureWeekSeeded(weekStartStr: string, session: SessionUser): Promise<void> {
   const weekStartDate = civilDateToUTCMidnight(weekStartStr);
@@ -144,12 +144,25 @@ async function ensureWeekSeeded(weekStartStr: string, session: SessionUser): Pro
   }
 
   if (seeds.length === 0) return;
-  await prisma.machineWeekShifts.createMany({ data: seeds, skipDuplicates: true });
-  logger.info("[machine-week-shifts] auto-seeded week", { weekStart: weekStartStr, count: seeds.length });
 
+  // Seed (createMany) + detekce + notifikace atomicky v jedné transakci — parita s PUT a
+  // company-days, kde zápis kalendáře a navazující drift-notifikace běží pod jednou tx
+  // (nekonzistentní stav: řádky vytvořeny, notifikace ne — nebo naopak — je nežádoucí).
   const { from, to } = computeConflictWindow(weekStartStr);
-  const drifted = await detectCalendarDrift(prisma, missingMachines, from, to, new Date());
-  await notifyCalendarDrift(prisma, drifted, session, `Auto-seed týdne ${weekStartStr}`);
+  await prisma.$transaction(async (tx) => {
+    await tx.machineWeekShifts.createMany({ data: seeds, skipDuplicates: true });
+    const drifted = await detectCalendarDrift(tx, missingMachines, from, to, new Date());
+    // Seed je systémový vedlejší efekt GETu — notifikaci NEatribuovat uživateli, jehož
+    // request ho náhodou spustil (UI zobrazuje „od {username}"). Id triggeru zůstává
+    // v createdByUserId pro dohledatelnost (M-A z finálního review etapy 6).
+    await notifyCalendarDrift(
+      tx,
+      drifted,
+      { id: session.id, username: "systém (auto-seed)" },
+      `Auto-seed týdne ${weekStartStr}`
+    );
+  });
+  logger.info("[machine-week-shifts] auto-seeded week", { weekStart: weekStartStr, count: seeds.length });
 }
 
 export async function GET(req: Request) {
@@ -164,6 +177,17 @@ export async function GET(req: Request) {
       if (!parsed) throw new AppError("VALIDATION_ERROR", "Neplatný weekStart");
       if (parsed !== weekStartStrFromDateStr(parsed))
         throw new AppError("VALIDATION_ERROR", "weekStart musí být pondělí");
+
+      // ensureWeekSeeded je ZÁPIS (createMany + notifikace) — rate-limit, aby GET nešel obejít
+      // limit, který má PUT. Volnější než PUT (120/min per user), protože legitimní klient
+      // seedne každý zobrazený týden jednou; 429 tvar shodný s PUT (Retry-After header).
+      const { allowed, retryAfterSeconds } = checkRateLimit("get-shifts-seed", String(session.id), 120, 60 * 1000);
+      if (!allowed) {
+        return NextResponse.json(
+          { error: `Příliš mnoho requestů. Zkuste znovu za ${retryAfterSeconds}s.` },
+          { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+        );
+      }
 
       await ensureWeekSeeded(parsed, session);
 

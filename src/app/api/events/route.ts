@@ -1,6 +1,7 @@
 import { getSession } from "@/lib/auth";
 import { eventBus, type SSEEventType, type SSEPayload } from "@/lib/eventBus";
 import { logger } from "@/lib/logger";
+import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +67,11 @@ function shouldSendEvent(
 
   if (role === "TISKAR") {
     if (!BLOCK_EVENTS.includes(event)) return false;
+    // Batch eventy (block:batch-updated / chain push) nesou `blocks` (pole), ne `block`/`machine` —
+    // filtr proto musí koukat do pole, jinak TISKAR nedostane updaty vlastního stroje (fail-closed).
+    if (Array.isArray(payload.blocks)) {
+      return (payload.blocks as { machine?: string }[]).some((b) => b?.machine === assignedMachine);
+    }
     const machine = (payload.machine as string) ?? (payload.block as { machine?: string })?.machine;
     return machine === assignedMachine;
   }
@@ -87,6 +93,31 @@ const encoder = new TextEncoder();
 
 function formatSSE(event: string, data: unknown): Uint8Array {
   return encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+/**
+ * Tiskařské poznámky (`notes`) smí vidět jen ADMIN/PLANOVAT/TISKAR. Block SSE payloady
+ * (block:created/updated/batch-updated) ale nesou notes všem připojeným rolím. Pro příjemce
+ * bez práva vrátíme MĚLKOU kopii payloadu, kde je v `block`/`blocks` pole `notes` vyprázdněno.
+ *
+ * NEMUTUJE sdílený payload objekt (ten je jeden pro všechny connections) — kopíruje jen dotčené
+ * úrovně. Když příjemce právo má nebo payload žádné bloky nenese, vrací původní objekt.
+ */
+function stripNotesFromPayload(payload: SSEPayload): SSEPayload {
+  const hasSingle = payload.block && typeof payload.block === "object";
+  const hasArray = Array.isArray(payload.blocks);
+  if (!hasSingle && !hasArray) return payload;
+
+  const next: SSEPayload = { ...payload };
+  if (hasSingle) {
+    next.block = { ...(payload.block as Record<string, unknown>), notes: [] };
+  }
+  if (hasArray) {
+    next.blocks = (payload.blocks as Record<string, unknown>[]).map((b) =>
+      b && typeof b === "object" ? { ...b, notes: [] } : b
+    );
+  }
+  return next;
 }
 
 // ── GET handler ────────────────────────────────────────────────────────────
@@ -136,10 +167,16 @@ export async function GET() {
         "reservation:updated", "schedule:changed",
       ];
 
+      // Poznámky vidí jen ADMIN/PLANOVAT/TISKAR — spočítáno jednou per connection.
+      const canSeeNotes = canAccessBlockNotes(authedSession.role as NoteRole);
+
       function onEvent(event: SSEEventType, payload: SSEPayload) {
         if (!shouldSendEvent(event, payload, authedSession)) return;
+        // Block payloady (created/updated/batch-updated) nesou serializované bloky včetně notes;
+        // pro příjemce bez práva je zestripovat (kopie, sdílený payload se nemutuje).
+        const outgoing = canSeeNotes ? payload : stripNotesFromPayload(payload);
         try {
-          controller.enqueue(formatSSE(event, payload));
+          controller.enqueue(formatSSE(event, outgoing));
         } catch {
           if (cleanup) cleanup();
         }

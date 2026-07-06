@@ -13,7 +13,7 @@ import { loadMachineCalendar } from "@/lib/printTime.server";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { emitSSE } from "@/lib/eventBus";
-import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
+import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -131,7 +131,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     // (blok mohl být mimo provoz jako REZERVACE a přejmenovat se na ZAKAZKA).
     //
     // Sémantika printMinutes (viz docs/superpowers/sdd task-4-brief.md):
-    //  1) explicitní body.printMinutes → autoritativní
+    //  1) explicitní allowed.printMinutes → autoritativní
     //  2) resize (mění se JEN endTime, start/machine beze změny) → inverze z nového endu
     //     (bypass blok → prostý elapsed)
     //  3) move (mění se start/machine) NEBO end beze změny → printMinutes ze záznamu;
@@ -141,10 +141,14 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     //
     // Výpočet samotný běží AŽ uvnitř $transaction (derivováno z in-tx `oldBlock`), aby
     // nedošlo k TOCTOU race mezi pre-tx čtením a zápisem (Finding B).
+    // printMinutes se čte z role-filtrovaného `allowed`, NE ze syrového body — jinak by DTP/MTZ
+    // (bez printMinutes v allowlistu) mohl přiložením printMinutes k povolenému fieldu vyvolat
+    // přepočet endu cizího bloku. ADMIN/PLANOVAT mají allowed = body → printMinutes průchozí.
+    const allowedPrintMinutes = (allowed as Record<string, unknown>).printMinutes;
     const timingChanged = allowed.startTime !== undefined || allowed.endTime !== undefined || allowed.machine !== undefined;
     const typeChangesToZakazka = allowed.type === "ZAKAZKA";
     const needsScheduleComputation =
-      timingChanged || typeChangesToZakazka || allowed.type !== undefined || typeof body.printMinutes === "number";
+      timingChanged || typeChangesToZakazka || allowed.type !== undefined || typeof allowedPrintMinutes === "number";
 
     const AUDITED_FIELDS = [
       "dataStatusLabel", "dataRequiredDate", "dataOk",
@@ -209,8 +213,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           const bypass = (startOrMachineChanged || isResize) ? bypassScheduleValidation : oldBlock.scheduleBypassed;
 
           let pm: number | null;
-          if (typeof body.printMinutes === "number") {
-            pm = body.printMinutes;                              // 1) explicitní
+          if (typeof allowedPrintMinutes === "number") {
+            pm = allowedPrintMinutes;                            // 1) explicitní (z role-filtrovaného allowed)
           } else if (isResize) {
             // 2) resize — inverze z nového endu (start/machine beze změny)
             if (bypass) {
@@ -532,7 +536,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       return { block: updated, shifted: shiftedMoves };
     }, { timeout: 15000, maxWait: 5000 });
 
-    // Refetch s Reservation a notes include — PUT smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
+    // Refetch VŽDY s notes include — SSE broadcast nese poznámky a per-connection strip v
+    // /api/events je zahodí rolím bez práva (D2b). Do PŘÍMÉ odpovědi mutujícímu se ale poznámky
+    // vloží jen když na ně má právo: PUT smí volat i DTP/MTZ (editace DATA/MATERIÁL polí), ti
+    // tiskařské poznámky vidět nemají (jejich lokální bloky je stejně nemají — merge je konzistentní).
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
     const blockWithRes = await prisma.block.findUnique({
       where: { id: block.id },
       include: {
@@ -557,7 +565,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       emitSSE("block:batch-updated", { blocks: serializedShifted, sourceUserId: session.id });
     }
 
-    return NextResponse.json({ ...serializeBlock(blockWithRes), shifted: serializedShifted });
+    // Odpověď mutujícímu — poznámky zestripovat, pokud na ně jeho role nemá právo (DTP/MTZ).
+    const responseBlock = stripNotesIfDenied(serializeBlock(blockWithRes), canSeeNotes);
+    const responseShifted = serializedShifted.map((b) => stripNotesIfDenied(b, canSeeNotes));
+    return NextResponse.json({ ...responseBlock, shifted: responseShifted });
   } catch (error: unknown) {
     if (isAppError(error)) {
       const statusMap: Record<string, number> = {

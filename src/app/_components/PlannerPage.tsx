@@ -1080,11 +1080,36 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }, [showToast, applyServerBlocks]);
 
   const handleSSEReconnect = useCallback(() => {
-    // Po reconnectu: full fetch bloků
+    // Po reconnectu: full fetch bloků. Na rozdíl od pollBlocks (5min fallback merge nad prev,
+    // který nikdy nic neodstraňuje) je fresh tady AUTORITATIVNÍ seznam — během výpadku SSE
+    // mohl klient zmeškat block:deleted eventy, takže bloky chybějící ve fresh MUSÍ zmizet,
+    // jinak by v UI zůstaly navždy jako duchové (proto se staví nad freshBlocks.map, ne
+    // prev.map jako pollBlocks). editingBlockIdsRef guard chrání OBSAH rozeditovaného bloku
+    // stejně jako pollBlocks's mergeFromServer (lokální rozpracovaná verze se nepřepíše server
+    // verzí) — pokud je ale blok smazaný na serveru (chybí ve fresh), guard existenci nezachrání,
+    // stejně jako to řeší SSE block:deleted handler výše (zavře selectedBlock/editingBlock).
     fetch("/api/blocks")
       .then((r) => r.ok ? r.json() : null)
       .then((freshBlocks: Block[] | null) => {
-        if (freshBlocks) setBlocks(freshBlocks);
+        if (!freshBlocks) return;
+        const freshById = new Map(freshBlocks.map((block) => [block.id, block]));
+        setBlocks((prev) => {
+          const prevById = new Map(prev.map((block) => [block.id, block]));
+          return freshBlocks.map((f) => {
+            if (editingBlockIdsRef.current.has(f.id)) return prevById.get(f.id) ?? f;
+            return f;
+          });
+        });
+        setSelectedBlock((sel) => {
+          if (!sel) return sel;
+          if (editingBlockIdsRef.current.has(sel.id) && freshById.has(sel.id)) return sel;
+          return freshById.get(sel.id) ?? null;
+        });
+        setEditingBlock((eb) => {
+          if (!eb) return eb;
+          if (editingBlockIdsRef.current.has(eb.id) && freshById.has(eb.id)) return eb;
+          return freshById.get(eb.id) ?? null;
+        });
       })
       .catch(() => {});
   }, []);
@@ -2396,29 +2421,76 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
       // Vytvořit children bloky (pokud opakování > 1).
       // resolveChain → server umístí každý výskyt na cíl a odsune navazující bloky.
+      // autoShiftIfBusy → parita s handleScheduleSeries: výskyt bez místa se posune, ne zamítne.
+      let createdChildren = 0;
+      const shiftedToasts: Array<{ original: string; final: string }> = [];
+      const failedSlots: Array<{ date: string; reason: string }> = [];
       if (rType !== "NONE" && rCount > 1) {
         let curStart = addRecurrenceInterval(startTime, rType);
         for (let i = 1; i < rCount; i++) {
           const curEnd = new Date(curStart.getTime() + durationMs);
-          const res = await fetch("/api/blocks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ...baseBody,
-              startTime: curStart.toISOString(),
-              endTime: curEnd.toISOString(),
-              ...(isZakazka ? { printMinutes: pm } : {}),
-              recurrenceParentId: parentBlock.id,
-              bypassScheduleValidation: !workingTimeLockRef.current,
-              resolveChain: true,
-            }),
-          });
-          if (res.ok) {
-            const childBlock: Block = await res.json();
-            handleBlockCreate(childBlock);
+          try {
+            const res = await fetch("/api/blocks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...baseBody,
+                startTime: curStart.toISOString(),
+                endTime: curEnd.toISOString(),
+                ...(isZakazka ? { printMinutes: pm } : {}),
+                recurrenceParentId: parentBlock.id,
+                bypassScheduleValidation: !workingTimeLockRef.current,
+                resolveChain: true,
+                autoShiftIfBusy: true,
+              }),
+            });
+            if (res.ok) {
+              const childBlock: Block & { autoShift?: { originalStart: string } } = await res.json();
+              handleBlockCreate(childBlock);
+              createdChildren++;
+              if (childBlock.autoShift) {
+                const orig = new Date(childBlock.autoShift.originalStart);
+                const final = new Date(childBlock.startTime);
+                const fmt = (d: Date) => d.toLocaleString("cs-CZ", {
+                  timeZone: "Europe/Prague",
+                  day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit",
+                });
+                shiftedToasts.push({ original: fmt(orig), final: fmt(final) });
+              }
+            } else {
+              const err = await res.json().catch(() => ({ error: "neznámá chyba" }));
+              const dateLabel = curStart.toLocaleString("cs-CZ", {
+                timeZone: "Europe/Prague",
+                day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit",
+              });
+              failedSlots.push({ date: dateLabel, reason: err.error ?? "chyba serveru" });
+            }
+          } catch {
+            const dateLabel = curStart.toLocaleString("cs-CZ", {
+              timeZone: "Europe/Prague",
+              day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit",
+            });
+            failedSlots.push({ date: dateLabel, reason: "síťová chyba" });
           }
           curStart = addRecurrenceInterval(curStart, rType);
         }
+      }
+
+      // Per-blok info-toasty pro auto-shift (max 5, aby se uživatel neutopil v toastech)
+      shiftedToasts.slice(0, 5).forEach((s) => {
+        showToast(`${s.original} → ${s.final} — přesunuto z kapacitních důvodů`, "info");
+      });
+      if (shiftedToasts.length > 5) {
+        showToast(`+${shiftedToasts.length - 5} dalších bloků posunuto. Zkontroluj timeline.`, "info");
+      }
+
+      // Souhrn selhání série — bez tohoto větev tiše přeskočila výskyty, které se nepodařilo umístit.
+      if (failedSlots.length > 0) {
+        const totalOccurrences = rCount - 1;
+        showToast(
+          `Série: vytvořeno ${createdChildren}/${totalOccurrences} výskytů. ${failedSlots.length} se nepodařilo umístit — zkontroluj timeline.`,
+          "error"
+        );
       }
 
       removeFromQueue();

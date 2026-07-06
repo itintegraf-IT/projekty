@@ -2920,6 +2920,26 @@ export default function TimelineGrid({
     // effectivelyBypassed dopočítá sám (část, která náhodou sedí na kalendář, se uloží jako
     // scheduleBypassed=false — to je správně, viz validateAndComputeEnd).
     const isBypassSource = block.type === "ZAKAZKA" && block.scheduleBypassed === true;
+    // Kompenzační payload pro krok 1 — vrací hlavu na PŮVODNÍ (před-splitové) hodnoty. totalPm
+    // (ne headPm!) je originální printMinutes bypass zdroje, protože před splitem měl blok
+    // celý tiskový čas, ne jen hlavu.
+    const headRevertBody = {
+      endTime: block.endTime,
+      ...(isBypassSource ? { printMinutes: blockPrintMinutes(block), bypassScheduleValidation: true } : {}),
+    };
+    // Zásobník kompenzací (LIFO) — každý úspěšný zápis hlavy sem přidá funkci, která ho vrátí.
+    // Při selhání pozdějšího kroku se přehraje v obráceném pořadí zápisu (Krok 2 před Krokem 1).
+    const compensations: Array<() => Promise<void>> = [];
+    const runCompensations = async (): Promise<boolean> => {
+      for (let i = compensations.length - 1; i >= 0; i--) {
+        try {
+          await compensations[i]();
+        } catch {
+          return false; // i kompenzace selhala — fail-safe hláška, žádný tichý stav
+        }
+      }
+      return true;
+    };
     try {
       // Krok 1: zkrátit původní blok
       const res1 = await fetch(`/api/blocks/${block.id}`, {
@@ -2939,6 +2959,15 @@ export default function TimelineGrid({
         throw new Error(err.error ?? "Nepodařilo se zkrátit blok.");
       }
       const updatedBlock: Block = await res1.json();
+      compensations.push(async () => {
+        const revertRes = await fetch(`/api/blocks/${block.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(headRevertBody),
+        });
+        if (!revertRes.ok) throw new Error("revert krok 1 selhal");
+        onBlockUpdate(await revertRes.json());
+      });
 
       // Krok 2: zajistit splitGroupId pro root blok (self-link pokud první split)
       let rootSplitGroupId: number;
@@ -2958,6 +2987,15 @@ export default function TimelineGrid({
         const rootBlock: Block = await res1b.json();
         onBlockUpdate(rootBlock);
         rootSplitGroupId = block.id;
+        compensations.push(async () => {
+          const revertRes = await fetch(`/api/blocks/${block.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ splitGroupId: null }),
+          });
+          if (!revertRes.ok) throw new Error("revert krok 2 selhal");
+          onBlockUpdate(await revertRes.json());
+        });
       }
 
       // Krok 3: vytvořit nový blok jako sourozence
@@ -2989,6 +3027,7 @@ export default function TimelineGrid({
           splitGroupId: rootSplitGroupId,
           ...(block.type === "ZAKAZKA" ? { printMinutes: tailPm } : {}),
           ...(isBypassSource ? { bypassScheduleValidation: true } : {}),
+          resolveChain: true,
         }),
       });
       if (!res2.ok) {
@@ -2998,7 +3037,19 @@ export default function TimelineGrid({
       onBlockCreate(await res2.json());
     } catch (error) {
       console.error("Block split failed", error);
-      callbacksRef.current.onError?.((error instanceof Error ? error.message : null) ?? "Blok se nepodařilo rozdělit.");
+      // Tail (nebo krok 2) selhal PO úspěšném zápisu hlavy — bez kompenzace by hlava zůstala
+      // trvale zkrácená (tichá ztráta tiskového času). Když selhal už krok 1 (compensations
+      // prázdný), není co vracet — použije se stará hláška z error.message beze změny chování.
+      if (compensations.length > 0) {
+        const reverted = await runCompensations();
+        callbacksRef.current.onError?.(
+          reverted
+            ? "Rozdělení se nepovedlo — blok vrácen do původní délky."
+            : "Rozdělení selhalo a blok se nepodařilo vrátit — obnov stránku a zkontroluj blok."
+        );
+      } else {
+        callbacksRef.current.onError?.((error instanceof Error ? error.message : null) ?? "Blok se nepodařilo rozdělit.");
+      }
     }
   }
 

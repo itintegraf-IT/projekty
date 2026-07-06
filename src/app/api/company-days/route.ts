@@ -7,6 +7,10 @@ import { emitSSE } from "@/lib/eventBus";
 import { MACHINES } from "@/lib/machines";
 
 export async function GET() {
+  // Defense-in-depth: middleware neautentizované requesty redirectuje na /login,
+  // ale API route má vracet čisté 401 (parita s ostatními /api routes).
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const days = await prisma.companyDay.findMany({ orderBy: { startDate: "asc" } });
   return NextResponse.json(days.map(serializeCompanyDay));
 }

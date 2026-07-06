@@ -8,6 +8,16 @@ import { serializeBlock } from "@/lib/blockSerialization";
 import { reflowMachineInTx } from "@/lib/reflow.server";
 import { emitSSE } from "@/lib/eventBus";
 import { MACHINES } from "@/lib/machines";
+import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+
+/**
+ * Per-machine in-flight guard proti self-DoS: přepočet celého stroje otevírá 365denní okno
+ * a dlouhou transakci (timeout 30 s). Bez throttlingu by paralelní requesty na týž stroj
+ * vyčerpaly connection pool. Když přepočet stroje už běží, druhý request dostane 409 a musí
+ * počkat. Per-blok /[id]/reflow guard NEpotřebuje (krátká tx). Module-scope = per-instance
+ * (produkce běží single-instance); `connection_limit` v DATABASE_URL řeší deploy checklist.
+ */
+const reflowInFlight = new Map<string, boolean>();
 
 /** Mapping AppError kódů z chain push (resolveChainPushFromDb) — vzor `[id]/reflow/route.ts`. */
 function errorStatus(code: string): number {
@@ -39,6 +49,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Neznámý stroj: ${machine ?? ""}` }, { status: 400 });
   }
 
+  // In-flight guard — když přepočet TOHOTO stroje už běží, odmítni místo souběhu (self-DoS).
+  if (reflowInFlight.get(machine)) {
+    return NextResponse.json(
+      { error: "Přepočet stroje už běží — počkej na dokončení." },
+      { status: 409 }
+    );
+  }
+  reflowInFlight.set(machine, true);
+
   try {
     const result = await prisma.$transaction(
       (tx) => reflowMachineInTx(tx, machine, { id: session.id, username: session.username }, new Date()),
@@ -66,13 +85,16 @@ export async function POST(request: NextRequest) {
     });
     const serializedBlocks = blocks.map(serializeBlock);
 
+    // SSE broadcast nese notes plné — per-connection strip v /api/events je zahodí (D2b).
     emitSSE("block:batch-updated", { blocks: serializedBlocks, sourceUserId: session.id });
 
+    // Odpověď mutujícímu — poznámky gate dle role (reflow je ADMIN/PLANOVAT-only, oba právo mají).
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
     return NextResponse.json({
       reflowed: result.reflowed,
       skipped: result.skipped,
       movedCount: result.movedIds.length,
-      blocks: serializedBlocks,
+      blocks: serializedBlocks.map((b) => stripNotesIfDenied(b, canSeeNotes)),
     });
   } catch (error: unknown) {
     if (isAppError(error)) {
@@ -91,5 +113,8 @@ export async function POST(request: NextRequest) {
     }
     logger.error("[POST /api/blocks/reflow]", error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
+  } finally {
+    // Uvolnit guard VŽDY — i po chybě/timeoutu, jinak by stroj zůstal trvale zamčený.
+    reflowInFlight.delete(machine);
   }
 }

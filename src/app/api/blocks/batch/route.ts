@@ -8,6 +8,7 @@ import { checkBlockOverlap, assertNoOverlapForBlocks, findIntraBatchOverlap } fr
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { AppError, isAppError } from "@/lib/errors";
 import { emitSSE } from "@/lib/eventBus";
+import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 
 type BatchUpdate = {
   id: number;
@@ -259,8 +260,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    emitSSE("block:batch-updated", { blocks: resultsWithRes.map(serializeBlock), sourceUserId: session.id });
-    return NextResponse.json(resultsWithRes.map(serializeBlock));
+    // SSE broadcast nese notes plné — per-connection strip v /api/events je zahodí rolím bez práva
+    // (D2b). Odpověď mutujícímu se gate-uje dle jeho role (batch je ADMIN/PLANOVAT-only, oba právo
+    // mají — gate je pro konzistenci s ostatními cestami).
+    const serialized = resultsWithRes.map(serializeBlock);
+    emitSSE("block:batch-updated", { blocks: serialized, sourceUserId: session.id });
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
+    return NextResponse.json(serialized.map((b) => stripNotesIfDenied(b, canSeeNotes)));
   } catch (error: unknown) {
     if (isAppError(error)) {
       const statusMap: Record<string, number> = {

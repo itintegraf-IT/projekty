@@ -19,6 +19,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - tiskové hodiny — etapa 5 (vykreslení pauz + poctivé náhledy + deadline štítek + rezervace 40 h) dokončena 2. 7. 2026 — viz sekci „Vykreslení pauz a poctivé náhledy" níže
 - tiskové hodiny — etapa 6 (kalendářní revalidace: drift detekce, notifikace, reflow endpointy, sticky-bypass split fix) dokončena 3. 7. 2026 — viz sekci „Kalendářní revalidace" níže
 - tiskové hodiny — etapa 7 (reporty přes tiskové hodiny: retro/outlook dashboard + denní report počítají vytížení z tiskového času, ne z kalendářní délky bloku) dokončena 4. 7. 2026 — viz sekci „Reporty přes tiskové hodiny" níže
+- tiskové hodiny — etapa 8 FINÁLE (multi-agent review celé featury 5 lens + fix wave + Gardena 27h důkaz na dev DB) dokončena 5. 7. 2026 — viz sekci „Finále featury" níže; deploy checklist: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
 
 ### Spuštění testů
 
@@ -481,6 +482,38 @@ Vědomě odloženo (rozhodnutí, ne opomenutí — mimo scope etapy 7):
   celý, ne jen jeho část uvnitř) — pre-existující sémantika, etapa 7 mění jen zdroj délky
   (`printMinutes` místo elapsed), ne klipovací chování; denní řady (`dailyUtilization`/
   `dailyCapacity`) klip řeší už teď přes `printOverlapMinutes`.
+
+#### Finále featury (etapa 8, 5. 7. 2026)
+
+Multi-agent review celé featury (5 nezávislých lens: datová integrita, transakce/souběh,
+klient, security, spec compliance) — 0 Critical; všechny Important nálezy opraveny ve fix
+wave a nezávisle verifikovány. Gardena 27h scénář dokázán sondou na dev DB (stará cesta
+teleport až +5,3 dne, nová drží start a pauzne; Σ tisku přesně 27,0 h).
+
+- **Série z fronty bez tichého skipu** (spec 3.11): children smyčka v `handleQueueDrop`
+  posílá `autoShiftIfBusy: true`, sbírá selhání a hlásí souhrnný toast — zrcadlí
+  `handleScheduleSeries` (ta byla opravená už 30. 4.).
+- **Split s kompenzací**: tail POST nese `resolveChain: true`; při selhání tailu po commitu
+  hlavy se hlava kompenzačně vrací (LIFO: endTime/printMinutes/splitGroupId) s error
+  toastem — žádná tichá ztráta tiskového času. Serverový atomický split endpoint = vědomý
+  v2 backlog.
+- **Security fixy**: PUT `[id]` čte `printMinutes` z role-filtrovaného `allowed` (ne ze
+  syrového body — DTP/MTZ nemůže vyvolat přepočet endu); tiskařské poznámky (`notes`) se
+  gate-ují přes `canAccessBlockNotes` i v PUT/POST/batch/reflow refetchech a SSE broadcast
+  je per-connection stripuje neoprávněným rolím (bez mutace sdíleného payloadu); GET
+  machine-week-shifts seed větev má rate limit (120/min); hromadný reflow má per-stroj
+  in-flight guard (409 při souběhu); daily report TISKAR bez `assignedMachine` → 403.
+- **Drobné**: `handleSSEReconnect` merguje s `editingBlockIdsRef` guardem (fresh je
+  autoritativní — smazané mizí); denní report sloupec Délka ukazuje „tisk (celkem)";
+  legacy pm fallback v chain pushi zarovnán na 30 min; `ensureWeekSeeded` seed+detekce+
+  notifikace v jedné tx; auto-seed notifikace atribuovaná „systém (auto-seed)";
+  `block:batch-updated` SSE filtr pro TISKAR čte `payload.blocks`.
+- **Známé limity (vědomé)**: rate-limitery a in-flight guard jsou module-scope =
+  per-instance (OK pro single-instance produkci); TOCTOU re-check week-shifts nebere
+  FOR UPDATE na blocích (extrémní souběh admin editace × insert bloku — chytí drift
+  detekce/Přepočítat); driftMap `now` je snapshot per render.
+- Deploy: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
+  (vč. `connection_limit` v produkční `DATABASE_URL`).
 
 ### Audit log — každá mutace v transakci
 

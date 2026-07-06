@@ -7,6 +7,7 @@ import { isAppError } from "@/lib/errors";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { reflowBlockInTx } from "@/lib/reflow.server";
 import { emitSSE } from "@/lib/eventBus";
+import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -73,13 +74,20 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
     }
 
     if (outcome.changed) {
+      // SSE broadcast nese notes plné — per-connection strip v /api/events je zahodí (D2b).
       emitSSE("block:batch-updated", {
         blocks: [serializedBlock, ...serializedMoves],
         sourceUserId: session.id,
       });
     }
 
-    return NextResponse.json({ changed: outcome.changed, block: serializedBlock, moves: serializedMoves });
+    // Odpověď mutujícímu — poznámky gate dle role (reflow je ADMIN/PLANOVAT-only, oba právo mají).
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
+    return NextResponse.json({
+      changed: outcome.changed,
+      block: stripNotesIfDenied(serializedBlock, canSeeNotes),
+      moves: serializedMoves.map((b) => stripNotesIfDenied(b, canSeeNotes)),
+    });
   } catch (error: unknown) {
     if (isAppError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: errorStatus(error.code) });

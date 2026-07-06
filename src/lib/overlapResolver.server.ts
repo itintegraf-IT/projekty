@@ -135,7 +135,10 @@ export async function resolveChainPushFromDb(
         `Auto-posun bloku #${r.orderNumber ?? m.id} přesáhl horizont plánování — uvolni místo ručně.`
       );
     }
-    const pm = r.printMinutes ?? Math.round((r.endTime.getTime() - r.startTime.getTime()) / 60000);
+    // Legacy fallback (printMinutes == null): zarovnat na 30min grid — musí souhlasit s
+    // fallbackem v computeChainPush (overlapResolver.ts), jinak by tato pojistka falešně
+    // hlásila drift na bloku, který chain push umístil se stejným (zarovnaným) pm.
+    const pm = r.printMinutes ?? Math.max(30, Math.round((r.endTime.getTime() - r.startTime.getTime()) / 60000 / 30) * 30);
     const exp = expandPrintTime(machine, m.startTime, pm, weekShifts, companyDays, r.scheduleBypassed);
     const cdHit = r.scheduleBypassed
       ? companyDays.find((cd) => cd.start < m.endTime && cd.end > m.startTime)

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { addDaysToCivilDate, pragueToUTC } from "@/lib/dateUtils";
-import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
+import { blockPrintMinutes, blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 
 // ─── typy ───────────────────────────────────────────────────────────────────
@@ -85,14 +85,22 @@ function fmtTime(iso: string): string {
   return PRAGUE_TIME_FMT.format(new Date(iso));
 }
 
-function fmtDuration(startIso: string, endIso: string): string {
-  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+// Sdílená formátovací logika — fmtDuration (span) i kompaktní "tisk (celkem)" tvar v BlockRow
+// (ZAKAZKA s pm ≠ elapsed) musí obě čísla renderovat stejným formátem, jinak by report ukazoval
+// dvě různá pravidla vedle sebe (úzký sloupec Délka nemá místo na plný „Tisk: X h · Celkem: Y h"
+// tvar z tooltipu bloku — obsahově stejná parita, jen kompaktnější zápis).
+function fmtHoursFromMs(ms: number): string {
   const hours = ms / 3_600_000;
   if (hours === Math.floor(hours)) return `${hours}h`;
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);
   if (h === 0) return `${m} min`;
   return `${h}h ${m}min`;
+}
+
+function fmtDuration(startIso: string, endIso: string): string {
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  return fmtHoursFromMs(ms);
 }
 
 // Průnik TISKOVÝCH segmentů se směnou — pauznutý blok se nesmí objevit ve
@@ -336,6 +344,16 @@ function MachineSection({
 function BlockRow({ block, isEven }: { block: Block; isEven: boolean }) {
   const typeStyle = TYPE_COLORS[block.type] ?? TYPE_COLORS.ZAKAZKA;
 
+  // ZAKAZKA s pauzou (přes odstávku) má printMinutes ≠ elapsed span — report jinak lže
+  // stejně jako by lhal planner tooltip/BlockDetail/DtpPanel, které v tomto případě
+  // zobrazují tisk i celek zvlášť (parita přes blockPrintMinutes z printTimeClient).
+  const elapsedMs = new Date(block.endTime).getTime() - new Date(block.startTime).getTime();
+  const pm = block.type === "ZAKAZKA" ? blockPrintMinutes(block) : null;
+  const elapsedMinutes = Math.round(elapsedMs / 60000);
+  const durationLabel = pm != null && pm !== elapsedMinutes
+    ? `${fmtHoursFromMs(pm * 60000)} (${fmtHoursFromMs(elapsedMs)})`
+    : fmtDuration(block.startTime, block.endTime);
+
   return (
     <tr style={{ background: isEven ? "#fff" : "#fafafa" }}>
       {/* Čas */}
@@ -347,13 +365,13 @@ function BlockRow({ block, isEven }: { block: Block; isEven: boolean }) {
         {fmtTime(block.startTime)} – {fmtTime(block.endTime)}
       </td>
 
-      {/* Délka */}
+      {/* Délka — ZAKAZKA s pauzou: "tisk (celkem)"; jinak prostý span */}
       <td style={{
         padding: "5px 6px", whiteSpace: "nowrap",
         color: "#6b7280", fontSize: 9,
         width: 44, borderBottom: "1px solid #f3f4f6",
       }}>
-        {fmtDuration(block.startTime, block.endTime)}
+        {durationLabel}
       </td>
 
       {/* Číslo zakázky */}

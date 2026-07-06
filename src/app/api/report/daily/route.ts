@@ -17,6 +17,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Chybí parametr date (YYYY-MM-DD)" }, { status: 400 });
   }
 
+  // TISKAR bez přiřazeného stroje by u `{ machine: undefined }` dostal report VŠECH strojů
+  // (filtr by zmizel) — fail-closed: bez stroje nemá co číst.
+  if (session.role === "TISKAR" && !session.assignedMachine) {
+    return NextResponse.json({ error: "Tiskař nemá přiřazený stroj." }, { status: 403 });
+  }
+
   try {
     // Denní tisk je organizovaný jako výrobní den 06:00 -> 06:00 následující den.
     const dayStart = pragueToUTC(dateParam, 6, 0);

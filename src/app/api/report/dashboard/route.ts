@@ -76,10 +76,12 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       select: { blockId: true, field: true, username: true },
     }),
     prisma.machineWeekShifts.findMany({
-      // 28 d zpět: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
-      // rangeStart a expanze potřebuje i týden před startem bloku (noční prev-tail).
+      // ±28 d: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
+      // rangeStart (expanze potřebuje i týden před startem bloku — noční prev-tail)
+      // a stejně tak přesahovat až 21 d ZA rangeEnd (bez budoucích týdnů by expanze
+      // hraničního bloku selhala → span fallback; nález M-A finálního review E7).
       // Starší legacy bloky degradují bezpečně na elapsed fallback (segments=null).
-      where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: endUtc } },
+      where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: new Date(endUtc.getTime() + 28 * 86_400_000) } },
     }),
     prisma.reservation.findMany({
       where: {
@@ -202,10 +204,12 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
       select: { id: true, machine: true, type: true, description: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true, printMinutes: true, scheduleBypassed: true },
     }),
     prisma.machineWeekShifts.findMany({
-      // 28 d zpět: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
-      // rangeStart a expanze potřebuje i týden před startem bloku (noční prev-tail).
+      // ±28 d: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
+      // rangeStart (expanze potřebuje i týden před startem bloku — noční prev-tail)
+      // a stejně tak přesahovat až 21 d ZA rangeEnd (bez budoucích týdnů by expanze
+      // hraničního bloku selhala → span fallback; nález M-A finálního review E7).
       // Starší legacy bloky degradují bezpečně na elapsed fallback (segments=null).
-      where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: endUtc } },
+      where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: new Date(endUtc.getTime() + 28 * 86_400_000) } },
     }),
     prisma.reservation.findMany({
       where: { status: { in: ["SUBMITTED", "QUEUE_READY"] } },

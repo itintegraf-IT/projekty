@@ -11,7 +11,7 @@ import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.
 import { AppError, isAppError } from "@/lib/errors";
 import { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } from "@/lib/scheduleSlotFinder";
 import { emitSSE } from "@/lib/eventBus";
-import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
+import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -362,10 +362,14 @@ export async function POST(request: NextRequest) {
       emitSSE("block:batch-updated", { blocks: serializedShifted, sourceUserId: session.id });
     }
 
+    // Odpověď mutujícímu — poznámky zestripovat, pokud na ně jeho role nemá právo. POST je dnes
+    // ADMIN/PLANOVAT-only (oba právo mají), gate je pro robustnost/konzistenci s ostatními cestami.
+    // SSE broadcast výše nese notes plné — per-connection strip v /api/events je zahodí (D2b).
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
     const responseBody = {
-      ...serializeBlock(block),
+      ...stripNotesIfDenied(serializeBlock(block), canSeeNotes),
       ...(wasShifted ? { autoShift: { originalStart: originalStart.toISOString() } } : {}),
-      shifted: serializedShifted,
+      shifted: serializedShifted.map((b) => stripNotesIfDenied(b, canSeeNotes)),
     };
     return NextResponse.json(responseBody, { status: 201 });
   } catch (error: unknown) {

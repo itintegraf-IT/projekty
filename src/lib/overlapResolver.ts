@@ -77,8 +77,11 @@ export function computeChainPush(
       continue;
     }
 
+    // Legacy fallback (printMinutes == null): odvození ze spanu MUSÍ být zarovnané na 30min grid
+    // (vzor blockPrintMinutes), jinak by nezarovnaný pm dal expandPrintTime nezarovnaný start/end.
     const pm =
-      next.printMinutes ?? Math.round((next.endTime.getTime() - next.startTime.getTime()) / 60000);
+      next.printMinutes ??
+      Math.max(30, Math.round((next.endTime.getTime() - next.startTime.getTime()) / 60000 / 30) * 30);
     if (!Number.isFinite(pm) || pm <= 0) {
       return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
     }
