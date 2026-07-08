@@ -81,6 +81,48 @@ export function buildEditCommand(
   };
 }
 
+/**
+ * MOVE vs RESIZE dispatcher pro poziční mutace bloku (drag/resize).
+ * - start nebo machine se změnily → MOVE, undo/redo přes batchUpdate (stávající chování).
+ * - jen endTime se změnil → RESIZE, undo/redo přes PUT endTime (server invertuje printMinutes
+ *   zpět; batch by pro ZAKAZKA endTime ignoroval a undo by byl no-op — viz api/blocks/batch).
+ * - nic se nezměnilo → null (nezaznamenávat prázdnou undo položku).
+ */
+export function buildMoveOrResizeCommand(
+  prev: BlockSnapshot,
+  updated: BlockSnapshot,
+  shiftedBefore: BlockSnapshot[] = [],
+  shiftedAfter: BlockSnapshot[] = [],
+): HistoryEntry | null {
+  const startOrMachineChanged =
+    new Date(prev.startTime).getTime() !== new Date(updated.startTime).getTime() ||
+    prev.machine !== updated.machine;
+  const endChanged = new Date(prev.endTime).getTime() !== new Date(updated.endTime).getTime();
+  if (startOrMachineChanged) {
+    return buildMoveCommand(
+      "Přesun bloku",
+      [
+        { id: prev.id, startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine, updatedAt: prev.updatedAt },
+        ...shiftedBefore,
+      ],
+      [
+        { id: updated.id, startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine, updatedAt: updated.updatedAt },
+        ...shiftedAfter,
+      ],
+    );
+  }
+  if (endChanged) {
+    return buildEditCommand(
+      "Změna délky",
+      { id: prev.id, updatedAt: prev.updatedAt, fields: { endTime: prev.endTime } },
+      { id: updated.id, updatedAt: updated.updatedAt, fields: { endTime: updated.endTime } },
+      shiftedBefore,
+      shiftedAfter,
+    );
+  }
+  return null;
+}
+
 type CreatedRef = { id: number; updatedAt: string; payload: Record<string, unknown> };
 
 /** undo = DELETE vytvořených bloků; redo = re-POST (nová id → remap). */

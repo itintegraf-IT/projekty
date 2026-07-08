@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand } from "./commands";
+import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "./commands";
 import { StaleUndoError, type Block, type EditSnapshot, type UndoEffects } from "./types";
 
 function blk(id: number, over: Partial<Block> = {}): Block {
@@ -243,4 +243,47 @@ test("buildDeleteCommand: redo znovu smaže obnovené bloky", async () => {
   await cmd.undo(effects);            // re-POST -> id 100
   await cmd.redo(effects);            // DELETE 100
   assert.deepEqual(calls.deleted, [100]);
+});
+
+test("buildMoveOrResizeCommand: MOVE (start changed) → undo použije batchUpdate", async () => {
+  const live = new Map([[1, blk(1, { startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", updatedAt: "v2" })]]);
+  const { effects, calls } = makeEffects(live);
+  const prev = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1" };
+  const updated = { id: 1, startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2" };
+  const cmd = buildMoveOrResizeCommand(prev, updated, [], []);
+  assert.ok(cmd);
+  await cmd!.undo(effects);
+  assert.equal(calls.batch.length, 1);
+  assert.equal((calls.batch[0][0] as { startTime: string }).startTime, "2026-07-10T08:00:00.000Z");
+});
+
+test("buildMoveOrResizeCommand: MOVE (machine changed) → undo použije batchUpdate", async () => {
+  const live = new Map([[1, blk(1, { machine: "XL_106", updatedAt: "v2" })]]);
+  const { effects, calls } = makeEffects(live);
+  const prev = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1" };
+  const updated = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_106", updatedAt: "v2" };
+  const cmd = buildMoveOrResizeCommand(prev, updated, [], []);
+  assert.ok(cmd);
+  await cmd!.undo(effects);
+  assert.equal(calls.batch.length, 1);
+});
+
+test("buildMoveOrResizeCommand: RESIZE (jen endTime) → undo použije PUT se starým endTime, NE batch", async () => {
+  const live = new Map([[1, blk(1, { endTime: "2026-07-10T11:00:00.000Z", updatedAt: "v2" })]]);
+  const { effects, calls } = makeEditEffects(live);
+  const prev = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1" };
+  const updated = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2" };
+  const cmd = buildMoveOrResizeCommand(prev, updated, [], []);
+  assert.ok(cmd);
+  await cmd!.undo(effects);
+  assert.equal(calls.put.length, 1);
+  assert.equal(calls.put[0].body.endTime, "2026-07-10T09:00:00.000Z");
+  assert.equal(calls.batch.length, 0);
+});
+
+test("buildMoveOrResizeCommand: bez změny času/stroje vrátí null", () => {
+  const prev = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1" };
+  const updated = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v2" };
+  const cmd = buildMoveOrResizeCommand(prev, updated, [], []);
+  assert.equal(cmd, null);
 });

@@ -26,7 +26,7 @@ import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { useUndoManager } from "./useUndoManager";
 import type { UndoEffects } from "@/lib/undo/types";
-import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand } from "@/lib/undo/commands";
+import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -1528,28 +1528,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       ));
     }
     if (prev && addToHistory) {
-      const timeOrMachineChanged =
-        new Date(prev.startTime).getTime() !== new Date(cleanUpdated.startTime).getTime() ||
-        new Date(prev.endTime).getTime()   !== new Date(cleanUpdated.endTime).getTime()   ||
-        prev.machine !== cleanUpdated.machine;
-      if (timeOrMachineChanged) {
-        // Undo/redo: přesunutý blok + posunuté navazující na/z původních pozic (batch).
-        const beforeSnaps = [
-          { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine },
-          ...shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine })),
-        ];
-        const afterSnaps = [
-          { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine },
-          ...shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
-        ];
-        const beforeUpd = new Map<number, string>([[prev.id, prev.updatedAt], ...shiftedOld.map((o) => [o.id, o.updatedAt] as const)]);
-        const afterUpd = new Map<number, string>([[cleanUpdated.id, cleanUpdated.updatedAt], ...shifted.map((s) => [s.id, s.updatedAt] as const)]);
-        recordUndo(buildMoveCommand(
-          "Přesun bloku",
-          beforeSnaps.map((s) => ({ ...s, updatedAt: beforeUpd.get(s.id) ?? "" })),
-          afterSnaps.map((s) => ({ ...s, updatedAt: afterUpd.get(s.id) ?? "" })),
-        ));
-      }
+      const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt };
+      const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt };
+      const shiftedBeforeMove = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt }));
+      const shiftedAfterMove = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt }));
+      const mutationCmd = buildMoveOrResizeCommand(prevSnap, updatedSnap, shiftedBeforeMove, shiftedAfterMove);
+      if (mutationCmd) recordUndo(mutationCmd);
       const changedFields = EDIT_TRACKED_FIELDS.filter(
         (f) => JSON.stringify((prev as Record<string, unknown>)[f]) !== JSON.stringify((cleanUpdated as Record<string, unknown>)[f]),
       );
