@@ -951,7 +951,7 @@ function BlockCard({
   onDoubleClick: () => void;
   onMouseDown?: (e: React.MouseEvent) => void;
   onResizeMouseDown?: (e: React.MouseEvent) => void;
-  onBlockUpdate: (b: Block) => void;
+  onBlockUpdate: (b: Block, addToHistory?: boolean) => void;
   onError?: (msg: string) => void;
   canEdit?: boolean;
   canEditData?: boolean;
@@ -1095,7 +1095,7 @@ function BlockCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [field]: !current }),
       });
-      if (res.ok) onBlockUpdate(await res.json());
+      if (res.ok) onBlockUpdate(await res.json(), true);
     } catch (error) {
       console.error("Block field toggle failed", error);
       onError?.("Změnu sloupce se nepodařilo uložit.");
@@ -1118,7 +1118,7 @@ function BlockCard({
         body: JSON.stringify({ materialNote: noteDraft.trim() || null }),
       });
       if (res.ok) {
-        onBlockUpdate(await res.json());
+        onBlockUpdate(await res.json(), true);
         setNoteOpen(false);
       } else {
         onError?.("Poznámku se nepodařilo uložit.");
@@ -1138,7 +1138,7 @@ function BlockCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ materialNote: null }),
       });
-      if (res.ok) onBlockUpdate(await res.json());
+      if (res.ok) onBlockUpdate(await res.json(), true);
     } catch (error) {
       console.error("Clear note failed", error);
       onError?.("Poznámku se nepodařilo smazat.");
@@ -4110,7 +4110,7 @@ export default function TimelineGrid({
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
-              callbacksRef.current.onBlockUpdate(updated);
+              callbacksRef.current.onBlockUpdate(updated, true);
             } catch (err) {
               console.error("Inline date pick failed", err);
               callbacksRef.current.onError?.("Nepodařilo se uložit datum.");
@@ -4130,7 +4130,7 @@ export default function TimelineGrid({
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
-              callbacksRef.current.onBlockUpdate(updated);
+              callbacksRef.current.onBlockUpdate(updated, true);
             } catch (err) {
               console.error("Inline skladem failed", err);
               callbacksRef.current.onError?.("Nepodařilo se uložit.");
@@ -4148,7 +4148,7 @@ export default function TimelineGrid({
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
-              callbacksRef.current.onBlockUpdate(updated);
+              callbacksRef.current.onBlockUpdate(updated, true);
             } catch (err) {
               console.error("Inline vydáno failed", err);
               callbacksRef.current.onError?.("Nepodařilo se uložit.");

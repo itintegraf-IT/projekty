@@ -24,6 +24,9 @@ import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
 import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
+import { useUndoManager } from "./useUndoManager";
+import type { UndoEffects } from "@/lib/undo/types";
+import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand } from "@/lib/undo/commands";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -47,6 +50,7 @@ import {
 import { ZoomSlider } from "@/components/ZoomSlider";
 import { useNotifications } from "@/hooks/useNotifications";
 import { NotificationBell } from "@/components/NotificationBell";
+import { UndoRedoButtons } from "@/components/UndoRedoButtons";
 import { NotificationsPanel, type NotifTab } from "@/components/NotificationsPanel";
 import { BlockNotesDialog } from "@/components/BlockNotesDialog";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
@@ -111,9 +115,6 @@ type PushSuggestion = {
   blockedByLock: boolean;
   lockedBlock: Block | null;
 };
-
-type HistoryEntry = { undo: () => Promise<void>; redo: () => Promise<void> };
-
 
 // ─── Pomocné funkce ───────────────────────────────────────────────────────────
 function formatDuration(hours: number): string {
@@ -516,6 +517,15 @@ function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
   };
 }
 
+// Pole sledovaná pro undo/redo editace formulářem (BlockEdit.buildPayload) + DTP/MTZ single-field.
+const EDIT_TRACKED_FIELDS = [
+  "orderNumber","type","blockVariant","jobPresetId","description","locked","deadlineExpedice",
+  "dataStatusId","dataStatusLabel","dataRequiredDate","dataOk","materialStatusId","materialStatusLabel",
+  "materialRequiredDate","materialOk","materialNote","materialInStock","materialIssued","pantoneRequired",
+  "pantoneRequiredDate","pantoneOk","barvyStatusId","barvyStatusLabel","lakStatusId","lakStatusLabel",
+  "specifikace","obalka","vnitrky","tiskoveArchy","serie",
+] as const;
+
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
 export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWeekShifts, currentUser, initialQueueReservations = [], initialFilterText }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWeekShifts: MachineWeekShiftsRow[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[]; initialFilterText?: string }) {
   // Role-based permissions
@@ -551,15 +561,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // ── Toast systém ──
   const { toasts, showToast, dismissToast } = useToast();
 
-  // ── Undo/Redo ──
-  const undoStack = useRef<HistoryEntry[]>([]);
-  const redoStack = useRef<HistoryEntry[]>([]);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
   const [workingTimeLock, setWorkingTimeLock] = useState(true);
   const workingTimeLockRef = useRef(true);
   workingTimeLockRef.current = workingTimeLock;
-  const MAX_HISTORY = 30;
 
   // ── Peek panel (TISKAR) ──
   // TISKAR: aktuálně zobrazený stroj (default = vlastní). Přepíná se v hlavičce
@@ -657,6 +661,40 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [pushSuggestion, setPushSuggestion] = useState<PushSuggestion | null>(null);
   const blocksRef = useRef<Block[]>([]);
   blocksRef.current = blocks;
+
+  // ── Undo effects (reálná implementace injektovaná do command builderů) ──
+  const undoEffectsRef = useRef<UndoEffects>(null as unknown as UndoEffects);
+  undoEffectsRef.current = {
+    putBlock: async (id, body) => {
+      const r = await fetch(`/api/blocks/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
+      return r.json();
+    },
+    postBlock: async (body) => {
+      const r = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
+      return r.json();
+    },
+    deleteBlock: async (id) => {
+      const r = await fetch(`/api/blocks/${id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error("Chyba serveru");
+    },
+    batchUpdate: async (updates) => {
+      const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: false, bypassOverlapCheck: true }) });
+      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
+      return r.json();
+    },
+    addToState: (list) => setBlocks((prev) => {
+      const byId = new Map(list.map((b) => [b.id, b]));
+      const merged = prev.map((b) => byId.get(b.id) ?? b);
+      for (const b of list) if (!prev.some((p) => p.id === b.id)) merged.push(b);
+      return merged.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+    }),
+    removeFromState: (ids) => setBlocks((prev) => prev.filter((b) => !ids.includes(b.id))),
+    getLiveBlock: (id) => blocksRef.current.find((b) => b.id === id),
+  };
+  const { record: recordUndo, undo: undoMgr, redo: redoMgr, canUndo: canUndoMgr, canRedo: canRedoMgr } = useUndoManager(undoEffectsRef, showToast);
+
   const selectedBlockIdsRef = useRef<Set<number>>(new Set());
   selectedBlockIdsRef.current = selectedBlockIds;
   const selectedBlockRef = useRef<Block | null>(null);
@@ -1504,19 +1542,32 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine },
           ...shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
         ];
-        const applyBatch = async (snaps: typeof beforeSnaps) => {
-          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: false, bypassOverlapCheck: true }) });
-          if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
-          const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
-        };
-        undoStack.current.push({
-          undo: async () => { await applyBatch(beforeSnaps); },
-          redo: async () => { await applyBatch(afterSnaps); },
-        });
-        if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
-        redoStack.current = [];
-        setCanUndo(true);
-        setCanRedo(false);
+        const beforeUpd = new Map<number, string>([[prev.id, prev.updatedAt], ...shiftedOld.map((o) => [o.id, o.updatedAt] as const)]);
+        const afterUpd = new Map<number, string>([[cleanUpdated.id, cleanUpdated.updatedAt], ...shifted.map((s) => [s.id, s.updatedAt] as const)]);
+        recordUndo(buildMoveCommand(
+          "Přesun bloku",
+          beforeSnaps.map((s) => ({ ...s, updatedAt: beforeUpd.get(s.id) ?? "" })),
+          afterSnaps.map((s) => ({ ...s, updatedAt: afterUpd.get(s.id) ?? "" })),
+        ));
+      }
+      const changedFields = EDIT_TRACKED_FIELDS.filter(
+        (f) => JSON.stringify((prev as Record<string, unknown>)[f]) !== JSON.stringify((cleanUpdated as Record<string, unknown>)[f]),
+      );
+      if (changedFields.length > 0) {
+        const beforeFields: Record<string, unknown> = {};
+        const afterFields: Record<string, unknown> = {};
+        for (const f of changedFields) {
+          beforeFields[f] = (prev as Record<string, unknown>)[f];
+          afterFields[f] = (cleanUpdated as Record<string, unknown>)[f];
+        }
+        const shiftedBefore = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt }));
+        const shiftedAfter = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt }));
+        recordUndo(buildEditCommand(
+          "Úprava bloku",
+          { id: prev.id, updatedAt: (prev as Block).updatedAt, fields: beforeFields },
+          { id: cleanUpdated.id, updatedAt: cleanUpdated.updatedAt, fields: afterFields },
+          shiftedBefore, shiftedAfter,
+        ));
       }
     }
   }
@@ -1566,19 +1617,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         ...shiftedResults.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
       ];
       if (prevSnaps.length > 0) {
-        const applyBatch = async (snaps: typeof prevSnaps) => {
-          const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates: snaps, bypassScheduleValidation: false, bypassOverlapCheck: true }) });
-          if (!r.ok) { const err = await r.json().catch(() => ({})) as { error?: string }; throw new Error(err.error ?? "Chyba serveru"); }
-          const res: Block[] = await r.json(); setBlocks(prev => prev.map(b => res.find(x => x.id === b.id) ?? b));
-        };
-        undoStack.current.push({
-          undo: async () => { await applyBatch(prevSnaps); },
-          redo: async () => { await applyBatch(nextSnaps); },
-        });
-        if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
-        redoStack.current = [];
-        setCanUndo(true);
-        setCanRedo(false);
+        const beforeUpd = new Map<number, string>([
+          ...updates.map((u) => [u.id, originals.get(u.id)!.updatedAt] as const),
+          ...shiftedOld.map((o) => [o.id, o.updatedAt] as const),
+        ]);
+        const afterUpd = new Map<number, string>(results.map((r) => [r.id, r.updatedAt] as const));
+        recordUndo(buildMoveCommand(
+          "Hromadný přesun",
+          prevSnaps.map((s) => ({ ...s, updatedAt: beforeUpd.get(s.id) ?? "" })),
+          nextSnaps.map((s) => ({ ...s, updatedAt: afterUpd.get(s.id) ?? "" })),
+        ));
       }
     } catch (error) {
       console.error("Multi-block update failed", error);
@@ -1627,11 +1675,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return;
       }
       const updated: Block = await res.json();
-      handleBlockUpdate(updated);
+      handleBlockUpdate(updated, true);
     } catch {
       showToast("Chyba při ukládání.", "error");
     }
   }
+
+  // Undo pro CREATE (paste/group paste/queue-drop) jen pro samostatné, ne-rezervační bloky —
+  // parita s guardem u DELETE undo výše (REZERVACE a série mají komplexní vztahy, undo se pro ně nezaznamenává).
+  const canUndoCreated = (b: Block) =>
+    b.reservationId == null && b.recurrenceType === "NONE" && b.recurrenceParentId == null;
 
   async function deleteSingleBlockWithUndo(block: Block, rejectionReason?: string) {
     const fetchOpts: RequestInit = { method: "DELETE" };
@@ -1656,8 +1709,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     // Undo jen pro standalone bloky — série mají komplexní parent/child vztahy
     if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
-
-    let restoredId: number | null = null;
 
     const payload = {
       orderNumber: block.orderNumber,
@@ -1692,33 +1743,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       ...(block.type === "ZAKAZKA" ? { printMinutes: blockPrintMinutes(block) } : {}),
     };
 
-    undoStack.current = undoStack.current.slice(-MAX_HISTORY + 1);
-    undoStack.current.push({
-      undo: async () => {
-        const r = await fetch("/api/blocks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!r.ok) throw new Error("Chyba serveru");
-        const newBlock: Block = await r.json();
-        restoredId = newBlock.id;
-        handleBlockCreate(newBlock);
-        setSelectedBlock(newBlock);
-      },
-      redo: async () => {
-        if (restoredId === null) throw new Error("Žádný obnovený blok");
-        const r = await fetch(`/api/blocks/${restoredId}`, { method: "DELETE" });
-        if (!r.ok) throw new Error("Chyba serveru");
-        const rid = restoredId;
-        restoredId = null;
-        setBlocks((prev) => prev.filter((b) => b.id !== rid));
-        setSelectedBlock(null);
-      },
-    });
-    redoStack.current = [];
-    setCanUndo(true);
-    setCanRedo(false);
+    recordUndo(buildDeleteCommand("Smazání bloku", [{ payload }]));
   }
 
   async function handleDeleteBlock(id: number, rejectionReason?: string) {
@@ -1797,33 +1822,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       recurrenceType: "NONE",
       ...(b.type === "ZAKAZKA" ? { printMinutes: blockPrintMinutes(b) } : {}),
     }));
-    let restoredIds: number[] = [];
-    undoStack.current = undoStack.current.slice(-MAX_HISTORY + 1);
-    undoStack.current.push({
-      undo: async () => {
-        const results = await Promise.all(
-          payloads.map(async (p) => {
-            const r = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
-            if (!r.ok) throw new Error(`POST /api/blocks selhalo: ${r.status}`);
-            return r.json() as Promise<Block>;
-          })
-        );
-        restoredIds = results.map((b) => b.id);
-        setBlocks((prev) => [...prev, ...results].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()));
-      },
-      redo: async () => {
-        const responses = await Promise.all(
-          restoredIds.map((id) => fetch(`/api/blocks/${id}`, { method: "DELETE" }).then((r) => ({ id, ok: r.ok })))
-        );
-        const gone = responses.filter((r) => r.ok).map((r) => r.id);
-        if (gone.length < restoredIds.length) throw new Error("Některé bloky se nepodařilo znovu smazat.");
-        restoredIds = [];
-        setBlocks((prev) => prev.filter((b) => !gone.includes(b.id)));
-      },
-    });
-    redoStack.current = [];
-    setCanUndo(true);
-    setCanRedo(false);
+    recordUndo(buildDeleteCommand("Smazání bloků", payloads.map((payload) => ({ payload }))));
   }
 
   async function handleSaveAll(ids: number[], payload: Record<string, unknown>): Promise<boolean> {
@@ -2238,7 +2237,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       });
       if (!res.ok) throw new Error("Chyba serveru");
       const updated: Block = await res.json();
-      handleBlockUpdate(updated);
+      handleBlockUpdate(updated, true);
     } catch (error) {
       console.error("Block variant change failed", error);
       showToast("Nepodařilo se změnit stav zakázky.", "error");
@@ -2394,17 +2393,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     try {
       // Vytvořit první (rodičovský) blok
       const firstEnd = new Date(startTime.getTime() + durationMs);
+      const queueParentBody = {
+        ...baseBody,
+        startTime: startTime.toISOString(),
+        endTime: firstEnd.toISOString(),
+        ...(isZakazka ? { printMinutes: pm } : {}),
+        bypassScheduleValidation: !workingTimeLockRef.current,
+        resolveChain: true,
+      };
       const res1 = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...baseBody,
-          startTime: startTime.toISOString(),
-          endTime: firstEnd.toISOString(),
-          ...(isZakazka ? { printMinutes: pm } : {}),
-          bypassScheduleValidation: !workingTimeLockRef.current,
-          resolveChain: true,
-        }),
+        body: JSON.stringify(queueParentBody),
       });
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string };
@@ -2418,6 +2418,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       const parentBlock: Block = await res1.json();
       handleBlockCreate(parentBlock);
+      if (canUndoCreated(parentBlock)) {
+        recordUndo(buildCreateCommand("Umístění z fronty", [
+          { id: parentBlock.id, updatedAt: parentBlock.updatedAt, payload: queueParentBody },
+        ]));
+      }
 
       // Vytvořit children bloky (pokud opakování > 1).
       // resolveChain → server umístí každý výskyt na cíl a odsune navazující bloky.
@@ -2533,42 +2538,43 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
     // Naivní end jako fallback — server pro ZAKAZKA autoritativně přepočítá z printMinutes.
     const newEnd = new Date(newStart.getTime() + durationMs);
+    const pasteBody = {
+      orderNumber: src.orderNumber,
+      machine: target.machine,
+      type: src.type,
+      blockVariant: src.blockVariant,
+      jobPresetId: src.jobPresetId,
+      startTime: newStart.toISOString(),
+      endTime: newEnd.toISOString(),
+      ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
+      description: src.description,
+      locked: false,
+      deadlineExpedice: src.deadlineExpedice,
+      dataStatusId: src.dataStatusId,
+      dataStatusLabel: src.dataStatusLabel,
+      dataRequiredDate: src.dataRequiredDate,
+      dataOk: src.dataOk,
+      materialStatusId: src.materialStatusId,
+      materialStatusLabel: src.materialStatusLabel,
+      materialRequiredDate: src.materialRequiredDate,
+      materialOk: src.materialOk,
+      barvyStatusId: src.barvyStatusId,
+      barvyStatusLabel: src.barvyStatusLabel,
+      lakStatusId: src.lakStatusId,
+      lakStatusLabel: src.lakStatusLabel,
+      specifikace: src.specifikace,
+      obalka: src.obalka ?? false,
+      vnitrky: src.vnitrky ?? false,
+      tiskoveArchy: src.tiskoveArchy ?? null,
+      serie: src.serie ?? null,
+      bypassScheduleValidation: !workingTimeLockRef.current,
+      resolveChain: true,
+    };
     try {
       const res = await fetch("/api/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderNumber: src.orderNumber,
-          machine: target.machine,
-          type: src.type,
-          blockVariant: src.blockVariant,
-          jobPresetId: src.jobPresetId,
-          startTime: newStart.toISOString(),
-          endTime: newEnd.toISOString(),
-          ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
-          description: src.description,
-          locked: false,
-          deadlineExpedice: src.deadlineExpedice,
-          dataStatusId: src.dataStatusId,
-          dataStatusLabel: src.dataStatusLabel,
-          dataRequiredDate: src.dataRequiredDate,
-          dataOk: src.dataOk,
-          materialStatusId: src.materialStatusId,
-          materialStatusLabel: src.materialStatusLabel,
-          materialRequiredDate: src.materialRequiredDate,
-          materialOk: src.materialOk,
-          barvyStatusId: src.barvyStatusId,
-          barvyStatusLabel: src.barvyStatusLabel,
-          lakStatusId: src.lakStatusId,
-          lakStatusLabel: src.lakStatusLabel,
-          specifikace: src.specifikace,
-          obalka: src.obalka ?? false,
-          vnitrky: src.vnitrky ?? false,
-          tiskoveArchy: src.tiskoveArchy ?? null,
-          serie: src.serie ?? null,
-          bypassScheduleValidation: !workingTimeLockRef.current,
-          resolveChain: true,
-        }),
+        body: JSON.stringify(pasteBody),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
@@ -2576,6 +2582,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       const newBlock: Block = await res.json();
       handleBlockCreate(newBlock);
+      if (canUndoCreated(newBlock)) {
+        recordUndo(buildCreateCommand("Vložení bloku", [
+          { id: newBlock.id, updatedAt: newBlock.updatedAt, payload: pasteBody },
+        ]));
+      }
       if (isCutRef.current) {
         await fetch(`/api/blocks/${src.id}`, { method: "DELETE" });
         setBlocks((prev) => prev.filter((b) => b.id !== src.id));
@@ -2633,6 +2644,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     // POST všechny bloky sekvenčně — při prvním selhání se zastaví a žádný lokální stav se nezmění
     const created: Block[] = [];
+    // Páruje se 1:1 se `created` v TÉŽE iteraci (created.push hned po úspěšném POST) — index
+    // nikdy neujede, i kdyby smyčka v budoucnu nějaký blok přeskočila.
+    const createdBodies: Record<string, unknown>[] = [];
     try {
       for (const src of group) {
         const offsetMs = new Date(src.startTime).getTime() - anchorMs;
@@ -2640,32 +2654,34 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const newStart = new Date(pasteMs + offsetMs);
         const newEnd = new Date(newStart.getTime() + durationMs);
         const isZakazka = src.type === "ZAKAZKA";
+        const groupBody = {
+          orderNumber: src.orderNumber, machine: target.machine, type: src.type, blockVariant: src.blockVariant,
+          jobPresetId: src.jobPresetId,
+          startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
+          ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
+          description: src.description, locked: false,
+          deadlineExpedice: src.deadlineExpedice,
+          dataStatusId: src.dataStatusId, dataStatusLabel: src.dataStatusLabel, dataRequiredDate: src.dataRequiredDate, dataOk: src.dataOk,
+          materialStatusId: src.materialStatusId, materialStatusLabel: src.materialStatusLabel, materialRequiredDate: src.materialRequiredDate, materialOk: src.materialOk,
+          barvyStatusId: src.barvyStatusId, barvyStatusLabel: src.barvyStatusLabel,
+          lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
+          specifikace: src.specifikace,
+          obalka: src.obalka ?? false, vnitrky: src.vnitrky ?? false,
+          tiskoveArchy: src.tiskoveArchy ?? null, serie: src.serie ?? null,
+          bypassScheduleValidation: !workingTimeLockRef.current,
+          resolveChain: true,
+        };
         const res = await fetch("/api/blocks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderNumber: src.orderNumber, machine: target.machine, type: src.type, blockVariant: src.blockVariant,
-            jobPresetId: src.jobPresetId,
-            startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
-            ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
-            description: src.description, locked: false,
-            deadlineExpedice: src.deadlineExpedice,
-            dataStatusId: src.dataStatusId, dataStatusLabel: src.dataStatusLabel, dataRequiredDate: src.dataRequiredDate, dataOk: src.dataOk,
-            materialStatusId: src.materialStatusId, materialStatusLabel: src.materialStatusLabel, materialRequiredDate: src.materialRequiredDate, materialOk: src.materialOk,
-            barvyStatusId: src.barvyStatusId, barvyStatusLabel: src.barvyStatusLabel,
-            lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
-            specifikace: src.specifikace,
-            obalka: src.obalka ?? false, vnitrky: src.vnitrky ?? false,
-            tiskoveArchy: src.tiskoveArchy ?? null, serie: src.serie ?? null,
-            bypassScheduleValidation: !workingTimeLockRef.current,
-            resolveChain: true,
-          }),
+          body: JSON.stringify(groupBody),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `HTTP ${res.status}`);
         }
         created.push(await res.json() as Block);
+        createdBodies.push(groupBody);
       }
     } catch (err) {
       console.error("Group paste failed", err);
@@ -2695,6 +2711,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // Server (resolveChain) umístil každý blok na cíl a odsunul navazující; handleBlockCreate
     // aplikuje i posunuté bloky (pole shifted).
     created.forEach((b) => handleBlockCreate(b));
+
+    // createdBodies[i] odpovídá created[i] (naplněno ve stejné iteraci výše) — zip podle indexu,
+    // pak filtrovat na undo-schopné (ne-rezervační, ne-sériové).
+    const createdRefs = created
+      .map((b, i) => ({ id: b.id, updatedAt: b.updatedAt, payload: createdBodies[i], block: b }))
+      .filter((r) => canUndoCreated(r.block))
+      .map(({ id, updatedAt, payload }) => ({ id, updatedAt, payload }));
+    if (createdRefs.length > 0) {
+      recordUndo(buildCreateCommand("Vložení skupiny", createdRefs));
+    }
 
     if (isGroupCutRef.current) {
       // DELETE originálů — kontroluj .ok, sb er selhání
@@ -2770,22 +2796,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (!(e.ctrlKey || e.metaKey)) return;
       if (e.key === "z" && !e.shiftKey) {
         e.preventDefault();
-        const entry = undoStack.current.pop();
-        if (entry) {
-          entry.undo()
-            .then(() => { redoStack.current.push(entry); setCanUndo(undoStack.current.length > 0); setCanRedo(true); showToast("Vráceno zpět", "info"); })
-            .catch((err: unknown) => { undoStack.current.push(entry); setCanUndo(true); console.error("Undo failed", err); showToast("Vrácení zpět selhalo.", "error"); });
-        }
+        void undoMgr();
         return;
       }
       if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
         e.preventDefault();
-        const entry = redoStack.current.pop();
-        if (entry) {
-          entry.redo()
-            .then(() => { undoStack.current.push(entry); setCanUndo(true); setCanRedo(redoStack.current.length > 0); showToast("Znovu provedeno", "info"); })
-            .catch((err: unknown) => { redoStack.current.push(entry); setCanRedo(true); console.error("Redo failed", err); showToast("Znovu provedení selhalo.", "error"); });
-        }
+        void redoMgr();
         return;
       }
       // Priorita: skupinové operace, pokud je vybráno více bloků lasem
@@ -3111,6 +3127,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         </div>
 
         <div className="ml-auto flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
+          <UndoRedoButtons
+            canUndo={canUndoMgr}
+            canRedo={canRedoMgr}
+            onUndo={() => void undoMgr()}
+            onRedo={() => void redoMgr()}
+            canEdit={canEditData || canEditMat}
+          />
+
           {/* Tier 1 — ikonová tlačítka */}
           {canEdit && (
             <button
@@ -3387,7 +3411,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               key={editingBlock.id}
               block={editingBlock}
               onClose={() => setEditingBlock(null)}
-              onSave={(updated) => { handleBlockUpdate(updated); setEditingBlock(null); }}
+              onSave={(updated) => { handleBlockUpdate(updated, true); setEditingBlock(null); }}
               onBlockUpdate={handleBlockUpdate}
               allBlocks={blocks}
               onDeleteAll={handleDeleteAll}
