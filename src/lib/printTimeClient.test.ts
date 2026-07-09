@@ -10,6 +10,8 @@ import {
   blockCalendarDrift,
   blockReportSegments,
   printOverlapMinutes,
+  splitGroupTotalPrintMinutes,
+  formatPrintHoursShort,
 } from "./printTimeClient";
 import { xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
 
@@ -323,4 +325,39 @@ test("printOverlapMinutes: okno mimo blok → 0; degenerované okno → 0", () =
 test("printOverlapMinutes: nezarovnané okno klipuje po minutách (intervalová matematika)", () => {
   const segs = blockReportSegments(CONT, SHIFTS, []);
   assert.equal(printOverlapMinutes(segs, CONT, new Date("2026-08-18T06:15:00.000Z"), new Date("2026-08-18T06:45:00.000Z")), 30);
+});
+
+test("splitGroupTotalPrintMinutes: sčítá printMinutes ZAKAZKA členů", () => {
+  const mk = (pm: number | null, start: string, end: string) => ({
+    type: "ZAKAZKA", printMinutes: pm, startTime: start, endTime: end,
+  });
+  // 3 části: 10h + 10h + 7h tisku = 1620 min (printMinutes má přednost před elapsed)
+  assert.equal(
+    splitGroupTotalPrintMinutes([
+      mk(600, "2026-08-18T06:00:00.000Z", "2026-08-18T16:00:00.000Z"),
+      mk(600, "2026-08-18T16:00:00.000Z", "2026-08-19T02:00:00.000Z"),
+      mk(420, "2026-08-19T02:00:00.000Z", "2026-08-19T09:00:00.000Z"),
+    ]),
+    1620
+  );
+});
+
+test("splitGroupTotalPrintMinutes: fallback na elapsed u legacy členů (pm=null)", () => {
+  assert.equal(
+    splitGroupTotalPrintMinutes([
+      { type: "ZAKAZKA", printMinutes: null, startTime: "2026-08-18T06:00:00.000Z", endTime: "2026-08-18T08:00:00.000Z" },
+    ]),
+    120
+  );
+});
+
+test("splitGroupTotalPrintMinutes: prázdné pole → 0", () => {
+  assert.equal(splitGroupTotalPrintMinutes([]), 0);
+});
+
+test("formatPrintHoursShort: celé hodiny bez desetin, jinak čárka a 1 desetinné", () => {
+  assert.equal(formatPrintHoursShort(1620), "27h");
+  assert.equal(formatPrintHoursShort(1650), "27,5h");
+  assert.equal(formatPrintHoursShort(90), "1,5h");
+  assert.equal(formatPrintHoursShort(30), "0,5h");
 });

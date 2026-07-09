@@ -34,6 +34,23 @@ export function blockPrintMinutes(b: {
   return b.printMinutes ?? Math.max(30, Math.round(elapsed / 30) * 30);
 }
 
+/**
+ * Součet tiskových minut všech členů split skupiny (bod 18 auditu plánovače).
+ * siblings = všechny bloky skupiny včetně bloku samotného. Deleguje na
+ * blockPrintMinutes — ZAKAZKA bere printMinutes (fallback elapsed), jinak elapsed.
+ */
+export function splitGroupTotalPrintMinutes(
+  siblings: { type: string; printMinutes?: number | null; startTime: string | Date; endTime: string | Date }[]
+): number {
+  return siblings.reduce((sum, b) => sum + blockPrintMinutes(b), 0);
+}
+
+/** „27h" / „27,5h" — krátký formát hodin pro chip a detail split skupiny. */
+export function formatPrintHoursShort(minutes: number): string {
+  const h = minutes / 60;
+  return h % 1 === 0 ? `${h}h` : `${h.toFixed(1).replace(".", ",")}h`;
+}
+
 /** Převod klientských CompanyDay záznamů na intervaly pro daný stroj (global + machine-specific). */
 export function companyDayIntervalsFor(
   machine: string,
