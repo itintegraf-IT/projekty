@@ -2654,6 +2654,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
     const pasteMs = snappedTarget.getTime();
 
+    if (isGroupCutRef.current) {
+      // Skupinový CUT = hromadný PŘESUN (batch PUT, stejná cesta jako lasso drag) —
+      // žádné POST kopie + DELETE originálů (bod 17 auditu: rozbíjelo split skupiny
+      // a historii). Sémantika cíle zachována: všechny bloky na target.machine
+      // s offsetem vůči anchoru. Případné 422 (nevalidní start některého členu při
+      // zámku pracovní doby) vrátí batch jako celek — parita s dřívější POST cestou.
+      const updates = group.map((src) => {
+        const offsetMs = new Date(src.startTime).getTime() - anchorMs;
+        const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
+        const newStart = new Date(pasteMs + offsetMs);
+        return { id: src.id, startTime: newStart, endTime: new Date(newStart.getTime() + durationMs), machine: target.machine };
+      });
+      await handleMultiBlockUpdate(updates); // batch PUT + undo „Hromadný přesun" + toast při chybě
+      clipboardGroupRef.current = [];
+      isGroupCutRef.current = false;
+      setSelectedBlockIds(new Set());
+      return;
+    }
+
     // POST všechny bloky sekvenčně — při prvním selhání se zastaví a žádný lokální stav se nezmění
     const created: Block[] = [];
     // Páruje se 1:1 se `created` v TÉŽE iteraci (created.push hned po úspěšném POST) — index
@@ -2734,24 +2753,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       recordUndo(buildCreateCommand("Vložení skupiny", createdRefs));
     }
 
-    if (isGroupCutRef.current) {
-      // DELETE originálů — kontroluj .ok, sb er selhání
-      const deleteResults = await Promise.allSettled(
-        group.map((src) => fetch(`/api/blocks/${src.id}`, { method: "DELETE" }).then((r) => {
-          if (!r.ok) throw new Error(`DELETE ${src.id} HTTP ${r.status}`);
-        }))
-      );
-      const failedDeletes = deleteResults.filter((r) => r.status === "rejected");
-      if (failedDeletes.length > 0) {
-        console.error("Group cut: some DELETEs failed", failedDeletes);
-        showToast("Bloky byly zkopírovány, ale původní se nepodařilo smazat.", "error");
-      } else {
-        setBlocks((prev) => prev.filter((b) => !group.some((g) => g.id === b.id)));
-        setSelectedBlockIds(new Set());
-        clipboardGroupRef.current = [];
-        isGroupCutRef.current = false;
-      }
-    }
   }
 
   async function handleGroupPaste() {
@@ -2830,11 +2831,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (e.key === "x" && selectedBlockIdsRef.current.size > 0) {
         e.preventDefault();
         const group = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
+        // Cut = přesun (batch PUT) — zamčený/vytištěný blok se přesunout nesmí (parita s dragem)
+        const blocked = group.filter((b) => b.locked || b.printCompletedAt);
+        if (blocked.length > 0) {
+          showToast(`Výběr obsahuje ${blocked.length} zamčený/vytištěný blok(y) — nelze vyjmout.`, "info");
+          return;
+        }
         clipboardGroupRef.current = group;
         isGroupCutRef.current = true;
         const target = computePasteTargetFromGroup(group);
         if (target) setPasteTarget(target);
-        showToast(`Vyříznuto ${group.length} bloků. Ctrl+V je vloží za poslední.`, "info");
+        showToast(`Vyříznuto ${group.length} bloků. Ctrl+V je přesune za poslední.`, "info");
         return;
       }
       if (e.key === "v" && clipboardGroupRef.current.length > 0) {
