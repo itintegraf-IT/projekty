@@ -718,6 +718,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   pasteTargetRef.current = pasteTarget;
   const clipboardGroupRef = useRef<Block[]>([]);
   const isGroupCutRef = useRef(false);
+  // In-flight guard cut-přesunu — druhé Ctrl+V během běžícího PUT/batch by vystřelilo
+  // duplicitní mutaci (2 undo záznamy, souběžné chain-push transakce).
+  const cutMoveInFlightRef = useRef(false);
   const [filterText, setFilterText] = useState(initialFilterText ?? "");
   const [searchMatchIndex, setSearchMatchIndex] = useState(0);
   // Ref pro deep link highlight — zajistí že goToMatch(0) proběhne jen jednou po prvním načtení bloků
@@ -1556,7 +1559,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
-  async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) {
+  // Vrací true při úspěchu — volající (group cut) podle toho rozhodne, zda vyčistit clipboard.
+  async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]): Promise<boolean> {
     const originals = new Map(updates.map(u => [u.id, blocksRef.current.find(b => b.id === u.id)]));
     try {
       const batchRes = await fetch("/api/blocks/batch", {
@@ -1612,9 +1616,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           nextSnaps.map((s) => ({ ...s, updatedAt: afterUpd.get(s.id) ?? "" })),
         ));
       }
+      return true;
     } catch (error) {
       console.error("Multi-block update failed", error);
       showToast(error instanceof Error ? error.message : "Hromadný posun se nepodařilo uložit.", "error");
+      return false;
     }
   }
 
@@ -2526,6 +2532,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // CUT = PŘESUN existujícího bloku (PUT, stejná cesta jako drag) — zachová
       // splitGroupId, historii auditu, vazbu na rezervaci i tiskařské poznámky.
       // Bod 17 auditu: dřívější POST kopie + DELETE originálu rozbíjel split skupiny.
+      if (cutMoveInFlightRef.current) return;
+      // Čerstvý stav bloku z blocksRef — clipboard je snapshot z okamžiku Ctrl+X a SSE
+      // ho neobčerstvuje: printMinutes by po cizím resize byl zastaralý a locked/printed
+      // guard z Ctrl+X mohl mezitím přestat platit (TOCTOU).
+      const fresh = blocksRef.current.find((b) => b.id === src.id) ?? src;
+      if (fresh.locked || fresh.printCompletedAt) {
+        showToast(fresh.locked ? "Blok byl mezitím zamčen — nelze přesunout." : "Blok byl mezitím vytištěn — nelze přesunout.", "info");
+        return;
+      }
       const moveBody: Record<string, unknown> = {
         startTime: newStart.toISOString(),
         machine: target.machine,
@@ -2533,10 +2548,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         resolveChain: true,
       };
       if (isZakazka) {
-        moveBody.printMinutes = blockPrintMinutes(src);
+        moveBody.printMinutes = blockPrintMinutes(fresh);
       } else {
-        moveBody.endTime = newEnd.toISOString();
+        const freshDurationMs = new Date(fresh.endTime).getTime() - new Date(fresh.startTime).getTime();
+        moveBody.endTime = new Date(newStart.getTime() + freshDurationMs).toISOString();
       }
+      cutMoveInFlightRef.current = true;
       try {
         const res = await fetch(`/api/blocks/${src.id}`, {
           method: "PUT",
@@ -2554,6 +2571,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       } catch (error) {
         console.error("Block cut-move failed", error);
         showToast(error instanceof Error ? error.message : "Chyba při přesunu bloku.", "error");
+      } finally {
+        cutMoveInFlightRef.current = false;
       }
       return;
     }
@@ -2658,18 +2677,34 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // Skupinový CUT = hromadný PŘESUN (batch PUT, stejná cesta jako lasso drag) —
       // žádné POST kopie + DELETE originálů (bod 17 auditu: rozbíjelo split skupiny
       // a historii). Sémantika cíle zachována: všechny bloky na target.machine
-      // s offsetem vůči anchoru. Případné 422 (nevalidní start některého členu při
-      // zámku pracovní doby) vrátí batch jako celek — parita s dřívější POST cestou.
+      // s offsetem vůči anchoru (geometrie z clipboard snapshotu — rozložení, jak ho
+      // uživatel vyjmul). Případné 422 (nevalidní start některého členu při zámku
+      // pracovní doby) vrátí batch jako celek a clipboard ZŮSTÁVÁ pro retry jinam.
+      if (cutMoveInFlightRef.current) return;
+      // TOCTOU re-check: zamčení/vytištění některého členu mezi Ctrl+X a Ctrl+V
+      const blockedNow = group
+        .map((g) => blocksRef.current.find((b) => b.id === g.id) ?? g)
+        .filter((b) => b.locked || b.printCompletedAt);
+      if (blockedNow.length > 0) {
+        showToast(`${blockedNow.length} blok(y) byly mezitím zamčeny/vytištěny — nelze přesunout.`, "info");
+        return;
+      }
       const updates = group.map((src) => {
         const offsetMs = new Date(src.startTime).getTime() - anchorMs;
         const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
         const newStart = new Date(pasteMs + offsetMs);
         return { id: src.id, startTime: newStart, endTime: new Date(newStart.getTime() + durationMs), machine: target.machine };
       });
-      await handleMultiBlockUpdate(updates); // batch PUT + undo „Hromadný přesun" + toast při chybě
-      clipboardGroupRef.current = [];
-      isGroupCutRef.current = false;
-      setSelectedBlockIds(new Set());
+      cutMoveInFlightRef.current = true;
+      try {
+        const ok = await handleMultiBlockUpdate(updates); // batch PUT + undo „Hromadný přesun" + toast při chybě
+        if (!ok) return; // selhání → clipboard i výběr zůstávají, uživatel může Ctrl+V jinam
+        clipboardGroupRef.current = [];
+        isGroupCutRef.current = false;
+        setSelectedBlockIds(new Set());
+      } finally {
+        cutMoveInFlightRef.current = false;
+      }
       return;
     }
 

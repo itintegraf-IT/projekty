@@ -45,8 +45,10 @@ export function splitGroupTotalPrintMinutes(
   return siblings.reduce((sum, b) => sum + blockPrintMinutes(b), 0);
 }
 
-/** „27h" / „27,5h" — krátký formát hodin pro chip a detail split skupiny. */
+/** „27h" / „27,5h" — krátký formát hodin pro chip a detail split skupiny.
+ *  NaN/nekonečno/nekladné hodnoty (rozbitá data, legacy bloky) → „0h" místo „NaNh". */
 export function formatPrintHoursShort(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "0h";
   const h = minutes / 60;
   return h % 1 === 0 ? `${h}h` : `${h.toFixed(1).replace(".", ",")}h`;
 }

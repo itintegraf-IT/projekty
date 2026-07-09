@@ -361,3 +361,10 @@ test("formatPrintHoursShort: celé hodiny bez desetin, jinak čárka a 1 desetin
   assert.equal(formatPrintHoursShort(90), "1,5h");
   assert.equal(formatPrintHoursShort(30), "0,5h");
 });
+
+test("formatPrintHoursShort: NaN/nekonečno/nekladné → 0h (rozbitá data nesmí ukázat NaNh)", () => {
+  assert.equal(formatPrintHoursShort(NaN), "0h");
+  assert.equal(formatPrintHoursShort(Infinity), "0h");
+  assert.equal(formatPrintHoursShort(-90), "0h");
+  assert.equal(formatPrintHoursShort(0), "0h");
+});

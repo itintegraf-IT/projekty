@@ -1551,7 +1551,7 @@ function BlockCard({
 
       {/* ── MODE_MICRO_TEXT: 14–23 px — jediný řádek „číslo · popis" (bez chipů a badge) ── */}
       {MODE_MICRO_TEXT && (
-        <div style={{ display: "flex", alignItems: "center", gap: 3, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 6, paddingRight: 6, flex: 1, overflow: "hidden", minHeight: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 3, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 6, paddingRight: hasTiskarNotes ? 44 : 6, flex: 1, overflow: "hidden", minHeight: 0 }}>
           <span style={{ fontSize: 8, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
             {block.orderNumber}
           </span>
@@ -3702,7 +3702,7 @@ export default function TimelineGrid({
                         <>
                           <div className="tl-night"     style={{ position: "absolute", top: d.y,                                     height: SHIFT_HOURS.MORNING.start * hpx,                                 left: 0, right: 0, pointerEvents: "none" }} />
                           <div className="tl-afternoon" style={{ position: "absolute", top: d.y + SHIFT_HOURS.AFTERNOON.start * hpx, height: (SHIFT_HOURS.AFTERNOON.end - SHIFT_HOURS.AFTERNOON.start) * hpx, left: 0, right: 0, pointerEvents: "none" }} />
-                          <div className="tl-night"     style={{ position: "absolute", top: d.y + SHIFT_HOURS.AFTERNOON.end * hpx,   height: (24 - SHIFT_HOURS.AFTERNOON.end) * hpx,                           left: 0, right: 0, pointerEvents: "none" }} />
+                          <div className="tl-night"     style={{ position: "absolute", top: d.y + SHIFT_HOURS.NIGHT.start * hpx,      height: (24 - SHIFT_HOURS.NIGHT.start) * hpx,                            left: 0, right: 0, pointerEvents: "none" }} />
                         </>
                       )}
                     </Fragment>
