@@ -3668,20 +3668,20 @@ export default function TimelineGrid({
                 {days.map((d, di) => {
                   const isEven = di % 2 === 0;
                   const hpx = slotHeight * 2; // px na hodinu
-                  const dow = d.dayOfWeek;
-                  // Dynamické hranice ze schedule (union přes oba stroje) — per-datum resolve
-                  const allResolvedRows = machineWeekShifts
-                    ? visibleMachines.flatMap((m) => resolveScheduleRows(m, d.date, machineWeekShifts))
-                    : [];
-                  const activeMachines = allResolvedRows.filter((r) => r.dayOfWeek === dow && r.isActive && r.intervals.length > 0);
-                  const nightEnd   = activeMachines.length > 0 ? Math.min(...activeMachines.map((r) => Math.min(...r.intervals.map((iv) => iv.startMin)) / 60)) : WORK_START_H;
-                  const nightStart = activeMachines.length > 0 ? Math.max(...activeMachines.map((r) => Math.max(...r.intervals.map((iv) => iv.endMin)) / 60))   : WORK_END_H;
-                  const midpoint   = Math.round((nightEnd + nightStart) / 2); // střed pracovního okna (pro ranní/odpolední split)
                   return (
                     <Fragment key={`dayshade-${d.y}`}>
-                      {/* Základní tón každého druhého dne + směnové pruhy — skryté na víkendech a odstávkách */}
                       {/* Základní tón každého druhého dne — jen pro pracovní dny bez červeného šrafování */}
                       {!isEven && !d.isWeekend && !d.isCompanyDay && <div className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />}
+                      {/* Směnové pásy — fixní časy směn (SHIFT_HOURS): noc 0–6 a 22–24 nejtmavší,
+                          odpolední 14–22 tmavší, ranní 6–14 je v CSS transparent → nekreslí se.
+                          Alfa pozadí se vrství s tl-day-alt (alt-den zůstává o odstín tmavší). */}
+                      {!d.isWeekend && !d.isCompanyDay && (
+                        <>
+                          <div className="tl-night"     style={{ position: "absolute", top: d.y,                                     height: SHIFT_HOURS.MORNING.start * hpx,                                 left: 0, right: 0, pointerEvents: "none" }} />
+                          <div className="tl-afternoon" style={{ position: "absolute", top: d.y + SHIFT_HOURS.AFTERNOON.start * hpx, height: (SHIFT_HOURS.AFTERNOON.end - SHIFT_HOURS.AFTERNOON.start) * hpx, left: 0, right: 0, pointerEvents: "none" }} />
+                          <div className="tl-night"     style={{ position: "absolute", top: d.y + SHIFT_HOURS.AFTERNOON.end * hpx,   height: (24 - SHIFT_HOURS.AFTERNOON.end) * hpx,                           left: 0, right: 0, pointerEvents: "none" }} />
+                        </>
+                      )}
                     </Fragment>
                   );
                 })}
