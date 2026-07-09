@@ -2522,6 +2522,41 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
     // Naivní end jako fallback — server pro ZAKAZKA autoritativně přepočítá z printMinutes.
     const newEnd = new Date(newStart.getTime() + durationMs);
+    if (isCutRef.current) {
+      // CUT = PŘESUN existujícího bloku (PUT, stejná cesta jako drag) — zachová
+      // splitGroupId, historii auditu, vazbu na rezervaci i tiskařské poznámky.
+      // Bod 17 auditu: dřívější POST kopie + DELETE originálu rozbíjel split skupiny.
+      const moveBody: Record<string, unknown> = {
+        startTime: newStart.toISOString(),
+        machine: target.machine,
+        bypassScheduleValidation: !workingTimeLockRef.current,
+        resolveChain: true,
+      };
+      if (isZakazka) {
+        moveBody.printMinutes = blockPrintMinutes(src);
+      } else {
+        moveBody.endTime = newEnd.toISOString();
+      }
+      try {
+        const res = await fetch(`/api/blocks/${src.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(moveBody),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(err.error ?? "Chyba serveru");
+        }
+        const updated: Block = await res.json();
+        handleBlockUpdate(updated, true); // stav + shifted sousedé + move-undo
+        setCopiedBlock(null);
+        setIsCut(false);
+      } catch (error) {
+        console.error("Block cut-move failed", error);
+        showToast(error instanceof Error ? error.message : "Chyba při přesunu bloku.", "error");
+      }
+      return;
+    }
     const pasteBody = {
       orderNumber: src.orderNumber,
       machine: target.machine,
@@ -2570,13 +2605,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         recordUndo(buildCreateCommand("Vložení bloku", [
           { id: newBlock.id, updatedAt: newBlock.updatedAt, payload: pasteBody },
         ]));
-      }
-      if (isCutRef.current) {
-        await fetch(`/api/blocks/${src.id}`, { method: "DELETE" });
-        setBlocks((prev) => prev.filter((b) => b.id !== src.id));
-        setSelectedBlock((sel) => (sel?.id === src.id ? null : sel));
-        setCopiedBlock(null);
-        setIsCut(false);
       }
     } catch (error) {
       console.error("Block paste failed", error);
@@ -2829,12 +2857,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       if (e.key === "x" && selectedBlockRef.current) {
         e.preventDefault();
-        setCopiedBlock(selectedBlockRef.current);
+        const sel = selectedBlockRef.current;
+        // Cut = přesun existujícího bloku (PUT) — zamčený/vytištěný blok se přesunout nesmí,
+        // stejně jako u dragu. Guard tady, ať UI selže srozumitelně dřív než server.
+        if (sel.locked || sel.printCompletedAt) {
+          showToast(sel.locked ? "Zamčený blok nelze vyjmout." : "Vytištěný blok nelze vyjmout.", "info");
+          return;
+        }
+        setCopiedBlock(sel);
         setIsCut(true);
         clipboardGroupRef.current = [];
         isGroupCutRef.current = false;
-        setPasteTarget(computePasteTargetFromBlock(selectedBlockRef.current));
-        showToast("Blok vyříznut. Ctrl+V vloží těsně za originál.", "info");
+        setPasteTarget(computePasteTargetFromBlock(sel));
+        showToast("Blok vyříznut. Ctrl+V ho přesune těsně za originál.", "info");
         return;
       }
       // Ctrl+C / Ctrl+X bez jakéhokoliv výběru — explicitní toast místo silent no-op
