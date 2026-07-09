@@ -1,6 +1,6 @@
 # CLAUDE.md — Repo Truth
 
-Aktualizováno podle stavu repozitáře k 4. 7. 2026.
+Aktualizováno podle stavu repozitáře k 9. 7. 2026.
 
 Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asistenty. Pokud se aplikace změní, aktualizuj nejdřív tento soubor a až potom navazující dokumentaci.
 
@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **366/366 testů zelené** (viz níže)
+- celá test suite: **371/371 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -20,6 +20,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - tiskové hodiny — etapa 6 (kalendářní revalidace: drift detekce, notifikace, reflow endpointy, sticky-bypass split fix) dokončena 3. 7. 2026 — viz sekci „Kalendářní revalidace" níže
 - tiskové hodiny — etapa 7 (reporty přes tiskové hodiny: retro/outlook dashboard + denní report počítají vytížení z tiskového času, ne z kalendářní délky bloku) dokončena 4. 7. 2026 — viz sekci „Reporty přes tiskové hodiny" níže
 - tiskové hodiny — etapa 8 FINÁLE (multi-agent review celé featury 5 lens + fix wave + Gardena 27h důkaz na dev DB) dokončena 5. 7. 2026 — viz sekci „Finále featury" níže; deploy checklist: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
+- 4 body z auditu plánovače (pásy směn, MICRO text, Σ split, cut=přesun) dokončeny 9. 7. 2026 — viz sekci „4 body z auditu plánovače" níže; spec `docs/superpowers/specs/2026-07-09-planovac-4-body-design.md`, plán `docs/superpowers/plans/2026-07-09-planovac-4-body.md`
 
 ### Spuštění testů
 
@@ -40,7 +41,7 @@ node --test --import tsx src/lib/overlapResolver.test.ts           # 13 testů
 node --test --import tsx src/lib/pasteTarget.test.ts               # 6 testů
 node --test --import tsx src/lib/printTime.server.test.ts          # 7 testů
 node --test --import tsx src/lib/printTime.test.ts                 # 22 testů
-node --test --import tsx src/lib/printTimeClient.test.ts           # 32 testů
+node --test --import tsx src/lib/printTimeClient.test.ts           # 37 testů
 node --test --import tsx src/lib/productionTags.test.ts            # 14 testů
 node --test --import tsx src/lib/reflow.server.test.ts             # 24 testů
 node --test --import tsx src/lib/reportMetrics.test.ts             # 31 testů
@@ -54,7 +55,7 @@ node --test --import tsx src/lib/shifts.test.ts                    # 29 testů
 node --test --import tsx src/lib/splitHelpers.test.ts              # 7 testů
 ```
 
-Celkem **366 testů** v 28 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
+Celkem **371 testů** v 28 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 
@@ -514,6 +515,34 @@ teleport až +5,3 dne, nová drží start a pauzne; Σ tisku přesně 27,0 h).
   detekce/Přepočítat); driftMap `now` je snapshot per render.
 - Deploy: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
   (vč. `connection_limit` v produkční `DATABASE_URL`).
+
+#### 4 body z auditu plánovače (9. 7. 2026)
+
+Čtyři schválené body z auditu e-mailu plánovače (spec `docs/superpowers/specs/2026-07-09-planovac-4-body-design.md`). Čistě klientské změny, žádná změna DB ani API routes; multi-agent review (3 lens) + fix wave, 0 Critical.
+
+- **Pásy směn na pozadí**: pracovní dny mají v gridu tři tóny podle fixních směn
+  (`SHIFT_HOURS` v `shifts.ts`): noc 0–6 a 22–24 (`tl-night`, nejtmavší), odpolední
+  14–22 (`tl-afternoon`), ranní 6–14 transparent. Vrství se s `tl-day-alt` (střídání
+  dnů); víkendy/odstávky bez pásů. Vědomě fixní (ne z živého provozu stroje) —
+  orientační kosmetika, `pointerEvents: none`. Mrtvý per-den výpočet
+  `resolveScheduleRows` v dayshade smyčce odstraněn (výkonový zisk).
+- **MODE_MICRO_TEXT**: nový výškový mód bloku 14–23 px — jediný řádek „číslo · popis"
+  (font 8 px, bez chipů a badge; `paddingRight` rezervuje místo pro 📝 badge). Pod
+  14 px beze změny. Popis je tak čitelný i při odzoomovaném nadhledu.
+- **Σ čas split skupiny**: `splitGroupTotalPrintMinutes` + `formatPrintHoursShort`
+  (`printTimeClient.ts`, testy) — chip `✂2/5 · 27h` na bloku, tooltip řádek
+  „Skupina: Σ 27 h (5 částí)", BlockEdit hlavička „· celkem 27h tisku" a BlockDetail
+  řádek Skupina. Tiskové minuty (`blockPrintMinutes`), fallback elapsed u legacy.
+- **Cut = přesun (bod 17, oprava ztráty split skupiny)**: Ctrl+X → Ctrl+V už NEmaže
+  a NEvytváří blok — single cut jde přes PUT `/api/blocks/[id]` (stejná cesta jako
+  drag, `handleBlockUpdate(updated, true)` → move-undo), skupinový cut přes
+  `handleMultiBlockUpdate` (batch, undo „Hromadný přesun"). Zachová se `splitGroupId`,
+  historie auditu, vazba na rezervaci i tiskařské poznámky. Guardy: zamčený/vytištěný
+  blok nelze vyjmout (Ctrl+X) ani přesunout (TOCTOU re-check při Ctrl+V přes čerstvý
+  `blocksRef`); single cut čte `printMinutes` z čerstvého bloku (ne clipboard
+  snapshotu); in-flight guard `cutMoveInFlightRef` proti double-paste; selhání batche
+  ponechá clipboard pro retry (`handleMultiBlockUpdate` vrací boolean). Ctrl+C kopie
+  beze změny — kopie záměrně NEdědí split skupinu.
 
 ### Audit log — každá mutace v transakci
 
