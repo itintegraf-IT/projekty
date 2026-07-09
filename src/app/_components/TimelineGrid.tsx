@@ -3693,11 +3693,14 @@ export default function TimelineGrid({
                   const hpx = slotHeight * 2; // px na hodinu
                   return (
                     <Fragment key={`dayshade-${d.y}`}>
-                      {/* Základní tón každého druhého dne — jen pro pracovní dny bez červeného šrafování */}
-                      {!isEven && !d.isWeekend && !d.isCompanyDay && <div className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />}
-                      {/* Směnové pásy — fixní časy směn (SHIFT_HOURS): noc 0–6 a 22–24 nejtmavší,
-                          odpolední 14–22 tmavší, ranní 6–14 je v CSS transparent → nekreslí se.
-                          Alfa pozadí se vrství s tl-day-alt (alt-den zůstává o odstín tmavší). */}
+                      {/* Základní tón každého druhého dne — jen pro pracovní dny bez červeného šrafování.
+                          Kryje jen provozní část dne 6–22: noc 22–6 je civilně JEDNA souvislá doba
+                          rozdělená půlnocí mezi dva dny — alt-tón přes celý den by v půlnoci udělal
+                          viditelný schod uprostřed každé noci (a v dark modu noc na alt dni zesvětlil). */}
+                      {!isEven && !d.isWeekend && !d.isCompanyDay && <div className="tl-day-alt" style={{ position: "absolute", top: d.y + SHIFT_HOURS.MORNING.start * hpx, height: (SHIFT_HOURS.NIGHT.start - SHIFT_HOURS.MORNING.start) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
+                      {/* Směnové pásy — fixní časy směn (SHIFT_HOURS): noc 0–6 a 22–24 nejtmavší
+                          (jednotný tón, bez vrstvení s alt), odpolední 14–22 tmavší, ranní 6–14 je
+                          v CSS transparent → nekreslí se. Alt-tón se vrství jen s ranní/odpolední. */}
                       {!d.isWeekend && !d.isCompanyDay && (
                         <>
                           <div className="tl-night"     style={{ position: "absolute", top: d.y,                                     height: SHIFT_HOURS.MORNING.start * hpx,                                 left: 0, right: 0, pointerEvents: "none" }} />
