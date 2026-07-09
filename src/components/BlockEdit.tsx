@@ -19,7 +19,7 @@ import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
 import { parseProductionTags, serializeProductionTags } from "@/lib/productionTags";
 import { MultiSelectDropdown } from "@/components/MultiSelectDropdown";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
-import { blockPrintMinutes } from "@/lib/printTimeClient";
+import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
@@ -716,7 +716,7 @@ export function BlockEdit({
             )}
             {isInSplit && (
               <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", background: "color-mix(in oklab, var(--text-muted) 12%, transparent)", borderRadius: 4, padding: "1px 5px" }}>
-                ✂ Část {splitIndex + 1} / {splitGroup!.length}
+                ✂ Část {splitIndex + 1} / {splitGroup!.length} · celkem {formatPrintHoursShort(splitGroupTotalPrintMinutes(splitGroup!))} tisku
               </span>
             )}
           </div>

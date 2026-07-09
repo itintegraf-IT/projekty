@@ -13,7 +13,7 @@ import DatePickerField from "@/app/_components/DatePickerField";
 import { getSplitChipState } from "@/lib/splitHelpers";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { formatProductionTags, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
-import { blockPrintMinutes, type CalendarDriftInfo } from "@/lib/printTimeClient";
+import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes, type CalendarDriftInfo } from "@/lib/printTimeClient";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -221,6 +221,19 @@ export function BlockDetail({
           <Row label="Začátek" value={formatDateTime(block.startTime)} />
           <Row label="Konec"   value={formatDateTime(block.endTime)} />
           <Row label="Délka"   value={blockLengthLabel(block)} />
+          {/* Σ tiskový čas celé split skupiny (bod 18 auditu) */}
+          {block.splitGroupId != null && allBlocks && (() => {
+            const siblings = allBlocks.filter(
+              (b) => b.splitGroupId === block.splitGroupId || b.id === block.splitGroupId
+            );
+            if (siblings.length < 2) return null;
+            return (
+              <Row
+                label="Skupina"
+                value={`${formatPrintHoursShort(splitGroupTotalPrintMinutes(siblings))} tisku celkem (${siblings.length} částí)`}
+              />
+            );
+          })()}
           {block.locked && <Row label="Stav" value="Zamčeno" />}
         </div>
 

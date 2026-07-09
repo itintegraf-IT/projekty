@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } fr
 import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, type CompanyDayInterval } from "@/lib/printTime";
-import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
+import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, formatPrintHoursShort, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, splitGroupTotalPrintMinutes, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
 import {
   addDaysToCivilDate,
   civilDateDayOfWeek,
@@ -918,7 +918,7 @@ function BlockCard({
   onExpeditionPublish, onExpeditionUnpublish,
   onDataChipDoubleClick,
   onOpenNotes,
-  splitPart, splitTotal,
+  splitPart, splitTotal, splitTotalMinutes,
   splitPartner, onSplitChipClick,
   pauseOverlays, contentHeight,
   calendarDrift,
@@ -935,6 +935,8 @@ function BlockCard({
   now: Date;
   splitPart?: number;
   splitTotal?: number;
+  // Σ tiskových minut všech členů split skupiny (bod 18 auditu) — 0/undefined = neukazovat
+  splitTotalMinutes?: number;
   // Drift kalendáře (uložený end/start bloku nesedí na aktuální expanzi tiskových hodin) —
   // informační badge pro VŠECHNY role (viz níže), akce (banner „Přepočítat") je jen na stroji.
   calendarDrift?: CalendarDriftInfo | null;
@@ -1531,7 +1533,7 @@ function BlockCard({
                     <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
                   )}
                   {(splitTotal ?? 0) > 1 && (
-                    <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
+                    <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
                   )}
                 </div>
               )}
@@ -1599,7 +1601,7 @@ function BlockCard({
                 <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
               )}
               {(splitTotal ?? 0) > 1 && (
-                <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}</span>
+                <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
               )}
             </div>
           )}
@@ -1976,6 +1978,12 @@ function BlockCard({
             <div style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", lineHeight: 1.4 }}>
               {durationLabel}
             </div>
+            {/* Σ tiskový čas celé split skupiny (bod 18 auditu) */}
+            {(splitTotal ?? 0) > 1 && (splitTotalMinutes ?? 0) > 0 && (
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", lineHeight: 1.4 }}>
+                {`Skupina: Σ ${fmtHoursTip(splitTotalMinutes!)} (${splitTotal} částí)`}
+              </div>
+            )}
             {/* Termíny */}
             {hasDateInfo && (
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -3879,6 +3887,8 @@ export default function TimelineGrid({
                   const splitSiblings = block.splitGroupId != null ? (splitGroupMap.get(block.splitGroupId) ?? []) : [];
                   const splitTotal = splitSiblings.length > 1 ? splitSiblings.length : 0;
                   const splitPart  = splitTotal > 0 ? splitSiblings.findIndex(b => b.id === block.id) + 1 : 0;
+                  // Σ tiskových minut celé skupiny — pro chip „✂2/5 · 27h" a tooltip (bod 18 auditu)
+                  const splitTotalMinutes = splitTotal > 0 ? splitGroupTotalPrintMinutes(splitSiblings) : 0;
                   // Split partner pro TISKAR — najde sourozenecký blok na druhém stroji
                   const splitPartner = isTiskar
                     ? findSplitPartner(block, blocks, assignedMachine ?? "")
@@ -3905,6 +3915,7 @@ export default function TimelineGrid({
                       block={block}
                       splitPart={splitPart}
                       splitTotal={splitTotal}
+                      splitTotalMinutes={splitTotalMinutes}
                       top={top}
                       height={height}
                       pauseOverlays={pauseOverlays}
