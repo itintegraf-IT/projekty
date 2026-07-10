@@ -911,7 +911,7 @@ function MaterialNoteAffordance({
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 function BlockCard({
-  block, top, height, dimmed, selected, isDragging, isCopied, multiSelected, now,
+  block, top, height, maxRenderHeight, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
   canEdit, canEditData, canEditDataDate, canEditMat, onInlineDatePick, badgeColorMap,
   onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
@@ -927,6 +927,9 @@ function BlockCard({
   block: Block;
   top: number;
   height: number;
+  // Strop render výšky = začátek dalšího bloku na stroji (blok se nesmí kreslit přes něj).
+  // Infinity = žádný další blok. Div použije min(clampedHeight, maxRenderHeight).
+  maxRenderHeight?: number;
   dimmed: boolean;
   selected: boolean;
   isDragging: boolean;
@@ -1167,7 +1170,7 @@ function BlockCard({
       onClick={onClick}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
       style={{
-        position: "absolute", top, height: clampedHeight, left: 3,
+        position: "absolute", top, height: Math.min(clampedHeight, maxRenderHeight ?? Infinity), left: 3,
         width: "calc(100% - 6px)",
         zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
@@ -3163,6 +3166,27 @@ export default function TimelineGrid({
     }
   }
 
+  // ── Předpočet: začátek nejbližšího následujícího bloku na témže stroji ───────
+  // Blok se kreslí minimálně 20 px (clampedHeight — kvůli čitelnosti chipů), ale
+  // nikdy přes navazující blok. Bez toho krátký blok (30 min < 20 px při odzoomu)
+  // vizuálně přeteče do souseda, i když časově jen navazuje. O(n log n) per stroj.
+  const nextBlockStartMsById = (() => {
+    const map = new Map<number, number>();
+    for (const bucket of visibleBlocksByMachine.values()) {
+      const sorted = [...bucket].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+      for (let i = 0; i < sorted.length; i++) {
+        const curStart = new Date(sorted[i].startTime).getTime();
+        let nextStart = Infinity;
+        for (let j = i + 1; j < sorted.length; j++) {
+          const s = new Date(sorted[j].startTime).getTime();
+          if (s > curStart) { nextStart = s; break; }
+        }
+        map.set(sorted[i].id, nextStart);
+      }
+    }
+    return map;
+  })();
+
   // ── Precompute split group map — O(n) místo O(n²) v machineBlocks.map() ───
   const splitGroupMap = (() => {
     const map = new Map<number, Block[]>();
@@ -3855,6 +3879,11 @@ export default function TimelineGrid({
                   // Vždy renderujeme na původní pozici; při tažení blok zešedne (ghost at origin)
                   const top    = dateToY(new Date(block.startTime), viewStart, slotHeight);
                   const height = dateToY(new Date(block.endTime), viewStart, slotHeight) - top;
+                  // Strop výšky = začátek dalšího bloku na stroji (blok se nesmí kreslit přes něj).
+                  const nextStartMs = nextBlockStartMsById.get(block.id) ?? Infinity;
+                  const maxRenderHeight = Number.isFinite(nextStartMs)
+                    ? dateToY(new Date(nextStartMs), viewStart, slotHeight) - top
+                    : Infinity;
                   const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace, block.jobPresetLabel].some(f => f?.toLowerCase().includes(filter));
                   const dimmed   = (!blockMatchesFilter) || !!isThisBlockDragging;
                   const selected = !isThisBlockDragging && block.id === selectedBlockId;
@@ -3893,6 +3922,7 @@ export default function TimelineGrid({
                       splitTotalMinutes={splitTotalMinutes}
                       top={top}
                       height={height}
+                      maxRenderHeight={maxRenderHeight}
                       pauseOverlays={pauseOverlays}
                       contentHeight={contentHeight}
                       dimmed={dimmed}
