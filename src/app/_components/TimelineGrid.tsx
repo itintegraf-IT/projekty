@@ -3698,16 +3698,21 @@ export default function TimelineGrid({
                           rozdělená půlnocí mezi dva dny — alt-tón přes celý den by v půlnoci udělal
                           viditelný schod uprostřed každé noci (a v dark modu noc na alt dni zesvětlil). */}
                       {!isEven && !d.isWeekend && !d.isCompanyDay && <div className="tl-day-alt" style={{ position: "absolute", top: d.y + SHIFT_HOURS.MORNING.start * hpx, height: (SHIFT_HOURS.NIGHT.start - SHIFT_HOURS.MORNING.start) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
-                      {/* Směnové pásy — fixní časy směn (SHIFT_HOURS): noc 0–6 a 22–24 nejtmavší
-                          (jednotný tón, bez vrstvení s alt), odpolední 14–22 tmavší, ranní 6–14 je
-                          v CSS transparent → nekreslí se. Alt-tón se vrství jen s ranní/odpolední. */}
-                      {!d.isWeekend && !d.isCompanyDay && (
-                        <>
-                          <div className="tl-night"     style={{ position: "absolute", top: d.y,                                     height: SHIFT_HOURS.MORNING.start * hpx,                                 left: 0, right: 0, pointerEvents: "none" }} />
-                          <div className="tl-afternoon" style={{ position: "absolute", top: d.y + SHIFT_HOURS.AFTERNOON.start * hpx, height: (SHIFT_HOURS.AFTERNOON.end - SHIFT_HOURS.AFTERNOON.start) * hpx, left: 0, right: 0, pointerEvents: "none" }} />
-                          <div className="tl-night"     style={{ position: "absolute", top: d.y + SHIFT_HOURS.NIGHT.start * hpx,      height: (24 - SHIFT_HOURS.NIGHT.start) * hpx,                            left: 0, right: 0, pointerEvents: "none" }} />
-                        </>
-                      )}
+                      {/* Směnové pásy podle SKUTEČNÉHO provozu daného stroje (resolveDayIntervals):
+                          kreslí se jen tam, kde stroj v daném čase reálně tiskne — XL_105 bez noční
+                          směny nemá noční pás; noc navazuje přes půlnoc přes `prev-tail` interval,
+                          takže na hranici dne ani víkendu nevzniká schod. Ranní směna je v CSS
+                          transparentní (= base), proto se kreslí jen odpolední (tmavší) a noční
+                          (nejtmavší). Odstávku překryje červený overlay navrch — pás pod ním nevadí. */}
+                      {(machineWeekShifts ? resolveDayIntervals(machine, d.dateStr, machineWeekShifts) : [])
+                        .filter((iv) => iv.shift !== "MORNING")
+                        .map((iv, i) => (
+                          <div
+                            key={`shift-${d.y}-${i}`}
+                            className={iv.shift === "NIGHT" ? "tl-night" : "tl-afternoon"}
+                            style={{ position: "absolute", top: d.y + (iv.startMin / 60) * hpx, height: ((iv.endMin - iv.startMin) / 60) * hpx, left: 0, right: 0, pointerEvents: "none" }}
+                          />
+                        ))}
                     </Fragment>
                   );
                 })}
