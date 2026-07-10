@@ -528,9 +528,12 @@ teleport až +5,3 dne, nová drží start a pauzne; Σ tisku přesně 27,0 h).
   pás; noc navazuje přes půlnoc přes `prev-tail` interval, takže na hranici dne ani
   víkendu nevzniká „schod". Odstávku překryje červený overlay navrch. `tl-day-alt`
   (střídání dnů) kryje jen provozní část 6–22 — přes noc by dělal půlnoční schod.
-- **MODE_MICRO_TEXT**: nový výškový mód bloku 14–23 px — jediný řádek „číslo · popis"
-  (font 8 px, bez chipů a badge; `paddingRight` rezervuje místo pro 📝 badge). Pod
-  14 px beze změny. Popis je tak čitelný i při odzoomovaném nadhledu.
+- **MODE_MICRO_TEXT**: nový výškový mód bloku 14–23 px pro odzoomovaný nadhled.
+  Sdílí render s MODE_TINY (`(MODE_TINY || MODE_MICRO_TEXT)`) — jednořádkový layout
+  `[D chip][M chip][E chip] · číslo · popis`, chipy dodání dat/materiálu/expedice mají
+  přednost, popis se uřízne elipsou. Půlhodinový blok v nadhledu (zoom <24, kde height
+  bloku klesne pod práh MODE_TINY 24 px) tak neztratí D/M/E chipy. (Původní verze bodu
+  15 ukazovala v tomto pásmu jen popis bez chipů — opraveno 10. 7. 2026.)
 - **Σ čas split skupiny**: `splitGroupTotalPrintMinutes` + `formatPrintHoursShort`
   (`printTimeClient.ts`, testy) — chip `✂2/5 · 27h` na bloku, tooltip řádek
   „Skupina: Σ 27 h (5 částí)", BlockEdit hlavička „· celkem 27h tisku" a BlockDetail
