@@ -4012,6 +4012,22 @@ export default function TimelineGrid({
                   const durLabel = dragPreview.resizePrintMinutes != null
                     ? `${fmtHm(dragPreview.resizePrintMinutes)} tisku (${fmtHm(totalMin)} celkem)`
                     : fmtHm(totalMin);
+                  // Split skupina: při resize jedné části ukázat živě přepočítaný Σ tiskový
+                  // čas CELÉ skupiny = ostatní části (beze změny) + tato část v nové délce.
+                  // Pro tuto část bereme honest tiskové minuty (resizePrintMinutes), a když
+                  // nejsou (bypass / bez zámku), fallback na délku tažení.
+                  const resizedBlock = blocks.find((b) => b.id === dragPreview!.blockId);
+                  let groupTotalLabel: string | null = null;
+                  if (resizedBlock?.splitGroupId != null) {
+                    const siblings = splitGroupMap.get(resizedBlock.splitGroupId) ?? [];
+                    if (siblings.length > 1) {
+                      const thisPm = dragPreview.resizePrintMinutes ?? totalMin;
+                      const othersMin = siblings
+                        .filter((b) => b.id !== dragPreview!.blockId)
+                        .reduce((sum, b) => sum + blockPrintMinutes(b), 0);
+                      groupTotalLabel = `skupina Σ ${fmtHm(othersMin + thisPm)}`;
+                    }
+                  }
                   return (
                     <div style={{
                       position: "absolute",
@@ -4032,6 +4048,12 @@ export default function TimelineGrid({
                       <span style={{ fontSize: 12, fontWeight: 700, color: "#60a5fa", fontVariantNumeric: "tabular-nums" }}>→ {fmtTime}</span>
                       <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>|</span>
                       <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontVariantNumeric: "tabular-nums" }}>{durLabel}</span>
+                      {groupTotalLabel && (
+                        <>
+                          <span style={{ fontSize: 10, color: "rgba(255,255,255,0.35)" }}>|</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#c4b5fd", fontVariantNumeric: "tabular-nums" }}>✂ {groupTotalLabel}</span>
+                        </>
+                      )}
                     </div>
                   );
                 })()}

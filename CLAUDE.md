@@ -535,6 +535,10 @@ teleport až +5,3 dne, nová drží start a pauzne; Σ tisku přesně 27,0 h).
   (`printTimeClient.ts`, testy) — chip `✂2/5 · 27h` na bloku, tooltip řádek
   „Skupina: Σ 27 h (5 částí)", BlockEdit hlavička „· celkem 27h tisku" a BlockDetail
   řádek Skupina. Tiskové minuty (`blockPrintMinutes`), fallback elapsed u legacy.
+  **Resize split části**: resize tooltip má navíc segment `✂ skupina Σ Xh` — živě
+  přepočítaný celek skupiny = ostatní části (beze změny) + tato část v nové délce
+  (honest `resizePrintMinutes`, fallback délka tažení u bypass/bez zámku). Uživatel
+  při tažení vidí, o kolik se mění CELÁ zakázka, ne jen ta jedna část.
 - **Cut = přesun (bod 17, oprava ztráty split skupiny)**: Ctrl+X → Ctrl+V už NEmaže
   a NEvytváří blok — single cut jde přes PUT `/api/blocks/[id]` (stejná cesta jako
   drag, `handleBlockUpdate(updated, true)` → move-undo), skupinový cut přes
