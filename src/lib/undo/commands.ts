@@ -57,6 +57,11 @@ export function buildEditCommand(
       ...target.fields,
       expectedUpdatedAt: expected.updatedAt,
       resolveChain: true,
+      // Undo/redo vrací blok do stavu, který už jednou v DB legitimně existoval
+      // (mohl být umístěn s bypassem / mimo provoz). Bez tohoto flagu server znovu
+      // validuje pracovní dobu a undo selže na tom, co uživatel právě udělal. Server
+      // stejně spočítá skutečnou konformitu (effectivelyBypassed) — stav se nezkazí.
+      bypassScheduleValidation: true,
     });
     target.updatedAt = updated.updatedAt;
     const { shifted: _shifted, ...cleanUpdated } = updated;

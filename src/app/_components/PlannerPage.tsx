@@ -680,7 +680,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (!r.ok) throw new Error("Chyba serveru");
     },
     batchUpdate: async (updates) => {
-      const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: false, bypassOverlapCheck: true }) });
+      // bypassScheduleValidation: true — undo/redo vrací bloky do dříve existujícího
+      // stavu, nesmí selhat na re-validaci pracovní doby (viz putBlock výše).
+      const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
       if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
       return r.json();
     },

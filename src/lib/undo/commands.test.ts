@@ -287,3 +287,15 @@ test("buildMoveOrResizeCommand: bez změny času/stroje vrátí null", () => {
   const cmd = buildMoveOrResizeCommand(prev, updated, [], []);
   assert.equal(cmd, null);
 });
+
+test("buildEditCommand: undo pošle PUT s bypassScheduleValidation:true (undo nevaliduje pracovní dobu)", async () => {
+  const live = new Map([[1, blk(1, { endTime: "2026-07-10T11:00:00.000Z", updatedAt: "v2" })]]);
+  const { effects, calls } = makeEditEffects(live);
+  const before: EditSnapshot = { id: 1, updatedAt: "v1", fields: { endTime: "2026-07-10T09:00:00.000Z" } };
+  const after:  EditSnapshot = { id: 1, updatedAt: "v2", fields: { endTime: "2026-07-10T11:00:00.000Z" } };
+  const cmd = buildEditCommand("Změna délky", before, after);
+  await cmd.undo(effects);
+  assert.equal(calls.put[0].body.bypassScheduleValidation, true, "undo edit musí obcházet validaci pracovní doby — vrací dříve existující stav");
+  await cmd.redo(effects);
+  assert.equal(calls.put[1].body.bypassScheduleValidation, true, "redo edit taktéž");
+});
