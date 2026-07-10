@@ -520,12 +520,14 @@ teleport až +5,3 dne, nová drží start a pauzne; Σ tisku přesně 27,0 h).
 
 Čtyři schválené body z auditu e-mailu plánovače (spec `docs/superpowers/specs/2026-07-09-planovac-4-body-design.md`). Čistě klientské změny, žádná změna DB ani API routes; multi-agent review (3 lens) + fix wave, 0 Critical.
 
-- **Pásy směn na pozadí**: pracovní dny mají v gridu tři tóny podle fixních směn
-  (`SHIFT_HOURS` v `shifts.ts`): noc 0–6 a 22–24 (`tl-night`, nejtmavší), odpolední
-  14–22 (`tl-afternoon`), ranní 6–14 transparent. Vrství se s `tl-day-alt` (střídání
-  dnů); víkendy/odstávky bez pásů. Vědomě fixní (ne z živého provozu stroje) —
-  orientační kosmetika, `pointerEvents: none`. Mrtvý per-den výpočet
-  `resolveScheduleRows` v dayshade smyčce odstraněn (výkonový zisk).
+- **Pásy směn na pozadí** (per stroj podle skutečného provozu): dayshade smyčka
+  (uvnitř `visibleMachines.map`) volá `resolveDayIntervals(machine, d.dateStr,
+  machineWeekShifts)` a kreslí pás jen tam, kde daný stroj v daném čase reálně
+  tiskne — odpolední `tl-afternoon` (tmavší), noční `tl-night` (nejtmavší); ranní je
+  v CSS transparentní (= base), proto se nekreslí. XL_105 bez noční směny nemá noční
+  pás; noc navazuje přes půlnoc přes `prev-tail` interval, takže na hranici dne ani
+  víkendu nevzniká „schod". Odstávku překryje červený overlay navrch. `tl-day-alt`
+  (střídání dnů) kryje jen provozní část 6–22 — přes noc by dělal půlnoční schod.
 - **MODE_MICRO_TEXT**: nový výškový mód bloku 14–23 px — jediný řádek „číslo · popis"
   (font 8 px, bez chipů a badge; `paddingRight` rezervuje místo pro 📝 badge). Pod
   14 px beze změny. Popis je tak čitelný i při odzoomovaném nadhledu.
