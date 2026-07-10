@@ -1066,7 +1066,7 @@ function BlockCard({
   const MODE_FULL    = layoutHeight >= 48;                              // plný layout (od ~1h při zoom=26)
   const MODE_COMPACT = !MODE_FULL && layoutHeight >= 44 && block.type !== "UDRZBA";
   const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && layoutHeight >= 24; // micro tečky
-  const MODE_MICRO_TEXT = !MODE_FULL && !MODE_COMPACT && !MODE_TINY && layoutHeight >= 14; // 14–23 px: jediný řádek číslo · popis
+  const MODE_MICRO_TEXT = !MODE_FULL && !MODE_COMPACT && !MODE_TINY && layoutHeight >= 14; // 14–23 px: sdílí TINY řádek (D/M/E chipy + číslo + popis)
   // Výškové prahy pro FULL mode
   const showDatesFull    = !isTiskar && MODE_FULL && layoutHeight >= 60 && block.type !== "UDRZBA"; // plný DateBadge řádek (≥60px)
   const showDatesCompact = !isTiskar && MODE_FULL && layoutHeight < 60  && block.type !== "UDRZBA"; // kompaktní chip řádek (48–59px)
@@ -1434,8 +1434,11 @@ function BlockCard({
         );
       })()}
 
-      {/* ── MODE_TINY: jednořádkový layout — [D chip] [M chip] [E chip] | číslo popis ── */}
-      {MODE_TINY && (() => {
+      {/* ── MODE_TINY + MICRO_TEXT: jednořádkový layout — [D chip][M chip][E chip] · číslo · popis.
+          Sdílený pro obě úzká pásma (14–43 px): chipy dodání dat/materiálu/expedice mají přednost,
+          popis se uřízne elipsou, když nezbude místo. Půlhodinový blok v nadhledu (14–23 px) tak
+          neztratí D/M/E chipy — dřív MICRO_TEXT ukazoval jen popis bez chipů. ── */}
+      {(MODE_TINY || MODE_MICRO_TEXT) && (() => {
         const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
@@ -1548,20 +1551,6 @@ function BlockCard({
           </div>
         );
       })()}
-
-      {/* ── MODE_MICRO_TEXT: 14–23 px — jediný řádek „číslo · popis" (bez chipů a badge) ── */}
-      {MODE_MICRO_TEXT && (
-        <div style={{ display: "flex", alignItems: "center", gap: 3, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 6, paddingRight: hasTiskarNotes ? 44 : 6, flex: 1, overflow: "hidden", minHeight: 0 }}>
-          <span style={{ fontSize: 8, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-            {block.orderNumber}
-          </span>
-          {block.description && (
-            <span style={{ fontSize: 8, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, minWidth: 0 }}>
-              · {block.description}
-            </span>
-          )}
-        </div>
-      )}
 
       {/* ── Řádek 1: Číslo zakázky + popis + chips vpravo (FULL mode) ── */}
       {MODE_FULL && (
