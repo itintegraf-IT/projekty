@@ -3430,10 +3430,6 @@ export default function TimelineGrid({
                     : "transparent",
                 }}
               >
-                {/* Zebra každý druhý den — zrcadlí grid, ať návaznost řádku nezmizí na levé ose */}
-                {di % 2 !== 0 && !d.isWeekend && !d.isCompanyDay && (
-                  <div className="tl-day-alt" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
-                )}
                 {/* Sticky label — drží se viditelnosti celý den při scrollování */}
                 <div style={{
                   position: "sticky",
@@ -3468,12 +3464,6 @@ export default function TimelineGrid({
               e.preventDefault();
             } : undefined}
           >
-            {/* Zebra každý druhý den — parita s gridem i datum-sloupcem */}
-            {days.map((d, di) =>
-              di % 2 !== 0 && !d.isWeekend && !d.isCompanyDay ? (
-                <div key={`ltz-${d.y}`} className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />
-              ) : null
-            )}
             {/* Firemní den overlay (hodinová přesnost) */}
             {companyDays?.map((cd) => {
               if (!viewStart) return null;
@@ -3583,12 +3573,6 @@ export default function TimelineGrid({
                       e.preventDefault();
                     } : undefined}
                   >
-                    {/* Zebra každý druhý den — parita s gridem */}
-                    {days.map((d, di) =>
-                      di % 2 !== 0 && !d.isWeekend && !d.isCompanyDay ? (
-                        <div key={`mtz-${colIdx}-${d.y}`} className="tl-day-alt" style={{ position: "absolute", top: d.y, height: dayHeight, left: 0, right: 0, pointerEvents: "none" }} />
-                      ) : null
-                    )}
                     {halfHourMarkers.filter((m) => m.isLabel).map((m) => (
                       <div
                         key={m.key}
@@ -3687,17 +3671,11 @@ export default function TimelineGrid({
                   ctxGridMouseRef.current = { x: e.clientX, y: e.clientY };
                 }}
               >
-                {/* ── Denní cykly + střídání dnů (základní vrstva) ─────────── */}
-                {days.map((d, di) => {
-                  const isEven = di % 2 === 0;
+                {/* ── Směnové pásy podle skutečného provozu stroje ─────────── */}
+                {days.map((d) => {
                   const hpx = slotHeight * 2; // px na hodinu
                   return (
                     <Fragment key={`dayshade-${d.y}`}>
-                      {/* Základní tón každého druhého dne — jen pro pracovní dny bez červeného šrafování.
-                          Kryje jen provozní část dne 6–22: noc 22–6 je civilně JEDNA souvislá doba
-                          rozdělená půlnocí mezi dva dny — alt-tón přes celý den by v půlnoci udělal
-                          viditelný schod uprostřed každé noci (a v dark modu noc na alt dni zesvětlil). */}
-                      {!isEven && !d.isWeekend && !d.isCompanyDay && <div className="tl-day-alt" style={{ position: "absolute", top: d.y + SHIFT_HOURS.MORNING.start * hpx, height: (SHIFT_HOURS.NIGHT.start - SHIFT_HOURS.MORNING.start) * hpx, left: 0, right: 0, pointerEvents: "none" }} />}
                       {/* Směnové pásy podle SKUTEČNÉHO provozu daného stroje (resolveDayIntervals):
                           kreslí se jen tam, kde stroj v daném čase reálně tiskne — XL_105 bez noční
                           směny nemá noční pás; noc navazuje přes půlnoc přes `prev-tail` interval,
