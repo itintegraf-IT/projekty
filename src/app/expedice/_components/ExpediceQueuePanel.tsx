@@ -51,7 +51,7 @@ export function ExpediceQueuePanel({
         borderRadius: 8,
         outline: isDragOver
           ? "2px dashed rgba(59,130,246,0.5)"
-          : canReceiveDrop ? "2px dashed rgba(255,255,255,0.1)" : undefined,
+          : canReceiveDrop ? "2px dashed var(--border)" : undefined,
         background: isDragOver ? "rgba(59,130,246,0.05)" : undefined,
         transition: "all 80ms ease-out",
         minHeight: canReceiveDrop ? 64 : undefined,
@@ -139,8 +139,8 @@ function QueueCard({
         padding: "7px 10px", borderRadius: 8,
         background: selected
           ? "rgba(59,130,246,0.1)"
-          : hovered ? "rgba(255,255,255,0.04)" : "var(--surface)",
-        border: `1px solid ${selected ? "rgba(59,130,246,0.4)" : "rgba(255,255,255,0.07)"}`,
+          : hovered ? "color-mix(in oklab, var(--text) 4%, transparent)" : "var(--surface)",
+        border: `1px solid ${selected ? "rgba(59,130,246,0.4)" : "var(--border)"}`,
         cursor: onDragStart ? (isDragging ? "grabbing" : "grab") : "pointer",
         minWidth: 0,
         opacity: isDragging ? 0.45 : 1,

@@ -346,7 +346,7 @@ export function BlockDetail({
           );
           if (!partner) return null;
           const { state, time } = getSplitChipState(partner);
-          const timeStr = time.toLocaleString("cs-CZ", { dateStyle: "short", timeStyle: "short" });
+          const timeStr = formatPragueDateTime(time);
           return (
             <>
               <Separator className="my-1 bg-slate-800" />

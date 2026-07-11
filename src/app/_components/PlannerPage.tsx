@@ -2947,11 +2947,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           onClick={() => { setKeyDeletePending(false); setDeleteRejectionReason(""); }}
         >
           <div
-            style={{ background: "#262630", borderRadius: 16, padding: "24px 28px", width: selectedBlock.reservationId ? 340 : 300, border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
+            style={{ background: "var(--popover)", borderRadius: 16, padding: "24px 28px", width: selectedBlock.reservationId ? 340 : 300, border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p style={{ fontSize: 15, fontWeight: 700, color: "#f1f5f9", textAlign: "center", marginBottom: 6 }}>Smazat blok?</p>
-            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginBottom: selectedBlock.reservationId ? 14 : 20 }}>{selectedBlock.orderNumber}{selectedBlock.description ? ` — ${selectedBlock.description}` : ""}</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", textAlign: "center", marginBottom: 6 }}>Smazat blok?</p>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginBottom: selectedBlock.reservationId ? 14 : 20 }}>{selectedBlock.orderNumber}{selectedBlock.description ? ` — ${selectedBlock.description}` : ""}</p>
             {selectedBlock.reservationId && (
               <div style={{ background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
                 <p style={{ fontSize: 11, fontWeight: 600, color: "#c084fc", marginBottom: 8 }}>Propojená rezervace bude zamítnuta</p>
@@ -2968,7 +2968,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                     }
                   }}
                   autoFocus
-                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.08)", color: "#e2e8f0", outline: "none" }}
+                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.08)", color: "var(--text)", outline: "none" }}
                 />
               </div>
             )}
@@ -2992,11 +2992,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           onClick={() => setMultiDeletePending(false)}
         >
           <div
-            style={{ background: "#262630", borderRadius: 16, padding: "24px 28px", width: 300, border: "1px solid rgba(255,255,255,0.15)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
+            style={{ background: "var(--popover)", borderRadius: 16, padding: "24px 28px", width: 300, border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p style={{ fontSize: 15, fontWeight: 700, color: "#f1f5f9", textAlign: "center", marginBottom: 6 }}>Smazat {selectedBlockIds.size} {selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}?</p>
-            <p style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", marginBottom: 20 }}>Tato akce je nevratná.</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", textAlign: "center", marginBottom: 6 }}>Smazat {selectedBlockIds.size} {selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}?</p>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginBottom: 20 }}>Tato akce je nevratná.</p>
             <div style={{ display: "flex", gap: 8 }}>
               <Button variant="destructive" size="sm" className="flex-1 text-xs h-9" autoFocus
                 onClick={() => { const ids = [...selectedBlockIds]; setMultiDeletePending(false); setSelectedBlockIds(new Set()); handleDeleteAll(ids); }}>

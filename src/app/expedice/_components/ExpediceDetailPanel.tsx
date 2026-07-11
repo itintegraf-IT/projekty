@@ -62,7 +62,7 @@ export function ExpediceDetailPanel({ item, onEdit, onUnpublish }: ExpediceDetai
   };
 
   const fieldEmpty: React.CSSProperties = {
-    fontSize: 12, color: "rgba(255,255,255,0.25)", fontStyle: "italic",
+    fontSize: 12, color: "color-mix(in oklab, var(--text) 25%, transparent)", fontStyle: "italic",
   };
 
   return (
@@ -82,7 +82,7 @@ export function ExpediceDetailPanel({ item, onEdit, onUnpublish }: ExpediceDetai
           <span style={{
             fontSize: 10, fontWeight: 600, letterSpacing: "0.04em",
             padding: "2px 7px", borderRadius: 5,
-            background: "rgba(255,255,255,0.06)", color: "var(--text-muted)",
+            background: "color-mix(in oklab, var(--text) 6%, transparent)", color: "var(--text-muted)",
           }}>
             {KIND_LABELS[item.itemKind] ?? item.itemKind}
           </span>
@@ -97,7 +97,7 @@ export function ExpediceDetailPanel({ item, onEdit, onUnpublish }: ExpediceDetai
           {isManual && !date && (
             <span style={{
               fontSize: 10, padding: "2px 7px", borderRadius: 5,
-              background: "rgba(255,255,255,0.06)", color: "var(--text-muted)",
+              background: "color-mix(in oklab, var(--text) 6%, transparent)", color: "var(--text-muted)",
             }}>
               Ve frontě
             </span>

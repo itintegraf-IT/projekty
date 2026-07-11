@@ -67,7 +67,7 @@ export function ExpediceBuilderPanel({ onCreated }: ExpediceBuilderPanelProps) {
 
   const inputStyle: React.CSSProperties = {
     width: "100%", padding: "7px 10px", borderRadius: 7,
-    background: "var(--surface-2)", border: "1px solid rgba(255,255,255,0.1)",
+    background: "var(--surface-2)", border: "1px solid var(--border)",
     color: "var(--text)", fontSize: 12, outline: "none",
     fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
     boxSizing: "border-box",
@@ -99,7 +99,7 @@ export function ExpediceBuilderPanel({ onCreated }: ExpediceBuilderPanelProps) {
                   fontWeight: 500, cursor: "pointer", border: "none",
                   background: kind === k ? "rgba(59,130,246,0.18)" : "var(--surface-2)",
                   color: kind === k ? "#3b82f6" : "var(--text-muted)",
-                  outline: kind === k ? "1px solid rgba(59,130,246,0.35)" : "1px solid rgba(255,255,255,0.08)",
+                  outline: kind === k ? "1px solid rgba(59,130,246,0.35)" : "1px solid var(--border)",
                   transition: "all 120ms ease-out",
                 }}
               >

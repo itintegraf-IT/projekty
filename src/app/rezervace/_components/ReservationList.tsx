@@ -22,6 +22,9 @@ const STATUS_LABEL: Record<string, string> = {
   QUEUE_READY: "Připravena",
   SCHEDULED: "Naplánována",
   REJECTED: "Zamítnuta",
+  COUNTER_PROPOSED: "Protinávrh",
+  CONFIRMED: "Potvrzena",
+  WITHDRAWN: "Stažena",
 };
 
 const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
@@ -30,6 +33,9 @@ const STATUS_COLOR: Record<string, { bg: string; text: string }> = {
   QUEUE_READY: { bg: "rgba(124,58,237,0.12)", text: "#7c3aed" },
   SCHEDULED: { bg: "rgba(16,185,129,0.12)", text: "#059669" },
   REJECTED: { bg: "rgba(220,38,38,0.12)", text: "#dc2626" },
+  COUNTER_PROPOSED: { bg: "color-mix(in oklab, var(--warning) 14%, transparent)", text: "var(--warning)" },
+  CONFIRMED: { bg: "color-mix(in oklab, var(--success) 12%, transparent)", text: "var(--success)" },
+  WITHDRAWN: { bg: "color-mix(in oklab, var(--danger) 12%, transparent)", text: "var(--danger)" },
 };
 
 function fmtDate(iso: string | null): string {

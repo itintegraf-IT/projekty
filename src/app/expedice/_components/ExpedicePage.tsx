@@ -491,7 +491,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
   };
 
   const divider: React.CSSProperties = {
-    width: 1, height: 16, background: "rgba(255,255,255,0.12)", flexShrink: 0,
+    width: 1, height: 16, background: "var(--border)", flexShrink: 0,
   };
 
   // ─── Render ────────────────────────────────────────────────────────────────

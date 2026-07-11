@@ -113,9 +113,9 @@ function LoginForm() {
         style={{
           marginTop: 8,
           width: "100%", height: 42, borderRadius: 10,
-          background: "#FFE600",
+          background: "var(--brand)",
           border: "none", cursor: loading ? "wait" : "pointer",
-          color: "var(--bg)", fontSize: 14, fontWeight: 700,
+          color: "var(--brand-contrast)", fontSize: 14, fontWeight: 700,
           transition: "all 120ms ease-out",
           letterSpacing: "0.01em",
           opacity: loading ? 0.7 : 1,

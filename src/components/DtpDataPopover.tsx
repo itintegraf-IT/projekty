@@ -73,8 +73,8 @@ export function DtpDataPopover({ blockId, currentStatusId, dataOpts, anchorRect,
         top,
         left,
         zIndex: 600,
-        background: "#1c1c1e",
-        border: "1px solid rgba(255,255,255,0.15)",
+        background: "var(--popover)",
+        border: "1px solid var(--border)",
         borderRadius: 12,
         padding: "12px 14px",
         width: 196,
@@ -82,7 +82,7 @@ export function DtpDataPopover({ blockId, currentStatusId, dataOpts, anchorRect,
       }}
     >
       {/* DATA status */}
-      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginBottom: 5, fontWeight: 600, letterSpacing: "0.04em" }}>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 5, fontWeight: 600, letterSpacing: "0.04em" }}>
         Status
       </div>
       <select
@@ -90,11 +90,11 @@ export function DtpDataPopover({ blockId, currentStatusId, dataOpts, anchorRect,
         onChange={(e) => setStatusId(e.target.value)}
         style={{
           width: "100%",
-          background: "#2c2c2e",
-          border: "1px solid rgba(255,255,255,0.12)",
+          background: "var(--surface-2)",
+          border: "1px solid var(--border)",
           borderRadius: 7,
           padding: "6px 10px",
-          color: "#e2e8f0",
+          color: "var(--text)",
           fontSize: 13,
           cursor: "pointer",
           outline: "none",
@@ -107,7 +107,7 @@ export function DtpDataPopover({ blockId, currentStatusId, dataOpts, anchorRect,
       </select>
 
       {/* Hint */}
-      <div style={{ marginTop: 10, fontSize: 10, color: "rgba(255,255,255,0.2)", textAlign: "center" }}>
+      <div style={{ marginTop: 10, fontSize: 10, color: "color-mix(in oklab, var(--text) 25%, transparent)", textAlign: "center" }}>
         ukládá se automaticky při zavření
       </div>
     </div>

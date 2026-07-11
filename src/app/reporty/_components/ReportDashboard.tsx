@@ -106,7 +106,7 @@ const BTN_ACTIVE: React.CSSProperties = {
   border: "1px solid var(--brand)",
 };
 
-const DOW_LABELS = ["Ne","Po","Ut","St","Ct","Pa","So"];
+const DOW_LABELS = ["Ne","Po","Út","St","Čt","Pá","So"];
 
 function KpiCard({ label, value, subtitle, color }: { label: string; value: string | number; subtitle?: string; color?: string }) {
   return (
@@ -179,8 +179,8 @@ function RetroView({ data }: { data: RetroData }) {
     SCHEDULED: "#3fb950", REJECTED: "#f85149",
   };
   const pipelineLabels: Record<string, string> = {
-    SUBMITTED: "Nove", ACCEPTED: "Prijate", QUEUE_READY: "Ve fronte",
-    SCHEDULED: "Naplanovane", REJECTED: "Zamitnute",
+    SUBMITTED: "Nové", ACCEPTED: "Přijaté", QUEUE_READY: "Ve frontě",
+    SCHEDULED: "Naplánované", REJECTED: "Zamítnuté",
   };
   const pipelineTotal = pipelineKeys.reduce((sum, k) => sum + (data.pipeline[k] ?? 0), 0);
   const maxActivity = Math.max(...data.plannerActivity.map((a) => a.actionCount), 1);
@@ -194,26 +194,26 @@ function RetroView({ data }: { data: RetroData }) {
       {/* KPI row */}
       <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
         <KpiCard
-          label="Vytizeni XL 105"
+          label="Vytížení XL 105"
           value={`${xl105?.utilization ?? 0}%`}
           subtitle={`${xl105?.productionHours ?? 0} hod. produkce`}
           color={(xl105?.utilization ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard
-          label="Vytizeni XL 106"
+          label="Vytížení XL 106"
           value={`${xl106?.utilization ?? 0}%`}
           subtitle={`${xl106?.productionHours ?? 0} hod. produkce`}
           color={(xl106?.utilization ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
         />
-        <KpiCard label="Prutok zakazek" value={data.throughput} subtitle="dokonceno v obdobi" />
-        <KpiCard label="Prumerna lead time" value={`${data.avgLeadTimeDays} d`} subtitle="od vytvoreni po dokonceni" />
+        <KpiCard label="Průtok zakázek" value={data.throughput} subtitle="dokončeno v období" />
+        <KpiCard label="Průměrná lead time" value={`${data.avgLeadTimeDays} d`} subtitle="od vytvoření po dokončení" />
       </div>
 
       {/* VYROBA */}
-      <SectionHeader label="VYROBA" />
+      <SectionHeader label="VÝROBA" />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Denni vytizeni</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Denní vytížení</div>
           <BarChart
             data={data.dailyUtilization}
             barKeys={["XL_105", "XL_106"]}
@@ -223,26 +223,26 @@ function RetroView({ data }: { data: RetroData }) {
         </div>
         <div>
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Udrzba ratio</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Údržba ratio</div>
             <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)" }}>{data.maintenanceRatio}%</div>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>cas udrzby / celkovy cas</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>čas údržby / celkový čas</div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <KpiCard label="Produkce XL 105" value={`${xl105?.productionHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h dostupnych`} />
-            <KpiCard label="Produkce XL 106" value={`${xl106?.productionHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h dostupnych`} />
+            <KpiCard label="Produkce XL 105" value={`${xl105?.productionHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h dostupných`} />
+            <KpiCard label="Produkce XL 106" value={`${xl106?.productionHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h dostupných`} />
           </div>
         </div>
       </div>
 
       {/* PLANOVANI */}
-      <SectionHeader label="PLANOVANI" />
+      <SectionHeader label="PLÁNOVÁNÍ" />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ display: "flex", gap: 12 }}>
-          <KpiCard label="Preplanovani" value={data.planning.rescheduleCount} subtitle="bloky presunuty" />
-          <KpiCard label="Stabilita planu" value={`${data.planning.stabilityPercent}%`} subtitle="bloku beze zmeny" />
+          <KpiCard label="Přeplánování" value={data.planning.rescheduleCount} subtitle="bloky přesunuty" />
+          <KpiCard label="Stabilita plánu" value={`${data.planning.stabilityPercent}%`} subtitle="bloků beze změny" />
         </div>
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Aktivita planovacu</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Aktivita plánovačů</div>
           {data.plannerActivity.map((a) => (
             <div key={a.username} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <span style={{ fontSize: 11, width: 80, flexShrink: 0, color: "var(--text)" }}>{a.username}</span>
@@ -252,14 +252,14 @@ function RetroView({ data }: { data: RetroData }) {
               <span style={{ fontSize: 10, color: "var(--text-muted)", width: 32, textAlign: "right" }}>{a.actionCount}</span>
             </div>
           ))}
-          {data.plannerActivity.length === 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Zadna aktivita</div>}
+          {data.plannerActivity.length === 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Žádná aktivita</div>}
         </div>
       </div>
 
       {/* OBCHOD */}
       <SectionHeader label="OBCHOD" />
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Pipeline rezervaci</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Pipeline rezervací</div>
         {/* Stacked bar */}
         {pipelineTotal > 0 && (
           <div style={{ display: "flex", height: 20, borderRadius: 4, overflow: "hidden", marginBottom: 10 }}>
@@ -280,7 +280,7 @@ function RetroView({ data }: { data: RetroData }) {
           ))}
         </div>
         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          Konverze: <strong style={{ color: "var(--text)" }}>{data.pipeline.conversionPercent}%</strong> (prijate → naplanovane)
+          Konverze: <strong style={{ color: "var(--text)" }}>{data.pipeline.conversionPercent}%</strong> (přijaté → naplánované)
         </div>
       </div>
     </>
@@ -308,23 +308,23 @@ function OutlookView({ data }: { data: OutlookData }) {
         <KpiCard
           label="Kapacita XL 105"
           value={`${xl105?.plannedCapacity ?? 0}%`}
-          subtitle={`${xl105?.freeHours ?? 0} h volnych`}
+          subtitle={`${xl105?.freeHours ?? 0} h volných`}
           color={(xl105?.plannedCapacity ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard
           label="Kapacita XL 106"
           value={`${xl106?.plannedCapacity ?? 0}%`}
-          subtitle={`${xl106?.freeHours ?? 0} h volnych`}
+          subtitle={`${xl106?.freeHours ?? 0} h volných`}
           color={(xl106?.plannedCapacity ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
         />
-        <KpiCard label="Volne hod. XL 105" value={`${xl105?.freeHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h`} />
-        <KpiCard label="Volne hod. XL 106" value={`${xl106?.freeHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h`} />
+        <KpiCard label="Volné hod. XL 105" value={`${xl105?.freeHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h`} />
+        <KpiCard label="Volné hod. XL 106" value={`${xl106?.freeHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h`} />
       </div>
 
       {/* KAPACITA */}
       <SectionHeader label="KAPACITA" />
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Heatmapa vytizeni</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Heatmapa vytížení</div>
         <div style={{ display: "grid", gridTemplateColumns: `80px repeat(${days.length}, 1fr)`, gap: 2 }}>
           {/* Header row */}
           <div />
@@ -376,7 +376,7 @@ function OutlookView({ data }: { data: OutlookData }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Planned maintenance */}
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Planovane udrzby</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Plánované údržby</div>
           {data.upcomingMaintenance.slice(0, 5).map((m, i) => {
             const startDt = new Date(m.startTime);
             const endDt = new Date(m.endTime);
@@ -392,19 +392,19 @@ function OutlookView({ data }: { data: OutlookData }) {
             );
           })}
           {data.upcomingMaintenance.length === 0 && (
-            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Zadne planovane udrzby</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Žádné plánované údržby</div>
           )}
         </div>
         {/* Pending reservations */}
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Cekajici na zpracovani</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Čekající na zpracování</div>
           <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-            <KpiCard label="Nove rezervace" value={data.pendingReservations.newCount} subtitle="ceka na prijeti" />
-            <KpiCard label="Ve fronte" value={data.pendingReservations.queueCount} subtitle="pripraveno k planovani" />
+            <KpiCard label="Nové rezervace" value={data.pendingReservations.newCount} subtitle="čeká na přijetí" />
+            <KpiCard label="Ve frontě" value={data.pendingReservations.queueCount} subtitle="připraveno k plánování" />
           </div>
           <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            Nejstarsi cekajici: <strong style={{ color: data.pendingReservations.oldestWaitingDays > 3 ? "#f85149" : "var(--text)" }}>
-              {data.pendingReservations.oldestWaitingDays} dni
+            Nejstarší čekající: <strong style={{ color: data.pendingReservations.oldestWaitingDays > 3 ? "#f85149" : "var(--text)" }}>
+              {data.pendingReservations.oldestWaitingDays} dní
             </strong>
           </div>
         </div>

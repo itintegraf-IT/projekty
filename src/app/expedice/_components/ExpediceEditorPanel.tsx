@@ -216,7 +216,7 @@ export function ExpediceEditorPanel({
 
   const inputStyle: React.CSSProperties = {
     width: "100%", padding: "7px 10px", borderRadius: 7,
-    background: "var(--surface-2)", border: "1px solid rgba(255,255,255,0.1)",
+    background: "var(--surface-2)", border: "1px solid var(--border)",
     color: "var(--text)", fontSize: 12, outline: "none",
     fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
     boxSizing: "border-box",
@@ -290,7 +290,7 @@ export function ExpediceEditorPanel({
           <>
             <div style={{
               fontSize: 11, color: "var(--text-muted)", background: "var(--surface-2)",
-              border: "1px solid rgba(255,255,255,0.07)", borderRadius: 8, padding: "8px 12px",
+              border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px",
               lineHeight: 1.5,
             }}>
               <span style={{ fontWeight: 600, color: "var(--text)" }}>
@@ -300,11 +300,11 @@ export function ExpediceEditorPanel({
                 }
               </span>
               {"machine" in item && item.machine && (
-                <span style={{ color: "rgba(255,255,255,0.35)", marginLeft: 6 }}>
+                <span style={{ color: "color-mix(in oklab, var(--text) 35%, transparent)", marginLeft: 6 }}>
                   · {item.machine.replace(/_/g, " ")}
                 </span>
               )}
-              <div style={{ marginTop: 4, fontSize: 10, color: "rgba(255,255,255,0.3)" }}>
+              <div style={{ marginTop: 4, fontSize: 10, color: "color-mix(in oklab, var(--text) 30%, transparent)" }}>
                 Datum expedice měň přetažením v timeline
               </div>
             </div>
@@ -341,7 +341,7 @@ export function ExpediceEditorPanel({
                       fontWeight: 500, cursor: "pointer", border: "none",
                       background: kind === k ? "rgba(59,130,246,0.18)" : "var(--surface-2)",
                       color: kind === k ? "#3b82f6" : "var(--text-muted)",
-                      outline: kind === k ? "1px solid rgba(59,130,246,0.35)" : "1px solid rgba(255,255,255,0.08)",
+                      outline: kind === k ? "1px solid rgba(59,130,246,0.35)" : "1px solid var(--border)",
                       transition: "all 120ms ease-out",
                     }}
                   >
@@ -412,7 +412,7 @@ export function ExpediceEditorPanel({
               style={{
                 width: "100%", padding: "7px 0", borderRadius: 7, fontSize: 11,
                 fontWeight: 500, cursor: saving ? "default" : "pointer",
-                background: "var(--surface-2)", border: "1px solid rgba(255,255,255,0.1)",
+                background: "var(--surface-2)", border: "1px solid var(--border)",
                 color: "var(--text-muted)", transition: "all 120ms ease-out",
               }}
             >

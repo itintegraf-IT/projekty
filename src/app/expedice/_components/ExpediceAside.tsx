@@ -325,7 +325,7 @@ function CandidateCard({
     <div style={{
       padding: "8px 10px", borderRadius: 8,
       background: "var(--surface-2)",
-      border: "1px solid rgba(255,255,255,0.07)",
+      border: "1px solid var(--border)",
       display: "flex", flexDirection: "column", gap: 5,
     }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0 }}>
@@ -349,7 +349,7 @@ function CandidateCard({
 
       {(candidate.expediceNote || candidate.doprava) && (
         <div style={{
-          fontSize: 10, color: "rgba(255,255,255,0.38)",
+          fontSize: 10, color: "color-mix(in oklab, var(--text) 38%, transparent)",
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
           {[candidate.expediceNote, candidate.doprava].filter(Boolean).join(" · ")}

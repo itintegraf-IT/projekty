@@ -56,11 +56,11 @@ export function ExpediceCard({
           padding: `${vPad}px 10px`,
           borderRadius: 8,
           background: selected ? "rgba(59,130,246,0.1)" : badge.tint,
-          borderTop:    `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
-          borderRight:  `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
-          borderBottom: `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.07)"}`,
+          borderTop:    `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "color-mix(in oklab, var(--text) 22%, transparent)" : "var(--border)"}`,
+          borderRight:  `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "color-mix(in oklab, var(--text) 22%, transparent)" : "var(--border)"}`,
+          borderBottom: `1px solid ${selected ? "rgba(59,130,246,0.4)" : hovered ? "color-mix(in oklab, var(--text) 22%, transparent)" : "var(--border)"}`,
           borderLeft:   selected ? `3px solid rgba(59,130,246,0.7)` : `3px solid ${badge.borderColor}`,
-          boxShadow: hovered && !selected ? "0 0 0 1px rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.3)" : "none",
+          boxShadow: hovered && !selected ? "0 0 0 1px var(--border), 0 2px 8px rgba(0,0,0,0.3)" : "none",
           cursor: isDraggable
             ? (isDragging ? "grabbing" : "grab")
             : onClick ? "pointer" : "default",

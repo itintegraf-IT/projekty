@@ -144,12 +144,12 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
               borderRadius: 8,
               background: isToday
                 ? "rgba(59,130,246,0.05)"
-                : isWeekend ? "rgba(239,68,68,0.09)" : "rgba(255,255,255,0.02)",
+                : isWeekend ? "rgba(239,68,68,0.09)" : "color-mix(in oklab, var(--text) 2%, transparent)",
               border: isDragOver
                 ? "1px solid rgba(59,130,246,0.5)"
                 : isToday ? "1px solid rgba(59,130,246,0.25)"
                 : isWeekend ? "1px solid rgba(239,68,68,0.22)"
-                : "1px solid rgba(255,255,255,0.06)",
+                : "1px solid var(--border)",
               padding: "0 10px 10px",
               transition: "border-color 80ms ease-out",
             }}
@@ -189,7 +189,7 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
               padding: "8px 0 6px",
               background: isToday
                 ? "rgba(59,130,246,0.05)"
-                : isWeekend ? "rgba(239,68,68,0.09)" : "rgba(255,255,255,0.02)",
+                : isWeekend ? "rgba(239,68,68,0.09)" : "color-mix(in oklab, var(--text) 2%, transparent)",
               borderBottom: `1px solid ${isToday ? "rgba(59,130,246,0.35)" : isWeekend ? "rgba(239,68,68,0.45)" : "var(--border)"}`,
               marginBottom: 8,
             }}>

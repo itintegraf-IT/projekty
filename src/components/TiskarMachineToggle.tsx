@@ -37,7 +37,7 @@ export function TiskarMachineToggle({ machines, activeMachine, ownMachine, onCha
               fontSize: 12,
               fontWeight: isActive ? 600 : 500,
               borderRadius: 7,
-              background: isActive ? "white" : "transparent",
+              background: isActive ? "var(--surface)" : "transparent",
               boxShadow: isActive
                 ? "0 2px 6px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.05)"
                 : "none",

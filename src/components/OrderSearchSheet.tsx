@@ -62,7 +62,7 @@ export function OrderSearchSheet({ open, allBlocks, onSelect, onClose }: Props) 
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "white",
+          background: "var(--surface)",
           borderRadius: "16px 16px 0 0",
           width: "min(480px, 100%)",
           maxHeight: "60vh",
@@ -77,7 +77,7 @@ export function OrderSearchSheet({ open, allBlocks, onSelect, onClose }: Props) 
           style={{
             width: 36,
             height: 4,
-            background: "rgba(0,0,0,0.18)",
+            background: "color-mix(in oklab, var(--text) 18%, transparent)",
             borderRadius: 2,
             margin: "0 auto 12px",
           }}
@@ -124,7 +124,7 @@ export function OrderSearchSheet({ open, allBlocks, onSelect, onClose }: Props) 
                 background: "transparent",
                 transition: "background 120ms ease",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(0,0,0,0.04)")}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in oklab, var(--text) 5%, transparent)")}
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
@@ -139,7 +139,7 @@ export function OrderSearchSheet({ open, allBlocks, onSelect, onClose }: Props) 
                   fontWeight: 600,
                   padding: "3px 8px",
                   borderRadius: 6,
-                  background: "rgba(0,0,0,0.05)",
+                  background: "color-mix(in oklab, var(--text) 6%, transparent)",
                 }}
               >
                 {b.machine}
