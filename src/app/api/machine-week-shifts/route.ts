@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { AppError, isAppError } from "@/lib/errors";
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { civilDateToUTCMidnight, parseCivilDateWriteInput, normalizeCivilDateInput } from "@/lib/dateUtils";
 import { emitSSE } from "@/lib/eventBus";
@@ -12,14 +12,6 @@ import { checkRateLimit } from "@/lib/rateLimiter";
 import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
 import type { SessionUser } from "@/lib/auth";
 import { MACHINES } from "@/lib/machines";
-
-function errorStatus(code: string): number {
-  if (code === "FORBIDDEN") return 403;
-  if (code === "NOT_FOUND") return 404;
-  if (code === "VALIDATION_ERROR") return 400;
-  if (code === "CONFLICT" || code === "OVERLAP") return 409;
-  return 500;
-}
 
 type DayInput = {
   dayOfWeek: number;

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { isAppError } from "@/lib/errors";
+import { isAppError, errorStatus } from "@/lib/errors";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { reflowMachineInTx } from "@/lib/reflow.server";
 import { emitSSE } from "@/lib/eventBus";
@@ -18,17 +18,6 @@ import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/bl
  * (produkce běží single-instance); `connection_limit` v DATABASE_URL řeší deploy checklist.
  */
 const reflowInFlight = new Map<string, boolean>();
-
-/** Mapping AppError kódů z chain push (resolveChainPushFromDb) — vzor `[id]/reflow/route.ts`. */
-function errorStatus(code: string): number {
-  if (code === "NOT_FOUND") return 404;
-  if (code === "FORBIDDEN") return 403;
-  if (code === "PRESET_INVALID") return 400;
-  if (code === "SCHEDULE_VIOLATION") return 422;
-  if (code === "CONFLICT") return 409;
-  if (code === "OVERLAP") return 409;
-  return 500;
-}
 
 /**
  * Hromadné „Přepočítat" pro celý stroj — najde a přepočítá všechny ZAKAZKA bloky,

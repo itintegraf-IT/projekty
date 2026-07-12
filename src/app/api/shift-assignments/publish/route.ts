@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { AppError, isAppError } from "@/lib/errors";
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { weekStartFromDate } from "@/lib/shiftRoster";
 
 export async function POST(req: Request) {
   try {
-    const user = await getSession();
-    if (!user) throw new AppError("FORBIDDEN", "Nepřihlášený uživatel.");
-    if (!["ADMIN", "PLANOVAT"].includes(user.role)) throw new AppError("FORBIDDEN", "Nedostatečné oprávnění.");
+    const user = await requireRole(["ADMIN", "PLANOVAT"]);
 
     const body = (await req.json()) as { weekStart?: string };
     if (!body.weekStart) throw new AppError("VALIDATION_ERROR", "weekStart je povinný.");
@@ -32,8 +30,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ published: result.count });
   } catch (err) {
     if (isAppError(err)) {
-      const status = err.code === "FORBIDDEN" ? 403 : 400;
-      return NextResponse.json({ error: err.message }, { status });
+      return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     }
     logger.error("[shift-assignments.publish] neočekávaná chyba", err);
     return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });

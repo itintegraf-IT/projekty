@@ -1,13 +1,6 @@
 "use client";
 import React from "react";
-import type { ExpediceItem } from "@/lib/expediceTypes";
-
-const CS_MONTHS_SHORT = ["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj","lis","pro"];
-
-function formatDateCs(dateKey: string): string {
-  const d = new Date(`${dateKey}T00:00:00.000Z`);
-  return `${d.getUTCDate()}. ${CS_MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-}
+import { formatDateCs, type ExpediceItem } from "@/lib/expediceTypes";
 
 const SOURCE_LABEL = {
   block: "Tiskový plán",

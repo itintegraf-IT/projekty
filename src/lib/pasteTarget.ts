@@ -1,6 +1,5 @@
 import type { Block } from "@/app/_components/TimelineGrid";
-
-const SLOT_MS = 30 * 60 * 1000;
+import { SLOT_MS } from "@/lib/timeSlots";
 
 /**
  * Vypočte výchozí pasteTarget z bloku: stejný stroj, čas zarovnaný na slot

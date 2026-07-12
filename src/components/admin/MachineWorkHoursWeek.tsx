@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SHIFTS, SHIFT_LABELS, fmtHHMM, defaultShiftMin, type ShiftType } from "@/lib/shifts";
+import { MACHINES, MACHINE_LABELS } from "@/lib/machines";
 import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shiftRoster";
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
@@ -31,8 +32,6 @@ function defaultShiftBounds(shift: ShiftType): { startMin: number; endMin: numbe
   return { startMin: defaultShiftMin(shift, "start"), endMin: defaultShiftMin(shift, "end") };
 }
 
-const MACHINES = ["XL_105", "XL_106"] as const;
-const MACHINE_LABELS: Record<string, string> = { XL_105: "XL 105", XL_106: "XL 106" };
 const DAY_LABELS = ["Ne", "Po", "Út", "St", "Čt", "Pá", "So"];
 
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";

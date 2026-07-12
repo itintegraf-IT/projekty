@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AppError, isAppError } from "./errors";
+import { AppError, isAppError, errorStatus, type AppErrorCode } from "./errors";
 
 test("AppError nastavuje code, message a name správně", () => {
   const err = new AppError("NOT_FOUND", "Blok nenalezen");
@@ -35,4 +35,25 @@ test("AppError podporuje všechny definované kódy", () => {
     const err = new AppError(code, `test ${code}`);
     assert.equal(err.code, code);
   }
+});
+
+test("errorStatus: kanonická mapa kódů na HTTP statusy (audit #80)", () => {
+  const expected: Record<AppErrorCode, number> = {
+    VALIDATION_ERROR: 400,
+    PRESET_INVALID: 400,
+    UNAUTHORIZED: 401,
+    FORBIDDEN: 403,
+    NOT_FOUND: 404,
+    CONFLICT: 409,
+    OVERLAP: 409,
+    AUTO_SHIFT_FAILED: 409,
+    SCHEDULE_VIOLATION: 422,
+  };
+  for (const [code, status] of Object.entries(expected)) {
+    assert.equal(errorStatus(code as AppErrorCode), status, `kód ${code}`);
+  }
+});
+
+test("errorStatus: neznámý kód padá na 500 (defenzivní default)", () => {
+  assert.equal(errorStatus("NEEXISTUJE" as AppErrorCode), 500);
 });

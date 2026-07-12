@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import DatePickerField from "@/app/_components/DatePickerField";
+import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
+import { formatPragueTime, utcToPragueDateStr } from "@/lib/dateUtils";
 
 const TEXT_PRIMARY = "var(--text)";
 const TEXT_SECONDARY = "var(--text-muted)";
@@ -14,30 +16,6 @@ const TOP_BAR_HEIGHT = 52;
 const IOS_BLUE = "#3b82f6";
 const IOS_BLUE_BG = "rgba(59,130,246,0.15)";
 const IOS_BLUE_BORDER = "rgba(59,130,246,0.5)";
-
-const AUDIT_FIELD_LABELS: Record<string, string> = {
-  jobPresetLabel: "Preset",
-  dataStatusLabel: "DATA stav",
-  dataRequiredDate: "DATA datum",
-  dataOk: "DATA OK",
-  materialStatusLabel: "Materiál stav",
-  materialRequiredDate: "Materiál datum",
-  materialOk: "Materiál OK",
-  deadlineExpedice: "Expedice termín",
-  expediceNote: "Poznámka expedice",
-  doprava: "Doprava",
-};
-
-const ACTION_LABELS: Record<string, string> = {
-  CREATE: "Vytvoření",
-  UPDATE: "Změna",
-  DELETE: "Smazání",
-  EXPEDITION_PUBLISH: "Expedice +",
-  EXPEDITION_UNPUBLISH: "Expedice −",
-  NOTE_CREATE: "Poznámka +",
-  NOTE_UPDATE: "Poznámka ✎",
-  NOTE_DELETE: "Poznámka −",
-};
 
 // Skupiny akcí pro iOS segmented control (jen ty nejčastější + Vše).
 const ACTION_GROUPS: { id: string; label: string; actions: string[] }[] = [
@@ -839,14 +817,9 @@ function groupByDay(logs: AuditLogEntry[]): { dayKey: string; label: string; log
   }));
 }
 
-const PRAGUE_DAY_KEY_FMT = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Europe/Prague",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
+// Pražský den-klíč (YYYY-MM-DD) pro seskupení audit logu — sdílený utcToPragueDateStr.
 function dayKeyPrague(iso: string): string {
-  return PRAGUE_DAY_KEY_FMT.format(new Date(iso));
+  return utcToPragueDateStr(new Date(iso));
 }
 
 const PRAGUE_LONG_DAY_FMT = new Intl.DateTimeFormat("cs-CZ", {
@@ -918,12 +891,12 @@ function ActionContent({ log }: { log: AuditLogEntry }) {
   if (log.action === "UPDATE" && log.field) {
     return (
       <>
-        <span style={{ color: TEXT_SECONDARY }}>{AUDIT_FIELD_LABELS[log.field] ?? log.field}:</span>{" "}
+        <span style={{ color: TEXT_SECONDARY }}>{FIELD_LABELS[log.field] ?? log.field}:</span>{" "}
         <span style={{ color: TEXT_SECONDARY, textDecoration: "line-through", textDecorationColor: "color-mix(in oklab, var(--text-muted) 60%, transparent)" }}>
-          {fmtVal(log.oldValue, log.field)}
+          {fmtAuditVal(log.oldValue, log.field)}
         </span>
         {" → "}
-        <span style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>{fmtVal(log.newValue, log.field)}</span>
+        <span style={{ color: TEXT_PRIMARY, fontWeight: 600 }}>{fmtAuditVal(log.newValue, log.field)}</span>
       </>
     );
   }
@@ -1075,24 +1048,6 @@ function UnauthorizedNotice() {
 
 // ─── Formátovače ─────────────────────────────────────────────────────────────
 
-const PRAGUE_TIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
-  timeZone: "Europe/Prague",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 function fmtTime(iso: string) {
-  return PRAGUE_TIME_FMT.format(new Date(iso));
-}
-
-function fmtVal(val: string | null, field: string | null) {
-  if (!val || val === "null") return "—";
-  if (field === "dataOk" || field === "materialOk") return val === "true" ? "✓ OK" : "✗ Ne";
-  if (val.match(/^\d{4}-\d{2}-\d{2}/)) {
-    try {
-      return new Date(val).toLocaleDateString("cs-CZ", { timeZone: "Europe/Prague" });
-    } catch {
-      return val;
-    }
-  }
-  return val;
+  return formatPragueTime(new Date(iso));
 }

@@ -1,16 +1,10 @@
 "use client";
 import React, { useState } from "react";
-import type { ExpediceCandidate, ExpediceItem, ExpediceManualItem } from "@/lib/expediceTypes";
+import { formatDateCs, type ExpediceCandidate, type ExpediceItem, type ExpediceManualItem } from "@/lib/expediceTypes";
 import { ExpediceBuilderPanel } from "./ExpediceBuilderPanel";
 import { ExpediceQueuePanel } from "./ExpediceQueuePanel";
 import { ExpediceDetailPanel } from "./ExpediceDetailPanel";
 import { ExpediceEditorPanel } from "./ExpediceEditorPanel";
-
-const CS_MONTHS_SHORT = ["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj","lis","pro"];
-function formatDateCs(dateKey: string): string {
-  const d = new Date(`${dateKey}T00:00:00.000Z`);
-  return `${d.getUTCDate()}. ${CS_MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-}
 
 export type AsidePanelMode = "builder" | "detail" | "edit";
 

@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { assertRole } from "./authz";
 
 const jwtSecretRaw = process.env.JWT_SECRET;
 if (!jwtSecretRaw) {
@@ -85,4 +86,17 @@ export async function getSession(): Promise<SessionUser | null> {
 
 export async function deleteSession() {
   (await cookies()).delete(COOKIE);
+}
+
+/**
+ * Auth + role gate pro API routes (audit #81). Vyhazuje AppError
+ * (UNAUTHORIZED/FORBIDDEN) — volat UVNITŘ try bloku route, catch mapuje
+ * přes `errorStatus(err.code)`. Čisté jádro: `assertRole` v `@/lib/authz`.
+ *
+ *   const user = await requireRole(["ADMIN", "PLANOVAT"]);
+ *
+ * Standard pro nové routes; stávající return-style gaty se převádí průběžně.
+ */
+export async function requireRole(roles: readonly string[]): Promise<SessionUser> {
+  return assertRole(await getSession(), roles);
 }

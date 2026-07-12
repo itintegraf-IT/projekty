@@ -3,8 +3,7 @@ import { weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
 import { pragueOf } from "@/lib/dateUtils";
 import { isHardcodedBlocked } from "@/lib/scheduleValidation";
 import { isDateTimeActive } from "@/lib/shifts";
-
-const SLOT_MS = 30 * 60 * 1000;
+import { SLOT_MS } from "@/lib/timeSlots";
 
 export function isBlockedSlotDynamic(
   machine: string,

@@ -1,7 +1,7 @@
 import { pragueOf } from "./dateUtils";
 import { resolveShiftBounds, isDateTimeActive } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
-import { slotFromHourBoundary } from "./timeSlots";
+import { slotFromHourBoundary, SLOT_MS } from "./timeSlots";
 
 export type DayScheduleRow = {
   machine: string;
@@ -102,7 +102,6 @@ export function checkScheduleViolationWithTemplates(
   endTime: Date,
   weekShifts: MachineWeekShiftsRow[]
 ): string | null {
-  const SLOT_MS = 30 * 60 * 1000;
   let cur = new Date(startTime);
   while (cur < endTime) {
     const { slot, dayOfWeek, dateStr, hour, minute } = pragueOf(cur);

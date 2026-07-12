@@ -18,6 +18,7 @@ import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
+import { blockToCreatePayload } from "@/lib/blockPayload";
 import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { useUndoManager } from "./useUndoManager";
@@ -509,6 +510,21 @@ const EDIT_TRACKED_FIELDS = [
   "pantoneRequiredDate","pantoneOk","barvyStatusId","barvyStatusLabel","lakStatusId","lakStatusLabel",
   "specifikace","obalka","vnitrky","tiskoveArchy","serie",
 ] as const;
+
+// POST tělo pro vložení kopie bloku (single i group paste) — jedna cesta, aby se
+// request flagy nerozešly mezi handlePasteWithTarget a handleGroupPasteWithTarget.
+function buildPasteBody(src: Block, machine: string, newStart: Date, newEnd: Date, bypass: boolean) {
+  return {
+    ...blockToCreatePayload(src, {
+      machine,
+      startTime: newStart.toISOString(),
+      endTime: newEnd.toISOString(),
+      locked: false,
+    }),
+    bypassScheduleValidation: bypass,
+    resolveChain: true,
+  };
+}
 
 // ─── PlannerPage ──────────────────────────────────────────────────────────────
 export default function PlannerPage({ initialBlocks, initialCompanyDays, initialMachineWeekShifts, currentUser, initialQueueReservations = [], initialFilterText }: { initialBlocks: Block[]; initialCompanyDays: CompanyDay[]; initialMachineWeekShifts: MachineWeekShiftsRow[]; currentUser: { id: number; username: string; role: string; assignedMachine?: string | null }; initialQueueReservations?: ReservationQueueItem[]; initialFilterText?: string }) {
@@ -1685,38 +1701,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // Undo jen pro standalone bloky — série mají komplexní parent/child vztahy
     if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
 
-    const payload = {
-      orderNumber: block.orderNumber,
-      machine: block.machine,
-      startTime: block.startTime,
-      endTime: block.endTime,
-      type: block.type,
-      blockVariant: block.blockVariant,
-      description: block.description,
-      locked: block.locked,
-      deadlineExpedice: block.deadlineExpedice,
-      jobPresetId: block.jobPresetId,
-      dataStatusId: block.dataStatusId,
-      dataStatusLabel: block.dataStatusLabel,
-      dataRequiredDate: block.dataRequiredDate,
-      dataOk: block.dataOk,
-      materialStatusId: block.materialStatusId,
-      materialStatusLabel: block.materialStatusLabel,
-      materialRequiredDate: block.materialRequiredDate,
-      materialOk: block.materialOk,
-      barvyStatusId: block.barvyStatusId,
-      barvyStatusLabel: block.barvyStatusLabel,
-      lakStatusId: block.lakStatusId,
-      lakStatusLabel: block.lakStatusLabel,
-      specifikace: block.specifikace,
-      materialNote: block.materialNote,
-      obalka: block.obalka ?? false,
-      vnitrky: block.vnitrky ?? false,
-      tiskoveArchy: block.tiskoveArchy ?? null,
-      serie: block.serie ?? null,
-      recurrenceType: "NONE",
-      ...(block.type === "ZAKAZKA" ? { printMinutes: blockPrintMinutes(block) } : {}),
-    };
+    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
+    const payload = blockToCreatePayload(block);
 
     recordUndo(buildDeleteCommand("Smazání bloku", [{ payload }]));
   }
@@ -1780,23 +1766,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const deletedStandalone = standalone.filter((b) => deletedIds.includes(b.id));
     if (deletedStandalone.length === 0) return;
 
-    const payloads = deletedStandalone.map((b) => ({
-      orderNumber: b.orderNumber, machine: b.machine, startTime: b.startTime,
-      endTime: b.endTime, type: b.type, blockVariant: b.blockVariant,
-      description: b.description, locked: b.locked, deadlineExpedice: b.deadlineExpedice,
-      jobPresetId: b.jobPresetId,
-      dataStatusId: b.dataStatusId, dataStatusLabel: b.dataStatusLabel,
-      dataRequiredDate: b.dataRequiredDate, dataOk: b.dataOk,
-      materialStatusId: b.materialStatusId, materialStatusLabel: b.materialStatusLabel,
-      materialRequiredDate: b.materialRequiredDate, materialOk: b.materialOk,
-      barvyStatusId: b.barvyStatusId, barvyStatusLabel: b.barvyStatusLabel,
-      lakStatusId: b.lakStatusId, lakStatusLabel: b.lakStatusLabel,
-      specifikace: b.specifikace, materialNote: b.materialNote,
-      obalka: b.obalka ?? false, vnitrky: b.vnitrky ?? false,
-      tiskoveArchy: b.tiskoveArchy ?? null, serie: b.serie ?? null,
-      recurrenceType: "NONE",
-      ...(b.type === "ZAKAZKA" ? { printMinutes: blockPrintMinutes(b) } : {}),
-    }));
+    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
+    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b));
     recordUndo(buildDeleteCommand("Smazání bloků", payloads.map((payload) => ({ payload }))));
   }
 
@@ -2561,38 +2532,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       return;
     }
-    const pasteBody = {
-      orderNumber: src.orderNumber,
-      machine: target.machine,
-      type: src.type,
-      blockVariant: src.blockVariant,
-      jobPresetId: src.jobPresetId,
-      startTime: newStart.toISOString(),
-      endTime: newEnd.toISOString(),
-      ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
-      description: src.description,
-      locked: false,
-      deadlineExpedice: src.deadlineExpedice,
-      dataStatusId: src.dataStatusId,
-      dataStatusLabel: src.dataStatusLabel,
-      dataRequiredDate: src.dataRequiredDate,
-      dataOk: src.dataOk,
-      materialStatusId: src.materialStatusId,
-      materialStatusLabel: src.materialStatusLabel,
-      materialRequiredDate: src.materialRequiredDate,
-      materialOk: src.materialOk,
-      barvyStatusId: src.barvyStatusId,
-      barvyStatusLabel: src.barvyStatusLabel,
-      lakStatusId: src.lakStatusId,
-      lakStatusLabel: src.lakStatusLabel,
-      specifikace: src.specifikace,
-      obalka: src.obalka ?? false,
-      vnitrky: src.vnitrky ?? false,
-      tiskoveArchy: src.tiskoveArchy ?? null,
-      serie: src.serie ?? null,
-      bypassScheduleValidation: !workingTimeLockRef.current,
-      resolveChain: true,
-    };
+    // Kompletní Block→payload mapa (audit #2) — kopie nese i pantone/SKLADEM/materialNote;
+    // vkládá se vždy odemčená (locked: false). Sdílená cesta s group paste (buildPasteBody).
+    const pasteBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
     try {
       const res = await fetch("/api/blocks", {
         method: "POST",
@@ -2704,24 +2646,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
         const newStart = new Date(pasteMs + offsetMs);
         const newEnd = new Date(newStart.getTime() + durationMs);
-        const isZakazka = src.type === "ZAKAZKA";
-        const groupBody = {
-          orderNumber: src.orderNumber, machine: target.machine, type: src.type, blockVariant: src.blockVariant,
-          jobPresetId: src.jobPresetId,
-          startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
-          ...(isZakazka ? { printMinutes: blockPrintMinutes(src) } : {}),
-          description: src.description, locked: false,
-          deadlineExpedice: src.deadlineExpedice,
-          dataStatusId: src.dataStatusId, dataStatusLabel: src.dataStatusLabel, dataRequiredDate: src.dataRequiredDate, dataOk: src.dataOk,
-          materialStatusId: src.materialStatusId, materialStatusLabel: src.materialStatusLabel, materialRequiredDate: src.materialRequiredDate, materialOk: src.materialOk,
-          barvyStatusId: src.barvyStatusId, barvyStatusLabel: src.barvyStatusLabel,
-          lakStatusId: src.lakStatusId, lakStatusLabel: src.lakStatusLabel,
-          specifikace: src.specifikace,
-          obalka: src.obalka ?? false, vnitrky: src.vnitrky ?? false,
-          tiskoveArchy: src.tiskoveArchy ?? null, serie: src.serie ?? null,
-          bypassScheduleValidation: !workingTimeLockRef.current,
-          resolveChain: true,
-        };
+        // Sdílená cesta s handlePasteWithTarget (buildPasteBody) — request flagy se nerozejdou.
+        const groupBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
         const res = await fetch("/api/blocks", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

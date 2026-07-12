@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
-import { AppError, isAppError } from "@/lib/errors";
-
-function errorStatus(code: string): number {
-  if (code === "FORBIDDEN") return 403;
-  if (code === "NOT_FOUND") return 404;
-  if (code === "VALIDATION_ERROR") return 400;
-  return 500;
-}
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
 
 // GET /api/me/preferences
 // Vrátí všechny uložené preference přihlášeného uživatele jako { key: value }

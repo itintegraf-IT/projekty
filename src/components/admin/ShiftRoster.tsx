@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { SHIFTS, SHIFT_LABELS, type ShiftType } from "@/lib/shifts";
+import { MACHINES, MACHINE_LABELS, machineLabel } from "@/lib/machines";
 import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shiftRoster";
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
@@ -39,8 +40,6 @@ type WeekShiftsRow = {
   nightOn: boolean;
 };
 
-const MACHINES = ["XL_105", "XL_106"] as const;
-const MACHINE_LABELS: Record<string, string> = { XL_105: "XL 105", XL_106: "XL 106" };
 const DAY_LABELS = ["Ne", "Po", "Út", "St", "Čt", "Pá", "So"];
 
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";
@@ -322,7 +321,7 @@ export function ShiftRoster() {
           <ul style={{ margin: 0, paddingLeft: 20, color: TEXT_SECONDARY, fontSize: 12 }}>
             {emptyShifts.slice(0, 5).map((e) => (
               <li key={`${e.machine}-${isoDateStr(e.date)}-${e.shift}`}>
-                {MACHINE_LABELS[e.machine]} — {DAY_LABELS[e.date.getUTCDay()]} {e.date.getUTCDate()}.{e.date.getUTCMonth() + 1}. · {SHIFT_LABELS[e.shift]}
+                {machineLabel(e.machine)} — {DAY_LABELS[e.date.getUTCDay()]} {e.date.getUTCDate()}.{e.date.getUTCMonth() + 1}. · {SHIFT_LABELS[e.shift]}
               </li>
             ))}
             {emptyShifts.length > 5 && (

@@ -1,5 +1,5 @@
 import { normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
-import { utcToPragueDateStr } from "@/lib/dateUtils";
+import { addDaysToCivilDate, todayPragueDateStr } from "@/lib/dateUtils";
 
 export const SYSTEM_JOB_PRESET_NAMES = ["XL 105", "XL 106 LED", "XL 106 IML"] as const;
 export const JOB_PRESET_MACHINE_OPTIONS = ["XL_105", "XL_106"] as const;
@@ -70,12 +70,6 @@ export type JobPresetUpsertInput = {
 
 type PresetLabelResolver = (category: "DATA" | "MATERIAL" | "BARVY" | "LAK", id: number) => string | null;
 
-function addDaysToDateStr(dateStr: string, days: number): string {
-  const base = new Date(`${dateStr}T12:00:00.000Z`);
-  base.setUTCDate(base.getUTCDate() + days);
-  return base.toISOString().slice(0, 10);
-}
-
 export function dateStrToOffsetDays(dateStr: string | null | undefined): number | null {
   if (!dateStr) return null;
   const today = todayPragueDateStr();
@@ -84,13 +78,9 @@ export function dateStrToOffsetDays(dateStr: string | null | undefined): number 
   return Math.round((target.getTime() - base.getTime()) / (24 * 60 * 60 * 1000));
 }
 
-export function todayPragueDateStr(): string {
-  return utcToPragueDateStr(new Date());
-}
-
 export function resolvePresetDateOffset(offsetDays: number | null | undefined): string | null {
   if (offsetDays === null || offsetDays === undefined) return null;
-  return addDaysToDateStr(todayPragueDateStr(), offsetDays);
+  return addDaysToCivilDate(todayPragueDateStr(), offsetDays);
 }
 
 export function applyJobPresetToDraft(

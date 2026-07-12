@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeBlock } from "@/lib/blockSerialization";
+import { formatPragueDateTime } from "@/lib/dateUtils";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
@@ -285,7 +286,7 @@ export async function POST(request: NextRequest) {
 
       // Pokud jde o rezervaci — atomicky ověřit stav QUEUE_READY a přepnout na SCHEDULED
       if (reservationPreview) {
-        const startCZ = startTime.toLocaleString("cs-CZ", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" });
+        const startCZ = formatPragueDateTime(startTime);
         // updateMany s WHERE status=QUEUE_READY — pokud jiný plánovač mezitím rezervaci zabrал,
         // count=0 a transakce se rollbackuje (eliminuje TOCTOU race condition)
         const updateResult = await tx.reservation.updateMany({

@@ -1,16 +1,14 @@
 import { NextResponse } from "next/server";
-import { AppError, isAppError } from "@/lib/errors";
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth";
+import { requireRole } from "@/lib/auth";
 import { SHIFTS, type ShiftType } from "@/lib/shifts";
 import { weekStartFromDate } from "@/lib/shiftRoster";
 
 export async function GET(req: Request) {
   try {
-    const user = await getSession();
-    if (!user) throw new AppError("FORBIDDEN", "Nepřihlášený uživatel.");
-    if (!["ADMIN", "PLANOVAT"].includes(user.role)) throw new AppError("FORBIDDEN", "Nedostatečné oprávnění.");
+    await requireRole(["ADMIN", "PLANOVAT"]);
 
     const url = new URL(req.url);
     const weekStartStr = url.searchParams.get("weekStart");
@@ -36,8 +34,7 @@ export async function GET(req: Request) {
     return NextResponse.json(assignments);
   } catch (err) {
     if (isAppError(err)) {
-      const status = err.code === "FORBIDDEN" ? 403 : 400;
-      return NextResponse.json({ error: err.message }, { status });
+      return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     }
     logger.error("[shift-assignments.GET] neočekávaná chyba", err);
     return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });
@@ -46,9 +43,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const user = await getSession();
-    if (!user) throw new AppError("FORBIDDEN", "Nepřihlášený uživatel.");
-    if (!["ADMIN", "PLANOVAT"].includes(user.role)) throw new AppError("FORBIDDEN", "Nedostatečné oprávnění.");
+    const user = await requireRole(["ADMIN", "PLANOVAT"]);
 
     const body = (await req.json()) as {
       machine?: string;
@@ -96,8 +91,7 @@ export async function POST(req: Request) {
     return NextResponse.json(assignment);
   } catch (err) {
     if (isAppError(err)) {
-      const status = err.code === "FORBIDDEN" ? 403 : err.code === "VALIDATION_ERROR" ? 400 : 409;
-      return NextResponse.json({ error: err.message }, { status });
+      return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     }
     logger.error("[shift-assignments.POST] neočekávaná chyba", err);
     return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });

@@ -1,7 +1,8 @@
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { isBlockedSlotDynamic } from "@/lib/workingTime";
+import { SLOT_MS } from "@/lib/timeSlots";
 
-export const SLOT_MS = 30 * 60 * 1000;
+export { SLOT_MS };
 /** Max tiskové minuty jednoho bloku (40 h) — vynucuje se od etapy 3 serverově. */
 export const MAX_PRINT_MINUTES = 2400;
 /** Tvrdý strop kalendářního rozsahu expanze — ochrana před nekonečnou smyčkou. */

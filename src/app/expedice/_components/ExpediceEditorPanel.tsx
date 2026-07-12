@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import type { ExpediceItem } from "@/lib/expediceTypes";
+import { formatDateCs, type ExpediceItem } from "@/lib/expediceTypes";
 
 type Kind = "MANUAL_JOB" | "INTERNAL_TRANSFER";
 
@@ -8,12 +8,6 @@ const KIND_LABELS: Record<Kind, string> = {
   MANUAL_JOB: "Ruční zakázka",
   INTERNAL_TRANSFER: "Interní závoz",
 };
-
-const CS_MONTHS_SHORT = ["led","úno","bře","dub","kvě","čvn","čvc","srp","zář","říj","lis","pro"];
-function formatDateCs(dateKey: string): string {
-  const d = new Date(`${dateKey}T00:00:00.000Z`);
-  return `${d.getUTCDate()}. ${CS_MONTHS_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-}
 
 interface ExpediceEditorPanelProps {
   item: ExpediceItem;

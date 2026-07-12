@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **360/360 testů zelené** (viz níže)
+- celá test suite: **375/375 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -26,12 +26,14 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 
 ```bash
 node --test --import tsx src/lib/auditQuery.test.ts               # 17 testů
+node --test --import tsx src/lib/authz.test.ts                     # 4 testy
 node --test --import tsx src/lib/blockNotePermissions.test.ts      # 12 testů
+node --test --import tsx src/lib/blockPayload.test.ts              # 9 testů
 node --test --import tsx src/lib/blockShades.test.ts               # 8 testů
 node --test --import tsx src/lib/calendarDrift.server.test.ts      # 8 testů
 node --test --import tsx src/lib/clipboardCopy.test.ts             # 6 testů
 node --test --import tsx src/lib/dateUtils.test.ts                 # 8 testů
-node --test --import tsx src/lib/errors.test.ts                    # 5 testů
+node --test --import tsx src/lib/errors.test.ts                    # 7 testů
 node --test --import tsx src/lib/findConflictingBlocks.test.ts     # 11 testů
 node --test --import tsx src/lib/jobPresets.test.ts                # 17 testů
 node --test --import tsx src/lib/notifications.test.ts             # 6 testů
@@ -55,7 +57,7 @@ node --test --import tsx src/lib/shifts.test.ts                    # 18 testů
 node --test --import tsx src/lib/splitHelpers.test.ts              # 7 testů
 ```
 
-Celkem **360 testů** v 28 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
+Celkem **375 testů** ve 30 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 
@@ -204,7 +206,7 @@ throw new Error("NOT_FOUND");
 throw new Error("PRESET:Chyba");
 ```
 
-V catch bloku API route:
+V catch bloku API route (`errorStatus` je od fáze C etapy Audit Top 5 skutečná sdílená funkce v `src/lib/errors.ts` — kanonická mapa kód→HTTP status, žádné lokální kopie):
 ```typescript
 } catch (err) {
   if (isAppError(err)) return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
@@ -212,6 +214,19 @@ V catch bloku API route:
   return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });
 }
 ```
+
+### Auth v API routes — nové routes přes `requireRole`
+
+```typescript
+import { requireRole } from "@/lib/auth";
+
+export async function POST(req: Request) {
+  try {
+    const user = await requireRole(["ADMIN", "PLANOVAT"]); // hází AppError → catch výše
+    ...
+```
+
+`requireRole` hází `UNAUTHORIZED` (401) pro nepřihlášeného a `FORBIDDEN` (403) pro špatnou roli — volat UVNITŘ try bloku. Čisté jádro `assertRole` žije v `src/lib/authz.ts` (testovatelné bez DB). Stávající return-style gaty (reflow, machine-week-shifts…) se převádí průběžně, ne big-bang.
 
 ### Logování na serveru — vždy `logger`, nikdy `console`
 
@@ -621,14 +636,18 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 
 ### Sdílené utility a typy
 
-- `src/lib/errors.ts` — `AppError`, `isAppError`, `AppErrorCode` — použít v každé API route
+- `src/lib/errors.ts` — `AppError`, `isAppError`, `AppErrorCode`, `errorStatus` (kanonická mapa kód→HTTP status, audit #80) — použít v každé API route
+- `src/lib/authz.ts` — `assertRole` (čisté jádro role-checku) + `requireRole` wrapper v `src/lib/auth.ts` — auth gate pro nové API routes (audit #81)
+- `src/lib/blockPayload.ts` — `blockToCreatePayload`/`EXPECTED_PAYLOAD_KEYS` — jediný zdroj pravdy pro Block→POST payload (undo/paste/group paste; audit #2 — dřív 4 divergentní kopie, undo/paste ztrácely pantone/SKLADEM); tripwire test hlídá úplnost polí
+- `src/lib/blockStyles.ts` — `BLOCK_STYLES`/`BLOCK_OVERDUE`/`BLOCK_PRINT_DONE`/`getBlockStyleKey`/`tint` — vizuální identita bloků (audit #14; sdílí TimelineGrid i blockShades, zrcadlo `shadeBucket` zrušeno)
 - `src/lib/logger.ts` — `logger.info/warn/error` — použít místo console v API routes
 - `src/lib/scheduleValidationServer.ts` — `validateAndComputeEnd` — validuje ZAKAZKA blok a vrací autoritativní end + `effectivelyBypassed` (spočítaná pravda pro `scheduleBypassed`, nikdy echo request flagu; jediný zdroj pravdy pro endTime; nahrazuje zrušenou `validateBlockScheduleFromDb`)
 - `src/lib/printTime.ts` — `expandPrintTime`/`computePrintMinutes`/`isMachineRunnableAt` — jádro „tiskových hodin" (čisté funkce, žádná DB)
 - `src/lib/printTime.server.ts` — `loadMachineCalendar`/`expandPrintTimeFromDb` — DB fetch (weekShifts + companyDays) a napojení na `printTime.ts`
 - `src/lib/printTimeClient.ts` — `blockPrintMinutes`/`companyDayIntervalsFor`/`snapGroupDeltaStartOnly`/`getBlockSegments`/`printMidpoint`/`blockCalendarDrift`/`blockReportSegments`/`printOverlapMinutes` — klient-safe helpery (žádná DB) pro mutační cesty, vykreslení a reporting ZAKAZKA bloků; start-only snap přes `snapStartToNextRunnableSlot`, end vždy dopočítá server; `getBlockSegments` vrací print/pause segmenty pro overlay pauz (null = kreslit slitě), `printMidpoint` = bod poloviny tiskových minut (default split), `blockCalendarDrift` = živá detekce driftu pro badge (parita se serverovou `detectCalendarDrift`), `blockReportSegments` = segmenty i pro souvislý blok bez pauzy (reporty, etapa 7), `printOverlapMinutes` = tiskové minuty bloku uvnitř libovolného okna (den/směna)
 - `src/lib/reportMetrics.ts` — `blockDurationHours`/`computeBlockHours`/`computeUtilization`/`computeAvailableHours`/`computePlanStability`/... — čisté metriky pro `/api/report/dashboard`; `blockDurationHours` (etapa 7) je ZAKAZKA `printMinutes/60` s fallbackem na elapsed, jinak elapsed
-- `src/lib/machines.ts` — `MACHINES` (`["XL_105", "XL_106"] as const`) + `MachineId` — jediný zdroj pravdy pro seznam strojů (etapa 7, nahradilo 5 lokálních kopií)
+- `src/lib/machines.ts` — `MACHINES` + `MachineId` + `MACHINE_LABELS`/`machineLabel` — jediný zdroj pravdy pro seznam i zobrazované labely strojů (etapa 7 + audit #25/#46/#77)
+- `src/lib/timeSlots.ts` — `SLOT_MINUTES`/`SLOT_MS`/`DAY_SLOT_COUNT`/`slotFromHourBoundary` — konstanty 30min gridu; `SLOT_MS` je definovaný JEN tady (audit #90), `printTime.ts` ho re-exportuje
 - `src/lib/calendarDrift.server.ts` — `detectCalendarDrift`/`notifyCalendarDrift` — serverová detekce driftnutých bloků (čisté READ, nic neupravuje) + zápis `Notification` typu `CALENDAR_DRIFT` po mutaci kalendáře
 - `src/lib/reflow.server.ts` — `reflowBlockInTx`/`reflowMachineInTx` — přepočet (re-expanze + chain push) jednoho bloku nebo celého stroje v transakci, audit action `AUTO_REFLOW`; `ReflowDeps.preloadedCalendar` (etapa 7) — 1 kalendář pro celý hromadný reflow místo N per-blok fetchů
 - `src/lib/findConflictingBlocks.ts` — `findConflictingBlocks` (pre-transakční) / `assertNoConflictingBlocks` (in-tx TOCTOU re-check) — sdílí jádro `fetchConflictingBlocks` (etapa 7 DRY), okno `[W, W+7d+6h)` přes `computeConflictWindow`/`neighborWeekStarts`

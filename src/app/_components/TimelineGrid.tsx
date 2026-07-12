@@ -3,8 +3,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
-import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, type CompanyDayInterval } from "@/lib/printTime";
+import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, SLOT_MS, type CompanyDayInterval } from "@/lib/printTime";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, formatPrintHoursShort, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, splitGroupTotalPrintMinutes, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
+import { BLOCK_STYLES, BLOCK_OVERDUE, BLOCK_PRINT_DONE, getBlockStyleKey, tint } from "@/lib/blockStyles";
+import { MACHINES } from "@/lib/machines";
 import {
   addDaysToCivilDate,
   civilDateDayOfWeek,
@@ -62,8 +64,6 @@ const WORK_START_H = 6;
 const WORK_END_H = 22;
 const WORK_START_SLOT = WORK_START_H * 2;
 const WORK_END_SLOT = WORK_END_H * 2;
-const MACHINES = ["XL_105", "XL_106"] as const;
-const SLOT_MS = 30 * 60 * 1000;
 const DRAG_THRESHOLD = 5;
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
@@ -387,91 +387,7 @@ const MONTH_ABBR = ["Led","Úno","Bře","Dub","Kvě","Čvn","Čvc","Srp","Zář"
 const DAY_ABBR   = ["Ne","Po","Út","St","Čt","Pá","So"];
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
-// ─── Vizuální config bloků ─────────────────────────────────────────────────────
-const BLOCK_STYLES: Record<string, {
-  gradient: string; border: string; accentBar: string;
-  leftBg: string; textPrimary: string; textSub: string; glow: string;
-}> = {
-  ZAKAZKA: {
-    gradient:    "linear-gradient(160deg, rgba(59,130,246,0.95) 0%, rgba(37,99,235,0.88) 100%)",
-    border:      "rgba(59,130,246,0.65)",
-    accentBar:   "#3b82f6",
-    leftBg:      "rgba(59,130,246,0.14)",
-    textPrimary: "#ffffff",
-    textSub:     "#ffffff",
-    glow:        "rgba(59,130,246,0.35)",
-  },
-  REZERVACE: {
-    gradient:    "linear-gradient(160deg, rgba(102,0,153,0.95) 0%, rgba(77,0,115,0.88) 100%)",
-    border:      "rgba(102,0,153,0.65)",
-    accentBar:   "#660099",
-    leftBg:      "rgba(102,0,153,0.14)",
-    textPrimary: "#ffffff",
-    textSub:     "#ffffff",
-    glow:        "rgba(102,0,153,0.35)",
-  },
-  UDRZBA: {
-    gradient:    "linear-gradient(160deg, rgba(34,197,94,0.95) 0%, rgba(22,163,74,0.88) 100%)",
-    border:      "rgba(34,197,94,0.65)",
-    accentBar:   "#22c55e",
-    leftBg:      "rgba(34,197,94,0.14)",
-    textPrimary: "#ffffff",
-    textSub:     "#ffffff",
-    glow:        "rgba(34,197,94,0.32)",
-  },
-  ZAKAZKA_BEZ_TECHNOLOGIE: {
-    gradient:    "linear-gradient(160deg, rgba(6,95,70,0.95) 0%, rgba(4,71,54,0.88) 100%)",
-    border:      "rgba(6,95,70,0.65)",
-    accentBar:   "#059669",
-    leftBg:      "rgba(6,95,70,0.14)",
-    textPrimary: "#ffffff",
-    textSub:     "#e5e7eb",
-    glow:        "rgba(6,95,70,0.32)",
-  },
-  ZAKAZKA_BEZ_SACKU: {
-    gradient:    "linear-gradient(160deg, rgba(227,100,20,0.95) 0%, rgba(190,80,10,0.88) 100%)",
-    border:      "rgba(227,100,20,0.65)",
-    accentBar:   "#e36414",
-    leftBg:      "rgba(227,100,20,0.14)",
-    textPrimary: "#ffffff",
-    textSub:     "#e5e7eb",
-    glow:        "rgba(227,100,20,0.32)",
-  },
-  ZAKAZKA_POZASTAVENO: {
-    gradient:    "linear-gradient(160deg, rgba(208,0,0,0.95) 0%, rgba(176,0,0,0.88) 100%)",
-    border:      "rgba(208,0,0,0.65)",
-    accentBar:   "#d00000",
-    leftBg:      "rgba(208,0,0,0.14)",
-    textPrimary: "#ffffff",
-    textSub:     "#e5e7eb",
-    glow:        "rgba(208,0,0,0.32)",
-  },
-};
-const BLOCK_OVERDUE = {
-  gradient:    "linear-gradient(160deg, rgba(251,146,60,0.22) 0%, rgba(234,88,12,0.14) 100%)",
-  border:      "rgba(251,146,60,0.55)",
-  accentBar:   "#f97316",
-  leftBg:      "rgba(251,146,60,0.10)",
-  textPrimary: "var(--text)",
-  textSub:     "var(--text-muted)",
-  glow:        "rgba(251,146,60,0.25)",
-};
-const BLOCK_PRINT_DONE = {
-  gradient:    "linear-gradient(160deg, rgba(59,130,246,0.13) 0%, rgba(59,130,246,0.07) 100%)",
-  border:      "rgba(59,130,246,0.28)",
-  accentBar:   "rgba(59,130,246,0.55)",
-  leftBg:      "rgba(59,130,246,0.07)",
-  textPrimary: "var(--text)",
-  textSub:     "var(--text-muted)",
-  glow:        "rgba(59,130,246,0.10)",
-};
-
-function getBlockStyleKey(type: string, variant?: BlockVariant | null): string {
-  if (type === "ZAKAZKA" && variant && variant !== "STANDARD") {
-    return `ZAKAZKA_${variant}`;
-  }
-  return type;
-}
+// Vizuální config bloků žije v @/lib/blockStyles (sdílený s blockShades — audit #14/C5).
 
 // ─── Pomocná funkce — bezpečný parse data z DB (ISO timestamp i date string) ──
 function fmtDate(s: string | null | undefined): string {
@@ -505,10 +421,6 @@ function deadlineState(requiredDate: string | null | undefined, ok: boolean, now
   if (todayDateStr === dueDateStr) return "warning";
   if (todayDateStr > dueDateStr) return "danger";
   return "none";
-}
-
-function tint(color: string, percent: number): string {
-  return `color-mix(in oklab, ${color} ${percent}%, transparent)`;
 }
 
 const FIELD_ACCENT = {

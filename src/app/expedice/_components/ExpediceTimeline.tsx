@@ -1,6 +1,7 @@
 "use client";
 import React, { useRef, useEffect, useState, useCallback, forwardRef, useImperativeHandle } from "react";
 import type { ExpediceDay, ExpediceItem } from "@/lib/expediceTypes";
+import { todayPragueDateStr } from "@/lib/dateUtils";
 import { ExpediceCard } from "./ExpediceCard";
 
 const CS_DAYS   = ["ne", "po", "út", "st", "čt", "pá", "so"];
@@ -14,11 +15,6 @@ function utcDayNum(dateKey: string): number {
 }
 function utcMonthNum(dateKey: string): number {
   return new Date(`${dateKey}T00:00:00.000Z`).getUTCMonth();
-}
-
-function getTodayKey(): string {
-  const n = new Date();
-  return `${n.getUTCFullYear()}-${String(n.getUTCMonth() + 1).padStart(2, "0")}-${String(n.getUTCDate()).padStart(2, "0")}`;
 }
 
 export interface ExpediceTimelineHandle {
@@ -61,7 +57,8 @@ export const ExpediceTimeline = forwardRef<ExpediceTimelineHandle, ExpediceTimel
     },
   }));
 
-  const today = getTodayKey();
+  // Praha civil date — dřívější getUTC* verze ukazovala mezi půlnocí a ~2:00 včerejšek (audit #57)
+  const today = todayPragueDateStr();
   const GAP   = 8; // mezera mezi kartami v px
 
   const [dragOverDate,    setDragOverDate   ] = useState<string | null>(null);

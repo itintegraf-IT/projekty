@@ -12,6 +12,7 @@ import type { CodebookOption } from "@/lib/plannerTypes";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 import { blockPrintMinutes } from "@/lib/printTimeClient";
+import { machineLabel } from "@/lib/machines";
 
 // ─── Sdílené typy ─────────────────────────────────────────────────────────────
 type OnStatusChange = (
@@ -22,7 +23,6 @@ type OnStatusChange = (
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const DTP_PANEL_MIN_W = 180;
 const DTP_PANEL_MAX_W = 420;
-const MACHINE_LABELS: Record<string, string> = { XL_105: "XL 105", XL_106: "XL 106" };
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
 type FilterValue = "all" | "none" | number; // number = dataStatusId
@@ -317,7 +317,7 @@ function BlockCard({
       )}
 
       <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5 }}>
-        {MACHINE_LABELS[block.machine] ?? block.machine} · {blockDurationLabel(block)}
+        {machineLabel(block.machine)} · {blockDurationLabel(block)}
       </div>
 
       {(block.obalka || block.vnitrky || typeChip) && (

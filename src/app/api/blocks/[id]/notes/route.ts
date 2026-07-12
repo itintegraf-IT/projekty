@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { AppError, isAppError } from "@/lib/errors";
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { canCreateBlockNote, MAX_NOTE_LENGTH, type NoteRole } from "@/lib/blockNotePermissions";
 import { serializeBlockNote } from "@/lib/blockNoteSerialization";
 import { emitSSE } from "@/lib/eventBus";
-
-function statusForCode(code: string): number {
-  switch (code) {
-    case "NOT_FOUND": return 404;
-    case "FORBIDDEN": return 403;
-    case "VALIDATION_ERROR": return 400;
-    default: return 500;
-  }
-}
 
 export async function POST(
   req: NextRequest,
@@ -80,7 +71,7 @@ export async function POST(
     return NextResponse.json(serialized, { status: 201 });
   } catch (err) {
     if (isAppError(err)) {
-      return NextResponse.json({ error: err.message, code: err.code }, { status: statusForCode(err.code) });
+      return NextResponse.json({ error: err.message, code: err.code }, { status: errorStatus(err.code) });
     }
     logger.error("[POST /api/blocks/[id]/notes]", err);
     return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });

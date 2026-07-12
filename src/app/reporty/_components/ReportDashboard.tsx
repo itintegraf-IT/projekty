@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { todayPragueDateStr } from "@/lib/dateUtils";
+import { machineLabel } from "@/lib/machines";
 
 type Mode = "retro" | "outlook";
 type TimeRange = "today" | "week" | "month" | "custom";
@@ -162,7 +163,7 @@ function BarChart({ data, barKeys, colors, labels }: {
       )}
       <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
         {barKeys.map((k, i) => (
-          <span key={k} style={{ fontSize: 9, color: colors[i] }}>&#9632; {k.replace("_", " ")}</span>
+          <span key={k} style={{ fontSize: 9, color: colors[i] }}>&#9632; {machineLabel(k)}</span>
         ))}
       </div>
     </div>
@@ -341,7 +342,7 @@ function OutlookView({ data }: { data: OutlookData }) {
           {/* Machine rows */}
           {machines.map((m) => (
             <React.Fragment key={m}>
-              <div style={{ fontSize: 10, color: "var(--text)", display: "flex", alignItems: "center" }}>{m.replace("_", " ")}</div>
+              <div style={{ fontSize: 10, color: "var(--text)", display: "flex", alignItems: "center" }}>{machineLabel(m)}</div>
               {days.map((d) => {
                 const val = (d[m] as number) ?? 0;
                 return (
@@ -383,7 +384,7 @@ function OutlookView({ data }: { data: OutlookData }) {
             const hours = Math.round((endDt.getTime() - startDt.getTime()) / 3600000 * 10) / 10;
             return (
               <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: i < 4 ? "1px solid var(--border)" : "none" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{m.machine.replace("_", " ")}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{machineLabel(m.machine)}</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{m.description}</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
                   {startDt.toISOString().slice(0, 10)} · {hours} h

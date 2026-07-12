@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { addDaysToCivilDate, pragueToUTC } from "@/lib/dateUtils";
+import { addDaysToCivilDate, formatPragueDateTime, formatPragueTime, pragueToUTC } from "@/lib/dateUtils";
+import { TYPE_LABELS } from "@/lib/plannerTypes";
 import { blockPrintMinutes, blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 
@@ -28,11 +29,8 @@ type CompanyDayRow = { machine?: string | null; startDate: string; endDate: stri
 // ─── konstanty ───────────────────────────────────────────────────────────────
 
 const PRAGUE_TZ = "Europe/Prague";
-const PRAGUE_TIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
-  timeZone: PRAGUE_TZ,
-  hour: "2-digit",
-  minute: "2-digit",
-});
+// Specifický formát hlavičky reportu (weekday long) — nemá ekvivalent v dateUtils;
+// časy a razítko tisku jdou přes sdílené formatPragueTime/formatPragueDateTime.
 const PRAGUE_REPORT_DATE_FMT = new Intl.DateTimeFormat("cs-CZ", {
   timeZone: PRAGUE_TZ,
   weekday: "long",
@@ -40,20 +38,6 @@ const PRAGUE_REPORT_DATE_FMT = new Intl.DateTimeFormat("cs-CZ", {
   month: "long",
   year: "numeric",
 });
-const PRAGUE_PRINTED_AT_FMT = new Intl.DateTimeFormat("cs-CZ", {
-  timeZone: PRAGUE_TZ,
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-const TYPE_LABELS: Record<string, string> = {
-  ZAKAZKA:  "zakázka",
-  REZERVACE: "rezervace",
-  UDRZBA:   "údržba",
-};
 
 const TYPE_COLORS: Record<string, { bg: string; color: string; border: string }> = {
   ZAKAZKA:  { bg: "#eff6ff", color: "#1d4ed8", border: "#bfdbfe" },
@@ -82,7 +66,7 @@ const SHIFTS_106: Shift[] = [
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function fmtTime(iso: string): string {
-  return PRAGUE_TIME_FMT.format(new Date(iso));
+  return formatPragueTime(new Date(iso));
 }
 
 // Sdílená formátovací logika — fmtDuration (span) i kompaktní "tisk (celkem)" tvar v BlockRow
@@ -186,7 +170,7 @@ export default function ReportView() {
   const reportDate = pragueToUTC(dateParam, 12, 0);
   const dateLabelRaw = PRAGUE_REPORT_DATE_FMT.format(reportDate);
   const dateLabel = dateLabelRaw.charAt(0).toUpperCase() + dateLabelRaw.slice(1);
-  const printedAt = PRAGUE_PRINTED_AT_FMT.format(new Date());
+  const printedAt = formatPragueDateTime(new Date());
 
   const xl105 = blocks.filter((b) => b.machine === "XL_105");
   const xl106 = blocks.filter((b) => b.machine === "XL_106");
@@ -392,7 +376,7 @@ function BlockRow({ block, isEven }: { block: Block; isEven: boolean }) {
           borderRadius: 4, padding: "1px 5px",
           fontSize: 8, fontWeight: 600, whiteSpace: "nowrap", letterSpacing: "0.02em",
         }}>
-          {TYPE_LABELS[block.type] ?? block.type}
+          {TYPE_LABELS[block.type]?.toLowerCase() ?? block.type}
         </span>
       </td>
 

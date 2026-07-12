@@ -13,6 +13,8 @@
 // Vlastní vizuální aplikace odstínu (light/dark wash) žije v TimelineGrid.tsx; tady
 // se počítá jen parita 0/1 per blok.
 
+import { getBlockStyleKey } from "./blockStyles";
+
 export type ShadeBlockInput = {
   id: number;
   type: string;
@@ -21,16 +23,6 @@ export type ShadeBlockInput = {
   startTime: string; // ISO
   printCompletedAt?: string | null;
 };
-
-// Barevný "bucket" — musí zrcadlit getBlockStyleKey v TimelineGrid.tsx, aby se
-// střídalo jen v rámci jedné barvy (modrá zakázka vs. fialová rezervace vs. oranžová
-// varianta se počítají nezávisle na sobě).
-function shadeBucket(type: string, variant?: string | null): string {
-  if (type === "ZAKAZKA" && variant && variant !== "STANDARD") {
-    return `ZAKAZKA_${variant}`;
-  }
-  return type;
-}
 
 // Identita zakázky pro účely střídání: dělené kusy sdílí splitGroupId (root má
 // splitGroupId === vlastní id), samostatný blok padá na vlastní id.
@@ -64,7 +56,9 @@ export function computeShadeParity(blocks: ShadeBlockInput[]): Map<number, 0 | 1
   for (const b of sorted) {
     if (b.printCompletedAt != null) continue; // dokončený tisk se neúčastní
 
-    const bucket = shadeBucket(b.type, b.blockVariant);
+    // bucket = klíč stylu bloku (sdílený getBlockStyleKey z blockStyles, audit #14 —
+    // dřív lokální zrcadlo). Střídá se jen v rámci jedné barvy.
+    const bucket = getBlockStyleKey(b.type, b.blockVariant);
     const identity = orderIdentity(b);
 
     if (lastIdentity.get(bucket) !== identity) {
