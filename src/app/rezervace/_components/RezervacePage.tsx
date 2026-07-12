@@ -310,7 +310,7 @@ export default function RezervacePage({ currentUser, initialSelectedId }: Props)
 
         {/* Obsah záložek */}
         {(activeTab === "nova") && (
-          <ReservationForm currentUser={currentUser} onCreated={handleCreated} />
+          <ReservationForm onCreated={handleCreated} />
         )}
 
         {(activeTab !== "nova") && (

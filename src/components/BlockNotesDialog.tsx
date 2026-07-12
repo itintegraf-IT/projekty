@@ -6,7 +6,6 @@ import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 
 interface Props {
   open: boolean;
-  blockId: number;
   blockMachine: string;
   blockOrderNumber: string;
   notes: SerializedBlockNote[];

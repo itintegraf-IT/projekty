@@ -7,10 +7,6 @@ import {
   addDaysToCivilDate,
   addMonthsToCivilDate,
   diffCivilDateDays,
-  formatCivilDate,
-  formatPragueDateShort,
-  formatPragueDateTime,
-  formatPragueTime,
   normalizeCivilDateInput,
   pragueOf,
   pragueToUTC,
@@ -18,7 +14,7 @@ import {
   utcToPragueDateStr,
   utcToPragueHour,
 } from "@/lib/dateUtils";
-import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
+import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
@@ -34,13 +30,11 @@ import { Textarea }  from "@/components/ui/textarea";
 import { Label }     from "@/components/ui/label";
 import { Button }    from "@/components/ui/button";
 import { Switch }    from "@/components/ui/switch";
-import { Badge }     from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Lock, Unlock } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import DatePickerField from "./DatePickerField";
-import { Toast, ToastContainer, useToast } from "@/components/ToastContainer";
+import { ToastContainer, useToast } from "@/components/ToastContainer";
 import {
   applyJobPresetToDraft,
   presetSupportsType,
@@ -55,7 +49,6 @@ import { NotificationsPanel, type NotifTab } from "@/components/NotificationsPan
 import { BlockNotesDialog } from "@/components/BlockNotesDialog";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 import type { NoteRole } from "@/lib/blockNotePermissions";
-import { FIELD_LABELS, fmtAuditVal, formatPragueMaybeToday } from "@/lib/auditFormatters";
 import { BlockDetail } from "@/components/BlockDetail";
 import { BlockEdit } from "@/components/BlockEdit";
 import { DtpPanel } from "@/components/DtpPanel";
@@ -65,10 +58,8 @@ import { OrderSearchSheet } from "@/components/OrderSearchSheet";
 import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 import {
   type CodebookOption,
-  TYPE_LABELS,
   TYPE_BUILDER_CONFIG,
   DURATION_OPTIONS,
-  JOB_PRESET_TONE_PALETTE,
   getJobPresetTone,
 } from "@/lib/plannerTypes";
 
@@ -107,13 +98,6 @@ type QueueItem = {
   reservationCode?: string;
   companyName?: string;
   reservationMachine?: string | null;
-};
-
-type PushSuggestion = {
-  chain: Block[];
-  shiftMs: number;
-  blockedByLock: boolean;
-  lockedBlock: Block | null;
 };
 
 // ─── Pomocné funkce ───────────────────────────────────────────────────────────
@@ -658,7 +642,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
-  const [pushSuggestion, setPushSuggestion] = useState<PushSuggestion | null>(null);
   const blocksRef = useRef<Block[]>([]);
   blocksRef.current = blocks;
 
@@ -4327,30 +4310,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         </aside>}
       </section>
 
-      {/* ── Push chain notifikace ── */}
-      {pushSuggestion?.blockedByLock && (
-        <div style={{
-          position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)",
-          background: "var(--surface)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)",
-          borderRadius: 12, padding: "10px 16px",
-          display: "flex", alignItems: "center", gap: 12,
-          zIndex: 200, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-          fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-          whiteSpace: "nowrap",
-        }}>
-          <span style={{ fontSize: 11, color: "var(--danger)" }}>
-            <Lock size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />Blok vrácen — v cestě je zamknutý blok
-            {pushSuggestion.lockedBlock && <b> {pushSuggestion.lockedBlock.orderNumber}</b>}
-          </span>
-          <button
-            onClick={() => setPushSuggestion(null)}
-            style={{ fontSize: 11, color: "var(--text)", background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}
-          >
-            OK
-          </button>
-        </div>
-      )}
-
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       {(() => {
@@ -4364,7 +4323,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return (
           <BlockNotesDialog
             open
-            blockId={dialogBlock.id}
             blockMachine={dialogBlock.machine}
             blockOrderNumber={dialogBlock.orderNumber}
             notes={dialogBlock.notes ?? []}

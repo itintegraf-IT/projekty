@@ -29,14 +29,9 @@ export async function middleware(req: NextRequest) {
 
     // TISKAR smí jen / a /api/* (ne /admin, ne /rezervace)
     if (role === "TISKAR") {
-      if (pathname.startsWith("/admin") || pathname.startsWith("/tiskar") || pathname.startsWith("/rezervace")) {
+      if (pathname.startsWith("/admin") || pathname.startsWith("/rezervace")) {
         return NextResponse.redirect(new URL("/", req.url));
       }
-    }
-
-    // Ostatní role nesmí na /tiskar (fallback redirect)
-    if (role !== "TISKAR" && pathname.startsWith("/tiskar")) {
-      return NextResponse.redirect(new URL("/", req.url));
     }
 
     // OBCHODNIK nesmí na /admin

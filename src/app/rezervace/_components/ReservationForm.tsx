@@ -4,7 +4,6 @@ import { useState, useRef } from "react";
 import DatePickerField from "@/app/_components/DatePickerField";
 
 interface Props {
-  currentUser: { id: number; username: string; role: string };
   onCreated: () => void;
 }
 
@@ -44,7 +43,6 @@ export default function ReservationForm({ onCreated }: Props) {
   function handleFileAdd(newFiles: FileList | null) {
     if (!newFiles) return;
     const arr = Array.from(newFiles);
-    const valid: File[] = [];
     for (const f of arr) {
       if (!ALLOWED_MIME_TYPES.includes(f.type)) {
         setError(`Nepodporovaný typ: ${f.name}`);
@@ -58,7 +56,6 @@ export default function ReservationForm({ onCreated }: Props) {
     setError(null);
     const combined = [...files, ...arr].slice(0, MAX_FILES);
     setFiles(combined);
-    valid.push(...arr);
   }
 
   function handleRemoveFile(idx: number) {

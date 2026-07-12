@@ -202,14 +202,6 @@ export function daysInCivilMonth(year: number, monthIndex: number): number {
   return new Date(Date.UTC(year, monthIndex + 1, 0, 12, 0, 0, 0)).getUTCDate();
 }
 
-export function startOfPragueDay(date: Date): Date {
-  return pragueToUTC(utcToPragueDateStr(date), 0, 0);
-}
-
-export function startOfPragueToday(): Date {
-  return pragueToUTC(todayPragueDateStr(), 0, 0);
-}
-
 export function formatPragueDate(date: Date): string {
   return PRAGUE_DATE_DISPLAY_FMT.format(date);
 }

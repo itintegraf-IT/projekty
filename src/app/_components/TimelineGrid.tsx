@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, type CompanyDayInterval } from "@/lib/printTime";
@@ -52,18 +52,9 @@ import {
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
 
-// Sdílený styl pro label chip uvnitř company day overlaye (Z10)
-const COMPANY_DAY_CHIP_STYLE: CSSProperties = {
-  position: "absolute", top: 4, left: 8, height: 14, padding: "0 5px",
-  borderRadius: 3, background: "rgba(153,27,27,0.85)", color: "#fecaca",
-  fontSize: 9, fontWeight: 700, letterSpacing: "0.04em",
-  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-  maxWidth: "calc(100% - 16px)", display: "flex", alignItems: "center", lineHeight: 1,
-};
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
 const HEADER_HEIGHT = 33;       // výška sticky headeru (px) — pro sticky label uvnitř dne
 const TIME_COL_W = 72;          // šířka sloupce s časy (px)
-const MACHINE_GAP_W = 10;       // šířka neutrálního mezisloupce mezi stroji (px)
 const VIEW_DAYS_BACK = 3;
 const VIEW_DAYS_AHEAD = 30;
 
@@ -282,12 +273,6 @@ interface TimelineGridProps {
   onReflowMachine?: (machine: string) => Promise<void>;
 }
 
-type QueueDropPreview = {
-  machine: string;
-  top: number;
-  height: number;
-  jobType: string;
-} | null;
 
 
 // ─── CompanyDay typ ────────────────────────────────────────────────────────────
@@ -480,15 +465,6 @@ const BLOCK_PRINT_DONE = {
   textSub:     "var(--text-muted)",
   glow:        "rgba(59,130,246,0.10)",
 };
-const BLOCK_DEFAULT = {
-  gradient:    "linear-gradient(160deg, rgba(148,163,184,0.12) 0%, rgba(100,116,139,0.08) 100%)",
-  border:      "var(--border)",
-  accentBar:   "color-mix(in oklab, var(--text-muted) 70%, var(--text-muted))",
-  leftBg:      "rgba(148,163,184,0.08)",
-  textPrimary: "var(--text)",
-  textSub:     "var(--text-muted)",
-  glow:        "transparent",
-};
 
 function getBlockStyleKey(type: string, variant?: BlockVariant | null): string {
   if (type === "ZAKAZKA" && variant && variant !== "STANDARD") {
@@ -561,28 +537,6 @@ const DEADLINE_BORDER: Record<string, string> = {
   empty:      "rgba(255,255,255,0.55)",
   neutral:    "rgba(255,255,255,0.30)",
 };
-
-// Deadline strong barvy pro tečky/ikonky — module level (eliminace duplicity)
-const SUCCESS_STRONG     = "color-mix(in oklab, var(--success) 85%, var(--text) 15%)";
-const WARNING_STRONG     = "color-mix(in oklab, var(--warning) 78%, var(--text) 22%)";
-const DANGER_STRONG      = "color-mix(in oklab, var(--danger) 80%, var(--text) 20%)";
-const EARLY_START_STRONG = "color-mix(in oklab, #f97316 85%, var(--text))";
-
-// Chip bg/border pro mini D/M/E datum chipy — lehčí verze DEADLINE_BG/BORDER
-function chipStateBg(stateKey: string): string {
-  if (stateKey === "ok")         return "color-mix(in oklab, var(--success) 22%, transparent)";
-  if (stateKey === "danger")     return "color-mix(in oklab, var(--danger) 25%, transparent)";
-  if (stateKey === "warning")    return "color-mix(in oklab, var(--warning) 22%, transparent)";
-  if (stateKey === "earlyStart") return "color-mix(in oklab, #f97316 22%, transparent)";
-  return "rgba(255,255,255,0.08)";
-}
-function chipStateBorder(stateKey: string): string {
-  if (stateKey === "ok")         return "color-mix(in oklab, var(--success) 50%, transparent)";
-  if (stateKey === "danger")     return "color-mix(in oklab, var(--danger) 55%, transparent)";
-  if (stateKey === "warning")    return "color-mix(in oklab, var(--warning) 50%, transparent)";
-  if (stateKey === "earlyStart") return "color-mix(in oklab, #f97316 50%, transparent)";
-  return "rgba(255,255,255,0.20)";
-}
 
 const MONTH_NAMES_TG = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
 const DAY_NAMES_TG   = ["Po","Út","St","Čt","Pá","So","Ne"];
@@ -1016,8 +970,6 @@ function BlockCard({
   const dataCanOpenDtpPopover  = !!canEditData && !canEditDataDate && !!onDataChipDoubleClick;
   // materialInStock i materialIssued potlačují warning logiku materiálu
   const materialHandled = block.materialInStock || block.materialIssued;
-  const effectiveMaterialDate = materialHandled ? null : block.materialRequiredDate;
-  const effectiveMaterialOk   = materialHandled ? true : block.materialOk;
   const materialDeadlineState = materialHandled
     ? "ok"
     : deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
@@ -3414,7 +3366,7 @@ export default function TimelineGrid({
 
           {/* ── Datum sloupec ─────────────────────────────────────────────── */}
           <div style={{ width: DATE_COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>
-            {days.map((d, di) => (
+            {days.map((d) => (
               <div
                 key={d.y}
                 style={{

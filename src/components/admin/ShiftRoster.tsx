@@ -74,18 +74,6 @@ const btnPrimary: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const btnSuccess: React.CSSProperties = {
-  background: "color-mix(in oklab, var(--success, #22c55e) 90%, transparent)",
-  color: "#fff",
-  border: "none",
-  borderRadius: 8,
-  padding: "7px 14px",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: FONT_STACK,
-  whiteSpace: "nowrap",
-};
 
 function isoDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);

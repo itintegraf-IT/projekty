@@ -6,10 +6,7 @@ import { Textarea }  from "@/components/ui/textarea";
 import { Label }     from "@/components/ui/label";
 import { Button }    from "@/components/ui/button";
 import { Switch }    from "@/components/ui/switch";
-import { Badge }     from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Lock, Unlock, CalendarDays } from "lucide-react";
+import { Lock } from "lucide-react";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { type Block, type CompanyDay } from "@/app/_components/TimelineGrid";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
@@ -24,23 +21,11 @@ import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
   type CodebookOption,
-  TYPE_LABELS,
   TYPE_BUILDER_CONFIG,
   DURATION_OPTIONS,
-  JOB_PRESET_TONE_PALETTE,
   getJobPresetTone,
 } from "@/lib/plannerTypes";
 
-// Suppress unused import warnings for re-exported symbols used in JSX
-void TYPE_LABELS;
-void Unlock;
-void CalendarDays;
-void Badge;
-void Separator;
-void Popover;
-void PopoverContent;
-void PopoverTrigger;
-void JOB_PRESET_TONE_PALETTE;
 
 function emptyPresetDraft(type: string): JobPresetDraftValues {
   return {
@@ -641,8 +626,6 @@ export function BlockEdit({
   }
 
   const typeCfg = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
-  const SECTION = "fontSize: 9, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--text-muted)'";
-  void SECTION;
 
   function SectionLabel({ children }: { children: React.ReactNode }) {
     return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{children}</div>;

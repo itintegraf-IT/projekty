@@ -17,43 +17,6 @@ export const SHIFT_LABELS: Record<ShiftType, string> = {
   NIGHT: "Noční",
 };
 
-export type ShiftFlags = {
-  morningOn: boolean;
-  afternoonOn: boolean;
-  nightOn: boolean;
-};
-
-/**
- * Vrátí typ směny pro danou hodinu (0-24).
- * Noční pokrývá 22-06 včetně půlnoci.
- */
-export function shiftFromHour(hour: number): ShiftType {
-  if (hour >= 6 && hour < 14) return "MORNING";
-  if (hour >= 14 && hour < 22) return "AFTERNOON";
-  return "NIGHT"; // 22-24 a 0-6
-}
-
-/**
- * Zda slot (0-47, 30min) patří do dané směny.
- * Slot n odpovídá hodině n/2.
- */
-export function isSlotInShift(slot: number, shift: ShiftType): boolean {
-  const hour = slot / 2;
-  return shiftFromHour(hour) === shift;
-}
-
-/**
- * Vrátí seznam zapnutých směn pro den (podle flagů).
- * Pořadí: MORNING → AFTERNOON → NIGHT.
- */
-export function activeShiftsForDay(flags: ShiftFlags): ShiftType[] {
-  const out: ShiftType[] = [];
-  if (flags.morningOn) out.push("MORNING");
-  if (flags.afternoonOn) out.push("AFTERNOON");
-  if (flags.nightOn) out.push("NIGHT");
-  return out;
-}
-
 /** Vrátí efektivní hranice směny (null = směna OFF pro den). */
 export function resolveShiftBounds(
   row: MachineWeekShiftsRow,
@@ -126,23 +89,6 @@ export function isDateTimeActive(
     if (b && b.endMin < b.startMin && hourMin < b.endMin) return true;
   }
   return false;
-}
-
-/** Derive legacy startHour/endHour from shift flags.
- *  Used both on client (grid UI) and server (normalizeDayInput).
- *  Represents the spanning interval from earliest active shift's start to latest active shift's end.
- *  If morning+night both on (non-contiguous), span = 0..24 as a simple cover.
- */
-export function deriveHoursFromShifts(flags: ShiftFlags): { startHour: number; endHour: number } {
-  const { morningOn, afternoonOn, nightOn } = flags;
-  if (!morningOn && !afternoonOn && !nightOn) return { startHour: 0, endHour: 0 };
-  if (morningOn && nightOn) return { startHour: 0, endHour: 24 };
-  if (nightOn && afternoonOn) return { startHour: 14, endHour: 24 };
-  if (nightOn) return { startHour: 22, endHour: 24 };
-  if (morningOn && afternoonOn) return { startHour: 6, endHour: 22 };
-  if (afternoonOn) return { startHour: 14, endHour: 22 };
-  // morningOn only
-  return { startHour: 6, endHour: 14 };
 }
 
 /**

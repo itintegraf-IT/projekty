@@ -268,15 +268,14 @@ body {
 :root:not(.dark) [class*="border-slate-7"] { border-color: var(--border) !important; }
 
 /* ── Timeline denní cykly ──────────────────────────────────────────────────── */
+/* Kreslí se jen odpolední a noční pás (MORNING je transparentní = base a v
+   TimelineGrid odfiltrovaný; .tl-morning a .tl-day-alt byly odstraněny jako
+   mrtvý kód — pásy dnes řídí resolveDayIntervals). */
 .tl-night      { background-color: rgba(0,0,0,0.10); }
-.tl-morning    { background-color: transparent; }
 .tl-afternoon  { background-color: rgba(0,0,0,0.05); }
-.tl-day-alt    { background-color: rgba(0,0,0,0.05); }
 
 .dark .tl-night     { background-color: rgba(0,0,0,0.65) !important; }
-.dark .tl-morning   { background-color: rgba(255,255,255,0.07) !important; }
 .dark .tl-afternoon { background-color: rgba(255,255,255,0.03) !important; }
-.dark .tl-day-alt   { background-color: rgba(255,255,255,0.05) !important; }
 
 @keyframes auditShimmer {
   0%   { background-position: 200% 0; }

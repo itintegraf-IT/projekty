@@ -29,7 +29,7 @@ function LoginForm() {
       if (!res.ok) {
         setError(data.error ?? "Nesprávné přihlašovací údaje");
       } else {
-        router.push(data.role === "TISKAR" ? "/tiskar" : "/");
+        router.push("/");
       }
     } catch (err) {
       console.error("Login request failed", err);
