@@ -71,7 +71,7 @@
     blocks    Block[]  @relation("BlockSplitGroup")
   }
   ```
-- [ ] **1.2** `npx prisma migrate dev --create-only --name split_group_table`. NEspouštět `prisma format`.
+- [ ] **1.2 Ruční migrace (ne `migrate dev`)** [zjištěno při exekuci]: `prisma migrate dev` tu NEFUNGUJE — shadow DB padá na UNSIGNED mismatch staré migrace `add_split_group_id` (P3018/3780, pre-existující drift migrační historie). Vytvořit adresář `prisma/migrations/<ts>_split_group_table/` ručně, napsat `migration.sql` (1.3), aplikovat přes `prisma migrate deploy` (bez shadow DB). NEspouštět `prisma format`.
 - [ ] **1.3 Ruční edit migrace** — přepsat na tento přesný obsah [RT#5 charset; RT#14 pořadí]:
   ```sql
   -- CreateTable: identita skupiny je samostatná entita (přežije smazání člena).
@@ -93,12 +93,16 @@
   -- Bezpečnost proti half-applied stavu zajišťuje Fáze 7 (app-stop + orphan pre-check
   -- SELECT=0 + UNSIGNED gate PŘED migrací), ne atomicita samotné migrace.
   ALTER TABLE `Block` DROP FOREIGN KEY `Block_splitGroupId_fkey`;
+  -- Sjednotit signedness `splitGroupId` s `SplitGroup`.`id` (INT UNSIGNED). [zjištěno při exekuci]
+  -- Prod: `splitGroupId` je už `int unsigned` → no-op (0 změn hodnot; ověřit instant vs rebuild dle verze MySQL v 6.2).
+  -- Dev (drift: skončil jako signed `int`): konvertuje signed→unsigned; hodnoty jsou kladné root PK → beze změny hodnot.
+  ALTER TABLE `Block` MODIFY `splitGroupId` INTEGER UNSIGNED NULL;
   ALTER TABLE `Block`
     ADD CONSTRAINT `Block_splitGroupId_fkey`
     FOREIGN KEY (`splitGroupId`) REFERENCES `SplitGroup`(`id`)
     ON DELETE SET NULL ON UPDATE CASCADE;
   ```
-- [ ] **1.4 Aplikovat na dev + ověřit** (`npx prisma migrate dev` + `npx prisma generate`):
+- [ ] **1.4 Aplikovat na dev + ověřit** (`npx prisma migrate deploy` + `npx prisma generate`):
   - `SHOW CREATE TABLE SplitGroup;` → `id INT UNSIGNED`, `DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_unicode_ci` [RT#5].
   - `SHOW CREATE TABLE Block;` → FK `Block_splitGroupId_fkey REFERENCES SplitGroup(id)`.
   - `SELECT COUNT(*) FROM SplitGroup;` = dev otisk z 0.3.
