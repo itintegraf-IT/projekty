@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SHIFT_LABELS, SHIFT_EDIT_RANGES, fmtHHMM, defaultShiftMin, type ShiftType } from "@/lib/shifts";
+import { Z_OVERLAY } from "@/lib/zLayers";
 
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";
 const AMBER_BG = "#d97706";
@@ -123,7 +124,7 @@ export function ShiftHoursPopover({
         borderRadius: 10,
         boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
         padding: 12,
-        zIndex: 1000,
+        zIndex: Z_OVERLAY.dialog,
         fontFamily: FONT_STACK,
         color: "var(--text)",
       }}

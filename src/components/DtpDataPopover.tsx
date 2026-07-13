@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CodebookOption } from "@/lib/plannerTypes";
+import { Z_OVERLAY } from "@/lib/zLayers";
 
 interface Props {
   blockId: number;
@@ -72,7 +73,7 @@ export function DtpDataPopover({ blockId, currentStatusId, dataOpts, anchorRect,
         position: "fixed",
         top,
         left,
-        zIndex: 600,
+        zIndex: Z_OVERLAY.dataPopover,
         background: "var(--popover)",
         border: "1px solid var(--border)",
         borderRadius: 12,

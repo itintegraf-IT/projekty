@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { Z_OVERLAY } from "@/lib/zLayers";
 
 export type Toast = { id: number; message: string; type: "success" | "error" | "info" };
 
@@ -26,7 +27,7 @@ export function ToastContainer({
         position: "fixed",
         bottom: 24,
         right: 24,
-        zIndex: 9999,
+        zIndex: Z_OVERLAY.floating,
         display: "flex",
         flexDirection: "column",
         gap: 8,

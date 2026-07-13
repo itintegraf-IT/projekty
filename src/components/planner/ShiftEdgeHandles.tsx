@@ -6,6 +6,7 @@ import { resolveDayIntervals } from "@/lib/scheduleValidation";
 import { utcToPragueDateStr } from "@/lib/dateUtils";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
 import { fmtHHMM } from "@/lib/shifts";
+import { Z_TIMELINE } from "@/lib/zLayers";
 import type { ShiftType } from "@/lib/shifts";
 
 type ShiftEdge = "start" | "end";
@@ -52,7 +53,7 @@ const HANDLE_STYLE = {
   height: 10,
   borderRadius: 5,
   cursor: "ns-resize" as const,
-  zIndex: 30,
+  zIndex: Z_TIMELINE.shiftHandle,
   boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
   border: "1px solid rgba(0,0,0,0.4)",
 };
@@ -173,7 +174,7 @@ export function ShiftEdgeHandles(props: ShiftEdgeHandlesProps) {
             position: "absolute", top: previewY - 10, left: "calc(50% + 22px)",
             padding: "2px 6px", borderRadius: 4, background: "rgba(0,0,0,0.85)",
             color: "#fff", fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums",
-            pointerEvents: "none", zIndex: 31, whiteSpace: "nowrap",
+            pointerEvents: "none", zIndex: Z_TIMELINE.shiftHandleLabel, whiteSpace: "nowrap",
             boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
           }}>
           {fmtHHMM(preview!.previewMin)}

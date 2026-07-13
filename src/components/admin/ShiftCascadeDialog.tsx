@@ -1,5 +1,7 @@
 "use client";
 
+import { Z_OVERLAY } from "@/lib/zLayers";
+
 const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";
 
 export type ConflictingBlock = {
@@ -35,7 +37,7 @@ export function ShiftCascadeDialog({
         position: "fixed",
         inset: 0,
         background: "rgba(0,0,0,0.55)",
-        zIndex: 1100,
+        zIndex: Z_OVERLAY.dialogCascade,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

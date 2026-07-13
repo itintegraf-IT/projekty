@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { utcToPragueDateStr } from "@/lib/dateUtils";
+import { Z_OVERLAY } from "@/lib/zLayers";
 
 const MONTH_NAMES_CS = ["Leden","Únor","Březen","Duben","Květen","Červen","Červenec","Srpen","Září","Říjen","Listopad","Prosinec"];
 const DAY_NAMES_CS   = ["Po","Út","St","Čt","Pá","So","Ne"];
@@ -188,7 +189,7 @@ export default function DatePickerField({
         position: "fixed",
         top: pos.top,
         left: pos.left,
-        zIndex: 9999,
+        zIndex: Z_OVERLAY.floating,
         background: "var(--surface)",
         borderRadius: 14,
         boxShadow: "0 8px 32px rgba(0,0,0,0.35)",

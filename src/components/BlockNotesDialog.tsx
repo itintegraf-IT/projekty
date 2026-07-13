@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MAX_NOTE_LENGTH, NOTE_EDIT_WINDOW_MS, type NoteRole } from "@/lib/blockNotePermissions";
+import { Z_OVERLAY } from "@/lib/zLayers";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 
 interface Props {
@@ -108,7 +109,7 @@ export function BlockNotesDialog({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 1000,
+        zIndex: Z_OVERLAY.dialog,
         background: "rgba(0,0,0,0.6)",
         display: "flex",
         alignItems: "center",

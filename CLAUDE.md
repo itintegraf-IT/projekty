@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **375/375 testů zelené** (viz níže)
+- celá test suite: **378/378 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -21,6 +21,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - tiskové hodiny — etapa 7 (reporty přes tiskové hodiny: retro/outlook dashboard + denní report počítají vytížení z tiskového času, ne z kalendářní délky bloku) dokončena 4. 7. 2026 — viz sekci „Reporty přes tiskové hodiny" níže
 - tiskové hodiny — etapa 8 FINÁLE (multi-agent review celé featury 5 lens + fix wave + Gardena 27h důkaz na dev DB) dokončena 5. 7. 2026 — viz sekci „Finále featury" níže; deploy checklist: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
 - 4 body z auditu plánovače (pásy směn, MICRO text, Σ split, cut=přesun) dokončeny 9. 7. 2026 — viz sekci „4 body z auditu plánovače" níže; spec `docs/superpowers/specs/2026-07-09-planovac-4-body-design.md`, plán `docs/superpowers/plans/2026-07-09-planovac-4-body.md`
+- audit kvality kódu a designu — etapa **Audit Top 5** (plán `docs/superpowers/plans/2026-07-11-etapa-audit-top5.md`): fáze A (light-mode hotfixy, focus-visible), B (úklid mrtvého kódu vč. smazání `/tiskar`), C (jeden zdroj pravdy — blockPayload/errorStatus/requireRole/blockStyles) hotové; fáze D část 1 (sdílené UI kameny: `zLayers` kanonická z-index škála + `ConfirmDialog`) hotová 13. 7. 2026 — multi-agent review 3 lens, 0 critical/important. Zbývá D část 2 (NativeSelect, PrimaryCta, ModuleHeader, uiStyles) + fáze E (dekompozice)
 
 ### Spuštění testů
 
@@ -55,9 +56,10 @@ node --test --import tsx src/lib/seriesPropagation.test.ts         # 6 testů
 node --test --import tsx src/lib/shiftRoster.test.ts               # 5 testů
 node --test --import tsx src/lib/shifts.test.ts                    # 18 testů
 node --test --import tsx src/lib/splitHelpers.test.ts              # 7 testů
+node --test --import tsx src/lib/zLayers.test.ts                   # 3 testy
 ```
 
-Celkem **375 testů** ve 30 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
+Celkem **378 testů** ve 31 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 
@@ -648,6 +650,7 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/lib/reportMetrics.ts` — `blockDurationHours`/`computeBlockHours`/`computeUtilization`/`computeAvailableHours`/`computePlanStability`/... — čisté metriky pro `/api/report/dashboard`; `blockDurationHours` (etapa 7) je ZAKAZKA `printMinutes/60` s fallbackem na elapsed, jinak elapsed
 - `src/lib/machines.ts` — `MACHINES` + `MachineId` + `MACHINE_LABELS`/`machineLabel` — jediný zdroj pravdy pro seznam i zobrazované labely strojů (etapa 7 + audit #25/#46/#77)
 - `src/lib/timeSlots.ts` — `SLOT_MINUTES`/`SLOT_MS`/`DAY_SLOT_COUNT`/`slotFromHourBoundary` — konstanty 30min gridu; `SLOT_MS` je definovaný JEN tady (audit #90), `printTime.ts` ho re-exportuje
+- `src/lib/zLayers.ts` — `Z_TIMELINE`/`Z_LAYOUT`/`Z_OVERLAY` — kanonická z-index škála (audit #21/#95, fáze D): pojmenované vrstvy místo magických čísel ve třech rovinách (uvnitř timeline gridu / řadové panely / body-level překryvy přes portál/fixed); `Z_OVERLAY` je striktně rostoucí (na pořadí záleží — popover nad panelem, dialog nad vším), monotonii hlídá `zLayers.test.ts`. Karta-interní mikro-vrstvy (2–4) zůstávají lokální literály
 - `src/lib/calendarDrift.server.ts` — `detectCalendarDrift`/`notifyCalendarDrift` — serverová detekce driftnutých bloků (čisté READ, nic neupravuje) + zápis `Notification` typu `CALENDAR_DRIFT` po mutaci kalendáře
 - `src/lib/reflow.server.ts` — `reflowBlockInTx`/`reflowMachineInTx` — přepočet (re-expanze + chain push) jednoho bloku nebo celého stroje v transakci, audit action `AUTO_REFLOW`; `ReflowDeps.preloadedCalendar` (etapa 7) — 1 kalendář pro celý hromadný reflow místo N per-blok fetchů
 - `src/lib/findConflictingBlocks.ts` — `findConflictingBlocks` (pre-transakční) / `assertNoConflictingBlocks` (in-tx TOCTOU re-check) — sdílí jádro `fetchConflictingBlocks` (etapa 7 DRY), okno `[W, W+7d+6h)` přes `computeConflictWindow`/`neighborWeekStarts`
@@ -669,6 +672,7 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/components/BlockDetail.tsx` — read-only detail bloku s historií; od etapy 6 i drift sekce (`DRIFT_TITLES` + tlačítko Přepočítat)
 - `src/components/BlockEdit.tsx` — editační formulář bloku
 - `src/components/ToastContainer.tsx` — toast notifikace
+- `src/components/ConfirmDialog.tsx` — sdílený potvrzovací modál (audit #3/#34/#48/#64, fáze D): tokeny, z-index z `Z_OVERLAY.modal`, zavření přes Esc i klik mimo, autofocus na potvrzení, `children` pro doménový obsah (např. důvod zamítnutí rezervace u smazání bloku); nahradil 2 ručně kopírované delete dialogy v PlannerPage
 
 ### Planner — logika
 

@@ -15,6 +15,7 @@ import {
   utcToPragueHour,
 } from "@/lib/dateUtils";
 import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
+import { Z_LAYOUT } from "@/lib/zLayers";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
@@ -51,6 +52,7 @@ import { BlockNotesDialog } from "@/components/BlockNotesDialog";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 import type { NoteRole } from "@/lib/blockNotePermissions";
 import { BlockDetail } from "@/components/BlockDetail";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { BlockEdit } from "@/components/BlockEdit";
 import { DtpPanel } from "@/components/DtpPanel";
 import { DtpDataPopover } from "@/components/DtpDataPopover";
@@ -439,7 +441,7 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: () => void }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        width: 8, flexShrink: 0, position: "relative", zIndex: 20,
+        width: 8, flexShrink: 0, position: "relative", zIndex: Z_LAYOUT.panelDivider,
         cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center",
         backgroundColor: hovered ? "rgb(59 130 246 / 0.4)" : "var(--border)",
         transition: "background-color 0.15s",
@@ -2850,75 +2852,48 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         </div>
       )}
       {/* ── Confirm smazání přes klávesnici ── */}
-      {keyDeletePending && selectedBlock && (
-        <div
-          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}
-          onClick={() => { setKeyDeletePending(false); setDeleteRejectionReason(""); }}
-        >
-          <div
-            style={{ background: "var(--popover)", borderRadius: 16, padding: "24px 28px", width: selectedBlock.reservationId ? 340 : 300, border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", textAlign: "center", marginBottom: 6 }}>Smazat blok?</p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginBottom: selectedBlock.reservationId ? 14 : 20 }}>{selectedBlock.orderNumber}{selectedBlock.description ? ` — ${selectedBlock.description}` : ""}</p>
-            {selectedBlock.reservationId && (
-              <div style={{ background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
-                <p style={{ fontSize: 11, fontWeight: 600, color: "#c084fc", marginBottom: 8 }}>Propojená rezervace bude zamítnuta</p>
-                <input
-                  type="text"
-                  placeholder="Důvod zamítnutí (nepovinné)"
-                  value={deleteRejectionReason}
-                  onChange={(e) => setDeleteRejectionReason(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      setKeyDeletePending(false);
-                      handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined);
-                      setDeleteRejectionReason("");
-                    }
-                  }}
-                  autoFocus
-                  style={{ width: "100%", padding: "8px 12px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.08)", color: "var(--text)", outline: "none" }}
-                />
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 10 }}>
-              <Button variant="destructive" size="sm" className="flex-1 text-xs h-9" autoFocus={!selectedBlock.reservationId}
-                onClick={() => { setKeyDeletePending(false); handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined); setDeleteRejectionReason(""); }}>
-                Smazat
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1 text-xs h-9 border-slate-600 text-slate-300"
-                onClick={() => { setKeyDeletePending(false); setDeleteRejectionReason(""); }}>
-                Zrušit
-              </Button>
-            </div>
+      <ConfirmDialog
+        open={keyDeletePending && !!selectedBlock}
+        title="Smazat blok?"
+        message={selectedBlock ? `${selectedBlock.orderNumber}${selectedBlock.description ? ` — ${selectedBlock.description}` : ""}` : ""}
+        confirmLabel="Smazat"
+        danger
+        width={selectedBlock?.reservationId ? 340 : 300}
+        autoFocusConfirm={!selectedBlock?.reservationId}
+        onConfirm={() => { if (!selectedBlock) return; setKeyDeletePending(false); handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined); setDeleteRejectionReason(""); }}
+        onCancel={() => { setKeyDeletePending(false); setDeleteRejectionReason(""); }}
+      >
+        {selectedBlock?.reservationId && (
+          <div style={{ background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, color: "#c084fc", marginBottom: 8 }}>Propojená rezervace bude zamítnuta</p>
+            <input
+              type="text"
+              placeholder="Důvod zamítnutí (nepovinné)"
+              value={deleteRejectionReason}
+              onChange={(e) => setDeleteRejectionReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && selectedBlock) {
+                  setKeyDeletePending(false);
+                  handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined);
+                  setDeleteRejectionReason("");
+                }
+              }}
+              autoFocus
+              style={{ width: "100%", padding: "8px 12px", fontSize: 12, borderRadius: 8, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.08)", color: "var(--text)", outline: "none" }}
+            />
           </div>
-        </div>
-      )}
+        )}
+      </ConfirmDialog>
       {/* ── Confirm hromadného smazání přes klávesnici ── */}
-      {multiDeletePending && selectedBlockIds.size > 0 && (
-        <div
-          style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", backdropFilter: "blur(4px)" }}
-          onClick={() => setMultiDeletePending(false)}
-        >
-          <div
-            style={{ background: "var(--popover)", borderRadius: 16, padding: "24px 28px", width: 300, border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05) inset" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", textAlign: "center", marginBottom: 6 }}>Smazat {selectedBlockIds.size} {selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}?</p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center", marginBottom: 20 }}>Tato akce je nevratná.</p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="destructive" size="sm" className="flex-1 text-xs h-9" autoFocus
-                onClick={() => { const ids = [...selectedBlockIds]; setMultiDeletePending(false); setSelectedBlockIds(new Set()); handleDeleteAll(ids); }}>
-                Smazat
-              </Button>
-              <Button variant="outline" size="sm" className="flex-1 text-xs h-9 border-slate-600 text-slate-300"
-                onClick={() => setMultiDeletePending(false)}>
-                Zrušit
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={multiDeletePending && selectedBlockIds.size > 0}
+        title={`Smazat ${selectedBlockIds.size} ${selectedBlockIds.size === 1 ? "blok" : selectedBlockIds.size < 5 ? "bloky" : "bloků"}?`}
+        message="Tato akce je nevratná."
+        confirmLabel="Smazat"
+        danger
+        onConfirm={() => { const ids = [...selectedBlockIds]; setMultiDeletePending(false); setSelectedBlockIds(new Set()); handleDeleteAll(ids); }}
+        onCancel={() => setMultiDeletePending(false)}
+      />
       {/* ── Header (TISKAR — minimální pruh) ── */}
       {isTiskar && (
         <header className="flex-shrink-0 px-4 py-2 flex items-center gap-3" style={{
@@ -3338,7 +3313,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
         {/* Sloučený notifikační panel — Upozornění + Aktivita (vlevo) */}
         {notif.canSeeInbox && showNotifPanel && (
-          <aside style={{ width: 320, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <aside style={{ width: 320, flexShrink: 0, position: "relative", zIndex: Z_LAYOUT.sidePanel, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             <NotificationsPanel
               canSeeAudit={notif.canSeeAudit}
               activeTab={notifTab}
@@ -3369,7 +3344,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         )}
 
         {/* PRAVÁ ČÁST – detail nebo builder */}
-        {canEdit && <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {canEdit && <aside style={{ width: asideWidth, flexShrink: 0, position: "relative", zIndex: Z_LAYOUT.sidePanel, overflow: "hidden", display: "flex", flexDirection: "column" }}>
           {showShutdowns ? (
             <ShutdownManager
               companyDays={companyDays}

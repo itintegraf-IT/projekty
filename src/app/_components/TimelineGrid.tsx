@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, SLOT_MS, type CompanyDayInterval } from "@/lib/printTime";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, formatPrintHoursShort, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, splitGroupTotalPrintMinutes, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
+import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
 import { BLOCK_STYLES, BLOCK_OVERDUE, BLOCK_PRINT_DONE, getBlockStyleKey, tint } from "@/lib/blockStyles";
 import { MACHINES } from "@/lib/machines";
 import {
@@ -487,11 +488,11 @@ function InlineDatePicker({
   return (
     <>
       {/* Transparent overlay to catch outside clicks */}
-      <div style={{ position: "fixed", inset: 0, zIndex: 9998 }} onMouseDown={onClose} />
+      <div style={{ position: "fixed", inset: 0, zIndex: Z_OVERLAY.backdrop }} onMouseDown={onClose} />
       <div
         onMouseDown={(e) => e.stopPropagation()}
         style={{
-          position: "fixed", left, top, zIndex: 9999,
+          position: "fixed", left, top, zIndex: Z_OVERLAY.floating,
           background: "var(--surface)", border: "1px solid var(--border)",
           borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
           padding: "12px 12px 10px",
@@ -749,7 +750,7 @@ function MaterialNoteAffordance({
           borderRadius: 14,
           padding: "12px 14px",
           maxWidth: 240,
-          zIndex: 200,
+          zIndex: Z_OVERLAY.hoverCard,
           boxShadow: "0 8px 32px rgba(0,0,0,0.52), 0 2px 8px rgba(0,0,0,0.28)",
           fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
         }}
@@ -1036,7 +1037,7 @@ function BlockCard({
       style={{
         position: "absolute", top, height: Math.min(clampedHeight, maxRenderHeight ?? Infinity), left: 3,
         width: "calc(100% - 6px)",
-        zIndex: isDragging ? 20 : resizeHovered ? 15 : hovered ? 5 : 1,
+        zIndex: isDragging ? Z_TIMELINE.blockDrag : resizeHovered ? Z_TIMELINE.blockResizeHover : hovered ? Z_TIMELINE.blockHover : Z_TIMELINE.blockBase,
         cursor: block.locked ? "default" : isDragging ? "grabbing" : "grab",
         opacity, borderRadius: 7,
         border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : block.locked ? "1.5px solid rgba(251,191,36,0.7)" : isUnconfirmedReservation ? "1.5px dashed rgba(168,85,247,0.7)" : `1px solid ${selected ? "#FFE600" : s.border}`,
@@ -1691,7 +1692,7 @@ function BlockCard({
             borderRadius: 12,
             padding: 12,
             width: 220,
-            zIndex: 400,
+            zIndex: Z_OVERLAY.notePopover,
             boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
           }}
         >
@@ -1801,7 +1802,7 @@ function BlockCard({
             left,
             top,
             width: tooltipW,
-            zIndex: 9999,
+            zIndex: Z_OVERLAY.floating,
             background: "rgba(28,28,30,0.88)",
             backdropFilter: "blur(24px)",
             WebkitBackdropFilter: "blur(24px)",
@@ -1964,7 +1965,7 @@ function BlockCard({
         {blockDiv}
       </ContextMenuTrigger>
       <ContextMenuContent
-        style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "4px", minWidth: 180, zIndex: 500 }}
+        style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "4px", minWidth: 180, zIndex: Z_OVERLAY.contextMenu }}
         onClick={(e) => e.stopPropagation()}
       >
         {canEdit && !block.locked && block.type === "ZAKAZKA" && (
@@ -2965,7 +2966,7 @@ export default function TimelineGrid({
 
   // ── Sticky header ──────────────────────────────────────────────────────────
   const header = (
-    <div style={{ position: "sticky", top: 0, zIndex: 30, display: "flex", flexShrink: 0, backgroundColor: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
+    <div style={{ position: "sticky", top: 0, zIndex: Z_TIMELINE.stickyHeader, display: "flex", flexShrink: 0, backgroundColor: "var(--surface)", borderBottom: "1px solid var(--border)" }}>
       {/* datum placeholder */}
       <div style={{ width: DATE_COL_W, flexShrink: 0, borderRight: "1px solid var(--border)" }} />
       {/* čas placeholder */}
@@ -3715,9 +3716,9 @@ export default function TimelineGrid({
                         height: 0,
                         borderTop: "2px dashed rgba(59,130,246,0.85)",
                         pointerEvents: "none",
-                        // Vyšší než drag stav BlockCard (zIndex 20) — marker zůstává viditelný
-                        // i během dragu jiného bloku.
-                        zIndex: 25,
+                        // Vyšší než drag stav BlockCard (Z_TIMELINE.blockDrag) — marker
+                        // zůstává viditelný i během dragu jiného bloku.
+                        zIndex: Z_TIMELINE.pasteMarker,
                       }}
                       data-paste-marker
                     >
@@ -3859,7 +3860,7 @@ export default function TimelineGrid({
                         position: "absolute", top: bTop, height: Math.max(bHeight, slotHeight),
                         left: 3, width: "calc(100% - 6px)", borderRadius: 4,
                         backgroundColor: `${color}22`, border: `2px dashed ${color}cc`,
-                        pointerEvents: "none", zIndex: 16,
+                        pointerEvents: "none", zIndex: Z_TIMELINE.dragGhost,
                       }} />
                     );
                   })}
@@ -3880,7 +3881,7 @@ export default function TimelineGrid({
                       backgroundColor: `${color}22`,
                       border: `2px dashed ${color}cc`,
                       pointerEvents: "none",
-                      zIndex: 16,
+                      zIndex: Z_TIMELINE.dragGhost,
                     }} />
                   );
                 })()}
@@ -3966,7 +3967,7 @@ export default function TimelineGrid({
               </div>
               </ContextMenuTrigger>
               <ContextMenuContent
-                style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: 4, minWidth: 180, zIndex: 500 }}
+                style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: 4, minWidth: 180, zIndex: Z_OVERLAY.contextMenu }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {clipboardHasContent ? (
@@ -4009,7 +4010,7 @@ export default function TimelineGrid({
           backgroundColor: "rgba(59,130,246,0.08)",
           borderRadius: 4,
           pointerEvents: "none",
-          zIndex: 9999,
+          zIndex: Z_OVERLAY.floating,
         }} />
       )}
 

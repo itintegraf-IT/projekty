@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Z_OVERLAY } from "@/lib/zLayers";
 import {
   summarizeJobPreset,
   type JobPreset,
@@ -322,7 +323,7 @@ export default function JobPresetEditor({
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+      style={{ position: "fixed", inset: 0, zIndex: Z_OVERLAY.modal, background: "rgba(0,0,0,0.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
       onClick={onClose}
     >
       <div

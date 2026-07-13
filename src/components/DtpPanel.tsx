@@ -8,6 +8,7 @@ import {
   BUSINESS_TIME_ZONE,
 } from "@/lib/dateUtils";
 import type { Block } from "@/app/_components/TimelineGrid";
+import { Z_LAYOUT } from "@/lib/zLayers";
 import type { CodebookOption } from "@/lib/plannerTypes";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
@@ -142,7 +143,7 @@ export function DtpPanel({
   // ── Render: seznam ──
   return (
     <aside style={{
-      width, flexShrink: 0, position: "relative", zIndex: 10,
+      width, flexShrink: 0, position: "relative", zIndex: Z_LAYOUT.sidePanel,
       display: "flex", flexDirection: "column",
       background: "var(--surface)", borderLeft: "1px solid var(--border)",
       overflow: "hidden",
@@ -422,7 +423,7 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => v
       onMouseLeave={() => setHovered(false)}
       style={{
         position: "absolute", left: 0, top: 0, bottom: 0,
-        width: 6, zIndex: 20, cursor: "col-resize",
+        width: 6, zIndex: Z_LAYOUT.panelDivider, cursor: "col-resize",
         display: "flex", alignItems: "center", justifyContent: "center",
         backgroundColor: hovered ? "rgb(59 130 246 / 0.4)" : "transparent",
         transition: "background-color 0.15s",
