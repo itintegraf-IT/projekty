@@ -78,8 +78,7 @@ model Block {
   Block_Block_recurrenceParentIdToBlock       Block?       @relation("Block_recurrenceParentIdToBlock", fields: [recurrenceParentId], references: [id])
   other_Block_Block_recurrenceParentIdToBlock Block[]      @relation("Block_recurrenceParentIdToBlock")
   Reservation                                 Reservation? @relation(fields: [reservationId], references: [id])
-  Block_Block_splitGroupIdToBlock             Block?       @relation("Block_splitGroupIdToBlock", fields: [splitGroupId], references: [id])
-  other_Block_Block_splitGroupIdToBlock       Block[]      @relation("Block_splitGroupIdToBlock")
+  splitGroup                                  SplitGroup?  @relation("BlockSplitGroup", fields: [splitGroupId], references: [id])
   notes                                       BlockNote[]
 
   @@index([deadlineExpedice, expeditionPublishedAt, expeditionSortOrder], map: "Block_expedition_idx")
@@ -88,6 +87,12 @@ model Block {
   @@index([reservationId])
   @@index([splitGroupId])
   @@index([machine, startTime, endTime], map: "Block_machine_time_idx")
+}
+
+model SplitGroup {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  blocks    Block[]  @relation("BlockSplitGroup")
 }
 
 model CodebookOption {
