@@ -245,6 +245,15 @@ test("buildDeleteCommand: redo znovu smaže obnovené bloky", async () => {
   assert.deepEqual(calls.deleted, [100]);
 });
 
+test("buildDeleteCommand: undo předá payload vč. splitGroupId do postBlock (split část se vrátí do skupiny)", async () => {
+  const live = new Map<number, Block>();
+  const { effects, calls } = makeCreateEffects(live);
+  const cmd = buildDeleteCommand("Smazání bloku", [{ payload: { orderNumber: "A", splitGroupId: 42 } }]);
+  await cmd.undo(effects);
+  assert.equal(calls.posted.length, 1);
+  assert.equal(calls.posted[0].splitGroupId, 42);
+});
+
 test("buildMoveOrResizeCommand: MOVE (start changed) → undo použije batchUpdate", async () => {
   const live = new Map([[1, blk(1, { startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", updatedAt: "v2" })]]);
   const { effects, calls } = makeEffects(live);

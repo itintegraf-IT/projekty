@@ -1700,11 +1700,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       return;
     }
 
-    // Undo jen pro standalone bloky — série mají komplexní parent/child vztahy
+    // Série/rezervace z undo vynecháváme (komplexní vztahy); split část ale ANO —
+    // payload nese splitGroupId, takže se blok undo-obnovou vrátí do skupiny (3/3).
     if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
 
     // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
-    const payload = blockToCreatePayload(block);
+    // + splitGroupId, aby se smazaná split část undo-obnovou vrátila do skupiny.
+    const payload = blockToCreatePayload(block, { splitGroupId: block.splitGroupId });
 
     recordUndo(buildDeleteCommand("Smazání bloku", [{ payload }]));
   }
@@ -1735,10 +1737,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
     }
 
-    // Multi delete — standalone bloky dostanou undo, série a split bez undo
+    // Multi delete — standalone i split části dostanou undo (payload nese splitGroupId,
+    // část se vrátí do skupiny); série zůstávají mimo undo (komplexní vztahy).
     const toDelete = blocksRef.current.filter((b) => ids.includes(b.id));
     const standalone = toDelete.filter(
-      (b) => b.recurrenceType === "NONE" && b.recurrenceParentId === null && b.splitGroupId === null
+      (b) => b.recurrenceType === "NONE" && b.recurrenceParentId === null
     );
     const complex = toDelete.filter((b) => !standalone.some((s) => s.id === b.id));
     // Smazat vše — zachytit které DELETE uspěly (na serveru ne jen síťově)
@@ -1762,14 +1765,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (deletedIds.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
     if (deletedIds.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
     const deletedComplex = complex.filter((b) => deletedIds.includes(b.id));
-    if (deletedComplex.length > 0) showToast("Série/split bloky smazány bez možnosti vrátit.", "info");
+    if (deletedComplex.length > 0) showToast("Bloky série smazány bez možnosti vrátit.", "info");
 
     // Undo jen pro standalone bloky, které byly skutečně smazány
     const deletedStandalone = standalone.filter((b) => deletedIds.includes(b.id));
     if (deletedStandalone.length === 0) return;
 
     // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
-    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b));
+    // + splitGroupId (split část se undo-obnovou vrátí do skupiny).
+    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b, { splitGroupId: b.splitGroupId }));
     recordUndo(buildDeleteCommand("Smazání bloků", payloads.map((payload) => ({ payload }))));
   }
 

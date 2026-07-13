@@ -14,8 +14,10 @@ import { blockPrintMinutes } from "./printTimeClient";
  * - `dataOk` se NEPOSÍLÁ — server si ho odvozuje z dataStatusId (POST /api/blocks).
  * - `recurrenceType` je vždy "NONE" — payload vytváří samostatný blok; volající
  *   cesty (undo/paste) jsou guardované na standalone bloky a kopie sérii nedědí.
- * - splitGroupId/recurrenceParentId/reservationId se NEPOSÍLAJÍ — kopie/obnova
- *   záměrně nedědí split skupinu ani vazby (viz CLAUDE.md, copy/paste flow).
+ * - splitGroupId se DEFAULTNĚ neposílá (paste/kopie = nový nezávislý blok, nedědí
+ *   skupinu). Undo-obnova ho ale předá přes `opts.splitGroupId`, aby se smazaná
+ *   split část vrátila do své skupiny (POST /api/blocks ji uloží). recurrenceParentId
+ *   a reservationId se neposílají nikdy — série/rezervace jsou z undo guardované.
  * - Request flagy (bypassScheduleValidation, resolveChain, autoShiftIfBusy) do
  *   payloadu NEPATŘÍ — přidává si je call-site podle kontextu.
  */
@@ -67,6 +69,12 @@ export type BlockCreatePayloadOpts = {
   endTime?: string;
   /** Vložená kopie se nikdy nevkládá zamčená (paste: false); undo vrací původní locked. */
   locked?: boolean;
+  /**
+   * Split skupina — posílá se JEN při undo-obnově smazaného bloku, aby se vrátil
+   * do své skupiny (POST /api/blocks ji uloží). Paste/kopie klíč vynechává (kopie
+   * je nový nezávislý blok). `undefined` = neposílat; `null` = standalone (no-op).
+   */
+  splitGroupId?: number | null;
 };
 
 /** Kanonický seznam klíčů payloadu (bez podmíněného printMinutes u ZAKAZKA). */
@@ -147,6 +155,10 @@ export function blockToCreatePayload(
   };
   if (block.type === "ZAKAZKA") {
     payload.printMinutes = blockPrintMinutes(block);
+  }
+  // splitGroupId jen na explicitní přání (undo-obnova) — paste ho vynechává.
+  if (opts.splitGroupId !== undefined) {
+    payload.splitGroupId = opts.splitGroupId;
   }
   return payload;
 }

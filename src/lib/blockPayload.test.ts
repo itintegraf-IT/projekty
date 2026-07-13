@@ -107,6 +107,22 @@ test("regrese #2: Pantone / SKLADEM / materialNote se NIKDY neztrácí", () => {
   assert.equal(payload.materialNote, "Fólie od dodavatele X");
 });
 
+test("split undo: opts.splitGroupId protáhne skupinu do payloadu (blok se vrátí do skupiny → 3/3)", () => {
+  const payload = blockToCreatePayload(FULL_BLOCK, { splitGroupId: 42 });
+  assert.equal(payload.splitGroupId, 42);
+});
+
+test("paste/kopie: bez opts se splitGroupId NEPOSÍLÁ (nový nezávislý blok, nedědí skupinu)", () => {
+  const payload = blockToCreatePayload(FULL_BLOCK);
+  assert.equal("splitGroupId" in payload, false);
+});
+
+test("split undo standalone: opts.splitGroupId=null se pošle jako null (no-op na serveru)", () => {
+  const payload = blockToCreatePayload(FULL_BLOCK, { splitGroupId: null });
+  assert.equal("splitGroupId" in payload, true);
+  assert.equal(payload.splitGroupId, null);
+});
+
 test("opts undo (bez opts): původní pozice, stroj i locked zůstávají", () => {
   const payload = blockToCreatePayload(FULL_BLOCK);
   assert.equal(payload.machine, "XL_105");
