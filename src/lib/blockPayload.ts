@@ -162,3 +162,24 @@ export function blockToCreatePayload(
   }
   return payload;
 }
+
+/**
+ * Vrací `splitGroupId`, který smí undo-obnova poslat na POST — nebo `undefined`,
+ * když ho poslat NELZE (blok se obnoví jako standalone).
+ *
+ * `splitGroupId` je self-FK na `Block.id` (migrace: ON DELETE SET NULL). Na POST
+ * smíme poslat jen hodnotu, která po této deleci pořád ukazuje na existující blok:
+ * - LEAF (splitGroupId ≠ vlastní id, root přežil) → vrátí splitGroupId → blok se
+ *   vrátí do skupiny (3/3).
+ * - ROOT (splitGroupId === vlastní id) nebo osiřelý leaf (root smazán v téže dávce)
+ *   → kotva je pryč → `undefined`; poslat staré id by spadlo na FK violation
+ *   („Chyba při vytváření bloku"), takže blok obnovíme jako standalone.
+ */
+export function restoreSplitGroupId(
+  block: { id: number; splitGroupId: number | null },
+  deletedIds: number[],
+): number | undefined {
+  if (block.splitGroupId == null) return undefined;
+  if (deletedIds.includes(block.splitGroupId)) return undefined;
+  return block.splitGroupId;
+}

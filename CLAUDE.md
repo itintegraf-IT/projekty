@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **381/381 testů zelené** (viz níže)
+- celá test suite: **385/385 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -22,7 +22,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - tiskové hodiny — etapa 8 FINÁLE (multi-agent review celé featury 5 lens + fix wave + Gardena 27h důkaz na dev DB) dokončena 5. 7. 2026 — viz sekci „Finále featury" níže; deploy checklist: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
 - 4 body z auditu plánovače (pásy směn, MICRO text, Σ split, cut=přesun) dokončeny 9. 7. 2026 — viz sekci „4 body z auditu plánovače" níže; spec `docs/superpowers/specs/2026-07-09-planovac-4-body-design.md`, plán `docs/superpowers/plans/2026-07-09-planovac-4-body.md`
 - audit kvality kódu a designu — etapa **Audit Top 5** (plán `docs/superpowers/plans/2026-07-11-etapa-audit-top5.md`): fáze A (light-mode hotfixy, focus-visible), B (úklid mrtvého kódu vč. smazání `/tiskar`), C (jeden zdroj pravdy — blockPayload/errorStatus/requireRole/blockStyles) hotové; fáze D část 1 (sdílené UI kameny: `zLayers` kanonická z-index škála + `ConfirmDialog`) hotová 13. 7. 2026 — multi-agent review 3 lens, 0 critical/important. Zbývá D část 2 (NativeSelect, PrimaryCta, ModuleHeader, uiStyles) + fáze E (dekompozice)
-- fix (13. 7. 2026): **Ctrl+Z u smazané split části** obnoví členství ve skupině. `blockToCreatePayload` nově posílá `splitGroupId` přes `opts` — ale JEN při undo-obnově, ne při paste/kopii (POST `/api/blocks:253` ho už uměl uložit; klient ho jen neposílal). Dřív se obnovený blok vrátil jako standalone a chip ukazoval sníženou skupinu (2/2 místo 3/3). Multi-delete nově umí vrátit i split části (série dál mimo undo). Pre-existing bug, ne z audit etapy
+- fix (13. 7. 2026): **Ctrl+Z u smazané split části**. `blockToCreatePayload` posílá `splitGroupId` přes `opts` jen při undo-obnově (paste/kopie ho vynechává; POST `:253` ho uměl uložit, klient neposílal). Helper `restoreSplitGroupId` ho pošle POUZE když kotva skupiny deleci přežije: **LEAF** → vrátí se do skupiny (3/3); **ROOT** (self-FK `ON DELETE SET NULL`) → obnova jako standalone, protože jeho staré id po smazání neexistuje (poslat ho = FK violation „Chyba při vytváření bloku"). Multi-delete nově vrací i split části (série mimo). Pre-existing bug. **Známé omezení:** smazání kořene rozpustí skupinu i u zbylých částí (FK SET NULL) — hlubší, řešitelné re-anchorem při deleci (zatím neřešeno)
 
 ### Spuštění testů
 
@@ -30,7 +30,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 node --test --import tsx src/lib/auditQuery.test.ts               # 17 testů
 node --test --import tsx src/lib/authz.test.ts                     # 4 testy
 node --test --import tsx src/lib/blockNotePermissions.test.ts      # 12 testů
-node --test --import tsx src/lib/blockPayload.test.ts              # 12 testů
+node --test --import tsx src/lib/blockPayload.test.ts              # 16 testů
 node --test --import tsx src/lib/blockShades.test.ts               # 8 testů
 node --test --import tsx src/lib/calendarDrift.server.test.ts      # 8 testů
 node --test --import tsx src/lib/clipboardCopy.test.ts             # 6 testů
@@ -60,7 +60,7 @@ node --test --import tsx src/lib/splitHelpers.test.ts              # 7 testů
 node --test --import tsx src/lib/zLayers.test.ts                   # 3 testy
 ```
 
-Celkem **381 testů** ve 31 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
+Celkem **385 testů** ve 31 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 

@@ -19,7 +19,7 @@ import { Z_LAYOUT } from "@/lib/zLayers";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
-import { blockToCreatePayload } from "@/lib/blockPayload";
+import { blockToCreatePayload, restoreSplitGroupId } from "@/lib/blockPayload";
 import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { useUndoManager } from "./useUndoManager";
@@ -1705,8 +1705,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
 
     // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
-    // + splitGroupId, aby se smazaná split část undo-obnovou vrátila do skupiny.
-    const payload = blockToCreatePayload(block, { splitGroupId: block.splitGroupId });
+    // + splitGroupId přes restoreSplitGroupId: leaf se vrátí do skupiny, ROOT (self-FK
+    // by po smazání ukazoval na neexistující id) se obnoví jako standalone (jinak FK error).
+    const payload = blockToCreatePayload(block, { splitGroupId: restoreSplitGroupId(block, [block.id]) });
 
     recordUndo(buildDeleteCommand("Smazání bloku", [{ payload }]));
   }
@@ -1772,8 +1773,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (deletedStandalone.length === 0) return;
 
     // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
-    // + splitGroupId (split část se undo-obnovou vrátí do skupiny).
-    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b, { splitGroupId: b.splitGroupId }));
+    // + splitGroupId přes restoreSplitGroupId (leaf s přežilým rootem se vrátí do skupiny;
+    // root i osiřelý leaf → standalone, aby POST nespadl na FK).
+    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b, { splitGroupId: restoreSplitGroupId(b, deletedIds) }));
     recordUndo(buildDeleteCommand("Smazání bloků", payloads.map((payload) => ({ payload }))));
   }
 
