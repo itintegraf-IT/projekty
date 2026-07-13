@@ -1671,8 +1671,14 @@ function BlockCard({
         </div>
       ))}
 
-      {/* ── Poznámka MTZ — inline editační popover (fixed = unikne overflow:hidden) ── */}
-      {noteOpen && noteRect && (
+      {/* ── Poznámka MTZ — inline editační popover. Portál do document.body (stejně
+          jako hover tooltip níž): popover je position:fixed se zIndex 400, ale bez
+          portálu zůstává uvězněný ve stacking contextu karty bloku (ta má
+          position:absolute + zIndex), takže ho sousední <aside> panel (BlockDetail,
+          zIndex 10) v layoutu překreslí a poznámka MTZ není celá vidět. Portál uvolní
+          zIndex na úroveň body → popover se kreslí NAD panelem a je celý viditelný.
+          Pozice se nemění: fixed + viewport souřadnice (clientX/Y), body je bez transform. ── */}
+      {noteOpen && noteRect && typeof document !== "undefined" && createPortal(
         <div
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
@@ -1735,7 +1741,8 @@ function BlockCard({
               {noteSaving ? "Ukládám…" : "Uložit"}
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* ── Indikátor specifikace — svislý proužek vpravo ── */}
