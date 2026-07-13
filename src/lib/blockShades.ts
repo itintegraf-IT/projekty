@@ -24,10 +24,13 @@ export type ShadeBlockInput = {
   printCompletedAt?: string | null;
 };
 
-// Identita zakázky pro účely střídání: dělené kusy sdílí splitGroupId (root má
-// splitGroupId === vlastní id), samostatný blok padá na vlastní id.
-function orderIdentity(b: ShadeBlockInput): number {
-  return b.splitGroupId ?? b.id;
+// Identita zakázky pro účely střídání: dělené kusy sdílí splitGroupId (odkaz na
+// SplitGroup.id), samostatný blok padá na vlastní Block.id. Namespace prefix `g`/`b`
+// brání kolizi id-prostorů: SplitGroup.id a Block.id jsou nezávislé autoincrement
+// sekvence, takže numericky stejná hodnota (skupina 100 vs. samostatný blok 100)
+// NESMÍ splynout do jedné identity (jinak by skupina zdědila paritu souseda).
+function orderIdentity(b: ShadeBlockInput): string {
+  return b.splitGroupId != null ? `g${b.splitGroupId}` : `b${b.id}`;
 }
 
 /**
@@ -51,7 +54,7 @@ export function computeShadeParity(blocks: ShadeBlockInput[]): Map<number, 0 | 1
   const result = new Map<number, 0 | 1>();
   // per bucket: kolik zakázek už proběhlo (count) a identita poslední z nich
   const counter = new Map<string, number>();
-  const lastIdentity = new Map<string, number>();
+  const lastIdentity = new Map<string, string>();
 
   for (const b of sorted) {
     if (b.printCompletedAt != null) continue; // dokončený tisk se neúčastní

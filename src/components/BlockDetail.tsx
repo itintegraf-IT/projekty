@@ -224,7 +224,7 @@ export function BlockDetail({
           {/* Σ tiskový čas celé split skupiny (bod 18 auditu) */}
           {block.splitGroupId != null && allBlocks && (() => {
             const siblings = allBlocks.filter(
-              (b) => b.splitGroupId === block.splitGroupId || b.id === block.splitGroupId
+              (b) => b.splitGroupId === block.splitGroupId
             );
             if (siblings.length < 2) return null;
             return (

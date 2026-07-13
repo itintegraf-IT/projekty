@@ -24,15 +24,30 @@ test("dvě různé zakázky za sebou → parita se překlopí 0 → 1", () => {
 
 test("split (stejný splitGroupId) → oba kusy sdílí paritu; další zakázka se překlopí", () => {
   const p = computeShadeParity([
-    blk({ id: 10, startTime: "2026-06-03T06:00:00.000Z" }),                       // zakázka A → 0
-    blk({ id: 11, splitGroupId: 11, startTime: "2026-06-03T10:00:00.000Z" }),     // B, root split → 1
-    blk({ id: 12, splitGroupId: 11, startTime: "2026-06-03T14:00:00.000Z" }),     // B, druhý kus → 1 (sdílí)
-    blk({ id: 13, startTime: "2026-06-03T18:00:00.000Z" }),                       // zakázka C → 0
+    blk({ id: 10, startTime: "2026-06-03T06:00:00.000Z" }),                        // zakázka A → 0
+    blk({ id: 11, splitGroupId: 500, startTime: "2026-06-03T10:00:00.000Z" }),     // B, kus 1 (SplitGroup 500) → 1
+    blk({ id: 12, splitGroupId: 500, startTime: "2026-06-03T14:00:00.000Z" }),     // B, kus 2 (sdílí SplitGroup 500) → 1
+    blk({ id: 13, startTime: "2026-06-03T18:00:00.000Z" }),                        // zakázka C → 0
   ]);
   assert.equal(p.get(10), 0);
   assert.equal(p.get(11), 1);
   assert.equal(p.get(12), 1);
   assert.equal(p.get(13), 0);
+});
+
+test("B2: samostatný blok id=100 a split skupina splitGroupId=100 NEsdílí identitu (namespace g/b)", () => {
+  // Regrese proti kolizi id-prostorů po přechodu na SplitGroup tabulku: Block.id a
+  // SplitGroup.id jsou nezávislé sekvence, takže číselná shoda 100↔100 nesmí splynout.
+  // Bez prefixu by orderIdentity vrátilo 100 pro oba → skupina by zdědila paritu 0
+  // samostatného bloku (0,0,0). S prefixem `b100` ≠ `g100` → skupina se překlopí.
+  const p = computeShadeParity([
+    blk({ id: 100, startTime: "2026-06-03T06:00:00.000Z" }),                       // samostatná zakázka A → 0
+    blk({ id: 201, splitGroupId: 100, startTime: "2026-06-03T10:00:00.000Z" }),    // SplitGroup 100, kus 1 → 1
+    blk({ id: 202, splitGroupId: 100, startTime: "2026-06-03T14:00:00.000Z" }),    // SplitGroup 100, kus 2 → 1 (sdílí)
+  ]);
+  assert.equal(p.get(100), 0);
+  assert.equal(p.get(201), 1);
+  assert.equal(p.get(202), 1);
 });
 
 test("rezervace střídají nezávisle na zakázkách (per barevný bucket)", () => {

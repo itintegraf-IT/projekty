@@ -1528,7 +1528,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (patch.type && patch.type !== "ZAKAZKA") patch.blockVariant = "STANDARD";
       setBlocks(prev => prev.map(b =>
         b.id !== cleanUpdated.id &&
-        (b.splitGroupId === cleanUpdated.splitGroupId || b.id === cleanUpdated.splitGroupId)
+        b.splitGroupId === cleanUpdated.splitGroupId
           ? { ...b, ...patch }
           : b
       ));

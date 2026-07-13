@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **385/385 testů zelené** (viz níže)
+- celá test suite: **390/390 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -30,8 +30,8 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 node --test --import tsx src/lib/auditQuery.test.ts               # 17 testů
 node --test --import tsx src/lib/authz.test.ts                     # 4 testy
 node --test --import tsx src/lib/blockNotePermissions.test.ts      # 12 testů
-node --test --import tsx src/lib/blockPayload.test.ts              # 16 testů
-node --test --import tsx src/lib/blockShades.test.ts               # 8 testů
+node --test --import tsx src/lib/blockPayload.test.ts              # 13 testů
+node --test --import tsx src/lib/blockShades.test.ts               # 9 testů
 node --test --import tsx src/lib/calendarDrift.server.test.ts      # 8 testů
 node --test --import tsx src/lib/clipboardCopy.test.ts             # 6 testů
 node --test --import tsx src/lib/dateUtils.test.ts                 # 8 testů
@@ -56,11 +56,12 @@ node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
 node --test --import tsx src/lib/seriesPropagation.test.ts         # 6 testů
 node --test --import tsx src/lib/shiftRoster.test.ts               # 5 testů
 node --test --import tsx src/lib/shifts.test.ts                    # 18 testů
+node --test --import tsx src/lib/splitCompute.test.ts             # 7 testů
 node --test --import tsx src/lib/splitHelpers.test.ts              # 7 testů
 node --test --import tsx src/lib/zLayers.test.ts                   # 3 testy
 ```
 
-Celkem **385 testů** ve 31 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
+Celkem **390 testů** ve 32 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 

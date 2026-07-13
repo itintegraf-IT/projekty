@@ -61,13 +61,22 @@ const seeds: Seed[] = [
 async function main() {
   console.log("🎨 Seed střídání odstínů (DEV)…\n");
 
-  // ── Idempotentní úklid: napřed rozpojit splitGroupId (self-FK), pak smazat ──
+  // ── Idempotentní úklid: zapamatuj split skupiny seed bloků, rozpoj FK, smaž bloky i skupiny ──
+  const existing = await prisma.block.findMany({
+    where: { orderNumber: { in: SEED_ORDERS } },
+    select: { splitGroupId: true },
+  });
+  const oldGroupIds = [...new Set(existing.map((b) => b.splitGroupId).filter((x): x is number => x != null))];
   await prisma.block.updateMany({ where: { orderNumber: { in: SEED_ORDERS } }, data: { splitGroupId: null } });
   const del = await prisma.block.deleteMany({ where: { orderNumber: { in: SEED_ORDERS } } });
   if (del.count > 0) console.log(`🧹 Smazáno ${del.count} starých testovacích bloků.\n`);
+  if (oldGroupIds.length > 0) {
+    await prisma.splitGroup.deleteMany({ where: { id: { in: oldGroupIds } } });
+    console.log(`🧹 Smazáno ${oldGroupIds.length} starých split skupin.\n`);
+  }
 
   // ── Vytvoření bloků; splitAnchor → sdílený splitGroupId ─────────────────────
-  const anchorRootId = new Map<string, number>();
+  const anchorGroupId = new Map<string, number>(); // klíč → SplitGroup.id (B2)
 
   for (const s of seeds) {
     const created = await prisma.block.create({
@@ -85,13 +94,13 @@ async function main() {
 
     if (s.splitAnchor) {
       const key = `${s.machine}:${s.splitAnchor}`;
-      if (!anchorRootId.has(key)) {
-        // první kus = root: splitGroupId = vlastní id
-        anchorRootId.set(key, created.id);
-        await prisma.block.update({ where: { id: created.id }, data: { splitGroupId: created.id } });
-      } else {
-        await prisma.block.update({ where: { id: created.id }, data: { splitGroupId: anchorRootId.get(key)! } });
+      // B2: split skupina = řádek v SplitGroup; první kus ji vytvoří, další ji sdílí.
+      let gid = anchorGroupId.get(key);
+      if (gid === undefined) {
+        gid = (await prisma.splitGroup.create({ data: {} })).id;
+        anchorGroupId.set(key, gid);
       }
+      await prisma.block.update({ where: { id: created.id }, data: { splitGroupId: gid } });
     }
 
     const split = s.splitAnchor ? " ✂" : "";

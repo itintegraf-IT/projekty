@@ -47,13 +47,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 
         const targetIds =
           currentBlock.splitGroupId != null
-            ? (await tx.block.findMany({
-                where: {
-                  OR: [
-                    { splitGroupId: currentBlock.splitGroupId },
-                    { id: currentBlock.splitGroupId },
-                  ],
-                },
+            ? // B2: všichni členové (i bývalý root) nesou splitGroupId = SplitGroup.id,
+              // takže prostý filtr chytí celou skupinu. Žádné OR přes id — Block.id
+              // a SplitGroup.id jsou nezávislé id-prostory (numerická shoda by lhala).
+              (await tx.block.findMany({
+                where: { splitGroupId: currentBlock.splitGroupId },
                 select: { id: true },
               })).map((b) => b.id)
             : [currentBlock.id];
@@ -107,13 +105,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       }
 
       const targetBlocks = currentBlock.splitGroupId != null
-        ? await tx.block.findMany({
-            where: {
-              OR: [
-                { splitGroupId: currentBlock.splitGroupId },
-                { id: currentBlock.splitGroupId },
-              ],
-            },
+        ? // B2: členové skupiny nesou splitGroupId = SplitGroup.id (viz reorder výše).
+          await tx.block.findMany({
+            where: { splitGroupId: currentBlock.splitGroupId },
             select: {
               id: true,
               orderNumber: true,

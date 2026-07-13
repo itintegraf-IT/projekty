@@ -501,6 +501,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           if (sharedUpdate.type && sharedUpdate.type !== "ZAKAZKA") {
             sharedUpdate.blockVariant = "STANDARD";
           }
+          // B2: groupId = updated.splitGroupId (odkaz na SplitGroup.id). Všichni členové
+          // skupiny nesou stejný splitGroupId, takže prostý filtr chytí sourozence bez
+          // OR přes id — Block.id a SplitGroup.id jsou nezávislé id-prostory.
           await tx.block.updateMany({
             where: { splitGroupId: groupId, id: { not: id } },
             data: sharedUpdate,

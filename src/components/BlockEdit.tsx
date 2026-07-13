@@ -278,7 +278,7 @@ export function BlockEdit({
   // SPLIT SKUPINA
   const splitGroup = block.splitGroupId != null
     ? allBlocks
-        .filter((b) => b.splitGroupId === block.splitGroupId || b.id === block.splitGroupId)
+        .filter((b) => b.splitGroupId === block.splitGroupId)
         .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     : null;
   const splitIndex = splitGroup?.findIndex((b) => b.id === block.id) ?? -1;
