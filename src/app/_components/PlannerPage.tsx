@@ -19,7 +19,7 @@ import { Z_LAYOUT } from "@/lib/zLayers";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
-import { blockToCreatePayload, restoreSplitGroupId } from "@/lib/blockPayload";
+import { blockToCreatePayload } from "@/lib/blockPayload";
 import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { useUndoManager } from "./useUndoManager";
@@ -1704,10 +1704,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // payload nese splitGroupId, takže se blok undo-obnovou vrátí do skupiny (3/3).
     if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
 
-    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
-    // + splitGroupId přes restoreSplitGroupId: leaf se vrátí do skupiny, ROOT (self-FK
-    // by po smazání ukazoval na neexistující id) se obnoví jako standalone (jinak FK error).
-    const payload = blockToCreatePayload(block, { splitGroupId: restoreSplitGroupId(block, [block.id]) });
+    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2).
+    // B2: splitGroupId je FK na stabilní SplitGroup.id (přežije smazání kteréhokoli člena,
+    // vč. kořene) → undo ho posílá bezpodmínečně, root i leaf se vrátí do skupiny (N/N).
+    // Known-limit (cross-client): pokud jiný klient mezitím smaže zbytek skupiny, obnovený
+    // blok je osamocený člen ✂1/1 (neškodné, ne FK crash) — viz CLAUDE.md.
+    const payload = blockToCreatePayload(block, { splitGroupId: block.splitGroupId ?? undefined });
 
     recordUndo(buildDeleteCommand("Smazání bloku", [{ payload }]));
   }
@@ -1772,10 +1774,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const deletedStandalone = standalone.filter((b) => deletedIds.includes(b.id));
     if (deletedStandalone.length === 0) return;
 
-    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2)
-    // + splitGroupId přes restoreSplitGroupId (leaf s přežilým rootem se vrátí do skupiny;
-    // root i osiřelý leaf → standalone, aby POST nespadl na FK).
-    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b, { splitGroupId: restoreSplitGroupId(b, deletedIds) }));
+    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2).
+    // B2: splitGroupId přežije deleci (FK na stabilní SplitGroup.id) → posílat vždy;
+    // každá smazaná část se vrátí do své skupiny (i když se maže root + listy najednou).
+    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b, { splitGroupId: b.splitGroupId ?? undefined }));
     recordUndo(buildDeleteCommand("Smazání bloků", payloads.map((payload) => ({ payload }))));
   }
 

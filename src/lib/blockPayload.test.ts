@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blockToCreatePayload, restoreSplitGroupId, EXPECTED_PAYLOAD_KEYS, type BlockPayloadSource } from "./blockPayload";
+import { blockToCreatePayload, EXPECTED_PAYLOAD_KEYS, type BlockPayloadSource } from "./blockPayload";
 
 /**
  * Fixture se VŠEMI poli na rozlišitelných non-default hodnotách.
@@ -123,20 +123,13 @@ test("split undo standalone: opts.splitGroupId=null se pošle jako null (no-op n
   assert.equal(payload.splitGroupId, null);
 });
 
-test("restoreSplitGroupId: LEAF s přežilým rootem → vrátí splitGroupId (blok se vrátí do skupiny)", () => {
-  assert.equal(restoreSplitGroupId({ id: 102, splitGroupId: 100 }, [102]), 100);
-});
-
-test("restoreSplitGroupId: ROOT (splitGroupId === vlastní id) → undefined (standalone; jinak FK violation na POST)", () => {
-  assert.equal(restoreSplitGroupId({ id: 100, splitGroupId: 100 }, [100]), undefined);
-});
-
-test("restoreSplitGroupId: osiřelý leaf (root smazán v téže dávce) → undefined", () => {
-  assert.equal(restoreSplitGroupId({ id: 102, splitGroupId: 100 }, [100, 102]), undefined);
-});
-
-test("restoreSplitGroupId: standalone blok (splitGroupId null) → undefined", () => {
-  assert.equal(restoreSplitGroupId({ id: 5, splitGroupId: null }, [5]), undefined);
+test("B2: undo posílá splitGroupId bezpodmínečně (SplitGroup řádek přežije deleci → root i leaf zpět do skupiny)", () => {
+  // Po B2 už splitGroupId není self-FK na Block.id, ale FK na stabilní SplitGroup.id,
+  // který smazání kteréhokoli člena (i kořene) přežije. Undo tedy posílá splitGroupId
+  // vždy — restoreSplitGroupId gymnastika (ROOT → undefined) zanikla.
+  assert.equal(blockToCreatePayload(FULL_BLOCK, { splitGroupId: 100 }).splitGroupId, 100);
+  const standalone = blockToCreatePayload({ ...FULL_BLOCK }, { splitGroupId: null });
+  assert.equal(standalone.splitGroupId, null);
 });
 
 test("opts undo (bez opts): původní pozice, stroj i locked zůstávají", () => {
