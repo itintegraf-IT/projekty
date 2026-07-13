@@ -1,6 +1,6 @@
 # CLAUDE.md — Repo Truth
 
-Aktualizováno podle stavu repozitáře k 9. 7. 2026.
+Aktualizováno podle stavu repozitáře k 13. 7. 2026.
 
 Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asistenty. Pokud se aplikace změní, aktualizuj nejdřív tento soubor a až potom navazující dokumentaci.
 
@@ -22,7 +22,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - tiskové hodiny — etapa 8 FINÁLE (multi-agent review celé featury 5 lens + fix wave + Gardena 27h důkaz na dev DB) dokončena 5. 7. 2026 — viz sekci „Finále featury" níže; deploy checklist: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
 - 4 body z auditu plánovače (pásy směn, MICRO text, Σ split, cut=přesun) dokončeny 9. 7. 2026 — viz sekci „4 body z auditu plánovače" níže; spec `docs/superpowers/specs/2026-07-09-planovac-4-body-design.md`, plán `docs/superpowers/plans/2026-07-09-planovac-4-body.md`
 - audit kvality kódu a designu — etapa **Audit Top 5** (plán `docs/superpowers/plans/2026-07-11-etapa-audit-top5.md`): fáze A (light-mode hotfixy, focus-visible), B (úklid mrtvého kódu vč. smazání `/tiskar`), C (jeden zdroj pravdy — blockPayload/errorStatus/requireRole/blockStyles) hotové; fáze D část 1 (sdílené UI kameny: `zLayers` kanonická z-index škála + `ConfirmDialog`) hotová 13. 7. 2026 — multi-agent review 3 lens, 0 critical/important. Zbývá D část 2 (NativeSelect, PrimaryCta, ModuleHeader, uiStyles) + fáze E (dekompozice)
-- fix (13. 7. 2026): **Ctrl+Z u smazané split části**. `blockToCreatePayload` posílá `splitGroupId` přes `opts` jen při undo-obnově (paste/kopie ho vynechává; POST `:253` ho uměl uložit, klient neposílal). Helper `restoreSplitGroupId` ho pošle POUZE když kotva skupiny deleci přežije: **LEAF** → vrátí se do skupiny (3/3); **ROOT** (self-FK `ON DELETE SET NULL`) → obnova jako standalone, protože jeho staré id po smazání neexistuje (poslat ho = FK violation „Chyba při vytváření bloku"). Multi-delete nově vrací i split části (série mimo). Pre-existing bug. **Známé omezení:** smazání kořene rozpustí skupinu i u zbylých částí (FK SET NULL) — hlubší, řešitelné re-anchorem při deleci (zatím neřešeno)
+- split-skupiny — **root-cause fix (varianta B2)**, v kódu na větvi Vojta 13. 7. 2026 (deploy na produkci = Fáze 7, čeká): `Block.splitGroupId` re-pointnut ze self-FK na `Block.id` na novou tabulku `SplitGroup`. Smazání kteréhokoli člena (vč. rootu) už skupinu NErozpustí (FK `ON DELETE SET NULL` míří na `SplitGroup.id`, ne na sourozence) → Ctrl+Z undo obnoví 3/3. Nahradilo dřívější symptom-fix `restoreSplitGroupId` (smazán). Split vzniká atomicky přes `POST /api/blocks/[id]/split`. Fáze 1–6 hotové (E2E na dev 6/6 vč. „smaž root → undo = 3/3", migrace SQL review 0 kritických). Plán `docs/superpowers/plans/2026-07-13-split-group-b2.md` — viz sekci „Split-skupiny (tabulka SplitGroup, B2)" níže
 
 ### Spuštění testů
 
@@ -150,6 +150,7 @@ Důležité modely:
 - `MachineWeekShifts`
 - `User`
 - `AuditLog`
+- `SplitGroup`
 
 Repo-truth k pracovní době:
 
@@ -157,6 +158,17 @@ Repo-truth k pracovní době:
 - fixní časy směn: MORNING 6–14, AFTERNOON 14–22, NIGHT 22–6 (viz `src/lib/shifts.ts`)
 - původní modely `MachineWorkHoursTemplate`, `MachineWorkHoursTemplateDay` a `MachineScheduleException` byly zrušeny ve Sprintu E (2026-04-19) — data migrována přes `scripts/migrate-to-week-shifts.ts`
 - tabulka `MachineWorkHours` v projektu zůstává kvůli bootstrapu a kompatibilitě starších dat
+
+### Split-skupiny — tabulka SplitGroup (B2, 13. 7. 2026; deploy čeká na Fázi 7)
+
+Root-cause oprava undo bugu u split zakázek. **Dřív:** `Block.splitGroupId` byl self-FK na `Block.id` (root skupiny měl `splitGroupId === vlastní id`, `ON DELETE SET NULL`). Smazání rootu nullovalo `splitGroupId` u sourozenců → skupina se rozpustila a Ctrl+Z undo obnovil jen 2/3. **Teď (B2):** samostatná tabulka `SplitGroup(id, createdAt)`; `Block.splitGroupId` je FK na `SplitGroup.id`. Smazání *člena* (i rootu) se `SplitGroup` řádku nedotkne → ostatní členové drží FK a undo obnoví 3/3.
+
+- **Migrace** `prisma/migrations/20260713120000_split_group_table`: `CREATE TABLE SplitGroup` (`id INTEGER UNSIGNED`) → backfill `INSERT DISTINCT splitGroupId` (⇒ `SplitGroup.id` = staré root PK, žádný `Block` řádek se nemění) → DROP starý self-FK → `ALTER Block MODIFY splitGroupId INTEGER UNSIGNED` (no-op na produkci, kde už unsigned je; na dev konvertuje signed→unsigned) → ADD FK na `SplitGroup(id) ON DELETE SET NULL`. Psaná ručně (shadow-DB na tomto projektu neprojde starou UNSIGNED migraci).
+- **Vznik splitu**: atomický `POST /api/blocks/[id]/split` (`requireRole ADMIN/PLANOVAT`) — v jedné transakci: optimistický zámek, guardy (printCompleted, splitAt uvnitř / pauza), `computeSplitPrintMinutes` (`src/lib/splitCompute.ts`), create/reuse `SplitGroup`, head přes `validateAndComputeEnd`, tail create, audit, chain push, overlap re-check, SSE. Klient (`TimelineGrid.handleSplitBlockAt`) volá jeden endpoint místo dřívější 3-request orchestrace.
+- **Konzumenti skupiny** dotazují členství VÝHRADNĚ přes `splitGroupId` (`where: { splitGroupId: X }`), NIKDY `id === splitGroupId` — `Block.id` a `SplitGroup.id` jsou nezávislé id-prostory (numerická shoda nic neznamená). `orderIdentity` v `blockShades.ts` proto namespacuje `g${splitGroupId}`/`b${id}` (jinak by skupina zdědila odstín souseda).
+- **Undo** posílá `splitGroupId` přes `blockToCreatePayload` opts; POST `/api/blocks` guard ověří existenci `SplitGroup` řádku (`VALIDATION_ERROR` → 400 místo FK 500). Symptom-fix `restoreSplitGroupId` je **smazán**.
+- **Deploy gotchy (Fáze 7)**: MySQL DDL je auto-commit (3 statementy nejsou atomické) → app-stop + orphan pre-check před migrací; `MODIFY … UNSIGNED` je na prod MariaDB 10.11 no-op; osiřelé `SplitGroup` řádky (po smazání posledního člena) jsou neškodné (2 sloupce, žádný FK crash) a naopak posilují undo — produkce je nikdy nemaže.
+- **Hlavní soubory**: `prisma/schema.prisma` (model `SplitGroup`, relace `BlockSplitGroup`), `src/app/api/blocks/[id]/split/route.ts`, `src/lib/splitCompute.ts` (+ testy), `src/lib/blockShades.ts` (`orderIdentity`), `src/lib/blockPayload.ts` (`blockToCreatePayload` opts).
 
 ## Bezpečné a nebezpečné příkazy
 
