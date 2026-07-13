@@ -119,6 +119,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     delete (allowed as Record<string, unknown>).expeditionPublishedAt;
     delete (allowed as Record<string, unknown>).expeditionSortOrder;
     delete (allowed as Record<string, unknown>).expectedUpdatedAt;
+    // B2: splitGroupId se přes PUT NEZAPISUJE — identitu skupiny mění výhradně /split endpoint.
+    // (Stará karta prohlížeče by jinak poslala self-link PUT {splitGroupId: block.id}, který po
+    // přebodování FK na SplitGroup spadne na FK violation. Ignorováním dostane čistý no-op.)
+    delete (allowed as Record<string, unknown>).splitGroupId;
     // Remove undefined values
     Object.keys(allowed).forEach((k) => allowed[k] === undefined && delete allowed[k]);
 
@@ -429,8 +433,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.serie !== undefined && { serie: allowed.serie as string | null }),
           // OPAKOVÁNÍ
           ...(allowed.recurrenceType !== undefined && { recurrenceType: allowed.recurrenceType as string }),
-          // SPLIT SKUPINA
-          ...(allowed.splitGroupId !== undefined && { splitGroupId: allowed.splitGroupId as number | null }),
+          // SPLIT SKUPINA se přes PUT nezapisuje (viz `delete allowed.splitGroupId` výše) —
+          // identitu skupiny mění výhradně atomický /split endpoint (B2).
         },
       });
 

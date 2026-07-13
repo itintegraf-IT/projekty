@@ -2760,183 +2760,37 @@ export default function TimelineGrid({
   }
 
   async function handleSplitBlockAt(block: Block, splitAt: Date) {
-    // Model tiskových hodin: dopředu spočítat tiskové minuty obou částí, PŘED jakoukoli
-    // mutací — tail POST musí poslat printMinutes, jinak server dopočítá pm z elapsed span
-    // (u pozastaveného bloku = ~3× víc, nebo 422 při elapsed > 2400 — tichá korupce plánu).
-    let headPm: number | null = null;
-    let tailPm: number | null = null;
-    if (block.type === "ZAKAZKA") {
-      const totalPm = blockPrintMinutes(block);
-      if (block.scheduleBypassed === true) {
-        // Bypassnutý blok: computePrintMinutes není bypass-aware → elapsed-based split.
-        // Runnable guard (isMachineRunnableAt, viz else větev) se zde záměrně NEaplikuje —
-        // bypass blok byl umístěn PRÁVĚ MIMO runnable kalendář (to bypass znamená), guard
-        // by na jeho vlastním rozsahu skoro vždy padal. Head/tail payloady níže nesou
-        // bypassScheduleValidation:true, takže server obě části validuje bypass-větví
-        // (end = start + pm, bez nároku na runnable start) — 422 z kalendářového důvodu
-        // zde nehrozí.
-        headPm = Math.round((splitAt.getTime() - new Date(block.startTime).getTime()) / 60000);
-      } else {
-        // Guard: splitAt musí padnout na runnable slot (tiskovou část kalendáře), jinak
-        // by hlava commitla PUTem hned teď, ale tail POST se startem v pauze by spadl na
-        // START_NOT_RUNNABLE (422) AŽ PO té — plán by zůstal v rozbitém mezistavu.
-        const cdIntervals = companyDayIntervalsFor(block.machine, companyDaysRef.current ?? []);
-        if (!isMachineRunnableAt(block.machine, splitAt, machineWeekShiftsRef.current ?? [], cdIntervals)) {
-          callbacksRef.current.onError?.("Nelze rozdělit uvnitř pauzy — zvol místo v tiskové části.");
-          return;
-        }
-        headPm = computePrintMinutes(
-          block.machine,
-          new Date(block.startTime),
-          splitAt,
-          machineWeekShiftsRef.current ?? [],
-          cdIntervals
-        );
-      }
-      tailPm = totalPm - headPm;
-      if (headPm <= 0 || tailPm <= 0) {
-        callbacksRef.current.onError?.("Nelze rozdělit v tomto místě — jedna část by neměla žádný tiskový čas.");
+    // Klientský pre-guard (rychlá UX zpětná vazba) — serverový endpoint re-validuje autoritativně.
+    // Bypass blok byl umístěn PRÁVĚ MIMO runnable kalendář → runnable guard se pro něj neaplikuje.
+    if (block.type === "ZAKAZKA" && block.scheduleBypassed !== true) {
+      const cdIntervals = companyDayIntervalsFor(block.machine, companyDaysRef.current ?? []);
+      if (!isMachineRunnableAt(block.machine, splitAt, machineWeekShiftsRef.current ?? [], cdIntervals)) {
+        callbacksRef.current.onError?.("Nelze rozdělit uvnitř pauzy — zvol místo v tiskové části.");
         return;
       }
     }
-    // Sticky-bypass parity (Task 8, etapa 6): zdrojový blok s scheduleBypassed=true byl umístěn
-    // MIMO kalendář (start typicky leží v pauze/odstávce) — bez explicitního bypass flagu by
-    // server na head PUT zkusil kalendářní expanzi/inverzi na nerunnable startu a spadl (nebo
-    // tiše seškrtal tiskový čas), tail POST by pak selhal na 422 AŽ PO commitu hlavy (rozbitý
-    // mezistav: hlava zkrácená, ocas neexistuje). Sticky = jen REQUEST flag; server si
-    // effectivelyBypassed dopočítá sám (část, která náhodou sedí na kalendář, se uloží jako
-    // scheduleBypassed=false — to je správně, viz validateAndComputeEnd).
-    const isBypassSource = block.type === "ZAKAZKA" && block.scheduleBypassed === true;
-    // Kompenzační payload pro krok 1 — vrací hlavu na PŮVODNÍ (před-splitové) hodnoty. totalPm
-    // (ne headPm!) je originální printMinutes bypass zdroje, protože před splitem měl blok
-    // celý tiskový čas, ne jen hlavu.
-    const headRevertBody = {
-      endTime: block.endTime,
-      ...(isBypassSource ? { printMinutes: blockPrintMinutes(block), bypassScheduleValidation: true } : {}),
-    };
-    // Zásobník kompenzací (LIFO) — každý úspěšný zápis hlavy sem přidá funkci, která ho vrátí.
-    // Při selhání pozdějšího kroku se přehraje v obráceném pořadí zápisu (Krok 2 před Krokem 1).
-    const compensations: Array<() => Promise<void>> = [];
-    const runCompensations = async (): Promise<boolean> => {
-      for (let i = compensations.length - 1; i >= 0; i--) {
-        try {
-          await compensations[i]();
-        } catch {
-          return false; // i kompenzace selhala — fail-safe hláška, žádný tichý stav
-        }
-      }
-      return true;
-    };
+    // Atomický serverový split (B2): jeden request v jedné transakci vytvoří/převezme SplitGroup,
+    // zkrátí hlavu (end přes tiskové hodiny), vytvoří ocas (věrná kopie zakázky) a přeloží
+    // navazující bloky. Nahradilo 3-request orchestr s LIFO kompenzací — žádný rozbitý mezistav
+    // (selhání = rollback celé transakce). expectedUpdatedAt = optimistic lock proti souběhu.
     try {
-      // Krok 1: zkrátit původní blok
-      const res1 = await fetch(`/api/blocks/${block.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          endTime: splitAt.toISOString(),
-          // pm jen pro bypass zdroj — ne-bypass head PUT posílá pouze endTime a server si
-          // printMinutes NEZÁVISLE invertuje z čerstvého kalendáře (computePrintMinutes
-          // v transakci); klientsky spočítané pm by při stale kalendáři tiše posunulo
-          // hranici splitu (nález review T8). Tail POST pm potřebuje vždy (nový blok).
-          ...(isBypassSource ? { printMinutes: headPm, bypassScheduleValidation: true } : {}),
-        }),
-      });
-      if (!res1.ok) {
-        const err = await res1.json().catch(() => ({})) as { error?: string };
-        throw new Error(err.error ?? "Nepodařilo se zkrátit blok.");
-      }
-      const updatedBlock: Block = await res1.json();
-      compensations.push(async () => {
-        const revertRes = await fetch(`/api/blocks/${block.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(headRevertBody),
-        });
-        if (!revertRes.ok) throw new Error("revert krok 1 selhal");
-        onBlockUpdate(await revertRes.json());
-      });
-
-      // Krok 2: zajistit splitGroupId pro root blok (self-link pokud první split)
-      let rootSplitGroupId: number;
-      if (updatedBlock.splitGroupId != null) {
-        rootSplitGroupId = updatedBlock.splitGroupId;
-        onBlockUpdate(updatedBlock);
-      } else {
-        const res1b = await fetch(`/api/blocks/${block.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ splitGroupId: block.id }),
-        });
-        if (!res1b.ok) {
-          const err = await res1b.json().catch(() => ({})) as { error?: string };
-          throw new Error(err.error ?? "Nepodařilo se nastavit skupinu bloku.");
-        }
-        const rootBlock: Block = await res1b.json();
-        onBlockUpdate(rootBlock);
-        rootSplitGroupId = block.id;
-        compensations.push(async () => {
-          const revertRes = await fetch(`/api/blocks/${block.id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ splitGroupId: null }),
-          });
-          if (!revertRes.ok) throw new Error("revert krok 2 selhal");
-          onBlockUpdate(await revertRes.json());
-        });
-      }
-
-      // Krok 3: vytvořit nový blok jako sourozence
-      const res2 = await fetch("/api/blocks", {
+      const res = await fetch(`/api/blocks/${block.id}/split`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          orderNumber: block.orderNumber,
-          machine: block.machine,
-          type: block.type,
-          blockVariant: block.blockVariant,
-          startTime: splitAt.toISOString(),
-          endTime: block.endTime,
-          description: block.description,
-          deadlineExpedice: block.deadlineExpedice,
-          dataStatusId: block.dataStatusId,
-          dataStatusLabel: block.dataStatusLabel,
-          dataRequiredDate: block.dataRequiredDate,
-          dataOk: block.dataOk,
-          materialStatusId: block.materialStatusId,
-          materialStatusLabel: block.materialStatusLabel,
-          materialRequiredDate: block.materialRequiredDate,
-          materialOk: block.materialOk,
-          barvyStatusId: block.barvyStatusId,
-          barvyStatusLabel: block.barvyStatusLabel,
-          lakStatusId: block.lakStatusId,
-          lakStatusLabel: block.lakStatusLabel,
-          specifikace: block.specifikace,
-          splitGroupId: rootSplitGroupId,
-          ...(block.type === "ZAKAZKA" ? { printMinutes: tailPm } : {}),
-          ...(isBypassSource ? { bypassScheduleValidation: true } : {}),
-          resolveChain: true,
-        }),
+        body: JSON.stringify({ splitAt: splitAt.toISOString(), expectedUpdatedAt: block.updatedAt }),
       });
-      if (!res2.ok) {
-        const err = await res2.json().catch(() => ({})) as { error?: string };
-        throw new Error(err.error ?? "Nepodařilo se vytvořit druhý blok.");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo rozdělit.");
+        return;
       }
-      onBlockCreate(await res2.json());
+      const { head, tail, shifted } = await res.json() as { head: Block; tail: Block; shifted?: Block[] };
+      // Chain-push posuny (shifted) nese POUZE hlava; ocas se aplikuje samostatně (žádná dvojitá aplikace).
+      onBlockUpdate({ ...head, shifted } as Block & { shifted?: Block[] });
+      onBlockCreate(tail);
     } catch (error) {
       console.error("Block split failed", error);
-      // Tail (nebo krok 2) selhal PO úspěšném zápisu hlavy — bez kompenzace by hlava zůstala
-      // trvale zkrácená (tichá ztráta tiskového času). Když selhal už krok 1 (compensations
-      // prázdný), není co vracet — použije se stará hláška z error.message beze změny chování.
-      if (compensations.length > 0) {
-        const reverted = await runCompensations();
-        callbacksRef.current.onError?.(
-          reverted
-            ? "Rozdělení se nepovedlo — blok vrácen do původní délky."
-            : "Rozdělení selhalo a blok se nepodařilo vrátit — obnov stránku a zkontroluj blok."
-        );
-      } else {
-        callbacksRef.current.onError?.((error instanceof Error ? error.message : null) ?? "Blok se nepodařilo rozdělit.");
-      }
+      callbacksRef.current.onError?.("Blok se nepodařilo rozdělit.");
     }
   }
 

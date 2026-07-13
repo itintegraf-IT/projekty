@@ -202,6 +202,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // B2: splitGroupId (undo re-POST) musí odkazovat na existující SplitGroup — jinak by insert
+      // spadl na FK constraint. Stará stale-client tail POST self-link (splitGroupId = block.id) tak
+      // dostane čistou 422 „Neznámá split skupina" místo generické FK 500 „Chyba při vytváření bloku".
+      if (body.splitGroupId != null) {
+        const grp = await tx.splitGroup.findUnique({ where: { id: body.splitGroupId as number }, select: { id: true } });
+        if (!grp) throw new AppError("VALIDATION_ERROR", "Neznámá split skupina.");
+      }
+
       const newBlock = await tx.block.create({
         data: {
           orderNumber: finalOrderNumber,
