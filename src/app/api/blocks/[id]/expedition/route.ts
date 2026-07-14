@@ -5,8 +5,47 @@ import { serializeBlock } from "@/lib/blockSerialization";
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { prisma } from "@/lib/prisma";
 import { emitSSE } from "@/lib/eventBus";
+import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+/**
+ * Odpověď expedičního POST + oznámení split sourozenců (parita s #9/PUT). Expediční akce
+ * (publish/unpublish/reorder) mění pole u CELÉ split skupiny přes updateMany → sourozencům
+ * se posune updatedAt. Bez oznámení by planner-klient držel stale updatedAt a další split
+ * sourozence spadl na falešný 409. Refetch primárního bloku i sourozenců (s notes),
+ * broadcast block:batch-updated ostatním, vrátit sourozence v odpovědi (`siblings`)
+ * originátorovi; notes gate dle role (parita s ostatními mutačními cestami).
+ * `siblingGroupId == null` (ne-split blok nebo idempotentní no-op) → jen refetch primárního.
+ */
+async function expeditionSiblingResponse(
+  primaryId: number,
+  siblingGroupId: number | null,
+  session: { id: number; role: string },
+): Promise<NextResponse> {
+  const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
+  const primary = await prisma.block.findUnique({
+    where: { id: primaryId },
+    include: { Reservation: { select: { confirmedAt: true } }, notes: { orderBy: { createdAt: "desc" as const } } },
+  });
+  if (!primary) return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
+
+  let serializedSiblings: ReturnType<typeof serializeBlock>[] = [];
+  if (siblingGroupId != null) {
+    const siblings = await prisma.block.findMany({
+      where: { splitGroupId: siblingGroupId, id: { not: primaryId } },
+      include: { Reservation: { select: { confirmedAt: true } }, notes: { orderBy: { createdAt: "desc" as const } } },
+    });
+    serializedSiblings = siblings.map(serializeBlock);
+    if (serializedSiblings.length > 0) {
+      emitSSE("block:batch-updated", { blocks: serializedSiblings, sourceUserId: session.id });
+    }
+  }
+  return NextResponse.json({
+    ...stripNotesIfDenied(serializeBlock(primary), canSeeNotes),
+    siblings: serializedSiblings.map((b) => stripNotesIfDenied(b, canSeeNotes)),
+  });
+}
 
 export async function POST(request: NextRequest, { params }: RouteContext) {
   const session = await getSession();
@@ -37,7 +76,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     try {
-      const updatedBlock = await prisma.$transaction(async (tx) => {
+      const siblingGroupId = await prisma.$transaction(async (tx) => {
         const currentBlock = await tx.block.findUnique({
           where: { id },
           select: { id: true, expeditionPublishedAt: true, splitGroupId: true },
@@ -61,13 +100,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           data: { expeditionSortOrder: newSortOrder },
         });
 
-        const updated = await tx.block.findUnique({ where: { id }, include: { Reservation: { select: { confirmedAt: true } } } });
-        if (!updated) throw new Error("NOT_FOUND");
-        return updated;
+        return currentBlock.splitGroupId;
       });
 
       emitSSE("block:expedition-changed", { sourceUserId: session.id });
-      return NextResponse.json(serializeBlock(updatedBlock));
+      return await expeditionSiblingResponse(id, siblingGroupId, session);
     } catch (error: unknown) {
       if (error instanceof Error) {
         if (error.message === "NOT_FOUND") {
@@ -83,7 +120,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    const updatedBlock = await prisma.$transaction(async (tx) => {
+    const siblingGroupId = await prisma.$transaction(async (tx) => {
       const currentBlock = await tx.block.findUnique({
         where: { id },
         select: {
@@ -137,9 +174,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         }
 
         if (currentBlock.expeditionPublishedAt != null && currentBlock.expeditionSortOrder != null) {
-          const existing = await tx.block.findUnique({ where: { id } });
-          if (!existing) throw new Error("NOT_FOUND");
-          return existing;
+          return null; // idempotentní no-op — už publikováno, žádný updateMany na sourozencích
         }
 
         const expeditionPublishedAt = new Date();
@@ -164,9 +199,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
       } else {
         if (currentBlock.expeditionPublishedAt == null && currentBlock.expeditionSortOrder == null) {
-          const existing = await tx.block.findUnique({ where: { id } });
-          if (!existing) throw new Error("NOT_FOUND");
-          return existing;
+          return null; // idempotentní no-op — už odebráno, žádný updateMany na sourozencích
         }
 
         await tx.block.updateMany({
@@ -188,16 +221,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
       }
 
-      const updated = await tx.block.findUnique({ where: { id }, include: { Reservation: { select: { confirmedAt: true } } } });
-      if (!updated) {
-        throw new Error("NOT_FOUND");
-      }
-
-      return updated;
+      return currentBlock.splitGroupId;
     });
 
     emitSSE("block:expedition-changed", { sourceUserId: session.id });
-    return NextResponse.json(serializeBlock(updatedBlock));
+    return await expeditionSiblingResponse(id, siblingGroupId, session);
   } catch (error: unknown) {
     if (error instanceof Error) {
       if (error.message === "NOT_FOUND") {

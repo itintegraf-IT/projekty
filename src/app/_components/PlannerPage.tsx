@@ -2216,8 +2216,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         body: JSON.stringify({ action: "publish" }),
       });
       if (res.ok) {
-        const updated: Block = await res.json();
-        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...updated } : b));
+        const updated = await res.json() as Block & { siblings?: Block[] };
+        const { siblings, ...blockData } = updated;
+        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...blockData } : b));
+        // 5a: expedice mění pole u celé split skupiny → aplikovat sourozence s čerstvým
+        // updatedAt (jinak by následný split sourozence spadl na falešný 409, jako #9 u PUT).
+        if (siblings && siblings.length > 0) applyServerBlocks(siblings);
       }
     } catch { /* noop */ }
   }
@@ -2229,8 +2233,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         body: JSON.stringify({ action: "unpublish" }),
       });
       if (res.ok) {
-        const updated: Block = await res.json();
-        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...updated } : b));
+        const updated = await res.json() as Block & { siblings?: Block[] };
+        const { siblings, ...blockData } = updated;
+        setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, ...blockData } : b));
+        // 5a: viz handleExpeditionPublish — aplikovat sourozence s čerstvým updatedAt.
+        if (siblings && siblings.length > 0) applyServerBlocks(siblings);
       }
     } catch { /* noop */ }
   }
