@@ -47,6 +47,33 @@ function emptyPresetDraft(type: string): JobPresetDraftValues {
   };
 }
 
+// Module-scope prezentační komponenty (audit #30) — dřív definované uvnitř BlockEditu,
+// což je re-vytvářelo každý render (remount → ztráta focusu ve StatusSelectu).
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{children}</div>;
+}
+
+function ColLabel({ children }: { children: React.ReactNode }) {
+  return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 5 }}>{children}</div>;
+}
+
+function StatusSelect({ value, onChange, opts }: {
+  value: string;
+  onChange: (v: string) => void;
+  opts: CodebookOption[];
+}) {
+  return (
+    <NativeSelect value={value} onChange={onChange} height={34} fontSize={11} paddingLeft={10} mutedWhenEmpty hover>
+      <option value="">—</option>
+      {opts.map((o) => (
+        <option key={o.id} value={o.id.toString()}>
+          {o.isWarning ? "⚠ " : ""}{o.label}
+        </option>
+      ))}
+    </NativeSelect>
+  );
+}
+
 // ─── BlockEdit ────────────────────────────────────────────────────────────────
 export function BlockEdit({
   block,
@@ -627,31 +654,6 @@ export function BlockEdit({
   }
 
   const typeCfg = TYPE_BUILDER_CONFIG[type as keyof typeof TYPE_BUILDER_CONFIG];
-
-  function SectionLabel({ children }: { children: React.ReactNode }) {
-    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 8 }}>{children}</div>;
-  }
-
-  function ColLabel({ children }: { children: React.ReactNode }) {
-    return <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 5 }}>{children}</div>;
-  }
-
-  function StatusSelect({ value, onChange, opts }: {
-    value: string;
-    onChange: (v: string) => void;
-    opts: CodebookOption[];
-  }) {
-    return (
-      <NativeSelect value={value} onChange={onChange} height={34} fontSize={11} paddingLeft={10} mutedWhenEmpty hover>
-        <option value="">—</option>
-        {opts.map((o) => (
-          <option key={o.id} value={o.id.toString()}>
-            {o.isWarning ? "⚠ " : ""}{o.label}
-          </option>
-        ))}
-      </NativeSelect>
-    );
-  }
 
   return (
     <div
