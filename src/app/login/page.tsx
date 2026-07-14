@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState, Suspense } from "react";
 import { useRouter } from "next/navigation";
+import { PrimaryCta } from "@/components/PrimaryCta";
 
 function LoginForm() {
   const usernameRef = useRef<HTMLInputElement>(null);
@@ -107,22 +108,9 @@ function LoginForm() {
       )}
 
       {/* Submit */}
-      <button
-        type="submit"
-        disabled={loading}
-        style={{
-          marginTop: 8,
-          width: "100%", height: 42, borderRadius: 10,
-          background: "var(--brand)",
-          border: "none", cursor: loading ? "wait" : "pointer",
-          color: "var(--brand-contrast)", fontSize: 14, fontWeight: 700,
-          transition: "all 120ms ease-out",
-          letterSpacing: "0.01em",
-          opacity: loading ? 0.7 : 1,
-        }}
-      >
+      <PrimaryCta type="submit" loading={loading} height={42} fontSize={14} letterSpacing="0.01em" style={{ marginTop: 8 }}>
         {loading ? "Přihlašuji…" : "Přihlásit se"}
-      </button>
+      </PrimaryCta>
     </form>
   );
 }

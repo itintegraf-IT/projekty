@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { ExpediceData, ExpediceItem, ExpediceManualItem } from "@/lib/expediceTypes";
 import { ExpediceTimeline, type ExpediceTimelineHandle } from "./ExpediceTimeline";
 import { ExpediceAside, type AsidePanelMode } from "./ExpediceAside";
+import { ModuleHeader } from "@/components/ModuleHeader";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 
@@ -503,23 +504,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
       fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
     }}>
       {/* ── Header ── */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "0 16px", height: 48, flexShrink: 0,
-        borderBottom: "1px solid var(--border)",
-      }}>
-        <a href="/" style={{
-          fontSize: 12, color: "var(--text-muted)", textDecoration: "none",
-          display: "flex", alignItems: "center", gap: 4,
-          transition: "color 120ms ease-out",
-        }}>
-          ← Výrobní plán
-        </a>
-        <div style={divider} />
-        <span style={{ fontSize: 13, fontWeight: 600 }}>Expediční plán</span>
-
-        <div style={{ flex: 1 }} />
-
+      <ModuleHeader backLabel="← Výrobní plán" title="Expediční plán" titleSize={13} gap={8}>
         {/* Dnes */}
         <button onClick={() => timelineRef.current?.scrollToToday()} style={outlineBtn}>
           Dnes
@@ -560,7 +545,7 @@ export function ExpedicePage({ role }: ExpedicePageProps) {
             </button>
           ))}
         </div>
-      </div>
+      </ModuleHeader>
 
       {/* ── Tělo ── */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>

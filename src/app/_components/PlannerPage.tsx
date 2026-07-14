@@ -53,6 +53,8 @@ import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 import type { NoteRole } from "@/lib/blockNotePermissions";
 import { BlockDetail } from "@/components/BlockDetail";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { NativeSelect } from "@/components/NativeSelect";
+import { PrimaryCta } from "@/components/PrimaryCta";
 import { BlockEdit } from "@/components/BlockEdit";
 import { DtpPanel } from "@/components/DtpPanel";
 import { DtpDataPopover } from "@/components/DtpDataPopover";
@@ -3592,44 +3594,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
                       <div style={{ flex: 1 }}>
                         <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Délka tisku</label>
-                        <div style={{ position: "relative" }}>
-                          <select
-                            value={String(durationHours)}
-                            onChange={(e) => setDurationHours(Number(e.target.value))}
-                            style={{
-                              appearance: "none",
-                              width: "100%",
-                              height: 32,
-                              background: "var(--surface-2)",
-                              border: "1px solid var(--border)",
-                              borderRadius: 10,
-                              color: "var(--text)",
-                              fontSize: 13,
-                              fontWeight: 600,
-                              padding: "0 36px 0 14px",
-                              cursor: "pointer",
-                              outline: "none",
-                            }}
-                            onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                            onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                          >
-                            {DURATION_OPTIONS.map((opt) => (
-                              <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
-                            ))}
-                          </select>
-                          <svg
-                            viewBox="0 0 20 20"
-                            fill="none"
-                            stroke="currentColor"
-                            color="var(--text-muted)"
-                            strokeWidth="1.8"
-                            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 14, height: 14, pointerEvents: "none" }}
-                          >
-                            <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
+                        <NativeSelect value={String(durationHours)} onChange={(v) => setDurationHours(Number(v))} fontSize={13} paddingLeft={14} chevronSize={14} hover>
+                          {DURATION_OPTIONS.map((opt) => (
+                            <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
+                          ))}
+                        </NativeSelect>
                       </div>
                     </div>
 
@@ -3670,31 +3639,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                           <div style={{ flex: "0 0 130px" }}>
                             <DatePickerField value={bDataRequiredDate} onChange={setBDataRequiredDate} placeholder="Datum dodání…" />
                           </div>
-                          <div style={{ position: "relative", flex: 1 }}>
-                            <select
-                              value={bDataStatusId}
-                              onChange={(e) => setBDataStatusId(e.target.value)}
-                              style={{
-                                appearance: "none", width: "100%", height: 32,
-                                background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
-                                color: bDataStatusId ? "var(--text)" : "var(--text-muted)", fontSize: 12, fontWeight: 600,
-                                padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
-                              }}
-                              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                            >
-                              <option value="">— info —</option>
-                              {bDataOpts.map((o) => (
-                                <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
-                              ))}
-                            </select>
-                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
-                              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
-                              <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </div>
+                          <NativeSelect value={bDataStatusId} onChange={setBDataStatusId} wrapperStyle={{ flex: 1 }} mutedWhenEmpty hover>
+                            <option value="">— info —</option>
+                            {bDataOpts.map((o) => (
+                              <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                            ))}
+                          </NativeSelect>
                         </div>
                       </div>
 
@@ -3711,31 +3661,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                           <div style={{ flex: "0 0 130px" }}>
                             <DatePickerField value={bMaterialRequiredDate} onChange={setBMaterialRequiredDate} placeholder="Datum dodání…" />
                           </div>
-                          <div style={{ position: "relative", flex: 1 }}>
-                            <select
-                              value={bMaterialStatusId}
-                              onChange={(e) => setBMaterialStatusId(e.target.value)}
-                              style={{
-                                appearance: "none", width: "100%", height: 32,
-                                background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
-                                color: bMaterialStatusId ? "var(--text)" : "var(--text-muted)", fontSize: 12, fontWeight: 600,
-                                padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
-                              }}
-                              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                              onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                            >
-                              <option value="">— info —</option>
-                              {bMaterialOpts.map((o) => (
-                                <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
-                              ))}
-                            </select>
-                            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
-                              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
-                              <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </div>
+                          <NativeSelect value={bMaterialStatusId} onChange={setBMaterialStatusId} wrapperStyle={{ flex: 1 }} mutedWhenEmpty hover>
+                            <option value="">— info —</option>
+                            {bMaterialOpts.map((o) => (
+                              <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                            ))}
+                          </NativeSelect>
                         </div>
                       </div>
 
@@ -3769,31 +3700,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                         ] as { label: string; value: string; setter: (v: string) => void; opts: CodebookOption[] }[]).map(({ label, value, setter, opts }) => (
                           <div key={label}>
                             <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>{label}</label>
-                            <div style={{ position: "relative" }}>
-                              <select
-                                value={value}
-                                onChange={(e) => setter(e.target.value)}
-                                style={{
-                                  appearance: "none", width: "100%", height: 32,
-                                  background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
-                                  color: value ? "var(--text)" : "var(--text-muted)", fontSize: 12, fontWeight: 600,
-                                  padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
-                                }}
-                                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                              >
-                                <option value="">— nezadáno —</option>
-                                {opts.map((o) => (
-                                  <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
-                                ))}
-                              </select>
-                              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
-                                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
-                                <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </div>
+                            <NativeSelect value={value} onChange={setter} mutedWhenEmpty hover>
+                              <option value="">— nezadáno —</option>
+                              {opts.map((o) => (
+                                <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                              ))}
+                            </NativeSelect>
                           </div>
                         ))}
                       </div>
@@ -3814,29 +3726,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                     <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                       <div style={{ flex: 1 }}>
                         <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Interval</label>
-                        <div style={{ position: "relative" }}>
-                          <select
-                            value={bRecurrenceType}
-                            onChange={(e) => setBRecurrenceType(e.target.value)}
-                            style={{
-                              appearance: "none", width: "100%", height: 32,
-                              background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
-                              color: "var(--text)", fontSize: 12, fontWeight: 600,
-                              padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
-                            }}
-                            onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                            onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                          >
-                            <option value="NONE">— bez opakování —</option>
-                            <option value="DAILY">↻ Každý den</option>
-                            <option value="WEEKLY">↻ Každý týden</option>
-                            <option value="MONTHLY">↻ Každý měsíc</option>
-                          </select>
-                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
-                            style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
-                            <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
+                        <NativeSelect value={bRecurrenceType} onChange={setBRecurrenceType}>
+                          <option value="NONE">— bez opakování —</option>
+                          <option value="DAILY">↻ Každý den</option>
+                          <option value="WEEKLY">↻ Každý týden</option>
+                          <option value="MONTHLY">↻ Každý měsíc</option>
+                        </NativeSelect>
                       </div>
                       {bRecurrenceType !== "NONE" && (
                         <div style={{ flex: "0 0 90px" }}>
@@ -3882,28 +3777,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                           </div>
                           <div style={{ flex: "0 0 84px" }}>
                             <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Čas</label>
-                            <div style={{ position: "relative" }}>
-                              <select
-                                value={bSeriesFirstHour}
-                                onChange={(e) => setBSeriesFirstHour(parseInt(e.target.value))}
-                                style={{
-                                  appearance: "none", width: "100%", height: 32,
-                                  background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
-                                  color: "var(--text)", fontSize: 12, fontWeight: 600,
-                                  padding: "0 28px 0 10px", cursor: "pointer", outline: "none",
-                                }}
-                                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                              >
-                                {Array.from({ length: 24 }, (_, h) => (
-                                  <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                                ))}
-                              </select>
-                              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
-                                style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 11, height: 11, pointerEvents: "none" }}>
-                                <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                            </div>
+                            <NativeSelect value={bSeriesFirstHour} onChange={(v) => setBSeriesFirstHour(parseInt(v))} paddingLeft={10} chevronSize={11}>
+                              {Array.from({ length: 24 }, (_, h) => (
+                                <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                              ))}
+                            </NativeSelect>
                           </div>
                         </div>
                       </>
@@ -3967,28 +3845,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                                   placeholder="Datum…"
                                 />
                               </div>
-                              <div style={{ flex: "0 0 72px", position: "relative" }}>
-                                <select
-                                  value={occ.hour}
-                                  onChange={(e) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, hour: parseInt(e.target.value), wasShifted: false } : o))}
-                                  style={{
-                                    appearance: "none", width: "100%", height: 30,
-                                    background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,
-                                    color: "var(--text)", fontSize: 11, fontWeight: 600,
-                                    padding: "0 22px 0 8px", cursor: "pointer", outline: "none",
-                                  }}
-                                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                                >
-                                  {Array.from({ length: 24 }, (_, h) => (
-                                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                                  ))}
-                                </select>
-                                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
-                                  style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", width: 10, height: 10, pointerEvents: "none" }}>
-                                  <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              </div>
+                              <NativeSelect
+                                wrapperStyle={{ flex: "0 0 72px" }}
+                                value={occ.hour}
+                                onChange={(v) => setSeriesPreview((prev) => prev.map((o, j) => j === i ? { ...o, hour: parseInt(v), wasShifted: false } : o))}
+                                height={30}
+                                fontSize={11}
+                                paddingLeft={8}
+                                chevronSize={10}
+                              >
+                                {Array.from({ length: 24 }, (_, h) => (
+                                  <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                                ))}
+                              </NativeSelect>
                             </div>
                             {/* Řádek 2: DATA datum + EXP datum */}
                             <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 26 }}>
@@ -4047,25 +3916,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                   <div style={{ paddingTop: 14, paddingBottom: 16 }}>
                     {bRecurrenceType !== "NONE" ? (
                       <>
-                        <button
-                          type="button"
+                        <PrimaryCta
+                          press
                           onClick={handleScheduleSeries}
                           disabled={!orderNumber.trim() || seriesPreview.length === 0 || seriesScheduling}
-                          style={{
-                            width: "100%", paddingTop: 11, paddingBottom: 11, borderRadius: 10, border: "none",
-                            background: (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) ? "#FFE600" : "rgba(255,255,255,0.06)",
-                            color: (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) ? "#111" : "rgba(255,255,255,0.2)",
-                            fontSize: 13, fontWeight: 700, letterSpacing: "0.02em",
-                            cursor: (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) ? "pointer" : "default",
-                            transition: "background 120ms ease-out, transform 80ms ease-out",
-                            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-                          }}
-                          onMouseDown={(e) => { if (orderNumber.trim() && seriesPreview.length > 0 && !seriesScheduling) (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.97)"; }}
-                          onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
                         >
                           {seriesScheduling ? "Plánuji…" : `↻ Naplánovat sérii (${seriesPreview.length} bloků)`}
-                        </button>
+                        </PrimaryCta>
                         {seriesPreview.length === 0 && (
                           <div style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", marginTop: 6 }}>
                             Zadej datum prvního výskytu pro zobrazení preview
@@ -4074,25 +3931,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                       </>
                     ) : (
                       <>
-                        <button
-                          type="button"
-                          onClick={handleAddToQueue}
-                          disabled={!orderNumber.trim()}
-                          style={{
-                            width: "100%", paddingTop: 11, paddingBottom: 11, borderRadius: 10, border: "none",
-                            background: orderNumber.trim() ? "#FFE600" : "rgba(255,255,255,0.06)",
-                            color: orderNumber.trim() ? "#111" : "rgba(255,255,255,0.2)",
-                            fontSize: 13, fontWeight: 700, letterSpacing: "0.02em",
-                            cursor: orderNumber.trim() ? "pointer" : "default",
-                            transition: "background 120ms ease-out, transform 80ms ease-out",
-                            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-                          }}
-                          onMouseDown={(e) => { if (orderNumber.trim()) (e.currentTarget as HTMLButtonElement).style.transform = "scale(0.97)"; }}
-                          onMouseUp={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = "scale(1)"; }}
-                        >
+                        <PrimaryCta press onClick={handleAddToQueue} disabled={!orderNumber.trim()}>
                           + Přidat do fronty
-                        </button>
+                        </PrimaryCta>
                         <div style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", marginTop: 6 }}>
                           Přetáhni kartu z fronty na timeline → stroj a čas
                         </div>

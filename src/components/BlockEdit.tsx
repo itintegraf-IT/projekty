@@ -15,6 +15,7 @@ import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPres
 import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
 import { parseProductionTags, serializeProductionTags } from "@/lib/productionTags";
 import { MultiSelectDropdown } from "@/components/MultiSelectDropdown";
+import { NativeSelect } from "@/components/NativeSelect";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
@@ -641,34 +642,14 @@ export function BlockEdit({
     opts: CodebookOption[];
   }) {
     return (
-      <div style={{ position: "relative" }}>
-        <select
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          style={{
-            appearance: "none", width: "100%", height: 34,
-            background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,
-            color: value ? "var(--text)" : "var(--text-muted)", fontSize: 11, fontWeight: 600,
-            padding: "0 26px 0 10px", cursor: "pointer", outline: "none",
-          }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-          onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-        >
-          <option value="">—</option>
-          {opts.map((o) => (
-            <option key={o.id} value={o.id.toString()}>
-              {o.isWarning ? "⚠ " : ""}{o.label}
-            </option>
-          ))}
-        </select>
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"
-          color="var(--text-muted)"
-          style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
-          <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </div>
+      <NativeSelect value={value} onChange={onChange} height={34} fontSize={11} paddingLeft={10} mutedWhenEmpty hover>
+        <option value="">—</option>
+        {opts.map((o) => (
+          <option key={o.id} value={o.id.toString()}>
+            {o.isWarning ? "⚠ " : ""}{o.label}
+          </option>
+        ))}
+      </NativeSelect>
     );
   }
 
@@ -868,29 +849,11 @@ export function BlockEdit({
         {/* Délka tisku */}
         <div style={{ marginTop: 8 }}>
           <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>Délka tisku</Label>
-          <div style={{ position: "relative" }}>
-            <select
-              value={String(durationHours)}
-              onChange={(e) => setDurationHours(Number(e.target.value))}
-              style={{
-                appearance: "none", width: "100%", height: 32,
-                background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 10,
-                color: "var(--text)", fontSize: 12, fontWeight: 600,
-                padding: "0 32px 0 12px", cursor: "pointer", outline: "none",
-              }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-              onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-            >
-              {DURATION_OPTIONS.map((opt) => (
-                <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
-              ))}
-            </select>
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8"
-              color="var(--text-muted)"
-              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}>
-              <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
+          <NativeSelect value={String(durationHours)} onChange={(v) => setDurationHours(Number(v))}>
+            {DURATION_OPTIONS.map((opt) => (
+              <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
+            ))}
+          </NativeSelect>
         </div>
 
         {/* ── Výrobní sloupečky ── */}
@@ -1118,28 +1081,19 @@ export function BlockEdit({
                         placeholder="Datum…"
                       />
                     </div>
-                    <div style={{ flex: "0 0 72px", position: "relative" }}>
-                      <select
-                        value={wasShifted && resolved ? resolved.adjustedHour : occ.hour}
-                        onChange={(e) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, hour: parseInt(e.target.value) } : o))}
-                        style={{
-                          appearance: "none", width: "100%", height: 30,
-                          background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8,
-                          color: "var(--text)", fontSize: 11, fontWeight: 600,
-                          padding: "0 22px 0 8px", cursor: "pointer", outline: "none",
-                        }}
-                        onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                        onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                      >
-                        {Array.from({ length: 24 }, (_, h) => (
-                          <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                        ))}
-                      </select>
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" color="var(--text-muted)"
-                        style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", width: 10, height: 10, pointerEvents: "none" }}>
-                        <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </div>
+                    <NativeSelect
+                      wrapperStyle={{ flex: "0 0 72px" }}
+                      value={wasShifted && resolved ? resolved.adjustedHour : occ.hour}
+                      onChange={(v) => setSeriesOccDrafts((prev) => prev.map((o) => o.blockId === occ.blockId ? { ...o, hour: parseInt(v) } : o))}
+                      height={30}
+                      fontSize={11}
+                      paddingLeft={8}
+                      chevronSize={10}
+                    >
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                      ))}
+                    </NativeSelect>
                   </div>
                   {/* Řádek 2: DATA datum + EXP datum */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 26 }}>

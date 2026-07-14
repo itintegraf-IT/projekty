@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SHIFTS, SHIFT_LABELS, fmtHHMM, defaultShiftMin, type ShiftType } from "@/lib/shifts";
 import { MACHINES, MACHINE_LABELS } from "@/lib/machines";
+import { FONT_STACK, btnPrimary, btnSecondary } from "@/lib/uiStyles";
 import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shiftRoster";
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
@@ -34,36 +35,12 @@ function defaultShiftBounds(shift: ShiftType): { startMin: number; endMin: numbe
 
 const DAY_LABELS = ["Ne", "Po", "Út", "St", "Čt", "Pá", "So"];
 
-const FONT_STACK = "-apple-system, BlinkMacSystemFont, sans-serif";
 const SEPARATOR = "color-mix(in oklab, var(--border) 70%, transparent)";
 const TEXT_PRIMARY = "var(--text)";
 const TEXT_SECONDARY = "var(--text-muted)";
 const BORDER_SUBTLE = "var(--border)";
 
-const btnSecondary: React.CSSProperties = {
-  background: "var(--surface-2)",
-  color: TEXT_SECONDARY,
-  border: `1px solid ${BORDER_SUBTLE}`,
-  borderRadius: 8,
-  padding: "7px 14px",
-  fontSize: 13,
-  cursor: "pointer",
-  fontFamily: FONT_STACK,
-  whiteSpace: "nowrap",
-};
-
-const btnPrimary: React.CSSProperties = {
-  background: "var(--brand)",
-  color: "var(--brand-contrast)",
-  border: "none",
-  borderRadius: 8,
-  padding: "7px 14px",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: FONT_STACK,
-  whiteSpace: "nowrap",
-};
+// btnPrimary/btnSecondary → src/lib/uiStyles.ts (audit #43; padding sjednocen 14→16px)
 
 function isoDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);

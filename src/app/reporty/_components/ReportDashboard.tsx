@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { todayPragueDateStr } from "@/lib/dateUtils";
 import { machineLabel } from "@/lib/machines";
+import { ModuleHeader } from "@/components/ModuleHeader";
 
 type Mode = "retro" | "outlook";
 type TimeRange = "today" | "week" | "month" | "custom";
@@ -465,54 +466,7 @@ export default function ReportDashboard() {
       }}
     >
       {/* Header */}
-      <div
-        style={{
-          height: 48,
-          background: "var(--surface)",
-          borderBottom: "1px solid var(--border)",
-          display: "flex",
-          alignItems: "center",
-          padding: "0 16px",
-          gap: 12,
-        }}
-      >
-        <a
-          href="/"
-          style={{
-            fontSize: 12,
-            color: "var(--text-muted)",
-            textDecoration: "none",
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-            whiteSpace: "nowrap",
-          }}
-        >
-          ← Zpět na planner
-        </a>
-
-        <div
-          style={{
-            width: 1,
-            height: 20,
-            background: "var(--border)",
-            flexShrink: 0,
-          }}
-        />
-
-        <span
-          style={{
-            fontSize: 14,
-            fontWeight: 600,
-            color: "var(--text)",
-            flexShrink: 0,
-          }}
-        >
-          Reporty
-        </span>
-
-        <div style={{ flex: 1 }} />
-
+      <ModuleHeader title="Reporty">
         {/* Mode toggle */}
         <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: "var(--text-muted)", marginRight: 4 }}>Režim:</span>
@@ -589,7 +543,7 @@ export default function ReportDashboard() {
             />
           </div>
         )}
-      </div>
+      </ModuleHeader>
 
       {/* Body */}
       <div style={{ padding: 24 }}>

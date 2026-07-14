@@ -21,7 +21,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - tiskové hodiny — etapa 7 (reporty přes tiskové hodiny: retro/outlook dashboard + denní report počítají vytížení z tiskového času, ne z kalendářní délky bloku) dokončena 4. 7. 2026 — viz sekci „Reporty přes tiskové hodiny" níže
 - tiskové hodiny — etapa 8 FINÁLE (multi-agent review celé featury 5 lens + fix wave + Gardena 27h důkaz na dev DB) dokončena 5. 7. 2026 — viz sekci „Finále featury" níže; deploy checklist: `docs/superpowers/plans/2026-07-05-tiskove-hodiny-deploy-checklist.md`
 - 4 body z auditu plánovače (pásy směn, MICRO text, Σ split, cut=přesun) dokončeny 9. 7. 2026 — viz sekci „4 body z auditu plánovače" níže; spec `docs/superpowers/specs/2026-07-09-planovac-4-body-design.md`, plán `docs/superpowers/plans/2026-07-09-planovac-4-body.md`
-- audit kvality kódu a designu — etapa **Audit Top 5** (plán `docs/superpowers/plans/2026-07-11-etapa-audit-top5.md`): fáze A (light-mode hotfixy, focus-visible), B (úklid mrtvého kódu vč. smazání `/tiskar`), C (jeden zdroj pravdy — blockPayload/errorStatus/requireRole/blockStyles) hotové; fáze D část 1 (sdílené UI kameny: `zLayers` kanonická z-index škála + `ConfirmDialog`) hotová 13. 7. 2026 — multi-agent review 3 lens, 0 critical/important. Zbývá D část 2 (NativeSelect, PrimaryCta, ModuleHeader, uiStyles) + fáze E (dekompozice)
+- audit kvality kódu a designu — etapa **Audit Top 5** (plán `docs/superpowers/plans/2026-07-11-etapa-audit-top5.md`): fáze A (light-mode hotfixy, focus-visible), B (úklid mrtvého kódu vč. smazání `/tiskar`), C (jeden zdroj pravdy — blockPayload/errorStatus/requireRole/blockStyles) hotové; fáze D část 1 (sdílené UI kameny: `zLayers` kanonická z-index škála + `ConfirmDialog`) hotová 13. 7. 2026 — multi-agent review 3 lens, 0 critical/important. Fáze D část 2 (NativeSelect, PrimaryCta, ModuleHeader, uiStyles) hotová 14. 7. 2026 — viz sekci „Design tokens a vizuální konvence"; build+392 testů+lint 0 chyb. Zbývá už jen fáze E (dekompozice velkých souborů)
 - split-skupiny — **root-cause fix (varianta B2)**, v kódu na větvi Vojta 13. 7. 2026 (deploy na produkci = Fáze 7, čeká): `Block.splitGroupId` re-pointnut ze self-FK na `Block.id` na novou tabulku `SplitGroup`. Smazání kteréhokoli člena (vč. rootu) už skupinu NErozpustí (FK `ON DELETE SET NULL` míří na `SplitGroup.id`, ne na sourozence) → Ctrl+Z undo obnoví 3/3. Nahradilo dřívější symptom-fix `restoreSplitGroupId` (smazán). Split vzniká atomicky přes `POST /api/blocks/[id]/split`. Fáze 1–6 hotové (E2E na dev 6/6 vč. „smaž root → undo = 3/3", migrace SQL review 0 kritických). Plán `docs/superpowers/plans/2026-07-13-split-group-b2.md` — viz sekci „Split-skupiny (tabulka SplitGroup, B2)" níže
 
 ### Spuštění testů
@@ -631,6 +631,21 @@ const secret = process.env.JWT_SECRET ?? "dev-secret";
 
 Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (feature flags, timeouty) fallback mít mohou.
 
+### Design tokens a vizuální konvence (audit fáze D, 14. 7. 2026)
+
+Barvy a rozměry vždy přes **CSS tokeny** z `src/app/globals.css`, nikdy hex/rgba literál v komponentě.
+
+- **Barevné tokeny**: `--bg`/`--text`/`--text-muted`, plochy `--surface`/`--surface-2`/`--surface-3`, `--border`, `--ring` (focus), značka `--brand`/`--brand-contrast`, stavy `--danger`/`--success`/`--warning`/`--info`. Zakázáno: `#fff`, `#111`, `#FFE600`, `rgba(255,255,255,…)` a podobné literály mimo `globals.css` (rozbíjí light mode — hlavní nález auditu). Výjimka: dosud netokenizovaná modrá v `btnAddAccent`/expedici je vědomý follow-up.
+- **Z-index**: výhradně přes `src/lib/zLayers.ts` (`Z_TIMELINE`/`Z_LAYOUT`/`Z_OVERLAY`), nikdy magické číslo. Monotonii `Z_OVERLAY` hlídá `zLayers.test.ts`.
+- **Sdílené UI kameny** (v `src/components/`, ne `ui/` — shadcn plošně nerozšiřujeme):
+  - `NativeSelect` — jednotný stylovaný `<select>` (div + appearance:none + chevron + tokeny); kanonicky výška 32 / radius 10 / chevron 13, odchylka přes prop (`height`/`fontSize`/`paddingLeft`/`chevronSize`/`mutedWhenEmpty`/`hover`). **Nepoužívat** pro bare-native selecty v úzkých toolbarech (ShutdownManager, ShiftHoursPopover) ani pro specializovaný stavový chip na bloku (DtpPanel — accent barva + drag guardy).
+  - `PrimaryCta` — hlavní značkové tlačítko (`--brand`/`--brand-contrast`); `press` (scale mikro-interakce), `loading` (opacity + wait), `disabled` (ztlumené pozadí). Nahradilo natvrdo `#FFE600`.
+  - `ConfirmDialog` — potvrzovací modál (Esc + klik mimo + autofocus, z-index z `Z_OVERLAY.modal`).
+  - `ModuleHeader` — sdílená lišta modulů **Expedice + Reporty** (back-link → oddělovač → název → spacer → `children` toolbar). NEmodeluje user-menu vzor z RezervacePage (badge + ThemeToggle + Odhlásit) — ta zůstává na svém odlišném vzoru.
+- **Admin styly**: `src/lib/uiStyles.ts` (`FONT_STACK`, `inputStyle`, `btnPrimary`/`btnSecondary`/`btnDanger`/`btnAddAccent`) — jediný zdroj pro admin tlačítka/inputy; padding sjednocen na 16px.
+- **Kdy co**: `ui/` (shadcn) pro to, co už kryje (Button, Popover, Switch…); jinak sdílené kameny výše; jednorázový vizuál inline s tokeny. Nové standalone komponenty jako named export do `src/components/`.
+- **Focus**: neodstraňovat viditelný focus ring; globální `:focus-visible` v `globals.css` používá `--ring`.
+
 ---
 
 ## Aktuální technické poznámky
@@ -688,6 +703,10 @@ Bezpečnostní ENV proměnné (`JWT_SECRET`) nesmí mít fallback. Ostatní (fea
 - `src/components/BlockEdit.tsx` — editační formulář bloku
 - `src/components/ToastContainer.tsx` — toast notifikace
 - `src/components/ConfirmDialog.tsx` — sdílený potvrzovací modál (audit #3/#34/#48/#64, fáze D): tokeny, z-index z `Z_OVERLAY.modal`, zavření přes Esc i klik mimo, autofocus na potvrzení, `children` pro doménový obsah (např. důvod zamítnutí rezervace u smazání bloku); nahradil 2 ručně kopírované delete dialogy v PlannerPage
+- `src/components/NativeSelect.tsx` — jednotný stylovaný `<select>` (audit #4/#32/#93, fáze D2): div + appearance:none + chevron + tokeny; kanon výška 32/radius 10, odchylka přes prop (`height`/`fontSize`/`paddingLeft`/`chevronSize`/`mutedWhenEmpty`/`hover`); nasazeno v BlockEdit, PlannerPage builderu, PlanningForm, JobPresetEditor. Bare-native selecty (ShutdownManager, ShiftHoursPopover) a stavový chip na bloku (DtpPanel/DtpDataPopover) vědomě NEpřevedeny (jiný vzor)
+- `src/components/PrimaryCta.tsx` — hlavní značkové tlačítko (audit #10/#65, fáze D2): `--brand`/`--brand-contrast`, `press`/`loading`/`disabled` přes tokeny; nahradilo natvrdo `#FFE600` v builder CTA (série/fronta) + login
+- `src/components/ModuleHeader.tsx` — sdílená lišta modulů Expedice + Reporty (audit #60/#102, fáze D2): back-link → oddělovač → název → spacer → `children` toolbar. RezervacePage zůstává na svém user-menu vzoru
+- `src/lib/uiStyles.ts` — `FONT_STACK`/`inputStyle`/`btnPrimary`/`btnSecondary`/`btnDanger`/`btnAddAccent` (audit #43, fáze D2): jediný zdroj admin tlačítek/inputů; nasazeno v AdminDashboard, PrinterCodebook, MachineWorkHoursWeek, ShiftRoster (padding sjednocen 14→16px)
 
 ### Planner — logika
 

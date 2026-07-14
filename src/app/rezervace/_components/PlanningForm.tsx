@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { Reservation } from "./RezervacePage";
 import { DURATION_OPTIONS } from "@/lib/plannerTypes";
+import { NativeSelect } from "@/components/NativeSelect";
 
 interface Props {
   reservation: Reservation;
@@ -25,39 +26,6 @@ const labelStyle: React.CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.04em",
 };
-
-const selectStyle: React.CSSProperties = {
-  appearance: "none",
-  width: "100%",
-  height: 32,
-  background: "var(--surface-2)",
-  border: "1px solid var(--border)",
-  borderRadius: 10,
-  color: "var(--text)",
-  fontSize: 12,
-  fontWeight: 600,
-  padding: "0 32px 0 12px",
-  cursor: "pointer",
-  outline: "none",
-  fontFamily: "inherit",
-};
-
-const chevron = (
-  <svg
-    viewBox="0 0 20 20"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.8"
-    color="var(--text-muted)"
-    style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", width: 13, height: 13, pointerEvents: "none" }}
-  >
-    <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-function SelectWrap({ children }: { children: React.ReactNode }) {
-  return <div style={{ position: "relative" }}>{children}{chevron}</div>;
-}
 
 export default function PlanningForm({ reservation, onPrepared }: Props) {
   const existing = reservation.planningPayload as Record<string, unknown> | null;
@@ -211,39 +179,19 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
           </div>
           <div>
             <label style={labelStyle}>Délka tisku</label>
-            <SelectWrap>
-              <select
-                value={String(durationHours)}
-                onChange={(e) => setDurationHours(Number(e.target.value))}
-                style={selectStyle}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-              >
-                {DURATION_OPTIONS.map((opt) => (
-                  <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
-                ))}
-              </select>
-            </SelectWrap>
+            <NativeSelect value={String(durationHours)} onChange={(v) => setDurationHours(Number(v))} hover>
+              {DURATION_OPTIONS.map((opt) => (
+                <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
+              ))}
+            </NativeSelect>
           </div>
           <div>
             <label style={labelStyle}>Tiskový stroj</label>
-            <SelectWrap>
-              <select
-                value={machine}
-                onChange={(e) => setMachine(e.target.value)}
-                style={{ ...selectStyle, color: machine ? "var(--text)" : "var(--text-muted)" }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-              >
-                <option value="">— neurčeno —</option>
-                <option value="XL_105">XL 105</option>
-                <option value="XL_106">XL 106</option>
-              </select>
-            </SelectWrap>
+            <NativeSelect value={machine} onChange={setMachine} mutedWhenEmpty hover>
+              <option value="">— neurčeno —</option>
+              <option value="XL_105">XL 105</option>
+              <option value="XL_106">XL 106</option>
+            </NativeSelect>
           </div>
         </div>
       </div>
@@ -260,22 +208,12 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
               <DatePickerField value={dataRequiredDate} onChange={setDataRequiredDate} placeholder="Datum dodání…" asButton />
             </div>
             <div style={{ flex: 1 }}>
-              <SelectWrap>
-                <select
-                  value={dataStatusId}
-                  onChange={(e) => setDataStatusId(e.target.value)}
-                  style={{ ...selectStyle, color: dataStatusId ? "var(--text)" : "var(--text-muted)" }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                >
-                  <option value="">— info —</option>
-                  {dataOpts.map((o) => (
-                    <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
-                  ))}
-                </select>
-              </SelectWrap>
+              <NativeSelect value={dataStatusId} onChange={setDataStatusId} mutedWhenEmpty hover>
+                <option value="">— info —</option>
+                {dataOpts.map((o) => (
+                  <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                ))}
+              </NativeSelect>
             </div>
           </div>
         </div>
@@ -310,22 +248,12 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
               <DatePickerField value={materialInStock ? "" : materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum dodání…" asButton />
             </div>
             <div style={{ flex: 1 }}>
-              <SelectWrap>
-                <select
-                  value={materialStatusId}
-                  onChange={(e) => setMaterialStatusId(e.target.value)}
-                  style={{ ...selectStyle, color: materialStatusId ? "var(--text)" : "var(--text-muted)" }}
-                  onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                >
-                  <option value="">— info —</option>
-                  {materialOpts.map((o) => (
-                    <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
-                  ))}
-                </select>
-              </SelectWrap>
+              <NativeSelect value={materialStatusId} onChange={setMaterialStatusId} mutedWhenEmpty hover>
+                <option value="">— info —</option>
+                {materialOpts.map((o) => (
+                  <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+                ))}
+              </NativeSelect>
             </div>
           </div>
         </div>
@@ -371,42 +299,22 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
           {/* Barvy */}
           <div>
             <label style={labelStyle}>Barvy</label>
-            <SelectWrap>
-              <select
-                value={barvyStatusId}
-                onChange={(e) => setBarvyStatusId(e.target.value)}
-                style={{ ...selectStyle, color: barvyStatusId ? "var(--text)" : "var(--text-muted)" }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-              >
-                <option value="">— nezadáno —</option>
-                {barvyOpts.map((o) => (
-                  <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
-                ))}
-              </select>
-            </SelectWrap>
+            <NativeSelect value={barvyStatusId} onChange={setBarvyStatusId} mutedWhenEmpty hover>
+              <option value="">— nezadáno —</option>
+              {barvyOpts.map((o) => (
+                <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+              ))}
+            </NativeSelect>
           </div>
           {/* Lak */}
           <div>
             <label style={labelStyle}>Lak</label>
-            <SelectWrap>
-              <select
-                value={lakStatusId}
-                onChange={(e) => setLakStatusId(e.target.value)}
-                style={{ ...selectStyle, color: lakStatusId ? "var(--text)" : "var(--text-muted)" }}
-                onFocus={(e) => (e.currentTarget.style.borderColor = "var(--ring)")}
-                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-3)")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-              >
-                <option value="">— nezadáno —</option>
-                {lakOpts.map((o) => (
-                  <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
-                ))}
-              </select>
-            </SelectWrap>
+            <NativeSelect value={lakStatusId} onChange={setLakStatusId} mutedWhenEmpty hover>
+              <option value="">— nezadáno —</option>
+              {lakOpts.map((o) => (
+                <option key={o.id} value={String(o.id)}>{o.isWarning ? "⚠ " : ""}{o.label}</option>
+              ))}
+            </NativeSelect>
           </div>
         </div>
       </div>

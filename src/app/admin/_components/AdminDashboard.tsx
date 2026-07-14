@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import type { SessionUser } from "@/lib/auth";
+import { inputStyle, btnPrimary, btnSecondary, btnDanger, btnAddAccent } from "@/lib/uiStyles";
 import ThemeToggle from "@/app/_components/ThemeToggle";
 import { BADGE_COLOR_KEYS, BADGE_COLOR_LABELS, type BadgeColorKey } from "@/lib/badgeColors";
 import JobPresetEditor from "@/components/job-presets/JobPresetEditor";
@@ -102,66 +103,7 @@ const TEXT_PRIMARY = "var(--text)";
 const TEXT_SECONDARY = "var(--text-muted)";
 const BORDER_SUBTLE = "var(--border)";
 
-const inputStyle: React.CSSProperties = {
-  background: "var(--surface-2)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  padding: "7px 11px",
-  color: TEXT_PRIMARY,
-  fontSize: 13,
-  fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
-};
-
-const btnPrimary: React.CSSProperties = {
-  background: "var(--brand)",
-  color: "var(--brand-contrast)",
-  border: "none",
-  borderRadius: 8,
-  padding: "7px 16px",
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-  whiteSpace: "nowrap",
-};
-
-const btnSecondary: React.CSSProperties = {
-  background: "var(--surface-2)",
-  color: TEXT_SECONDARY,
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  padding: "7px 16px",
-  fontSize: 13,
-  cursor: "pointer",
-  fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-  whiteSpace: "nowrap",
-};
-
-const btnDanger: React.CSSProperties = {
-  background: "color-mix(in oklab, var(--danger) 15%, transparent)",
-  color: "var(--danger)",
-  border: "1px solid color-mix(in oklab, var(--danger) 25%, transparent)",
-  borderRadius: 8,
-  padding: "5px 12px",
-  fontSize: 12,
-  cursor: "pointer",
-  fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
-  whiteSpace: "nowrap",
-};
-
-const btnAddAccent: React.CSSProperties = {
-  ...btnSecondary,
-  display: "flex",
-  alignItems: "center",
-  gap: 7,
-  background: "rgba(59,130,246,0.12)",
-  color: "#3b82f6",
-  border: "1px solid rgba(59,130,246,0.3)",
-  fontWeight: 600,
-};
+// Sdílené admin styly (btnPrimary/btnSecondary/btnDanger/btnAddAccent/inputStyle) → src/lib/uiStyles.ts (audit #43)
 
 // ─── Komponenta ──────────────────────────────────────────────────────────────
 

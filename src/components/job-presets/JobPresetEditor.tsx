@@ -13,6 +13,7 @@ import {
   type JobPresetUpsertInput,
 } from "@/lib/jobPresets";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
+import { NativeSelect } from "@/components/NativeSelect";
 
 type CodebookOption = {
   id: number;
@@ -51,43 +52,21 @@ function StatusSelect({
   placeholder?: string;
 }) {
   return (
-    <div style={{ position: "relative" }}>
-      <select
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
-        style={{
-          appearance: "none",
-          width: "100%",
-          height: 34,
-          background: "var(--surface-2)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          color: value ? "var(--text)" : "var(--text-muted)",
-          fontSize: 12,
-          fontWeight: 600,
-          padding: "0 30px 0 10px",
-          cursor: "pointer",
-          outline: "none",
-        }}
-      >
-        <option value="">{placeholder}</option>
-        {options.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.isWarning ? "⚠ " : ""}{option.label}
-          </option>
-        ))}
-      </select>
-      <svg
-        viewBox="0 0 20 20"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        color="var(--text-muted)"
-        style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 12, height: 12, pointerEvents: "none" }}
-      >
-        <path d="M5 8l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </div>
+    <NativeSelect
+      value={value ?? ""}
+      onChange={(v) => onChange(v ? Number(v) : null)}
+      height={34}
+      paddingLeft={10}
+      chevronSize={12}
+      mutedWhenEmpty
+    >
+      <option value="">{placeholder}</option>
+      {options.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.isWarning ? "⚠ " : ""}{option.label}
+        </option>
+      ))}
+    </NativeSelect>
   );
 }
 
