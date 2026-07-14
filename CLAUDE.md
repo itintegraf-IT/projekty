@@ -696,7 +696,8 @@ Barvy a rozměry vždy přes **CSS tokeny** z `src/app/globals.css`, nikdy hex/r
 - `src/components/planner/JobBuilderPanel.tsx` — JSX Job Builderu; bere `{ jb: UseJobBuilderReturn, isDark }`, destrukturuje `jb` nahoře
 - `src/components/planner/ShutdownManager.tsx` — `ShutdownManager` + `machineBadgeStyle` (+ interní `MachinePicker`); extrakce E1(i)
 - `src/components/planner/ResizeHandle.tsx` — `ResizeHandle`; extrakce E1(i)
-- `src/app/_components/TimelineGrid.tsx` — vizuální grid s drag & drop
+- `src/app/_components/TimelineGrid.tsx` — vizuální grid s drag & drop (~2355 ř. po extrakci BlockCard, fáze E2)
+- `src/components/planner/BlockCard.tsx` — render jednoho bloku na timeline (stavy/chipy/drag/resize/split/badge/deadline/drift) + privátní helpery (DateBadge/MiniChip/ProductionChips/MaterialNoteAffordance/deadlineState/chipTextColor/fmtDate/fmtDateShort); module-scope, prop-based, žádná závislost na TimelineGrid scope (Block typ type-only import). Extrakce E2 14. 7. 2026 (−1587 ř. z TimelineGridu; ověřeno 5-lens adversariální review vč. verbatim diffu, 0 nálezů)
 - `src/components/ZoomSlider.tsx` — custom zoom slider
 - `src/components/InfoPanel.tsx` — audit log panel + typ `AuditLogEntry`; nově exportuje i `AuditList` (samotný seznam bez wrapperu — sdílí se s `NotificationsPanel`)
 - `src/components/InboxPanel.tsx` — notifikační inbox + typ `NotificationItem`; nově exportuje i `InboxList` (samotný seznam bez wrapperu — sdílí se s `NotificationsPanel`)
