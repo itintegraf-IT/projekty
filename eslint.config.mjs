@@ -36,8 +36,16 @@ const REACT_COMPILER_RULES = [
 const disableCompilerRules = Object.fromEntries(REACT_COMPILER_RULES.map((r) => [r, "off"]));
 
 export default [
+  // Nelintovat mrtvé/pomocné kopie — jinak zaneřádí výstup (staré snapshoty, agent worktrees).
+  { ignores: [".superpowers/**", ".claude/**", ".next/**"] },
   ...nextConfig,
   {
-    rules: disableCompilerRules,
+    rules: {
+      ...disableCompilerRules,
+      // Tripwire proti bobtnání souborů (ne error — advisory). Práh 500 ř. skutečného
+      // kódu = god-object signál z auditu; při překročení zvaž extrakci (viz CLAUDE.md
+      // „Design tokens a vizuální konvence" — extract before add).
+      "max-lines": ["warn", { max: 500, skipBlankLines: true, skipComments: true }],
+    },
   },
 ];
