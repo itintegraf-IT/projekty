@@ -64,8 +64,12 @@ export function buildEditCommand(
       bypassScheduleValidation: true,
     });
     target.updatedAt = updated.updatedAt;
-    const { shifted: _shifted, ...cleanUpdated } = updated;
+    const { shifted: _shifted, siblings, ...cleanUpdated } = updated;
     effects.addToState([cleanUpdated]);
+    // #9: undo/redo shared-field editace split bloku re-triggeruje serverovou propagaci →
+    // aplikovat i vrácené sourozence (čerstvý updatedAt), jinak by undo znovu otevřel falešný
+    // 409 při následném splitu sourozence (symetrie s handleBlockUpdate v PlannerPage).
+    if (siblings && siblings.length > 0) effects.addToState(siblings);
     if (shiftedTarget.length > 0) {
       const expMap = new Map(shiftedExpected.map((e) => [e.id, e.updatedAt]));
       const res = await effects.batchUpdate(

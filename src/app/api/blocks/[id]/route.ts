@@ -166,7 +166,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
 
-    const { block, shifted } = await prisma.$transaction(async (tx) => {
+    const { block, shifted, propagatedGroupId } = await prisma.$transaction(async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });
       if (!oldBlock) {
         throw new AppError("NOT_FOUND", "Blok nenalezen");
@@ -478,6 +478,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       }
 
       // Propagace shared fields do split skupiny
+      let propagatedGroupId: number | null = null;
       const groupId = updated.splitGroupId;
       if (groupId != null) {
         const sharedUpdate: Record<string, unknown> = {};
@@ -508,6 +509,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             where: { splitGroupId: groupId, id: { not: id } },
             data: sharedUpdate,
           });
+          // Sourozenci dostali nový updatedAt → po tx je refetchnout, broadcastnout a vrátit
+          // v odpovědi (jinak klienti drží stale updatedAt a další split sourozence spadne na 409).
+          propagatedGroupId = groupId;
         }
       }
 
@@ -540,7 +544,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         await assertNoOverlapForBlocks(updated.machine, [updated.id, ...shiftedMoves.map((m) => m.id)], tx);
       }
 
-      return { block: updated, shifted: shiftedMoves };
+      return { block: updated, shifted: shiftedMoves, propagatedGroupId };
     }, { timeout: 15000, maxWait: 5000 });
 
     // Refetch VŽDY s notes include — SSE broadcast nese poznámky a per-connection strip v
@@ -572,10 +576,32 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       emitSSE("block:batch-updated", { blocks: serializedShifted, sourceUserId: session.id });
     }
 
+    // #9/#12: split sourozenci dostali přes updateMany nový updatedAt, ale samotný updateMany
+    // neemituje SSE ani je nevrací → klienti (i originátor) by drželi stale updatedAt a další
+    // split sourozence by spadl na falešný 409. Refetch + broadcast ostatním + vrátit originátorovi.
+    let serializedSiblings: ReturnType<typeof serializeBlock>[] = [];
+    if (propagatedGroupId != null) {
+      const siblings = await prisma.block.findMany({
+        where: { splitGroupId: propagatedGroupId, id: { not: block.id } },
+        include: {
+          Reservation: { select: { confirmedAt: true } },
+          notes: { orderBy: { createdAt: "desc" as const } },
+        },
+      });
+      // Vyloučit sourozence, kteří už jsou v `shifted` (chain push je refetchuje se stejnými
+      // finálními daty) — jinak by šel dvojitý block:batch-updated o témže bloku.
+      const shiftedIds = new Set(serializedShifted.map((b) => b.id));
+      serializedSiblings = siblings.map(serializeBlock).filter((b) => !shiftedIds.has(b.id));
+      if (serializedSiblings.length > 0) {
+        emitSSE("block:batch-updated", { blocks: serializedSiblings, sourceUserId: session.id });
+      }
+    }
+
     // Odpověď mutujícímu — poznámky zestripovat, pokud na ně jeho role nemá právo (DTP/MTZ).
     const responseBlock = stripNotesIfDenied(serializeBlock(blockWithRes), canSeeNotes);
     const responseShifted = serializedShifted.map((b) => stripNotesIfDenied(b, canSeeNotes));
-    return NextResponse.json({ ...responseBlock, shifted: responseShifted });
+    const responseSiblings = serializedSiblings.map((b) => stripNotesIfDenied(b, canSeeNotes));
+    return NextResponse.json({ ...responseBlock, shifted: responseShifted, siblings: responseSiblings });
   } catch (error: unknown) {
     if (isAppError(error)) {
       const statusMap: Record<string, number> = {

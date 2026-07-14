@@ -9,7 +9,7 @@ Tento soubor slouží jako stručný, praktický snapshot projektu pro AI asiste
 - `git status --short` je čistý
 - `npm run build` prošel
 - `npm run lint` vrací warningy, ale 0 chyb
-- celá test suite: **390/390 testů zelené** (viz níže)
+- celá test suite: **392/392 testů zelené** (viz níže)
 - aktivní datasource v `prisma/schema.prisma` je `mysql`
 - modul `/expedice` je nasazen na produkci (deploy 12. 4. 2026)
 - audit remediation dokončen 15.–16. 4. 2026 (Sprinty 1–5)
@@ -56,12 +56,12 @@ node --test --import tsx src/lib/scheduleValidationServer.test.ts  # 12 testů
 node --test --import tsx src/lib/seriesPropagation.test.ts         # 6 testů
 node --test --import tsx src/lib/shiftRoster.test.ts               # 5 testů
 node --test --import tsx src/lib/shifts.test.ts                    # 18 testů
-node --test --import tsx src/lib/splitCompute.test.ts             # 7 testů
+node --test --import tsx src/lib/splitCompute.test.ts             # 9 testů
 node --test --import tsx src/lib/splitHelpers.test.ts              # 7 testů
 node --test --import tsx src/lib/zLayers.test.ts                   # 3 testy
 ```
 
-Celkem **390 testů** ve 32 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
+Celkem **392 testů** ve 32 souborech (jeden běh: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`).
 
 `scheduleSlotFinder.server.test.ts` používá `mock.module` (node:test) — na aktuálním Node je to za experimentální flag branou, bez `--experimental-test-module-mocks` selže s `TypeError: mock.module is not a function`. Ostatní soubory tuto flag nepotřebují (i ty, co importují `mock` pro `mock.fn`, jako `overlapResolver.server.test.ts` — to je stabilní API).
 
@@ -167,6 +167,7 @@ Root-cause oprava undo bugu u split zakázek. **Dřív:** `Block.splitGroupId` b
 - **Vznik splitu**: atomický `POST /api/blocks/[id]/split` (`requireRole ADMIN/PLANOVAT`) — v jedné transakci: optimistický zámek, guardy (printCompleted, splitAt uvnitř / pauza), `computeSplitPrintMinutes` (`src/lib/splitCompute.ts`), create/reuse `SplitGroup`, head přes `validateAndComputeEnd`, tail create, audit, chain push, overlap re-check, SSE. Klient (`TimelineGrid.handleSplitBlockAt`) volá jeden endpoint místo dřívější 3-request orchestrace.
 - **Konzumenti skupiny** dotazují členství VÝHRADNĚ přes `splitGroupId` (`where: { splitGroupId: X }`), NIKDY `id === splitGroupId` — `Block.id` a `SplitGroup.id` jsou nezávislé id-prostory (numerická shoda nic neznamená). `orderIdentity` v `blockShades.ts` proto namespacuje `g${splitGroupId}`/`b${id}` (jinak by skupina zdědila odstín souseda).
 - **Undo** posílá `splitGroupId` přes `blockToCreatePayload` opts; POST `/api/blocks` guard ověří existenci `SplitGroup` řádku (`VALIDATION_ERROR` → 400 místo FK 500). Symptom-fix `restoreSplitGroupId` je **smazán**.
+- **Propagace shared fields (PUT)**: editace sdíleného pole se přes `updateMany` propaguje na sourozence skupiny; PUT je pak refetchne, broadcastuje (`block:batch-updated`) a vrátí v odpovědi jako `siblings` — jinak klient drží stale `updatedAt` sourozenců a další split sourozence spadne na falešný 409 (#9/#12). Undo cesta (`buildEditCommand`) sourozence aplikuje symetricky (`effects.addToState`). Sourozenci už v `shifted` (chain push) se z `siblings` filtrují. **Známé omezení**: stejný „updateMany bez oznámení" má i `expedition` route (reorder/publish/unpublish) — dosud neřešeno (self-heal přes polling).
 - **Deploy gotchy (Fáze 7)**: MySQL DDL je auto-commit (3 statementy nejsou atomické) → app-stop + orphan pre-check před migrací; `MODIFY … UNSIGNED` je na prod MariaDB 10.11 no-op; osiřelé `SplitGroup` řádky (po smazání posledního člena) jsou neškodné (2 sloupce, žádný FK crash) a naopak posilují undo — produkce je nikdy nemaže.
 - **Hlavní soubory**: `prisma/schema.prisma` (model `SplitGroup`, relace `BlockSplitGroup`), `src/app/api/blocks/[id]/split/route.ts`, `src/lib/splitCompute.ts` (+ testy), `src/lib/blockShades.ts` (`orderIdentity`), `src/lib/blockPayload.ts` (`blockToCreatePayload` opts).
 

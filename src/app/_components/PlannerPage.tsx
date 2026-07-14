@@ -1502,8 +1502,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (typeof updated.id !== "number") return; // Guard against API error responses
     // PUT s resolveChain vrací v poli `shifted` navazující bloky odsunuté serverem (chain push).
     const shifted = ((updated as Block & { shifted?: Block[] }).shifted ?? []).filter((s) => typeof s.id === "number");
-    const cleanUpdated = { ...updated } as Block & { shifted?: Block[] };
+    // #9/#12: serveroví split sourozenci po propagaci shared fields (nesou čerstvý updatedAt).
+    const siblings = ((updated as Block & { siblings?: Block[] }).siblings ?? []).filter((s) => typeof s.id === "number");
+    const cleanUpdated = { ...updated } as Block & { shifted?: Block[]; siblings?: Block[] };
     delete cleanUpdated.shifted;
+    delete cleanUpdated.siblings;
 
     const prev = blocksRef.current.find(b => b.id === updated.id);
     // Staré pozice posunutých bloků pro undo — sebrat PŘED aplikací do stavu.
@@ -1532,6 +1535,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           ? { ...b, ...patch }
           : b
       ));
+    }
+    // #9/#12: serveroví sourozenci jsou autoritativní (nesou čerstvý updatedAt) — aplikovat PO
+    // lokální patch-propagaci, aby další split sourozence neposlal stale expectedUpdatedAt (409).
+    if (siblings.length > 0) {
+      setBlocks((arr) => arr.map((b) => siblings.find((s) => s.id === b.id) ?? b));
+      setSelectedBlock((sel) => (sel ? siblings.find((s) => s.id === sel.id) ?? sel : sel));
     }
     if (prev && addToHistory) {
       const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt };

@@ -162,6 +162,36 @@ test("buildEditCommand: addToState nedostane 'shifted' property z PUT odpovědi"
   assert.equal("shifted" in calls.added[0][0], false);
 });
 
+test("buildEditCommand: aplikuje serverové siblings přes addToState (#9 undo cesta) + nestrká 'siblings' do primárního bloku", async () => {
+  const live = new Map([[1, blk(1, { description: "NEW", updatedAt: "v2" })]]);
+  const calls = { added: [] as Block[][] };
+  const effects: UndoEffects = {
+    getLiveBlock: (id) => live.get(id),
+    putBlock: async (id, body) => {
+      const cur = live.get(id)!;
+      const next = { ...cur, ...body, updatedAt: cur.updatedAt + "+" } as Block;
+      live.set(id, next);
+      // undo shared-field editace → server znovu propaguje a vrátí sourozence s čerstvým updatedAt
+      return { ...next, siblings: [blk(2, { splitGroupId: 42, updatedAt: "sib+" })] };
+    },
+    batchUpdate: async () => { throw new Error("unused"); },
+    addToState: (blocks) => { calls.added.push(blocks); },
+    removeFromState: () => {},
+    postBlock: async () => { throw new Error("unused"); },
+    deleteBlock: async () => { throw new Error("unused"); },
+  };
+  const before: EditSnapshot = { id: 1, updatedAt: "v1", fields: { description: "OLD" } };
+  const after:  EditSnapshot = { id: 1, updatedAt: "v2", fields: { description: "NEW" } };
+  const cmd = buildEditCommand("Editace", before, after);
+  await cmd.undo(effects);
+  // primární blok NEnese 'siblings' property (nezanese se do stavu)
+  assert.equal("siblings" in calls.added[0][0], false);
+  // sourozenci se aplikovali druhým addToState voláním s čerstvým updatedAt
+  assert.equal(calls.added.length, 2);
+  assert.equal(calls.added[1][0].id, 2);
+  assert.equal(calls.added[1][0].updatedAt, "sib+");
+});
+
 test("buildEditCommand: obnoví i odsunuté sousedy přes batch", async () => {
   const live = new Map([
     [1, blk(1, { description: "NEW", updatedAt: "v2" })],

@@ -21,7 +21,7 @@ export type EditSnapshot = {
 
 /** Injektované vedlejší efekty. Reálná implementace žije v PlannerPage; v testech se podstrčí fake. */
 export interface UndoEffects {
-  putBlock(id: number, body: Record<string, unknown>): Promise<Block & { shifted?: Block[] }>;
+  putBlock(id: number, body: Record<string, unknown>): Promise<Block & { shifted?: Block[]; siblings?: Block[] }>;
   postBlock(body: Record<string, unknown>): Promise<Block>;
   deleteBlock(id: number): Promise<void>;
   batchUpdate(

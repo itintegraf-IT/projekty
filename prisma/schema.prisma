@@ -60,7 +60,7 @@ model Block {
   materialNote                                String?      @db.Text
   materialNoteByUsername                      String?
   blockVariant                                String       @default("STANDARD")
-  splitGroupId                                Int?
+  splitGroupId                                Int?         @db.UnsignedInt
   materialInStock                             Boolean      @default(false)
   materialIssued                              Boolean      @default(false)
   pantoneRequired                             Boolean      @default(false)
@@ -90,7 +90,7 @@ model Block {
 }
 
 model SplitGroup {
-  id        Int      @id @default(autoincrement())
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
   createdAt DateTime @default(now())
   blocks    Block[]  @relation("BlockSplitGroup")
 }

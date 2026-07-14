@@ -73,3 +73,24 @@ test("bypass s nenásobkem 30 (45 min head) → NOT_ALIGNED (validateAndComputeE
   });
   assert.deepEqual(r, { ok: false, reason: "NOT_ALIGNED" });
 });
+
+// Legacy ZAKAZKA má printMinutes=null; split endpoint (route.ts:76) ho předává jako
+// totalPrintMinutes. total ?? 0 = 0 → tailPm záporné → bezpečné DEGENERATE, ne špatný ocas.
+test("non-bypass legacy total=null (reálný vstup /split) → DEGENERATE, ne záporný tail", () => {
+  const r = computeSplitPrintMinutes({
+    type: "ZAKAZKA", scheduleBypassed: false, machine: "XL_106",
+    startTime: friStart, splitAt: pragueToUTC("2026-08-21", 16), // headPm 360, total 0 → tail -360
+    totalPrintMinutes: null, weekShifts: SHIFTS, companyDayIntervals: NO_CD,
+  });
+  assert.deepEqual(r, { ok: false, reason: "DEGENERATE" });
+});
+
+// Symetrie guardu na ř. 71: head zarovnaný (%30===0), ale tailPm nenásobek 30 musí taky spadnout.
+test("bypass: head 60 zarovnaný, ale tailPm 15 nenásobek 30 (total 75) → NOT_ALIGNED (větev tailPm % 30)", () => {
+  const r = computeSplitPrintMinutes({
+    type: "ZAKAZKA", scheduleBypassed: true, machine: "XL_106",
+    startTime: friStart, splitAt: pragueToUTC("2026-08-21", 11), // headPm 60 (elapsed, zarovnaný)
+    totalPrintMinutes: 75, weekShifts: SHIFTS, companyDayIntervals: NO_CD, // tailPm 15 → nezarovnaný
+  });
+  assert.deepEqual(r, { ok: false, reason: "NOT_ALIGNED" });
+});
