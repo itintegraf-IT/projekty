@@ -227,6 +227,16 @@ export function useJobBuilder({
     setBJobPresetLabel("");
   }, [bJobPresetId, bJobPresetLabel, jobPresets, type]);
 
+  // Výrobní štítky (obalka/vnitrky/tiskoveArchy/serie) patří jen ZAKAZKA — při přepnutí
+  // typu je vynulovat, ať ve stavu nezůstane stará hodnota z dřívějšího ZAKAZKA výběru.
+  useEffect(() => {
+    if (type === "ZAKAZKA") return;
+    setBObalka(false);
+    setBVnitrky(false);
+    setBTiskoveArchy([]);
+    setBSerie([]);
+  }, [type]);
+
   // Queue (manuální)
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const queueIdRef = useRef(0);
@@ -389,10 +399,10 @@ export function useJobBuilder({
         deadlineExpedice: bDeadlineExpedice,
         recurrenceType: bRecurrenceType,
         recurrenceCount: bRecurrenceType !== "NONE" ? bRecurrenceCount : 1,
-        obalka: bRecurrenceType === "NONE" ? bObalka : false,
-        vnitrky: bRecurrenceType === "NONE" ? bVnitrky : false,
-        tiskoveArchy: bRecurrenceType === "NONE" ? bTiskoveArchy : [],
-        serie: bRecurrenceType === "NONE" ? bSerie : [],
+        obalka: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bObalka : false,
+        vnitrky: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bVnitrky : false,
+        tiskoveArchy: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bTiskoveArchy : [],
+        serie: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bSerie : [],
       },
     ]);
     resetBuilderForm();
