@@ -51,6 +51,10 @@ export type QueueItem = {
   deadlineExpedice: string;
   recurrenceType: string;
   recurrenceCount: number;
+  obalka: boolean;
+  vnitrky: boolean;
+  tiskoveArchy: string[];
+  serie: string[];
   // Rezervace-specific
   reservationId?: number;
   reservationCode?: string;
@@ -95,6 +99,10 @@ export function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     orderNumber: r.code,
     type: "REZERVACE",
     blockVariant: "STANDARD",
+    obalka: false,
+    vnitrky: false,
+    tiskoveArchy: [],
+    serie: [],
     jobPresetId: typeof p.jobPresetId === "number" ? p.jobPresetId : typeof p.jobPresetId === "string" ? Number(p.jobPresetId) || null : null,
     jobPresetLabel: typeof p.jobPresetLabel === "string" ? p.jobPresetLabel : null,
     durationHours: typeof p.durationHours === "number" ? p.durationHours : 2,
@@ -381,6 +389,10 @@ export function useJobBuilder({
         deadlineExpedice: bDeadlineExpedice,
         recurrenceType: bRecurrenceType,
         recurrenceCount: bRecurrenceType !== "NONE" ? bRecurrenceCount : 1,
+        obalka: bRecurrenceType === "NONE" ? bObalka : false,
+        vnitrky: bRecurrenceType === "NONE" ? bVnitrky : false,
+        tiskoveArchy: bRecurrenceType === "NONE" ? bTiskoveArchy : [],
+        serie: bRecurrenceType === "NONE" ? bSerie : [],
       },
     ]);
     resetBuilderForm();
