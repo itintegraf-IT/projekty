@@ -170,6 +170,10 @@ export function useJobBuilder({
   const [bBarvyStatusId, setBBarvyStatusId]       = useState<string>("");
   const [bLakStatusId, setBLakStatusId]           = useState<string>("");
   const [bSpecifikace, setBSpecifikace]           = useState("");
+  const [bObalka, setBObalka]             = useState(false);
+  const [bVnitrky, setBVnitrky]           = useState(false);
+  const [bTiskoveArchy, setBTiskoveArchy] = useState<string[]>([]);
+  const [bSerie, setBSerie]               = useState<string[]>([]);
   const [bJobPresetId, setBJobPresetId]           = useState<number | null>(null);
   const [bJobPresetLabel, setBJobPresetLabel]     = useState("");
   const [bRecurrenceType, setBRecurrenceType]     = useState("NONE");
@@ -186,6 +190,8 @@ export function useJobBuilder({
   const [bMaterialOpts, setBMaterialOpts] = useState<CodebookOption[]>([]);
   const [bBarvyOpts, setBBarvyOpts]       = useState<CodebookOption[]>([]);
   const [bLakOpts, setBLakOpts]           = useState<CodebookOption[]>([]);
+  const [bTiskoveArchyOpts, setBTiskoveArchyOpts] = useState<string[]>([]);
+  const [bSerieOpts, setBSerieOpts]               = useState<string[]>([]);
   const [jobPresets, setJobPresets]       = useState<JobPreset[]>([]);
 
   // Lookup mapa badgeColor pro TimelineGrid — jen id → barva, fallback null = zachovat per-field výchozí
@@ -242,6 +248,16 @@ export function useJobBuilder({
       showToast("Nepodařilo se načíst číselníky a presety.", "error");
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/codebook?category=TISKOVY_ARCH").then((r) => r.json()),
+      fetch("/api/codebook?category=SERIE").then((r) => r.json()),
+    ]).then(([ta, se]) => {
+      setBTiskoveArchyOpts((ta as Array<{ label: string }>).map((o) => o.label));
+      setBSerieOpts((se as Array<{ label: string }>).map((o) => o.label));
+    }).catch(() => { /* prázdný seznam = dropdown ukáže hint */ });
+  }, []);
 
   function buildBuilderPresetDraft(): JobPresetDraftValues {
     return {
@@ -318,6 +334,10 @@ export function useJobBuilder({
     setBBarvyStatusId("");
     setBLakStatusId("");
     setBSpecifikace("");
+    setBObalka(false);
+    setBVnitrky(false);
+    setBTiskoveArchy([]);
+    setBSerie([]);
     setBDeadlineExpedice("");
     setBRecurrenceType("NONE");
     setBRecurrenceCount(2);
@@ -586,6 +606,10 @@ export function useJobBuilder({
     bBarvyStatusId, setBBarvyStatusId,
     bLakStatusId, setBLakStatusId,
     bSpecifikace, setBSpecifikace,
+    bObalka, setBObalka,
+    bVnitrky, setBVnitrky,
+    bTiskoveArchy, setBTiskoveArchy,
+    bSerie, setBSerie,
     bJobPresetId, setBJobPresetId,
     bJobPresetLabel, setBJobPresetLabel,
     bRecurrenceType, setBRecurrenceType,
@@ -600,6 +624,8 @@ export function useJobBuilder({
     bMaterialOpts, setBMaterialOpts,
     bBarvyOpts, setBBarvyOpts,
     bLakOpts, setBLakOpts,
+    bTiskoveArchyOpts,
+    bSerieOpts,
     jobPresets, setJobPresets,
     // Derived
     badgeColorMap,
