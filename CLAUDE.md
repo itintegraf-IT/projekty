@@ -99,7 +99,7 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 **Sdílené jádro:** `src/lib/errors.ts` (AppError/errorStatus) · `authz.ts`+`auth.ts` (requireRole) · `logger.ts` · `scheduleValidationServer.ts` (validateAndComputeEnd) · `printTime.ts`/`printTime.server.ts`/`printTimeClient.ts` (tiskové hodiny) · `blockPayload.ts` (Block→POST payload, jediný zdroj) · `blockStyles.ts` · `machines.ts` · `zLayers.ts` · `dateUtils.ts` · `plannerTypes.ts` · `uiStyles.ts` · `reflow.server.ts` · `calendarDrift.server.ts` · `findConflictingBlocks.ts`.
 
-**Planner:** `src/app/_components/PlannerPage.tsx` (orchestrátor ~2647 ř.) · `TimelineGrid.tsx` (~2355 ř.) · `src/components/planner/BlockCard.tsx` (render bloku) · `src/hooks/useJobBuilder.ts` + `src/components/planner/JobBuilderPanel.tsx` (builder) · `ShutdownManager.tsx` · `ResizeHandle.tsx` · `src/components/BlockEdit.tsx`/`BlockDetail.tsx`/`NativeSelect.tsx`/`PrimaryCta.tsx`/`ModuleHeader.tsx`/`ConfirmDialog.tsx`.
+**Planner:** `src/app/_components/PlannerPage.tsx` (orchestrátor ~2647 ř.) · `TimelineGrid.tsx` (~2355 ř.) · `src/components/planner/BlockCard.tsx` (render bloku) · `src/hooks/useJobBuilder.ts` + `src/components/planner/JobBuilderPanel.tsx` (builder) · `src/components/planner/ProductionTagsRow.tsx` (sdílený řádek výrobních štítků OBÁLKA/VNITŘKY + archy/série — BlockEdit i builder) · `ShutdownManager.tsx` · `ResizeHandle.tsx` · `src/components/BlockEdit.tsx`/`BlockDetail.tsx`/`NativeSelect.tsx`/`PrimaryCta.tsx`/`ModuleHeader.tsx`/`ConfirmDialog.tsx`.
 
 **Admin:** `src/app/admin/_components/` — `AdminDashboard.tsx` (shell) + `UsersSection.tsx`/`CodebookSection.tsx`/`PresetSection.tsx` + `adminShared.ts`.
 
