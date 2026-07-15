@@ -14,7 +14,7 @@ import { utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtil
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
 import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
 import { parseProductionTags, serializeProductionTags } from "@/lib/productionTags";
-import { MultiSelectDropdown } from "@/components/MultiSelectDropdown";
+import { ProductionTagsRow } from "@/components/planner/ProductionTagsRow";
 import { NativeSelect } from "@/components/NativeSelect";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
@@ -953,32 +953,13 @@ export function BlockEdit({
             </div>
 
             {/* Řádek 3: Výrobní štítky — OBÁLKA | VNITŘKY | Tiskové archy | Série */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1.15fr 1.15fr", gap: 6, marginTop: 10, alignItems: "end", opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
-              {/* OBÁLKA */}
-              <button type="button" onClick={() => setObalka((v) => !v)} style={{ height: 34, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", border: obalka ? "1px solid #facc15" : "1px solid var(--border)", background: obalka ? "color-mix(in oklab, #facc15 16%, transparent)" : "var(--surface-2)", color: obalka ? "#eab308" : "var(--text-muted)", transition: "all 100ms" }}>
-                <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: obalka ? "#facc15" : "transparent", border: obalka ? "1.5px solid #facc15" : "1.5px solid var(--border)" }}>
-                  {obalka && <svg width="8" height="6" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#1a1206" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                </span>
-                OBÁLKA
-              </button>
-              {/* VNITŘKY */}
-              <button type="button" onClick={() => setVnitrky((v) => !v)} style={{ height: 34, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", border: vnitrky ? "1px solid #22d3ee" : "1px solid var(--border)", background: vnitrky ? "color-mix(in oklab, #22d3ee 16%, transparent)" : "var(--surface-2)", color: vnitrky ? "#22d3ee" : "var(--text-muted)", transition: "all 100ms" }}>
-                <span style={{ width: 14, height: 14, borderRadius: 4, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: vnitrky ? "#22d3ee" : "transparent", border: vnitrky ? "1.5px solid #22d3ee" : "1.5px solid var(--border)" }}>
-                  {vnitrky && <svg width="8" height="6" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="#06222a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-                </span>
-                VNITŘKY
-              </button>
-              {/* TISKOVÉ ARCHY */}
-              <div>
-                <ColLabel>Tiskové archy</ColLabel>
-                <MultiSelectDropdown options={[...tiskoveArchyOpts, ...tiskoveArchy.filter((s) => !tiskoveArchyOpts.includes(s))]} selected={tiskoveArchy} onChange={setTiskoveArchy} disabled={!canEdit} />
-              </div>
-              {/* SÉRIE */}
-              <div>
-                <ColLabel>Série</ColLabel>
-                <MultiSelectDropdown options={[...serieOpts, ...serie.filter((s) => !serieOpts.includes(s))]} selected={serie} onChange={setSerie} disabled={!canEdit} />
-              </div>
-            </div>
+            <ProductionTagsRow
+              obalka={obalka} onObalkaChange={setObalka}
+              vnitrky={vnitrky} onVnitrkyChange={setVnitrky}
+              tiskoveArchy={tiskoveArchy} onTiskoveArchyChange={setTiskoveArchy} tiskoveArchyOpts={tiskoveArchyOpts}
+              serie={serie} onSerieChange={setSerie} serieOpts={serieOpts}
+              disabled={!canEdit}
+            />
 
             {/* SPECIFIKACE */}
             <div style={{ marginTop: 8, opacity: !canEdit ? 0.45 : 1, pointerEvents: !canEdit ? "none" : "auto" }}>
