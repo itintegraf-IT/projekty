@@ -18,6 +18,7 @@ import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
 import { blockToCreatePayload } from "@/lib/blockPayload";
 import { snapStartToNextRunnableSlot } from "@/lib/printTime";
+import { serializeProductionTags } from "@/lib/productionTags";
 import { useUndoManager } from "./useUndoManager";
 import type { UndoEffects } from "@/lib/undo/types";
 import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
@@ -1485,6 +1486,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       specifikace: item.specifikace || null,
       deadlineExpedice: item.deadlineExpedice || null,
       recurrenceType: rType,
+      obalka: item.obalka ?? false,
+      vnitrky: item.vnitrky ?? false,
+      tiskoveArchy: serializeProductionTags(item.tiskoveArchy ?? []),
+      serie: serializeProductionTags(item.serie ?? []),
       // Rezervace — pokud jde o rezervační item, přidat reservationId
       ...(item.reservationId !== undefined && { reservationId: item.reservationId }),
     };
