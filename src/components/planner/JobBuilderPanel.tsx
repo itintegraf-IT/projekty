@@ -7,6 +7,7 @@ import DatePickerField from "@/app/_components/DatePickerField";
 import { NativeSelect } from "@/components/NativeSelect";
 import { PrimaryCta } from "@/components/PrimaryCta";
 import { machineBadgeStyle } from "@/components/planner/ShutdownManager";
+import { ProductionTagsRow } from "@/components/planner/ProductionTagsRow";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import {
   type CodebookOption,
@@ -43,6 +44,12 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
     bBarvyStatusId, setBBarvyStatusId,
     bLakStatusId, setBLakStatusId,
     bSpecifikace, setBSpecifikace,
+    bObalka, setBObalka,
+    bVnitrky, setBVnitrky,
+    bTiskoveArchy, setBTiskoveArchy,
+    bSerie, setBSerie,
+    bTiskoveArchyOpts,
+    bSerieOpts,
     bJobPresetId,
     bJobPresetLabel,
     bRecurrenceType, setBRecurrenceType,
@@ -440,6 +447,24 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
                       </>
                     )}
                   </div>
+
+                  {/* ── Výrobní štítky (jen ZAKAZKA, jednorázová zakázka) ── */}
+                  {type === "ZAKAZKA" && bRecurrenceType === "NONE" && (
+                    <div style={{ paddingTop: 12, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>Výrobní štítky</div>
+                      <ProductionTagsRow
+                        obalka={bObalka} onObalkaChange={setBObalka}
+                        vnitrky={bVnitrky} onVnitrkyChange={setBVnitrky}
+                        tiskoveArchy={bTiskoveArchy} onTiskoveArchyChange={setBTiskoveArchy} tiskoveArchyOpts={bTiskoveArchyOpts}
+                        serie={bSerie} onSerieChange={setBSerie} serieOpts={bSerieOpts}
+                      />
+                    </div>
+                  )}
+                  {type === "ZAKAZKA" && bRecurrenceType !== "NONE" && (
+                    <div style={{ paddingTop: 12, paddingBottom: 14, borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                      Štítky (OBÁLKA/VNITŘKY, archy, série) nastavíš u série po založení — editací bloku.
+                    </div>
+                  )}
 
                   {/* ── Preview série ── */}
                   {bRecurrenceType !== "NONE" && seriesPreview.length > 0 && (
