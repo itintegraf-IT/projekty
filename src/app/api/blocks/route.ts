@@ -206,6 +206,8 @@ export async function POST(request: NextRequest) {
       // autoShiftIfBusy (queue-drop je posílá tak, že existující pre-check větev neběží).
       // Duration-based (ne-ZAKAZKA nemá printMinutes); slot je jen kandidát, finální
       // assertNoOverlapForBlocks (níže) drží souběh.
+      // Pozn.: self-shift je scoped jen na POST (queue-drop). PUT (grid-drag) a batch (lasso)
+      // REZERVACI při kolizi tvrdě odmítnou přes net (409) — vědomý known-gap, viz spec R5.
       if (finalType === "REZERVACE" && !bypassOverlapCheck) {
         const conflict = await tx.block.findFirst({
           where: { machine: body.machine, startTime: { lt: endTime }, endTime: { gt: startTime } },

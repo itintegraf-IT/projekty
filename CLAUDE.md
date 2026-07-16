@@ -9,7 +9,7 @@
 ```bash
 npm run build        # build (spustit lokálně před pushem — chytí TS chyby dřív než server)
 npm run lint         # vrací warningy, 0 chyb je OK
-# celá test suite (392 testů, node:test + tsx):
+# celá test suite (397 testů, node:test + tsx):
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts
 ```
 

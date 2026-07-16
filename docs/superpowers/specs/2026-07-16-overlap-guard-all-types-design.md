@@ -110,7 +110,7 @@ větev vrací rovnou 422 (dnes dead-code). REZERVACE dnes žádnou `autoShiftIfB
 **Řešení:** definovat REZERVACE „auto-posun sebe" přes duration-based `findNextFreeSlotFromDb`
 (`scheduleSlotFinder.ts:107-115`, `blockedIntervals` je typ-agnostické — dotahuje všechny bloky
 stroje). Napojit tak, aby se net **vždy** volal s ID této REZERVACE + ID posunutých na její účet
-(stejná nepodmíněná invarianta jako dnes ZAKAZKA na `route.ts:352`). Platí pro POST i batch.
+(stejná nepodmíněná invarianta jako dnes ZAKAZKA na `route.ts:352`). **REZERVACE self-shift je scoped jen na POST** (queue-drop = jediná reálná cesta vzniku rezervace). V **batch (lasso) a PUT (grid-drag)** se REZERVACE při kolizi tvrdě odmítne (net → 409), NEauto-posouvá — **vědomý known-gap** (batch: rozházení jednotlivých rezervací v hromadném přesunu by bylo překvapivé; PUT: konzervativní odmítnutí je bezpečnější). Data-integrita drží všude (finální net).
 Když `findNextFreeSlotFromDb` nenajde volný slot v horizontu → čistá hláška (ne 422 z print-minutes
 větve). UDRZBA `autoShiftIfBusy` cestu nemá — kolize = tvrdé odmítnutí.
 

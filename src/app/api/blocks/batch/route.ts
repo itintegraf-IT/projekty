@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Finální pojistka — žádný ZAKAZKA blok (přesunutý ani posunutý) nesmí skončit překrytý.
+      // Finální pojistka — žádný blok libovolného typu (přesunutý ani posunutý chain-pushem) nesmí skončit překrytý.
       // Běží VŽDY (i při bypassOverlapCheck): zachytí překryv v rámci této transakce.
       for (const [machine, ids] of checkByMachine) {
         await assertNoOverlapForBlocks(machine, ids, tx);
