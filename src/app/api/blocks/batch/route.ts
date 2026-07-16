@@ -112,25 +112,24 @@ export async function POST(request: NextRequest) {
           if (!sched.ok) throw new AppError("SCHEDULE_VIOLATION", sched.error);
           computedEnds.set(u.id, { end: sched.end, printMinutes: pm, bypassed: sched.effectivelyBypassed });
         }
+      }
 
-        // Intra-group pre-check: re-expanze mohla sourozencům změnit délky → překryv
-        // UVNITŘ dávky je neřešitelný (chain push sourozence neposouvá) → konkrétní
-        // hláška místo generické 409 z finální pojistky.
-        const pair = findIntraBatchOverlap(
-          zakazkaUpdates.map((u) => ({
-            id: u.id,
-            orderNumber: existingBlocks.find((b) => b.id === u.id)?.orderNumber ?? null,
-            machine: u.machine,
-            start: new Date(u.startTime),
-            end: computedEnds.get(u.id)!.end,
-          }))
+      // Intra-group pre-check přes VŠECHNY přesunuté bloky (i REZERVACE/UDRZBA):
+      // dva ne-ZAKAZKA bloky v jednom lasso by jinak mohly přistát na sebe.
+      const intraPair = findIntraBatchOverlap(
+        updates.map((u) => ({
+          id: u.id,
+          orderNumber: existingBlocks.find((b) => b.id === u.id)?.orderNumber ?? null,
+          machine: u.machine,
+          start: new Date(u.startTime),
+          end: computedEnds.get(u.id)?.end ?? new Date(u.endTime),
+        }))
+      );
+      if (intraPair) {
+        throw new AppError(
+          "OVERLAP",
+          `Bloky #${intraPair[0].orderNumber ?? intraPair[0].id} a #${intraPair[1].orderNumber ?? intraPair[1].id} se překrývají mezi sebou — přesuň je jednotlivě nebo zvol jiné místo.`
         );
-        if (pair) {
-          throw new AppError(
-            "OVERLAP",
-            `Bloky #${pair[0].orderNumber ?? pair[0].id} a #${pair[1].orderNumber ?? pair[1].id} se po přepočtu délek překrývají mezi sebou — přesuň je jednotlivě nebo zvol jiné místo.`
-          );
-        }
       }
 
       const updated: Awaited<ReturnType<typeof tx.block.update>>[] = [];
@@ -165,9 +164,9 @@ export async function POST(request: NextRequest) {
         updated.push(result);
       }
 
-      // Bloky ke kontrole překryvu, per stroj — přesunuté z dávky + případně posunuté chain pushem.
+      // Bloky ke kontrole překryvu, per stroj — VŠECHNY přesunuté (i REZERVACE/UDRZBA) + posunuté chain-pushem.
       const checkByMachine = new Map<string, number[]>();
-      for (const u of zakazkaUpdates) {
+      for (const u of updates) {
         const arr = checkByMachine.get(u.machine) ?? [];
         arr.push(u.id);
         checkByMachine.set(u.machine, arr);
