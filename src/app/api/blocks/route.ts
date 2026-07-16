@@ -202,6 +202,27 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // REZERVACE: auto-posun SEBE na nejbližší volný slot — nezávisle na resolveChain/
+      // autoShiftIfBusy (queue-drop je posílá tak, že existující pre-check větev neběží).
+      // Duration-based (ne-ZAKAZKA nemá printMinutes); slot je jen kandidát, finální
+      // assertNoOverlapForBlocks (níže) drží souběh.
+      if (finalType === "REZERVACE" && !bypassOverlapCheck) {
+        const conflict = await tx.block.findFirst({
+          where: { machine: body.machine, startTime: { lt: endTime }, endTime: { gt: startTime } },
+          select: { id: true },
+        });
+        if (conflict) {
+          const slot = await findNextFreeSlotFromDb(body.machine, startTime, durationMs);
+          if (!slot.found) {
+            throw new AppError("OVERLAP", "Slot je obsazený a v horizontu není volno — vyber jiné místo.");
+          }
+          startTime = slot.startTime;
+          endTime = slot.endTime;
+          wasShifted = true;
+          logger.info("[POST /api/blocks] REZERVACE self-shift", { machine: body.machine, newStart: startTime.toISOString() });
+        }
+      }
+
       // B2: splitGroupId (undo re-POST) musí odkazovat na existující SplitGroup — jinak by insert
       // spadl na FK constraint. Stará stale-client tail POST self-link (splitGroupId = block.id) tak
       // dostane čistou 422 „Neznámá split skupina" místo generické FK 500 „Chyba při vytváření bloku".
@@ -346,11 +367,9 @@ export async function POST(request: NextRequest) {
           });
         }
       }
-      // Finální pojistka — běží VŽDY pro ZAKAZKA (i bez resolveChain / s bypassOverlapCheck):
-      // překryv se nesmí uložit žádnou cestou (konzistentně s PUT a batch route).
-      if (finalType === "ZAKAZKA") {
-        await assertNoOverlapForBlocks(body.machine, [newBlock.id, ...shiftedMoves.map((m) => m.id)], tx);
-      }
+      // Finální pojistka — běží VŽDY a pro VŠECHNY typy (i bez resolveChain / s bypassOverlapCheck):
+      // žádný blok (zakázka/rezervace/údržba) nesmí skončit překrytý. Jediná záruka souběhu.
+      await assertNoOverlapForBlocks(body.machine, [newBlock.id, ...shiftedMoves.map((m) => m.id)], tx);
 
       return { newBlock, shiftedMoves };
     }, { timeout: 15000, maxWait: 5000 });
