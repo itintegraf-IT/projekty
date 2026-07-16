@@ -515,11 +515,13 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         }
       }
 
-      // ── Chain push navazujících bloků + tvrdá pojistka ──
-      // Jen pro ZAKAZKA a jen když se reálně měnil čas/stroj.
+      // ── Chain push (jen ZAKAZKA) + tvrdá pojistka (všechny typy) ──
       let shiftedMoves: AppliedMove[] = [];
-      if (resultingType === "ZAKAZKA" && (timingChanged || typeChangesToZakazka)) {
-        if (resolveChain) {
+      // Net běží při změně pozice/času/stroje NEBO změně typu jakýmkoliv směrem (spec R1):
+      // ZAKAZKA↔ne-ZAKAZKA na legacy-kolidujícím místě jinak net přeskočí.
+      const positionOrTypeChanged = timingChanged || typeChangesToZakazka || typeChangingAwayFromZakazka;
+      if (positionOrTypeChanged) {
+        if (resultingType === "ZAKAZKA" && resolveChain) {
           shiftedMoves = await resolveChainPushFromDb(
             tx,
             updated.machine,
@@ -540,7 +542,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             });
           }
         }
-        // Finální pojistka — běží VŽDY (i bez resolveChain): zachytí překryv v rámci této transakce.
+        // Finální pojistka — VŠECHNY typy (i bez resolveChain, i s bypassOverlapCheck).
         await assertNoOverlapForBlocks(updated.machine, [updated.id, ...shiftedMoves.map((m) => m.id)], tx);
       }
 
