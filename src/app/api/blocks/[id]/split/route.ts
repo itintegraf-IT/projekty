@@ -162,7 +162,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         data: { blockId: tailCreated.id, orderNumber: tailCreated.orderNumber, userId: session.id, username: session.username, action: "CREATE" },
       });
 
-      // 9. Chain push ocasu + finální pojistka (jen ZAKAZKA; ne-ZAKAZKA se nepřekládá).
+      // 9. Chain push ocasu (jen ZAKAZKA; ne-ZAKAZKA se nepřekládá).
       let shiftedMoves: AppliedMove[] = [];
       if (block.type === "ZAKAZKA") {
         shiftedMoves = await resolveChainPushFromDb(tx, block.machine, {
@@ -184,9 +184,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
             })),
           });
         }
-        // Finální tvrdá pojistka — head + tail + odsunuté nesmí nikde kolidovat (parita POST/PUT).
-        await assertNoOverlapForBlocks(block.machine, [headUpdated.id, tailCreated.id, ...shiftedMoves.map((m) => m.id)], tx);
       }
+      // Finální tvrdá pojistka — VŠECHNY typy: head, tail ani posunutí nesmí skončit překryté
+      // (parita POST/PUT; dřív jen ZAKAZKA, split ne-ZAKAZKA bloku pojistku obcházel).
+      await assertNoOverlapForBlocks(block.machine, [headUpdated.id, tailCreated.id, ...shiftedMoves.map((m) => m.id)], tx);
 
       return { head: headUpdated, tail: tailCreated, shifted: shiftedMoves };
     }, { timeout: 15000, maxWait: 5000 });
