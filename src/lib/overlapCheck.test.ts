@@ -128,6 +128,32 @@ describe("assertNoOverlapForBlocks", () => {
       },
     );
   });
+
+  it("net chytí překryv bez ohledu na typ bloku (type-agnostic invariant)", async () => {
+    // assertNoOverlapForBlocks nezná a nikdy neznala `type` — pracuje čistě s ID a časy.
+    // Tento test fixuje invariant proti budoucí regresi (např. kdyby někdo přidal typový
+    // filtr do WHERE): "soused" v konfliktním řádku je UDRZBA blok, dotčený blok je
+    // libovolného typu — net musí OVERLAP vyhodit stejně, jako by soused byl ZAKAZKA.
+    const tx = {
+      block: {
+        findMany: mock.fn(async () => [
+          { id: 5, orderNumber: "REZ-1", startTime: new Date("2026-04-16T10:00:00Z"), endTime: new Date("2026-04-16T12:00:00Z") },
+        ]),
+      },
+      // konfliktní řádek reprezentuje UDRZBA blok na stejném stroji — $queryRaw v reálu
+      // typ nefiltruje, mock to zrcadlí vrácením konfliktu bez ohledu na typ.
+      $queryRaw: mock.fn(async () => [{ id: 77, orderNumber: "UDRZBA-3" }]),
+    } as never;
+
+    await assert.rejects(
+      () => assertNoOverlapForBlocks("XL_105", [5], tx),
+      (err: Error & { code?: string }) => {
+        assert.equal(err.code, "OVERLAP");
+        assert.ok(err.message.includes("UDRZBA-3"), "hláška má jmenovat kolidujícího souseda jiného typu");
+        return true;
+      },
+    );
+  });
 });
 
 describe("findIntraBatchOverlap", () => {

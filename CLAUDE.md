@@ -77,6 +77,8 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 **Validace harmonogramu → vždy `validateAndComputeEnd`** (`src/lib/scheduleValidationServer.ts`, jediný zdroj pravdy). Pro každý ZAKAZKA blok s `startTime` (POST/PUT/batch): ulož **end vrácený funkcí** (nikdy z klienta) a do `Block.scheduleBypassed` ulož **`sched.effectivelyBypassed`** (spočítaná pravda), nikdy echo request flagu. Klientské mutační cesty posílají `printMinutes` a snapují **jen start** (`snapStartToNextRunnableSlot`), end dopočítá server. Detaily „tiskových hodin" → `docs/vyvoj-historie.md`.
 
+**Overlap guard platí pro VŠECHNY typy bloků** (ZAKAZKA, REZERVACE, UDRZBA — ne jen ZAKAZKA), na všech 5 zápisových cestách (POST/PUT/batch/split/reflow). `assertNoOverlapForBlocks`/`checkBlockOverlap` (`src/lib/overlapCheck.ts`) jsou type-agnostické odjakživa — nový kód, který mění `startTime`/`endTime`/`machine` bloku libovolného typu, musí na konci transakce zavolat `assertNoOverlapForBlocks` se seznamem ID dotčených bloků. Reflow endpointy (`src/lib/reflow.server.ts`) tuto pojistku dřív nevolaly vůbec (reálný bug, opraven 16. 7. 2026) — nepřidávat žádnou novou mutační cestu bez ní. Detaily → `docs/vyvoj-historie.md`.
+
 **Audit → každá mutace v `$transaction`** společně se zápisem do `AuditLog` (jinak nekonzistentní stav).
 
 **Mouse handlery na blocích** začínají `if (e.button !== 0) return;` (jen levé tlačítko).
