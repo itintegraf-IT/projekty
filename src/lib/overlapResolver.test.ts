@@ -107,6 +107,16 @@ describe("computeChainPush — souvislý provoz (fallback 24/7)", () => {
     );
     assert.deepEqual(r, { ok: false, reason: "PLACEMENT_FAILED", blockId: 2 });
   });
+
+  it("computeChainPush: locked obstacle (simulace ne-ZAKAZKA zdi) v cestě anchoru → LOCKED_CONFLICT", () => {
+    // R4 (overlapResolver.server.ts) mapuje REZERVACE/UDRZBA na locked:true dřív, než je
+    // předá sem — tento test dokazuje, že pure funkce takovou "zeď" bez dalších změn zvládá.
+    const wall = blk(20, 8, 10, { locked: true });
+    const anchor = { id: 1, startTime: H(9), endTime: H(11) };
+    const res = computeChainPush("XL_105", anchor, [wall], [], NO_CD);
+    assert.equal(res.ok, false);
+    if (!res.ok) assert.equal(res.reason, "LOCKED_CONFLICT");
+  });
 });
 
 describe("computeChainPush — re-expanze přes víkendovou odstávku (XL_106)", () => {

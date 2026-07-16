@@ -1,6 +1,7 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { resolveChainPushFromDb } from "./overlapResolver.server";
+import { isAppError } from "./errors";
 
 // Úterý 16. 6. 2026, prázdné weekShifts → hardcoded fallback XL_105 (souvislý provoz).
 const H = (h: number) => new Date(`2026-06-16T${String(h).padStart(2, "0")}:00:00.000Z`);
@@ -14,6 +15,7 @@ type Row = {
   printCompletedAt: Date | null;
   printMinutes: number | null;
   scheduleBypassed: boolean;
+  type: string;
 };
 
 const row = (id: number, start: number, end: number, opts: Partial<Row> = {}): Row => ({
@@ -25,6 +27,7 @@ const row = (id: number, start: number, end: number, opts: Partial<Row> = {}): R
   printCompletedAt: opts.printCompletedAt ?? null,
   printMinutes: opts.printMinutes ?? (end - start) * 60,
   scheduleBypassed: opts.scheduleBypassed ?? false,
+  type: opts.type ?? "ZAKAZKA",
 });
 
 function mkTx(rows: Row[], companyDays: { startDate: Date; endDate: Date }[] = []) {
@@ -124,5 +127,25 @@ describe("resolveChainPushFromDb", () => {
         return true;
       }
     );
+  });
+
+  it("resolveChainPushFromDb: anchor kolidující s REZERVACE blokem → OVERLAP (rezervace se neposouvá)", async () => {
+    const { tx, updateMock } = mkTx([row(20, 11, 13, { orderNumber: "REZ-1", type: "REZERVACE" })]);
+    const anchor = { id: 1, startTime: H(10), endTime: H(12) };
+    await assert.rejects(
+      () => resolveChainPushFromDb(tx, "XL_105", anchor),
+      (e: unknown) => isAppError(e) && e.code === "OVERLAP" && /rezervac|údržb/i.test(e.message)
+    );
+    assert.equal(updateMock.mock.calls.length, 0);
+  });
+
+  it("resolveChainPushFromDb: anchor kolidující s UDRZBA blokem → OVERLAP s hláškou o údržbě", async () => {
+    const { tx, updateMock } = mkTx([row(21, 11, 13, { orderNumber: "UDR-1", type: "UDRZBA" })]);
+    const anchor = { id: 1, startTime: H(10), endTime: H(12) };
+    await assert.rejects(
+      () => resolveChainPushFromDb(tx, "XL_105", anchor),
+      (e: unknown) => isAppError(e) && e.code === "OVERLAP" && /údržb/i.test(e.message)
+    );
+    assert.equal(updateMock.mock.calls.length, 0);
   });
 });

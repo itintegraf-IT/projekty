@@ -59,7 +59,6 @@ export async function resolveChainPushFromDb(
         machine,
         // anchor + sourozenci ve stejné dávce (lasso) se neposouvají
         id: { notIn: [anchor.id, ...excludeIds] },
-        type: "ZAKAZKA",
         startTime: { lt: windowEnd },
         endTime: { gt: windowStart },
       },
@@ -72,6 +71,7 @@ export async function resolveChainPushFromDb(
         printCompletedAt: true,
         printMinutes: true,
         scheduleBypassed: true,
+        type: true,
       },
     }),
     tx.machineWeekShifts.findMany({
@@ -97,9 +97,9 @@ export async function resolveChainPushFromDb(
     id: r.id,
     startTime: r.startTime,
     endTime: r.endTime,
-    // Vytištěné bloky (printCompletedAt) se chovají jako zamčené — tisk fyzicky proběhl,
-    // nesmí se přeplánovat chain pushem (locked se při potvrzení tisku nenastavuje).
-    locked: r.locked || r.printCompletedAt != null,
+    // Vytištěné bloky se chovají jako zamčené. Ne-ZAKAZKA (REZERVACE/UDRZBA) jsou pro
+    // ZAKAZKA chain-push PEVNÁ PŘEKÁŽKA — nikdy se neposouvají (jen ZAKAZKA se odsouvá).
+    locked: r.locked || r.printCompletedAt != null || r.type !== "ZAKAZKA",
     printMinutes: r.printMinutes,
     scheduleBypassed: r.scheduleBypassed,
   }));
@@ -110,10 +110,13 @@ export async function resolveChainPushFromDb(
   if (!result.ok) {
     if (result.reason === "LOCKED_CONFLICT") {
       const l = rowById.get(result.lockedId);
-      throw new AppError(
-        "OVERLAP",
-        `Nelze uvolnit místo — koliduje se zamčeným blokem #${l?.orderNumber ?? result.lockedId}. Vyber jiné místo.`
-      );
+      const kind =
+        l && l.type !== "ZAKAZKA"
+          ? l.type === "REZERVACE"
+            ? "rezervací"
+            : "údržbou"
+          : `zamčeným blokem #${l?.orderNumber ?? result.lockedId}`;
+      throw new AppError("OVERLAP", `Nelze uvolnit místo — koliduje s ${kind}. Vyber jiné místo.`);
     }
     const b = rowById.get(result.blockId);
     throw new AppError(
