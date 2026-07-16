@@ -8,6 +8,7 @@ import {
 } from "@/lib/printTime";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { detectCalendarDrift } from "@/lib/calendarDrift.server";
+import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 
 type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
 
@@ -139,6 +140,10 @@ export async function reflowBlockInTx(
   // Chain push navazujících bloků — kolize se zamčeným/vytištěným následníkem hází
   // AppError, záměrně NECHYTÁNO zde: bublá do route, transakce se odvolá.
   const moves = await deps.resolveChainPush(tx, block.machine, { id: blockId, startTime: newStart, endTime: newEnd });
+
+  // Finální tvrdá pojistka — reflow (re-expanze + chain push) nesmí skončit překryvem.
+  // Parita s POST/PUT/batch/split; jediná záruka souběhu v této transakci.
+  await assertNoOverlapForBlocks(block.machine, [blockId, ...moves.map((m) => m.id)], tx);
 
   // Audit odsunutých navazujících bloků — jeden AUTO_SHIFT řádek per posunutý blok (vzor
   // PUT `[id]/route.ts`). En-dash `–` (U+2013) v oldValue/newValue, NE ASCII pomlčka —

@@ -4,6 +4,7 @@ import { reflowBlockInTx, reflowMachineInTx, MACHINE_REFLOW_WINDOW_DAYS, type Re
 import type { AppliedMove } from "./overlapResolver.server";
 import type { DriftedBlock } from "./calendarDrift.server";
 import { offWeek, xl106Week, W1 } from "./weekShiftsTestFixtures";
+import { isAppError } from "./errors";
 
 // Úterý 16. 6. 2026, prázdné weekShifts → hardcoded fallback XL_105 (souvislý provoz
 // mimo pátek noc 22–6, sobotu celou a všední noci 22–6 — viz overlapResolver.server.test.ts).
@@ -46,6 +47,9 @@ function mkBlock(overrides: Partial<BlockRow> = {}): BlockRow {
  * Fake tx: obyčejné objekty s mock.fn (BEZ mock.module) — vzor overlapResolver.server.test.ts.
  * `block.findUnique` vrací `block`; `block.update`/`auditLog.create` jsou spy.
  * `machineWeekShifts.findMany`/`companyDay.findMany` slouží loadMachineCalendarRange (T1).
+ * `block.findMany`/`$queryRaw` slouží finální pojistce `assertNoOverlapForBlocks` (R3) —
+ * default happy-path (`findMany` vrací dotčený blok, `$queryRaw` vrací `[]` = žádný
+ * konflikt), přepínatelné per-test přiřazením `tx.$queryRaw = mock.fn(...)`.
  */
 function mkTx(
   block: BlockRow | null,
@@ -58,13 +62,18 @@ function mkTx(
   }));
   const auditCreateMock = mock.fn(async (_args: { data: Record<string, unknown> }) => ({}));
   const auditCreateManyMock = mock.fn(async (args: { data: Record<string, unknown>[] }) => ({ count: args.data.length }));
+  const findManyMock = mock.fn(async () =>
+    block ? [{ id: block.id, orderNumber: block.orderNumber, startTime: block.startTime, endTime: block.endTime }] : []
+  );
+  const queryRawMock = mock.fn(async () => [] as { id: number; orderNumber: string | null }[]);
   const tx = {
-    block: { findUnique: findUniqueMock, update: updateMock },
+    block: { findUnique: findUniqueMock, update: updateMock, findMany: findManyMock },
     auditLog: { create: auditCreateMock, createMany: auditCreateManyMock },
     machineWeekShifts: { findMany: mock.fn(async () => opts.weekShifts ?? []) },
     companyDay: { findMany: mock.fn(async () => opts.companyDays ?? []) },
+    $queryRaw: queryRawMock,
   } as never;
-  return { tx, findUniqueMock, updateMock, auditCreateMock, auditCreateManyMock };
+  return { tx, findUniqueMock, updateMock, auditCreateMock, auditCreateManyMock, findManyMock, queryRawMock };
 }
 
 function mkDeps(moves: AppliedMove[] = []) {
@@ -339,6 +348,24 @@ describe("reflowBlockInTx", () => {
       }
     );
     assert.equal(auditCreateManyMock.mock.calls.length, 0); // error letí před audit zápisy
+  });
+
+  it("reflowBlockInTx: výsledek s překryvem → OVERLAP (finální net)", async () => {
+    // Drifted blok (end nesedí, start runnable) — projde write → chain push beze změn,
+    // ale finální net (assertNoOverlapForBlocks) najde konflikt a transakce se odvolá.
+    const block = mkBlock({ startTime: H(10), endTime: H(13), printMinutes: 120 });
+    const { tx, updateMock, queryRawMock } = mkTx(block);
+    queryRawMock.mock.mockImplementation(async () => [{ id: 99, orderNumber: "X" }]); // konfliktní řádek
+    const deps = mkDeps(); // resolveChainPush → [] (žádné odsunuté navazující bloky)
+
+    await assert.rejects(
+      () => reflowBlockInTx(tx, 1, actor, deps),
+      (e: unknown) => isAppError(e) && e.code === "OVERLAP"
+    );
+    // DŮKAZ, že se prošla reálná cesta write → chain push → net (ne crash dřív na
+    // chybějícím mocku) — bez tohoto assertu by test „prošel" i kdyby spadl dřív a
+    // nedokazoval by záruku R3.
+    assert.equal(updateMock.mock.calls.length, 1);
   });
 });
 
