@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { todayPragueDateStr } from "@/lib/dateUtils";
 import { machineLabel } from "@/lib/machines";
 import { ModuleHeader } from "@/components/ModuleHeader";
+import HealthPanel from "./HealthPanel";
 
 type Mode = "retro" | "outlook";
 type TimeRange = "today" | "week" | "month" | "custom";
@@ -547,6 +548,8 @@ export default function ReportDashboard() {
 
       {/* Body */}
       <div style={{ padding: 24 }}>
+        <HealthPanel />
+
         {/* Info bar */}
         <div
           style={{
