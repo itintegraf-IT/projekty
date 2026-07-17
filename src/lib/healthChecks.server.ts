@@ -166,3 +166,37 @@ export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs):
 
   return issues;
 }
+
+// ── Přílohy: disk vs. DB ─────────────────────────────────────────────────────
+/** Množinový rozdíl DB metadat a souborů na disku (klíč = "reservationId/storageKey"). Čistá funkce. */
+export function diffAttachmentFiles(dbRows: AttachmentFileRow[], diskEntries: DiskEntry[]): AttachmentIssues {
+  const key = (o: { reservationId: number; storageKey: string }) => `${o.reservationId}/${o.storageKey}`;
+  const diskSet = new Set(diskEntries.map(key));
+  const dbSet = new Set(dbRows.map(key));
+  return {
+    missingFiles: dbRows.filter((r) => !diskSet.has(key(r))).slice(0, MAX_ITEMS),
+    orphanFiles: diskEntries.filter((e) => !dbSet.has(key(e))).slice(0, MAX_ITEMS),
+  };
+}
+
+/** Naskenuje `data/reservation-attachments/<reservationId>/<storageKey>`. Chybějící složka = prázdno. */
+export async function scanAttachmentDir(dir: string): Promise<DiskEntry[]> {
+  let subdirs: string[];
+  try {
+    subdirs = (await readdir(dir, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    return []; // složka neexistuje (žádné přílohy)
+  }
+  const entries: DiskEntry[] = [];
+  for (const sub of subdirs) {
+    const reservationId = Number(sub);
+    if (!Number.isInteger(reservationId)) continue;
+    try {
+      const files = (await readdir(path.join(dir, sub), { withFileTypes: true })).filter((f) => f.isFile()).map((f) => f.name);
+      for (const storageKey of files) entries.push({ reservationId, storageKey });
+    } catch {
+      continue;
+    }
+  }
+  return entries;
+}

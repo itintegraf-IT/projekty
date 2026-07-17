@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeOverlapPairs, computeIntegrityIssues, type BlockRow, type IntegrityRefs } from "./healthChecks.server";
+import { computeOverlapPairs, computeIntegrityIssues, diffAttachmentFiles, type BlockRow, type IntegrityRefs, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
 
 const D = (iso: string) => new Date(iso);
 function blk(o: Partial<BlockRow> & Pick<BlockRow, "id" | "startTime" | "endTime">): BlockRow {
@@ -130,4 +130,38 @@ test("integrity: split-skupina < 2 bloky (1 člen i prázdná skupina)", () => {
   // skupina 10 má 1 člena; skupina 20 je v setu, ale nemá žádný blok
   const res = computeIntegrityIssues([lone], refs({ splitGroupIds: new Set([10, 20]), blockIds: new Set([1]) }));
   assert.equal(issue(res, "undersizedSplitGroup").count, 2);
+});
+
+// ── Přílohy ────────────────────────────────────────────────────────────────
+
+test("diffAttachmentFiles: DB řádek bez souboru → missing", () => {
+  const db: AttachmentFileRow[] = [{ id: 1, reservationId: 5, originalName: "a.pdf", storageKey: "k1" }];
+  const disk: DiskEntry[] = [];
+  const r = diffAttachmentFiles(db, disk);
+  assert.equal(r.missingFiles.length, 1);
+  assert.equal(r.orphanFiles.length, 0);
+});
+
+test("diffAttachmentFiles: soubor bez DB řádku → orphan", () => {
+  const db: AttachmentFileRow[] = [];
+  const disk: DiskEntry[] = [{ reservationId: 5, storageKey: "k1" }];
+  const r = diffAttachmentFiles(db, disk);
+  assert.equal(r.missingFiles.length, 0);
+  assert.equal(r.orphanFiles.length, 1);
+});
+
+test("diffAttachmentFiles: shoda → žádný nález", () => {
+  const db: AttachmentFileRow[] = [{ id: 1, reservationId: 5, originalName: "a.pdf", storageKey: "k1" }];
+  const disk: DiskEntry[] = [{ reservationId: 5, storageKey: "k1" }];
+  const r = diffAttachmentFiles(db, disk);
+  assert.equal(r.missingFiles.length, 0);
+  assert.equal(r.orphanFiles.length, 0);
+});
+
+test("diffAttachmentFiles: stejný storageKey pod jinou rezervací není shoda", () => {
+  const db: AttachmentFileRow[] = [{ id: 1, reservationId: 5, originalName: "a.pdf", storageKey: "k1" }];
+  const disk: DiskEntry[] = [{ reservationId: 6, storageKey: "k1" }];
+  const r = diffAttachmentFiles(db, disk);
+  assert.equal(r.missingFiles.length, 1);
+  assert.equal(r.orphanFiles.length, 1);
 });
