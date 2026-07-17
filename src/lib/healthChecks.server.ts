@@ -106,3 +106,63 @@ export function computeOverlapPairs(blocks: BlockRow[], now: Date): OverlapPair[
   }
   return pairs.sort((p, q) => p.overlapStart.getTime() - q.overlapStart.getTime());
 }
+
+// ── Integrita dat ───────────────────────────────────────────────────────────
+export type IntegrityRefs = {
+  splitGroupIds: Set<number>;
+  reservationIds: Set<number>;
+  jobPresetIds: Set<number>;
+  blockIds: Set<number>;
+};
+
+/** Osiřelé vazby + neplatné hodnoty. Čistá funkce nad načtenými bloky a množinami ID. */
+export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs): IntegrityIssue[] {
+  const machines = MACHINES as readonly string[];
+  const issues: IntegrityIssue[] = [];
+  const add = (key: string, label: string, hits: BlockRow[]) => {
+    issues.push({ key, label, count: hits.length, sampleBlockIds: hits.slice(0, MAX_ITEMS).map((b) => b.id) });
+  };
+
+  add("orphanJobPreset", "Osiřelý jobPreset (blok odkazuje na smazaný preset)",
+    blocks.filter((b) => b.jobPresetId != null && !refs.jobPresetIds.has(b.jobPresetId)));
+  add("orphanSplitGroup", "Osiřelá split-skupina",
+    blocks.filter((b) => b.splitGroupId != null && !refs.splitGroupIds.has(b.splitGroupId)));
+  add("orphanReservation", "Osiřelá rezervace",
+    blocks.filter((b) => b.reservationId != null && !refs.reservationIds.has(b.reservationId)));
+  add("orphanRecurrenceParent", "Osiřelý rodič opakování",
+    blocks.filter((b) => b.recurrenceParentId != null && !refs.blockIds.has(b.recurrenceParentId)));
+  add("invalidMachine", "Neplatný stroj",
+    blocks.filter((b) => !machines.includes(b.machine)));
+  add("invalidType", "Neplatný typ bloku",
+    blocks.filter((b) => !VALID_TYPES.includes(b.type)));
+  add("negativeInterval", "Konec ≤ začátek (nelogický interval)",
+    blocks.filter((b) => b.endTime.getTime() <= b.startTime.getTime()));
+  add("badPrintMinutes", "Vadné printMinutes (ZAKAZKA)",
+    blocks.filter((b) =>
+      b.type === "ZAKAZKA" && b.printCompletedAt == null && b.printMinutes != null &&
+      (b.printMinutes <= 0 || b.printMinutes > MAX_PRINT_MINUTES || b.printMinutes % 30 !== 0)));
+  add("unalignedStart", "Nezarovnaný start (mimo 30min mřížku)",
+    blocks.filter((b) =>
+      b.type === "ZAKAZKA" && b.printCompletedAt == null && b.startTime.getTime() % SLOT_MS !== 0));
+
+  // split-skupina < 2 bloky (i prázdné skupiny přítomné v refs.splitGroupIds)
+  const membersByGroup = new Map<number, number[]>();
+  for (const b of blocks) {
+    if (b.splitGroupId == null) continue;
+    const arr = membersByGroup.get(b.splitGroupId) ?? [];
+    arr.push(b.id);
+    membersByGroup.set(b.splitGroupId, arr);
+  }
+  const undersizedSamples: number[] = [];
+  let undersizedCount = 0;
+  for (const gid of refs.splitGroupIds) {
+    const members = membersByGroup.get(gid) ?? [];
+    if (members.length < 2) {
+      undersizedCount++;
+      if (undersizedSamples.length < MAX_ITEMS && members[0] != null) undersizedSamples.push(members[0]);
+    }
+  }
+  issues.push({ key: "undersizedSplitGroup", label: "Split-skupina s méně než 2 bloky", count: undersizedCount, sampleBlockIds: undersizedSamples });
+
+  return issues;
+}
