@@ -7,7 +7,7 @@ const D = (iso: string) => new Date(iso);
 function blk(o: Partial<BlockRow> & Pick<BlockRow, "id" | "startTime" | "endTime">): BlockRow {
   return {
     orderNumber: `Z-${o.id}`, machine: "XL_105", type: "ZAKAZKA",
-    printMinutes: 120, printCompletedAt: null,
+    printMinutes: 120, printCompletedAt: null, printCompletedByUserId: null,
     splitGroupId: null, reservationId: null, jobPresetId: null, recurrenceParentId: null,
     ...o,
   };
@@ -124,6 +124,17 @@ test("integrity: nezarovnaný start jen ZAKAZKA nedokončená; REZERVACE ne", ()
   const it = issue(res, "unalignedStart");
   assert.equal(it.count, 1);
   assert.deepEqual(it.sampleBlockIds, [1]);
+});
+
+test("integrity: nekonzistentní printCompleted (XOR) se hlásí, konzistentní ne", () => {
+  const onlyAt = blk({ id: 1, startTime: OK_START, endTime: OK_END, printCompletedAt: D("2026-08-04T00:00:00Z") });
+  const onlyUser = blk({ id: 2, startTime: OK_START, endTime: OK_END, printCompletedByUserId: 7 });
+  const bothSet = blk({ id: 3, startTime: OK_START, endTime: OK_END, printCompletedAt: D("2026-08-04T00:00:00Z"), printCompletedByUserId: 7 });
+  const bothNull = blk({ id: 4, startTime: OK_START, endTime: OK_END });
+  const res = computeIntegrityIssues([onlyAt, onlyUser, bothSet, bothNull], refs({ blockIds: new Set([1, 2, 3, 4]) }));
+  const it = issue(res, "inconsistentPrintCompleted");
+  assert.equal(it.count, 2);
+  assert.deepEqual(it.sampleBlockIds, [1, 2]);
 });
 
 test("integrity: split-skupina < 2 bloky (1 člen i prázdná skupina)", () => {

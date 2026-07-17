@@ -22,6 +22,7 @@ export type BlockRow = {
   endTime: Date;
   printMinutes: number | null;
   printCompletedAt: Date | null;
+  printCompletedByUserId: number | null;
   splitGroupId: number | null;
   reservationId: number | null;
   jobPresetId: number | null;
@@ -144,6 +145,8 @@ export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs):
   add("unalignedStart", "Nezarovnaný start (mimo 30min mřížku)",
     blocks.filter((b) =>
       b.type === "ZAKAZKA" && b.printCompletedAt == null && b.startTime.getTime() % SLOT_MS !== 0));
+  add("inconsistentPrintCompleted", "Nekonzistentní dokončení tisku (jen jeden ze dvou údajů)",
+    blocks.filter((b) => (b.printCompletedAt == null) !== (b.printCompletedByUserId == null)));
 
   // split-skupina < 2 bloky (i prázdné skupiny přítomné v refs.splitGroupIds)
   const membersByGroup = new Map<number, number[]>();
@@ -219,7 +222,7 @@ export function bucketDrift(drifted: DriftedBlock[]): { drift: DriftItem[]; outs
 
 const BLOCK_SELECT = {
   id: true, orderNumber: true, machine: true, type: true, startTime: true, endTime: true,
-  printMinutes: true, printCompletedAt: true, splitGroupId: true, reservationId: true,
+  printMinutes: true, printCompletedAt: true, printCompletedByUserId: true, splitGroupId: true, reservationId: true,
   jobPresetId: true, recurrenceParentId: true,
 } as const;
 
