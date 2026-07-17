@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeOverlapPairs, computeIntegrityIssues, diffAttachmentFiles, type BlockRow, type IntegrityRefs, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
+import { computeOverlapPairs, computeIntegrityIssues, diffAttachmentFiles, bucketDrift, type BlockRow, type IntegrityRefs, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
+import type { DriftedBlock } from "./calendarDrift.server";
 
 const D = (iso: string) => new Date(iso);
 function blk(o: Partial<BlockRow> & Pick<BlockRow, "id" | "startTime" | "endTime">): BlockRow {
@@ -164,4 +165,19 @@ test("diffAttachmentFiles: stejný storageKey pod jinou rezervací není shoda",
   const r = diffAttachmentFiles(db, disk);
   assert.equal(r.missingFiles.length, 1);
   assert.equal(r.orphanFiles.length, 1);
+});
+
+// ── Drift bucket ─────────────────────────────────────────────────────────────
+
+test("bucketDrift: END_MISMATCH+HORIZON → drift; START_NOT_RUNNABLE → outsideHours", () => {
+  const mk = (id: number, reason: DriftedBlock["reason"]): DriftedBlock => ({
+    id, orderNumber: `Z-${id}`, machine: "XL_105",
+    startTime: D("2026-08-01T08:00:00Z"), endTime: D("2026-08-01T10:00:00Z"),
+    expectedEnd: reason === "END_MISMATCH" ? D("2026-08-01T11:00:00Z") : null, reason,
+  });
+  const { drift, outsideHours } = bucketDrift([mk(1, "END_MISMATCH"), mk(2, "START_NOT_RUNNABLE"), mk(3, "HORIZON_EXCEEDED")]);
+  assert.deepEqual(drift.map((d) => d.id), [1, 3]);
+  assert.deepEqual(outsideHours.map((d) => d.id), [2]);
+  assert.equal(drift[0].storedEnd.getTime(), D("2026-08-01T10:00:00Z").getTime());
+  assert.equal(drift[0].expectedEnd?.getTime(), D("2026-08-01T11:00:00Z").getTime());
 });

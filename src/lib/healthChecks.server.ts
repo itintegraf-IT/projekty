@@ -200,3 +200,72 @@ export async function scanAttachmentDir(dir: string): Promise<DiskEntry[]> {
   }
   return entries;
 }
+
+// ── Drift bucket + agregátor ─────────────────────────────────────────────────
+/** END_MISMATCH/HORIZON_EXCEEDED → drift; START_NOT_RUNNABLE → mimo provoz. Čistá funkce. */
+export function bucketDrift(drifted: DriftedBlock[]): { drift: DriftItem[]; outsideHours: DriftItem[] } {
+  const drift: DriftItem[] = [];
+  const outsideHours: DriftItem[] = [];
+  for (const d of drifted) {
+    const item: DriftItem = {
+      id: d.id, orderNumber: d.orderNumber, machine: d.machine,
+      startTime: d.startTime, storedEnd: d.endTime, expectedEnd: d.expectedEnd, reason: d.reason,
+    };
+    if (d.reason === "START_NOT_RUNNABLE") outsideHours.push(item);
+    else drift.push(item);
+  }
+  return { drift, outsideHours };
+}
+
+const BLOCK_SELECT = {
+  id: true, orderNumber: true, machine: true, type: true, startTime: true, endTime: true,
+  printMinutes: true, printCompletedAt: true, splitGroupId: true, reservationId: true,
+  jobPresetId: true, recurrenceParentId: true,
+} as const;
+
+/**
+ * Spočítá všech 5 kontrol. Čte celou tabulku Block (pár sloupců) 1× a sdílí ji mezi
+ * překryvy a integritu; drift/mimo provoz z detectCalendarDrift; přílohy FS sken.
+ * Jen čte. Typováno na `typeof prisma` (thin wiring) — logika je v pure funkcích výše.
+ */
+export async function runHealthChecks(db: typeof prisma, now: Date): Promise<HealthResult> {
+  const [allBlocks, splitGroups, reservations, jobPresets, attachmentRows] = await Promise.all([
+    db.block.findMany({ select: BLOCK_SELECT }),
+    db.splitGroup.findMany({ select: { id: true } }),
+    db.reservation.findMany({ select: { id: true } }),
+    db.jobPreset.findMany({ select: { id: true } }),
+    db.reservationAttachment.findMany({ select: { id: true, reservationId: true, originalName: true, storageKey: true } }),
+  ]);
+
+  const blocks = allBlocks as BlockRow[];
+  const refs: IntegrityRefs = {
+    splitGroupIds: new Set(splitGroups.map((g) => g.id)),
+    reservationIds: new Set(reservations.map((r) => r.id)),
+    jobPresetIds: new Set(jobPresets.map((p) => p.id)),
+    blockIds: new Set(blocks.map((b) => b.id)),
+  };
+
+  const drifted = await detectCalendarDrift(
+    db, [...MACHINES], now, new Date(now.getTime() + DRIFT_HORIZON_DAYS * DAY_MS), now,
+  );
+  const { drift, outsideHours } = bucketDrift(drifted);
+  const overlaps = computeOverlapPairs(blocks, now);
+  const integrity = computeIntegrityIssues(blocks, refs);
+  const attach = diffAttachmentFiles(attachmentRows, await scanAttachmentDir(ATTACHMENTS_DIR));
+  const integrityCount = integrity.reduce((s, i) => s + i.count, 0);
+
+  return {
+    checkedAt: now.toISOString(),
+    checks: {
+      overlaps: { count: overlaps.length, items: overlaps.slice(0, MAX_ITEMS) },
+      drift: { count: drift.length, items: drift.slice(0, MAX_ITEMS) },
+      outsideHours: { count: outsideHours.length, items: outsideHours.slice(0, MAX_ITEMS) },
+      integrity: { count: integrityCount, breakdown: integrity },
+      attachments: {
+        count: attach.missingFiles.length + attach.orphanFiles.length,
+        missingFiles: attach.missingFiles,
+        orphanFiles: attach.orphanFiles,
+      },
+    },
+  };
+}
