@@ -254,7 +254,7 @@ function RetroView({ data }: { data: RetroData }) {
       {/* PLANOVANI */}
       <SectionHeader label="PLÁNOVÁNÍ" />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <KpiCard label="Přeplánování" value={data.planning.rescheduleCount} subtitle="bloky přesunuty" />
           <KpiCard label="Stabilita plánu" value={`${data.planning.stabilityPercent}%`} subtitle="bloků beze změny" />
           <KpiCard label="Přihlášení za období" value={data.logins.periodCount} subtitle={`${data.logins.activeUsers} aktivních uživatelů`} />
