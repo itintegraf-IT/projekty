@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
 import { formatPragueTime, utcToPragueDateStr } from "@/lib/dateUtils";
+import type { UserFacet } from "@/lib/auditFacets";
 
 const TEXT_PRIMARY = "var(--text)";
 const TEXT_SECONDARY = "var(--text-muted)";
@@ -47,7 +48,7 @@ interface AuditResponse {
 }
 
 interface AuditFacets {
-  usernames: string[];
+  users: UserFacet[];
   actions: string[];
 }
 
@@ -132,7 +133,7 @@ export function AuditLogPanel() {
   const [error, setError] = useState<string | null>(null);
   const [unauthorized, setUnauthorized] = useState(false);
 
-  const [facets, setFacets] = useState<AuditFacets>({ usernames: [], actions: [] });
+  const [facets, setFacets] = useState<AuditFacets>({ users: [], actions: [] });
 
   const [debouncedQ, setDebouncedQ] = useState(filters.q);
   const qDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -353,10 +354,10 @@ export function AuditLogPanel() {
           </FilterRow>
 
           {/* Sekce: Uživatelé — chips */}
-          {facets.usernames.length > 0 && (
+          {facets.users.length > 0 && (
             <FilterRow label="Uživatelé">
               <UserChips
-                items={facets.usernames}
+                items={facets.users}
                 selected={filters.usernames}
                 onChange={setUsernames}
               />
@@ -591,7 +592,7 @@ function UserChips({
   selected,
   onChange,
 }: {
-  items: string[];
+  items: UserFacet[];
   selected: string[];
   onChange: (next: string[]) => void;
 }) {
@@ -600,23 +601,22 @@ function UserChips({
     else onChange([...selected, name]);
   }
   return (
-    <div
-      style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 6,
-      }}
-    >
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       {items.map((u) => {
-        const isOn = selected.includes(u);
+        const isOn = selected.includes(u.username);
+        const inactive = !u.hasActivity;
         return (
           <button
-            key={u}
+            key={u.username}
             type="button"
-            onClick={() => toggle(u)}
+            onClick={() => toggle(u.username)}
             aria-pressed={isOn}
+            title={inactive ? "Bez auditní stopy" : undefined}
             style={{
               minHeight: 32,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
               padding: "6px 12px",
               borderRadius: 999,
               fontSize: 12,
@@ -625,13 +625,30 @@ function UserChips({
               background: isOn ? IOS_BLUE_BG : "var(--surface-2)",
               color: isOn ? IOS_BLUE : TEXT_SECONDARY,
               border: `1px solid ${isOn ? IOS_BLUE_BORDER : "var(--border)"}`,
+              borderStyle: inactive && !isOn ? "dashed" : "solid",
+              opacity: inactive && !isOn ? 0.6 : 1,
               cursor: "pointer",
               transition: "all 120ms ease-out",
               WebkitTapHighlightColor: "transparent",
               whiteSpace: "nowrap",
             }}
           >
-            {u}
+            {u.username}
+            {u.role && (
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  letterSpacing: ".04em",
+                  padding: "1px 5px",
+                  borderRadius: 4,
+                  background: "var(--surface-3)",
+                  color: "var(--text-muted)",
+                }}
+              >
+                {u.role}
+              </span>
+            )}
           </button>
         );
       })}

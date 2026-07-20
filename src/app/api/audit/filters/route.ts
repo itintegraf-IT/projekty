@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { logger } from "@/lib/logger";
+import { buildUserFacets, type UserFacet } from "@/lib/auditFacets";
 
 interface FilterFacets {
-  usernames: string[];
+  users: UserFacet[];
   actions: string[];
 }
 
@@ -21,7 +22,11 @@ let cache: CacheEntry | null = null;
 let inflight: Promise<FilterFacets> | null = null;
 
 async function loadFacets(): Promise<FilterFacets> {
-  const [usernameRows, actionRows] = await Promise.all([
+  const [users, auditUsernameRows, actionRows] = await Promise.all([
+    prisma.user.findMany({
+      select: { username: true, role: true },
+      take: FACET_HARD_CAP,
+    }),
     prisma.auditLog.findMany({
       distinct: ["username"],
       select: { username: true },
@@ -36,8 +41,12 @@ async function loadFacets(): Promise<FilterFacets> {
     }),
   ]);
 
+  const activeUsernames = auditUsernameRows
+    .map((r) => r.username)
+    .filter((s) => s.length > 0);
+
   return {
-    usernames: usernameRows.map((r) => r.username).filter((s) => s.length > 0),
+    users: buildUserFacets(users, activeUsernames),
     actions: actionRows.map((r) => r.action).filter((s) => s.length > 0),
   };
 }
