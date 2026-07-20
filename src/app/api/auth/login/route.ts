@@ -5,6 +5,20 @@ import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimiter";
 
+async function recordLogin(entry: {
+  userId: number | null;
+  username: string;
+  success: boolean;
+  failureReason?: string;
+  ipAddress: string;
+}): Promise<void> {
+  try {
+    await prisma.loginLog.create({ data: entry });
+  } catch (err) {
+    logger.error("[login] zápis LoginLog selhal", err);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   const { allowed, retryAfterSeconds } = checkRateLimit("login", ip, 10, 15 * 60 * 1000);
@@ -44,6 +58,13 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { username: u } });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+      await recordLogin({
+        userId: user?.id ?? null,
+        username: u,
+        success: false,
+        failureReason: "INVALID_CREDENTIALS",
+        ipAddress: ip,
+      });
       return NextResponse.json({ error: "Nesprávné přihlašovací údaje" }, { status: 401 });
     }
 
@@ -52,6 +73,12 @@ export async function POST(req: NextRequest) {
       username: user.username,
       role: user.role,
       assignedMachine: user.assignedMachine ?? null,
+    });
+    await recordLogin({
+      userId: user.id,
+      username: user.username,
+      success: true,
+      ipAddress: ip,
     });
     return NextResponse.json({ ok: true, role: user.role });
   } catch (error) {
