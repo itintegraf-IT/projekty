@@ -6,6 +6,7 @@ import ThemeToggle from "@/app/_components/ThemeToggle";
 import { ShiftRoster } from "@/components/admin/ShiftRoster";
 import { MachineWorkHoursWeek } from "@/components/admin/MachineWorkHoursWeek";
 import { AuditLogPanel } from "@/components/admin/AuditLogPanel";
+import { LoginLogPanel } from "@/components/admin/LoginLogPanel";
 import { UsersSection } from "./UsersSection";
 import { CodebookSection } from "./CodebookSection";
 import { PresetSection } from "./PresetSection";
@@ -25,11 +26,11 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.href = "/login";
   }
-  const visibleTabs = (["users", "codebook", "presets", "audit", "shifts", "rozpis"] as const).filter((tab) => {
+  const visibleTabs = (["users", "codebook", "presets", "audit", "logins", "shifts", "rozpis"] as const).filter((tab) => {
     if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts" || tab === "rozpis";
     return true;
   });
-  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "shifts" | "rozpis">(
+  const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "logins" | "shifts" | "rozpis">(
     isPlanovat ? "presets" : "users"
   );
 
@@ -109,7 +110,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
                 color: activeTab === tab ? TEXT_PRIMARY : TEXT_SECONDARY,
               }}
             >
-              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "presets" ? "Presety" : tab === "audit" ? "Audit log" : tab === "shifts" ? "Pracovní doba" : "Rozpis směn"}
+              {tab === "users" ? "Uživatelé" : tab === "codebook" ? "Číselníky" : tab === "presets" ? "Presety" : tab === "audit" ? "Audit log" : tab === "logins" ? "Přihlášení" : tab === "shifts" ? "Pracovní doba" : "Rozpis směn"}
             </button>
           ))}
         </div>
@@ -117,7 +118,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
 
       {/* Content */}
       <div style={{
-        maxWidth: (activeTab === "rozpis" || activeTab === "shifts" || activeTab === "audit") ? 1280 : 680,
+        maxWidth: (activeTab === "rozpis" || activeTab === "shifts" || activeTab === "audit" || activeTab === "logins") ? 1280 : 680,
         margin: "0 auto",
         padding: "20px",
       }}>
@@ -131,6 +132,8 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           <Suspense fallback={null}>
             <AuditLogPanel />
           </Suspense>
+        ) : activeTab === "logins" && !isPlanovat ? (
+          <LoginLogPanel />
         ) : activeTab === "shifts" ? (
           <MachineWorkHoursWeek />
         ) : activeTab === "rozpis" ? (
