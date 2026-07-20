@@ -1,25 +1,20 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState } from "react";
 import { machineLabel } from "@/lib/machines";
+import type { BlockRef, HealthData } from "./useHealthData";
 
-// ── Tvary z /api/report/health (Date pole přicházejí jako ISO stringy) ──
-type BlockRef = { id: number; orderNumber: string; type: string; startTime: string; endTime: string };
-type OverlapPair = { machine: string; a: BlockRef; b: BlockRef; overlapStart: string; overlapEnd: string; overlapMinutes: number };
-type DriftItem = { id: number; orderNumber: string; machine: string; startTime: string; storedEnd: string; expectedEnd: string | null; reason: string };
-type IntegrityIssue = { key: string; label: string; count: number; sampleBlockIds: number[] };
-type AttachmentFileRow = { id: number; reservationId: number; originalName: string; storageKey: string };
-type DiskEntry = { reservationId: number; storageKey: string };
-type HealthData = {
-  checkedAt: string;
-  checks: {
-    overlaps: { count: number; items: OverlapPair[] };
-    drift: { count: number; items: DriftItem[] };
-    outsideHours: { count: number; items: DriftItem[] };
-    integrity: { count: number; breakdown: IntegrityIssue[] };
-    attachments: { count: number; missingFiles: AttachmentFileRow[]; orphanFiles: DiskEntry[] };
-  };
-};
+interface HealthPanelProps {
+  data: HealthData | null;
+  loading: boolean;
+  error: string | null;
+  /** Celkový počet nálezů (z useHealthData). */
+  total: number;
+  /** Kolik z 5 kontrol má nález (z useHealthData). */
+  badChecks: number;
+  /** Znovu spustí kontroly — aktualizuje panel i odznak v záhlaví. */
+  onRefresh: () => void;
+}
 
 const TYPE_CHIP: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#c0392b" };
 const TYPE_LABEL: Record<string, string> = { ZAKAZKA: "ZAKÁZKA", REZERVACE: "REZERVACE", UDRZBA: "ÚDRŽBA" };
@@ -88,37 +83,10 @@ function BlockCell({ r }: { r: BlockRef }) {
   );
 }
 
-export default function HealthPanel() {
-  const [data, setData] = useState<HealthData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/report/health");
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`);
-      }
-      setData(await res.json());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Neznámá chyba");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  const total = data ? data.checks.overlaps.count + data.checks.drift.count + data.checks.outsideHours.count + data.checks.integrity.count + data.checks.attachments.count : 0;
-  const badChecks = data ? [data.checks.overlaps.count, data.checks.drift.count, data.checks.outsideHours.count, data.checks.integrity.count, data.checks.attachments.count].filter((c) => c > 0).length : 0;
-
+export default function HealthPanel({ data, loading, error, total, badChecks, onRefresh }: HealthPanelProps) {
   const sectionLabel: React.CSSProperties = { fontSize: 12, color: "var(--brand)", fontWeight: 600, borderBottom: "1px solid var(--border)", paddingBottom: 4, marginBottom: 12 };
   const refreshBtn = (
-    <button onClick={fetchData} disabled={loading} style={{ background: "var(--brand)", color: "var(--brand-contrast)", border: "1px solid var(--brand)", borderRadius: 8, padding: "9px 15px", fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1, whiteSpace: "nowrap" }}>
+    <button onClick={onRefresh} disabled={loading} style={{ background: "var(--brand)", color: "var(--brand-contrast)", border: "1px solid var(--brand)", borderRadius: 8, padding: "9px 15px", fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1, whiteSpace: "nowrap" }}>
       ↻ {loading ? "Kontroluji…" : "Překontrolovat teď"}
     </button>
   );
@@ -129,7 +97,7 @@ export default function HealthPanel() {
 
       {error && (
         <div style={{ padding: "12px 16px", borderRadius: 8, background: "color-mix(in oklab, var(--danger) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)", color: "var(--danger)", fontSize: 13 }}>
-          Chyba kontroly: {error} <button onClick={fetchData} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--brand)", cursor: "pointer", fontWeight: 600 }}>Zkusit znovu</button>
+          Chyba kontroly: {error} <button onClick={onRefresh} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--brand)", cursor: "pointer", fontWeight: 600 }}>Zkusit znovu</button>
         </div>
       )}
 

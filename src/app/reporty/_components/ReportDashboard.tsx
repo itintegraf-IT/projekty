@@ -5,8 +5,9 @@ import { todayPragueDateStr } from "@/lib/dateUtils";
 import { machineLabel } from "@/lib/machines";
 import { ModuleHeader } from "@/components/ModuleHeader";
 import HealthPanel from "./HealthPanel";
+import { useHealthData } from "./useHealthData";
 
-type Mode = "retro" | "outlook";
+type Mode = "retro" | "outlook" | "health";
 type TimeRange = "today" | "week" | "month" | "custom";
 
 interface RetroMachineData {
@@ -110,6 +111,18 @@ const BTN_ACTIVE: React.CSSProperties = {
 };
 
 const DOW_LABELS = ["Ne","Po","Út","St","Čt","Pá","So"];
+
+/** Odznak s počtem nálezů na záložce Kontrolní panel. Vidět i bez otevření. */
+function HealthBadge({ loading, error, total, active }: { loading: boolean; error: string | null; total: number; active: boolean }) {
+  const base: React.CSSProperties = {
+    fontSize: 11, fontWeight: 800, lineHeight: 1, padding: "3px 7px", borderRadius: 999,
+    fontVariantNumeric: "tabular-nums", minWidth: 18, textAlign: "center",
+  };
+  if (loading) return <span style={{ ...base, color: active ? "var(--brand-contrast)" : "var(--text-muted)", opacity: 0.7 }}>…</span>;
+  if (error) return <span style={{ ...base, background: "color-mix(in oklab, var(--warning) 25%, transparent)", color: "var(--warning)" }} title={`Kontrolu nešlo načíst: ${error}`}>!</span>;
+  if (total > 0) return <span style={{ ...base, background: "var(--danger)", color: "#fff" }}>{total}</span>;
+  return <span style={{ ...base, background: "color-mix(in oklab, var(--success) 22%, transparent)", color: "var(--success)" }}>✓</span>;
+}
 
 function KpiCard({ label, value, subtitle, color }: { label: string; value: string | number; subtitle?: string; color?: string }) {
   return (
@@ -427,9 +440,13 @@ export default function ReportDashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Data Kontrolního panelu — fetch jednou při vstupu, krmí odznak i panel.
+  const health = useHealthData();
+
   const { start, end } = computeRange(timeRange, today, customStart, customEnd);
 
   const fetchData = useCallback(async () => {
+    if (mode === "health") return; // health data teče z useHealthData, ne z dashboard API
     setLoading(true);
     setError(null);
     try {
@@ -482,6 +499,14 @@ export default function ReportDashboard() {
             onClick={() => setMode("outlook")}
           >
             Výhled
+          </button>
+          <button
+            style={{ ...(mode === "health" ? BTN_ACTIVE : BTN_BASE), gap: 7 }}
+            onClick={() => setMode("health")}
+            title="Kontrolní panel — integrita dat"
+          >
+            🩺 Kontrolní panel
+            <HealthBadge loading={health.loading} error={health.error} total={health.total} active={mode === "health"} />
           </button>
         </div>
 
@@ -548,44 +573,55 @@ export default function ReportDashboard() {
 
       {/* Body */}
       <div style={{ padding: 24 }}>
-        <HealthPanel />
+        {mode === "health" ? (
+          <HealthPanel
+            data={health.data}
+            loading={health.loading}
+            error={health.error}
+            total={health.total}
+            badChecks={health.badChecks}
+            onRefresh={health.refetch}
+          />
+        ) : (
+          <>
+            {/* Info bar */}
+            <div
+              style={{
+                marginBottom: 16,
+                fontSize: 12,
+                color: "var(--text-muted)",
+              }}
+            >
+              {mode === "retro" ? "Retrospektiva" : "Výhled"} · {start === end ? start : `${start} – ${end}`}
+            </div>
 
-        {/* Info bar */}
-        <div
-          style={{
-            marginBottom: 16,
-            fontSize: 12,
-            color: "var(--text-muted)",
-          }}
-        >
-          {mode === "retro" ? "Retrospektiva" : "Výhled"} · {start === end ? start : `${start} – ${end}`}
-        </div>
+            {loading && (
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Načítám data…</div>
+            )}
 
-        {loading && (
-          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Načítám data…</div>
-        )}
+            {error && (
+              <div
+                style={{
+                  padding: "12px 16px",
+                  borderRadius: 8,
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.25)",
+                  color: "var(--danger)",
+                  fontSize: 13,
+                }}
+              >
+                Chyba: {error}
+              </div>
+            )}
 
-        {error && (
-          <div
-            style={{
-              padding: "12px 16px",
-              borderRadius: 8,
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.25)",
-              color: "var(--danger)",
-              fontSize: 13,
-            }}
-          >
-            Chyba: {error}
-          </div>
-        )}
+            {!loading && !error && data !== null && mode === "retro" && (
+              <RetroView data={data as RetroData} />
+            )}
 
-        {!loading && !error && data !== null && mode === "retro" && (
-          <RetroView data={data as RetroData} />
-        )}
-
-        {!loading && !error && data !== null && mode === "outlook" && (
-          <OutlookView data={data as OutlookData} />
+            {!loading && !error && data !== null && mode === "outlook" && (
+              <OutlookView data={data as OutlookData} />
+            )}
+          </>
         )}
       </div>
     </div>
