@@ -181,6 +181,16 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   const convDenom = statusCounts.SCHEDULED + statusCounts.REJECTED;
   const conversionPercent = convDenom > 0 ? Math.round((statusCounts.SCHEDULED / convDenom) * 100) : 0;
 
+  // Přihlášení za období
+  const loginRows = await prisma.loginLog.findMany({
+    where: { success: true, createdAt: { gte: startUtc, lt: endUtc } },
+    select: { userId: true },
+  });
+  const loginActiveUsers = new Set(
+    loginRows.map((l) => l.userId).filter((x): x is number => x != null),
+  ).size;
+  const logins = { periodCount: loginRows.length, activeUsers: loginActiveUsers };
+
   return NextResponse.json({
     machines,
     dailyUtilization,
@@ -190,6 +200,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     planning: { rescheduleCount, stabilityPercent },
     plannerActivity,
     pipeline: { ...statusCounts, conversionPercent },
+    logins,
   });
 }
 

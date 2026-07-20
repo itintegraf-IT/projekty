@@ -26,6 +26,7 @@ interface RetroData {
   planning: { rescheduleCount: number; stabilityPercent: number };
   plannerActivity: Array<{ username: string; actionCount: number }>;
   pipeline: { SUBMITTED: number; ACCEPTED: number; QUEUE_READY: number; SCHEDULED: number; REJECTED: number; conversionPercent: number };
+  logins: { periodCount: number; activeUsers: number };
 }
 
 interface OutlookMachineData {
@@ -256,6 +257,7 @@ function RetroView({ data }: { data: RetroData }) {
         <div style={{ display: "flex", gap: 12 }}>
           <KpiCard label="Přeplánování" value={data.planning.rescheduleCount} subtitle="bloky přesunuty" />
           <KpiCard label="Stabilita plánu" value={`${data.planning.stabilityPercent}%`} subtitle="bloků beze změny" />
+          <KpiCard label="Přihlášení za období" value={data.logins.periodCount} subtitle={`${data.logins.activeUsers} aktivních uživatelů`} />
         </div>
         <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Aktivita plánovačů</div>
