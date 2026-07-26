@@ -26,6 +26,10 @@ export async function GET(req: NextRequest) {
       throw new AppError("NOT_FOUND", `Kioskový účet '${match.username}' neexistuje.`);
     }
 
+    if (user.role !== "TISKAR") {
+      throw new AppError("FORBIDDEN", `Kioskový účet nemá roli TISKAR.`);
+    }
+
     await createSession(
       {
         id: user.id,
