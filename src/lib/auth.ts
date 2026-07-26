@@ -1,6 +1,7 @@
-import { SignJWT, jwtVerify } from "jose";
+import { jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { assertRole } from "./authz";
+import { signSessionToken } from "./sessionToken";
 
 const jwtSecretRaw = process.env.JWT_SECRET;
 if (!jwtSecretRaw) {
@@ -40,12 +41,11 @@ function parseJwtPayload(payload: unknown): SessionUser {
 }
 
 /** Vrátí JWT token pro session — pro ruční nastavení cookie v Route Handleru */
-export async function createSessionToken(user: SessionUser): Promise<string> {
-  return new SignJWT({ ...user })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(SECRET);
+export async function createSessionToken(
+  user: SessionUser,
+  expiresIn: string = "7d"
+): Promise<string> {
+  return signSessionToken(user, expiresIn);
 }
 
 /** Vrátí hodnoty pro Set-Cookie hlavičku (pro HTTP přístup přes IP) */
@@ -60,14 +60,18 @@ export function getCookieOptions(): { secure: boolean } {
   return { secure };
 }
 
-export async function createSession(user: SessionUser) {
-  const token = await createSessionToken(user);
+export async function createSession(
+  user: SessionUser,
+  opts: { days?: number } = {}
+) {
+  const days = opts.days ?? 7;
+  const token = await createSessionToken(user, `${days}d`);
   const { secure } = getCookieOptions();
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     secure,
     sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: 60 * 60 * 24 * days,
     path: "/",
   });
 }
