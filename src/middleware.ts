@@ -18,6 +18,13 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Kioskový launcher (statický soubor v public/) musí naběhnout i bez session —
+  // přihlášení řeší až vnořený iframe plánu. Bez této výjimky by middleware
+  // terminál redirectoval na /login a lišta s přepínačem by se nikdy nezobrazila.
+  if (pathname === "/vyroba-terminal.html") {
+    return NextResponse.next();
+  }
+
   const cookie = req.cookies.get("integraf-session");
   if (!cookie) {
     return NextResponse.redirect(new URL("/login", req.url));

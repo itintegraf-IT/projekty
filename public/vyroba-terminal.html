@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Integraf — výrobní terminál</title>
+<!--
+  Kioskový launcher pro terminály u strojů (Raspberry Pi + prohlížeč ve fullscreenu).
+
+  Servíruje se ze stejného originu jako výrobní plán (planovani.integraf.cz),
+  aby iframe plánu dostal session cookie (SameSite=lax) — proto je plán vložen
+  RELATIVNÍ adresou "/" a nikdy ne absolutní URL.
+
+  Panel Logiky se bere z query parametru launcheru:
+      /vyroba-terminal.html?pntid=25
+  Každý terminál má v configu prohlížeče vlastní pntid.
+
+  Logica jede přes HTTP, plán přes HTTPS → prohlížeč na terminálu musí být
+  spuštěn s přepínačem --allow-running-insecure-content (viz docs/KIOSK_TERMINAL.md).
+-->
+<style>
+  :root {
+    --bar: #171c24;
+    --bar-2: #1b212b;
+    --line: #2b333f;
+    --brand: #2f6df6;
+    --text: #e7ecf3;
+    --muted: #8a94a8;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body { font-family: var(--sans); background: #0e1116; }
+
+  .bar {
+    height: 68px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 0 18px;
+    background: linear-gradient(180deg, var(--bar-2), var(--bar));
+    border-bottom: 1px solid var(--line);
+    user-select: none;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; }
+  .logo {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, var(--brand), #6aa0ff);
+    display: grid; place-items: center;
+    color: #fff; font-weight: 800; font-size: 15px;
+    box-shadow: 0 2px 10px rgba(47,109,246,0.45);
+  }
+  .brand b { color: var(--text); font-size: 15px; letter-spacing: -0.01em; }
+  .brand span { display: block; color: var(--muted); font-size: 11px; }
+
+  .switch {
+    display: inline-flex;
+    gap: 5px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 13px;
+    padding: 5px;
+  }
+  .switch button {
+    appearance: none; border: 0; background: transparent;
+    color: #b7c1d4; font-family: inherit;
+    font-size: 18px; font-weight: 600;
+    padding: 13px 34px; border-radius: 9px;
+    cursor: pointer; white-space: nowrap;
+    transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+  }
+  .switch button:hover { color: #fff; background: rgba(255,255,255,0.06); }
+  .switch button.on {
+    background: var(--brand); color: #fff;
+    box-shadow: 0 4px 16px -3px rgba(47,109,246,0.6);
+  }
+  .switch button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  .right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+  .reload {
+    appearance: none; background: transparent; border: 1px solid var(--line);
+    color: var(--muted); font-family: inherit; font-size: 13px;
+    padding: 9px 14px; border-radius: 8px; cursor: pointer;
+  }
+  .reload:hover { color: var(--text); border-color: #3d4756; }
+  .reload:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .clock {
+    font-family: var(--mono); font-size: 17px; color: var(--text);
+    font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+  }
+
+  .stage { position: relative; height: calc(100% - 68px); background: #fff; }
+  .frame {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    border: 0; background: #fff;
+    visibility: hidden;
+  }
+  .frame.on { visibility: visible; }
+</style>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand">
+      <div class="logo">IG</div>
+      <div><b>Výrobní terminál</b><span id="panel">Panel —</span></div>
+    </div>
+
+    <div class="switch" role="tablist" aria-label="Přepínání aplikací">
+      <button id="b-data" class="on" role="tab" aria-selected="true" aria-controls="f-data">Sběr dat</button>
+      <button id="b-plan" role="tab" aria-selected="false" aria-controls="f-plan">Plánování</button>
+    </div>
+
+    <div class="right">
+      <button class="reload" id="reload" title="Znovu načte právě zobrazenou aplikaci">Obnovit</button>
+      <span class="clock" id="clock">--:--</span>
+    </div>
+  </header>
+
+  <main class="stage">
+    <!-- Sběr dat (Logica) — src se doplní z ?pntid= -->
+    <iframe id="f-data" class="frame on" title="Sběr dat"></iframe>
+    <!-- Plánování — RELATIVNÍ adresa = stejný origin jako launcher (session cookie funguje) -->
+    <iframe id="f-plan" class="frame" title="Plánování" src="/"></iframe>
+  </main>
+
+  <script>
+    (function () {
+      var LOGICA_BASE = "http://192.168.10.214:81/machinepanelhand.aspx";
+
+      var fData = document.getElementById("f-data");
+      var fPlan = document.getElementById("f-plan");
+      var bData = document.getElementById("b-data");
+      var bPlan = document.getElementById("b-plan");
+      var clockEl = document.getElementById("clock");
+
+      // pntid panelu Logiky z adresy launcheru; výchozí 25
+      var pntid = new URLSearchParams(location.search).get("pntid") || "25";
+      fData.src = LOGICA_BASE + "?pntid=" + encodeURIComponent(pntid);
+      document.getElementById("panel").textContent = "Panel " + pntid;
+
+      var view = "data";
+      function show(which) {
+        view = which;
+        var isData = which === "data";
+        fData.classList.toggle("on", isData);
+        fPlan.classList.toggle("on", !isData);
+        bData.classList.toggle("on", isData);
+        bPlan.classList.toggle("on", !isData);
+        bData.setAttribute("aria-selected", String(isData));
+        bPlan.setAttribute("aria-selected", String(!isData));
+        // Skrytý iframe nesmí být tabbable (fokus by zmizel do neviditelné appky)
+        fData.tabIndex = isData ? 0 : -1;
+        fPlan.tabIndex = isData ? -1 : 0;
+      }
+
+      bData.addEventListener("click", function (e) { if (e.button !== 0) return; show("data"); });
+      bPlan.addEventListener("click", function (e) { if (e.button !== 0) return; show("plan"); });
+
+      // Obnovit = reload jen právě zobrazené appky (druhá zůstane, kde byla)
+      document.getElementById("reload").addEventListener("click", function (e) {
+        if (e.button !== 0) return;
+        var f = view === "data" ? fData : fPlan;
+        f.src = f.src;
+      });
+
+      function tick() {
+        var d = new Date();
+        clockEl.textContent =
+          String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+      }
+      tick();
+      setInterval(tick, 15000);
+
+      show("data");
+    })();
+  </script>
+</body>
+</html>

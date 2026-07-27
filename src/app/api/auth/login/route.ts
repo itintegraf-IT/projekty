@@ -68,12 +68,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Nesprávné přihlašovací údaje" }, { status: 401 });
     }
 
-    await createSession({
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      assignedMachine: user.assignedMachine ?? null,
-    });
+    // TISKAR jede na kioskových terminálech u strojů (Raspberry Pi, autostart
+    // prohlížeče, žádný OS účet). Terminál se přihlásí jednou a session musí
+    // vydržet — 7denní default by znamenal ruční přihlašování každý týden.
+    // Ostatní role zůstávají na 7 dnech.
+    const sessionDays = user.role === "TISKAR" ? 365 : 7;
+    await createSession(
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        assignedMachine: user.assignedMachine ?? null,
+      },
+      { days: sessionDays }
+    );
     await recordLogin({
       userId: user.id,
       username: user.username,
