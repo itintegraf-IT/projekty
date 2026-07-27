@@ -5,70 +5,55 @@ pro terminály u tiskových strojů. Obě aplikace zůstávají načtené, přep
 přepne, která je vidět (rozdělaná práce v Logice se neztratí).
 
 - Soubor: `public/vyroba-terminal.html` — statický, **servíruje ho aplikace plánu**
-- Adresa: `https://planovani.integraf.cz/vyroba-terminal.html?pntid=<číslo_panelu>`
 - Terminály: Raspberry Pi / Raspbian, autostart prohlížeče ve fullscreenu, adresa z configu
+- **Zvolené nasazení: čisté HTTP bez certifikátu** (firemní LAN) → viz §1
 
-## KRITICKÉ: launcher musí běžet na stejném originu jako plán, přes HTTPS
+## Dvě pravidla, bez kterých přihlášení nefunguje
 
-Tohle není kosmetika, je to podmínka funkčnosti. Ověřeno na produkci 27. 7. 2026 —
-launcher nasazený zvlášť na `http://192.168.10.210/rozcestnik/` **nešel přihlásit
-do plánu**, přesně z těchto dvou důvodů:
+Ověřeno na produkci 27. 7. 2026 — launcher nasazený ručně jako statický soubor na
+`http://192.168.10.210/rozcestnik/` **nešel přihlásit do plánu**. Příznak byl
+zrádný: přihlášení se **nedokončilo a nenapsalo žádnou chybu** (formulář hlásí
+jen odmítnuté heslo, ne chybějící cookie). Příčiny byly dvě:
 
-1. **Session cookie má příznak `Secure`** (v produkci vždy, viz `getCookieOptions`
-   v `src/lib/auth.ts`) → prohlížeč ji **po HTTP zahodí**. Přihlášení vrátí OK,
-   ale cookie nikde → plán pošle uživatele zpět na login, a to **bez chybové
-   hlášky** (formulář hlásí jen odmítnuté heslo, ne chybějící cookie).
-2. **Cookie má `SameSite=lax`** → do rámu s **cizím originem** ji prohlížeč
-   neposílá (Safari blokuje cizí cookies nejtvrději). V konzoli se to projeví
-   jako `Blocked a frame with origin … from accessing a frame with origin …`.
+### Pravidlo 1: launcher musí být na STEJNÉ adrese jako plán
 
-Proto: **jeden origin (`https://planovani.integraf.cz`) pro launcher i plán.**
-Launcher je kvůli tomu v `public/` aplikace a plán vkládá **relativní** adresou
-`/` — nikdy absolutní URL. Nekopírovat soubor ručně jinam na server.
+Session cookie má `SameSite=lax` → do rámu s **cizím originem** ji prohlížeč
+neposílá (Safari nejtvrději). V konzoli se to projeví jako
+`Blocked a frame with origin … from accessing a frame with origin …`.
 
-## 1. Server (Michal) — nginx proxy na Logicu
+Proto je launcher v `public/` aplikace a plán vkládá **relativní** adresou `/`.
+**Nekopírovat soubor ručně jinam na server** — tím se to rozbije.
 
-Launcher poběží na HTTPS, Logica jede na HTTP (`192.168.10.214:81`). Přímé vložení
-by prohlížeč zablokoval jako *mixed content*, proto Logica jde přes proxy na
-stejném originu. Do vhostu `planovani.integraf.cz` přidat:
+✅ `http://planovani.integraf.cz/vyroba-terminal.html` · ❌ `http://192.168.10.210/rozcestnik/vyroba-terminal.html`
 
-```nginx
-location /logica/ {
-    proxy_pass         http://192.168.10.214:81/;
-    proxy_set_header   Host 192.168.10.214:81;
-    proxy_redirect     http://192.168.10.214:81/ /logica/;
-    proxy_http_version 1.1;
-}
+### Pravidlo 2: na HTTP musí být `COOKIE_SECURE=false`
+
+Cookie s příznakem `Secure` prohlížeč po HTTP **zahodí**. Dřív se `secure`
+derivovalo z `NODE_ENV`, takže na HTTP nasazení bylo přihlášení strukturálně
+rozbité (audit **SEC-001**). Nově se odvozuje z reálného protokolu a dá se
+explicitně přebít — logika v `src/lib/cookieSecurity.ts`, testy tamtéž.
+
+> ⚠️ **Bezpečnostní ústupek:** bez `Secure` jde session cookie po síti
+> v plaintextu — kdo odposlouchává LAN, může ji ukradnout a vydávat se za
+> přihlášeného uživatele. Vědomě přijato pro uzavřenou firemní síť bez přístupu
+> zvenčí. Pokud by se appka někdy vystavila mimo LAN, tohle **musí** zmizet.
+
+## 1. Server — produkční ENV
+
+Do produkčního prostředí (env aplikace, viz `ecosystem.config.cjs` / deploy)
+přidat:
+
+```bash
+COOKIE_SECURE=false
 ```
 
-Proč které řádky:
+Bez toho se na HTTP nikdo nepřihlásí. Hodnoty: `false` = nikdy `Secure`
+(HTTP nasazení), `true` = vždy `Secure` (HTTPS), **nenastaveno** = odvodí se
+z hlavičky `X-Forwarded-Proto` od nginx, jinak z `NODE_ENV`.
 
-| Řádek | Důvod |
-| --- | --- |
-| `proxy_pass` | přepošle `/logica/...` na Logicu. Lomítko na konci je důležité (odřízne prefix). |
-| `proxy_set_header Host` | Logica generuje přesměrování podle Host hlavičky, kterou vidí |
-| `proxy_redirect` | Logica posílá **302 s absolutní adresou** `http://192.168.10.214:81/...` (ověřeno) — bez tohoto by prohlížeč vyskočil z proxy zpátky na HTTP |
+Starý přepínač `ALLOW_HTTP_SESSION` byl odstraněn — nahrazen `COOKIE_SECURE`.
 
-`location /logica/` má delší prefix než `location /`, takže má v nginx přednost
-a k Next.js aplikaci se ten požadavek nedostane.
-
-**Proč to funguje:** Logica odkazuje na svoje soubory **relativně**
-(`Images/…`, `Include/MachinePanelUtils.js`) a nemá v HTML ani JS žádné absolutní
-odkazy na `192.168.10.214:81` (ověřeno 27. 7. 2026). Pod podadresou se proto
-nerozbije.
-
-## 2. Certifikát
-
-`https://planovani.integraf.cz` má dnes **self-signed certifikát vystavený na jiné
-jméno** (`CN=appintegraf.integraf.cz`), takže prohlížeč hlásí varování. Na kiosku
-je to problém — varování v rámu nejde odklepnout. Řešení, od nejlepšího:
-
-1. Vystavit certifikát se správným jménem (`planovani.integraf.cz`) a dát ho do
-   důvěryhodných na terminálech — řeší to i pro běžné uživatele.
-2. Naimportovat stávající certifikát do úložiště prohlížeče na Raspberry.
-3. Nouzově: spouštět kioskový prohlížeč s `--ignore-certificate-errors`.
-
-## 3. Terminál (Michal)
+## 2. Terminál (Michal)
 
 V configu autostartu nahradit adresu Logiky adresou launcheru a doplnit `pntid`
 daného stroje:
@@ -79,19 +64,19 @@ chromium-browser \
   --noerrdialogs \
   --disable-session-crashed-bubble \
   --user-data-dir=/home/pi/.config/kiosk-profile \
-  "https://planovani.integraf.cz/vyroba-terminal.html?pntid=25"
+  "http://planovani.integraf.cz/vyroba-terminal.html?pntid=25"
 ```
 
 | Přepínač | Důvod |
 | --- | --- |
 | `--kiosk` | fullscreen bez lišty prohlížeče |
-| `--user-data-dir=…` | perzistentní profil → zapamatované přihlášení do plánu přežije restart |
+| `--user-data-dir=…` | perzistentní profil → zapamatované přihlášení přežije restart |
 | `--noerrdialogs`, `--disable-session-crashed-bubble` | žádné dialogy přes obrazovku po nečekaném vypnutí |
 
-`--allow-running-insecure-content` **není potřeba**, pokud je nastavená nginx
-proxy z kroku 1. (Bez proxy by potřeba byl.)
+Na HTTP **není potřeba** `--allow-running-insecure-content` ani řešit certifikát —
+launcher i Logica jedou po HTTP, mixed content nevzniká.
 
-## 4. První přihlášení do plánu
+## 3. První přihlášení do plánu
 
 Kiosk nemá OS účet — přihlášení řeší až plán uvnitř rámu:
 
@@ -106,19 +91,45 @@ neřeší. Nastavení je v `src/app/api/auth/login/route.ts`.
 
 ## Ověření po nasazení
 
-- [ ] `https://planovani.integraf.cz/vyroba-terminal.html?pntid=25` naběhne (lišta + dvě tlačítka)
-- [ ] **Sběr dat** ukáže panel Logiky odpovídající `pntid` (jde přes `/logica/`)
+- [ ] `COOKIE_SECURE=false` je v produkčním ENV a aplikace byla restartovaná
+- [ ] `http://planovani.integraf.cz/vyroba-terminal.html?pntid=25` naběhne (lišta + dvě tlačítka)
+- [ ] **Sběr dat** ukáže panel Logiky odpovídající `pntid`
 - [ ] **Plánování** → přihlašovací obrazovka → po přihlášení **zůstane přihlášeno**
-- [ ] V konzoli prohlížeče **nejsou** hlášky `Blocked a frame …` ani mixed-content
+- [ ] V konzoli prohlížeče **nejsou** hlášky `Blocked a frame …`
 - [ ] Přepnutí tam a zpět **nezruší** rozdělaný stav v Logice
 - [ ] Po rebootu terminálu je plán stále přihlášený
 - [ ] Tlačítko **Obnovit** přenačte jen právě zobrazenou aplikaci
 
+## Kdyby se někdy přešlo na HTTPS
+
+Pak je potřeba navíc:
+
+1. `COOKIE_SECURE=true` (nebo nechat nenastavené a zajistit, že nginx posílá
+   `X-Forwarded-Proto: https`).
+2. **Certifikát na správné jméno.** Dnešní je self-signed a vystavený na
+   `CN=appintegraf.integraf.cz` → varování v prohlížeči, na kiosku blokující
+   (v rámu nejde odklepnout).
+3. **Logicu protunelovat přes nginx**, protože HTTPS stránka nevloží HTTP rám
+   (mixed content). Launcher to řeší sám — na HTTPS sahá na `/logica/…`, na HTTP
+   na Logicu napřímo. Do vhostu přidat:
+
+```nginx
+location /logica/ {
+    proxy_pass         http://192.168.10.214:81/;
+    proxy_set_header   Host 192.168.10.214:81;
+    proxy_redirect     http://192.168.10.214:81/ /logica/;
+    proxy_http_version 1.1;
+}
+```
+
+Ověřeno, že to půjde: Logica odkazuje na svoje soubory **relativně**
+(`Images/…`, `Include/MachinePanelUtils.js`) a nemá v HTML ani JS absolutní
+odkazy na `192.168.10.214:81`. Posílá ale **302 s absolutní adresou**, proto
+`proxy_redirect`.
+
 ## Poznámky
 
 - `pntid` je jediné, co se mezi terminály liší — jeden soubor obsluhuje všechny stroje.
-- Logica se v launcheru bere přes `/logica/…`, když stránka běží na HTTPS; při
-  lokálním testu (HTTP nebo otevřený soubor) se jde na `192.168.10.214:81` napřímo.
 - Launcher je v `src/middleware.ts` záměrně vyjmutý z auth gate, aby lišta naběhla
   i bez session; chráněný obsah řeší až vnořený plán.
 - Alternativní „robustní" varianta (route `/kiosk` s přihlášením bez hesla přes

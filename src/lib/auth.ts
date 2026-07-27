@@ -1,7 +1,8 @@
 import { jwtVerify } from "jose";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { assertRole } from "./authz";
 import { signSessionToken } from "./sessionToken";
+import { resolveCookieSecure } from "./cookieSecurity";
 
 const jwtSecretRaw = process.env.JWT_SECRET;
 if (!jwtSecretRaw) {
@@ -48,16 +49,26 @@ export async function createSessionToken(
   return signSessionToken(user, expiresIn);
 }
 
-/** Vrátí hodnoty pro Set-Cookie hlavičku (pro HTTP přístup přes IP) */
-export function getCookieOptions(): { secure: boolean } {
-  if (process.env.NODE_ENV === "production" && process.env.ALLOW_HTTP_SESSION === "true") {
-    throw new Error(
-      "[auth] ALLOW_HTTP_SESSION=true is not permitted in production. " +
-      "Remove this env var from the production environment."
-    );
-  }
-  const secure = process.env.NODE_ENV === "production";
-  return { secure };
+/**
+ * Vrátí hodnoty pro Set-Cookie hlavičku.
+ *
+ * `secure` se NEderivuje z `NODE_ENV` (to rozbíjelo login na HTTP nasazení —
+ * audit SEC-001), ale z reálného protokolu požadavku, s možností explicitního
+ * přebití přes ENV `COOKIE_SECURE`. Rozhodovací logika je čistá a testovaná
+ * v `cookieSecurity.ts`; tady se jen posbírají vstupy.
+ *
+ * Pro nasazení na čistém HTTP ve firemní LAN nastavit `COOKIE_SECURE=false`
+ * (vědomý ústupek — cookie pak jde po síti v plaintextu).
+ */
+export async function getCookieOptions(): Promise<{ secure: boolean }> {
+  const forwardedProto = (await headers()).get("x-forwarded-proto");
+  return {
+    secure: resolveCookieSecure({
+      explicit: process.env.COOKIE_SECURE,
+      forwardedProto,
+      nodeEnv: process.env.NODE_ENV,
+    }),
+  };
 }
 
 export async function createSession(
@@ -66,7 +77,7 @@ export async function createSession(
 ) {
   const days = opts.days ?? 7;
   const token = await createSessionToken(user, `${days}d`);
-  const { secure } = getCookieOptions();
+  const { secure } = await getCookieOptions();
   (await cookies()).set(COOKIE, token, {
     httpOnly: true,
     secure,
