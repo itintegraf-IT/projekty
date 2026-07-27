@@ -15,8 +15,10 @@
       /vyroba-terminal.html?pntid=25
   Každý terminál má v configu prohlížeče vlastní pntid.
 
-  Logica jede přes HTTP, plán přes HTTPS → prohlížeč na terminálu musí být
-  spuštěn s přepínačem --allow-running-insecure-content (viz docs/KIOSK_TERMINAL.md).
+  Logica jede přes HTTP, launcher přes HTTPS → v produkci se Logica NESMÍ vkládat
+  přímo (prohlížeč by ji zablokoval jako mixed content). Servíruje se proto přes
+  nginx proxy na stejném originu: /logica/ → http://192.168.10.214:81/
+  Postup a konfigurace nginx: docs/KIOSK_TERMINAL.md
 -->
 <style>
   :root {
@@ -127,7 +129,13 @@
 
   <script>
     (function () {
-      var LOGICA_BASE = "http://192.168.10.214:81/machinepanelhand.aspx";
+      // Na produkci (HTTPS) jde Logica přes nginx proxy na stejném originu —
+      // jinak by ji prohlížeč zablokoval jako mixed content (HTTPS stránka +
+      // HTTP rám). Při lokálním testu (http:// nebo otevřený soubor) se jde
+      // na Logicu napřímo, tam mixed content nevzniká.
+      var LOGICA_BASE = location.protocol === "https:"
+        ? "/logica/machinepanelhand.aspx"
+        : "http://192.168.10.214:81/machinepanelhand.aspx";
 
       var fData = document.getElementById("f-data");
       var fPlan = document.getElementById("f-plan");
