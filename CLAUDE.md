@@ -115,5 +115,6 @@ Prod DB `igvyroba` měla historicky ručně vytvořené sloupce (opraveno 12. 4.
 
 - `docs/vyvoj-historie.md` — souhrn featur + implementační reference (tiskové hodiny, split-skupiny B2, copy/paste, reporty, dekompozice fáze E) a historie etap
 - `docs/DEPLOY_WORKFLOW.md` — deploy postup + prod gotchy
+- `docs/KIOSK_TERMINAL.md` — kioskový launcher u strojů (přepínač plán ↔ Logica); **pozor na `COOKIE_SECURE`** — na HTTP nasazení musí být `false`, jinak se nikdo nepřihlásí
 - `docs/superpowers/plans/` — detailní plány jednotlivých etap
 - `README.md` · `DOKUMENTACE.md` · `DATABAZE_DOKUMENTACE.md`
