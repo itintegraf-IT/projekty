@@ -53,6 +53,26 @@ z hlavičky `X-Forwarded-Proto` od nginx, jinak z `NODE_ENV`.
 
 Starý přepínač `ALLOW_HTTP_SESSION` byl odstraněn — nahrazen `COOKIE_SECURE`.
 
+### Past: kdo dřív chodil přes HTTPS, neprihlásí se — dokud nesmaže cookie
+
+Ověřeno 27. 7. 2026. Prohlížeč, který má z dřívějška uloženou cookie
+`integraf-session` s příznakem `Secure` (nastavenou přes HTTPS), se po přechodu
+na HTTP **nepřihlásí**, a to trvale:
+
+- starou cookie po HTTP **neposílá** (je `Secure`),
+- novou, nezabezpečenou, **odmítne uložit** — prohlížeče nedovolí přepsat
+  `Secure` cookie z nezabezpečeného spojení („Leave Secure Cookies Alone",
+  RFC 6265bis).
+
+Server přitom přihlášení potvrdí (200 OK), takže **se nezobrazí žádná chyba** —
+uživatele to jen vrátí na login. Nezaměnit s odmítnutým heslem (to hlásí
+červeně „Nesprávné přihlašovací údaje").
+
+**Řešení:** jednorázově smazat cookie `integraf-session` pro doménu
+`planovani.integraf.cz` (nebo ověřit v anonymním okně, kde žádná není).
+
+**Kioskových terminálů se to netýká** — mají čistý profil prohlížeče.
+
 ## 2. Terminál (Michal)
 
 V configu autostartu nahradit adresu Logiky adresou launcheru a doplnit `pntid`
