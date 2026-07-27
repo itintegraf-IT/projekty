@@ -21,7 +21,10 @@ module.exports = {
         PORT: process.env.PORT || "3020",
         DATABASE_URL: process.env.DATABASE_URL,
         JWT_SECRET: process.env.JWT_SECRET,
-        ALLOW_HTTP_SESSION: process.env.ALLOW_HTTP_SESSION,
+        // Řídí příznak Secure u session cookie. Na HTTP nasazení MUSÍ být
+        // "false", jinak prohlížeč cookie zahodí a nikdo se nepřihlásí.
+        // Detaily: docs/KIOSK_TERMINAL.md, logika: src/lib/cookieSecurity.ts
+        COOKIE_SECURE: process.env.COOKIE_SECURE,
       },
     },
   ],
