@@ -67,6 +67,16 @@ async function main() {
     console.error("❌ SEED ODMÍTNUT: NODE_ENV=production. Seed maže data — nikdy nespouštěj v produkci!");
     process.exit(1);
   }
+  // NODE_ENV check na serveru nestačí (nastavuje ho jen PM2 pro běžící proces,
+  // shell přes SSH ho nemá) → seed navíc vyžaduje explicitní ALLOW_SEED=1.
+  // Ten patří VÝHRADNĚ do lokálního dev .env — na produkci nikdy.
+  if (process.env.ALLOW_SEED !== "1") {
+    console.error(
+      "❌ SEED ODMÍTNUT: chybí ALLOW_SEED=1. Seed maže data (Block, CodebookOption, JobPreset) —" +
+        " na produkci ho NIKDY nespouštěj. Pro dev přidej ALLOW_SEED=1 do .env."
+    );
+    process.exit(1);
+  }
 
   // 1. Číselníky — smazat a znovu seedovat
   await prisma.codebookOption.deleteMany();

@@ -8,7 +8,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "prisma:seed": "prisma db seed",
     "prisma:bootstrap": "tsx prisma/bootstrap-prod.ts",

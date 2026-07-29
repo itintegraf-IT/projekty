@@ -380,6 +380,10 @@ Po deployi v aplikaci ověřit:
 Aktuální `scripts/deploy.sh` je dobrý základ a už automatizuje serverovou část:
 pull, instalaci, Prisma validate/generate/migrate, bootstrap, build a PM2 reload.
 
+✅ VYŘEŠENO (29. 7. 2026): pravidelná denní záloha DB + příloh + konfigurace
+běží z root cronu — skript `scripts/ops/planovani-backup.sh`, postup a restore
+viz `docs/OPS_ZALOHY.md`. Ruční dump před deployem (krok 4b) zůstává v platnosti.
+
 Co bych automatizoval později:
 
 - Přidat lokální helper pro merge `Vojta -> michal`, který před pushem spustí testy a build.
