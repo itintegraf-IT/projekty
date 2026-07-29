@@ -11,19 +11,27 @@ Vše do `/var/backups/planovanivyroby/` na produkčním serveru (192.168.10.210)
 
 | Co | Kam | Jak | Retence |
 | --- | --- | --- | --- |
-| DB `igvyroba` | `db/igvyroba_<STAMP>.sql.gz` | `mysqldump --single-transaction` (bez zámků, app běží dál) + verifikace | 14 dní |
-| Přílohy rezervací | `attachments/<STAMP>/` | `rsync --link-dest` — denní snapshoty, nezměněné soubory jen hardlink | 14 dní |
-| `.env` + `ecosystem.config.cjs` | `config/` | kopie (env s mode 600) | 90 dní |
+| DB `igvyroba` | `db/igvyroba_<STAMP>.sql.gz` | `mysqldump --single-transaction` (bez zámků, app běží dál) + verifikace | posledních 14 |
+| Přílohy rezervací | `attachments/<STAMP>/` | `rsync --link-dest` — denní snapshoty, nezměněné soubory jen hardlink | posledních 14 |
+| `.env` + `ecosystem.config.cjs` | `config/` | kopie (env s mode 600) | posledních 90 |
 | Stav posledního běhu | `last_backup_status` | `OK …` / `FAIL <důvod>` — čte ho SSH banner | — |
 
 Každý dump se ověřuje (gzip integrita, minimální velikost, `CREATE TABLE Block`,
-patička `Dump completed`) — vadný dump = `FAIL` ve statusu, ne tichá „záloha".
+patička `Dump completed`) a na finální jméno se přejmenuje až po verifikaci —
+v `db/` nikdy neleží neověřené torzo. Vadný dump = `FAIL` ve statusu.
+
+Retence je **podle počtu, ne podle stáří** (mtime-retence by v klidovém období
+mazala i čerstvé snapshoty — rsync přenáší mtime zdroje; nález review 29. 7. 2026)
+— poslední zálohy tedy přežijí, i kdyby nové přestaly vznikat. Zálohy nejsou
+world-readable (`umask 077`, adresáře 700; dump obsahuje hashe hesel) a proti
+souběhu cron × ruční běh drží `flock`.
 
 ## Instalace na server (jednorázově)
 
 Po `git pull` v `/var/www/planovanivyroby`:
 
 ```bash
+command -v rsync || sudo apt install rsync   # jediná závislost mimo základ Ubuntu
 sudo install -m 700 scripts/ops/planovani-backup.sh /usr/local/bin/planovani-backup.sh
 sudo install -m 755 scripts/ops/planovani-status-banner.sh /etc/profile.d/planovani-status.sh
 sudo mkdir -p /var/backups/planovanivyroby

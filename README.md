@@ -78,7 +78,7 @@ Aplikace poběží na `http://localhost:3000`.
 | `npm run start` | Spuštění produkčního buildu |
 | `npm run lint` | ESLint kontrola |
 | `npm run prisma:generate` | Generování Prisma klienta |
-| `npm run prisma:seed` | Destruktivní dev seed, maže a znovu plní vývojová data |
+| `npm run prisma:seed` | Destruktivní dev seed, maže a znovu plní vývojová data — vyžaduje `ALLOW_SEED=1` v dev `.env` |
 | `npm run prisma:bootstrap` | Bezpečný bootstrap prázdné databáze |
 | `node --test --import tsx src/lib/dateUtils.test.ts` | Aktuální test suite |
 
