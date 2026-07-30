@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { AppError, isAppError } from "@/lib/errors";
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from "@/lib/blockSerialization";
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
@@ -519,7 +519,13 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       let shiftedMoves: AppliedMove[] = [];
       // Net běží při změně pozice/času/stroje NEBO změně typu jakýmkoliv směrem (spec R1):
       // ZAKAZKA↔ne-ZAKAZKA na legacy-kolidujícím místě jinak net přeskočí.
-      const positionOrTypeChanged = timingChanged || typeChangesToZakazka || typeChangingAwayFromZakazka;
+      // + změna computedEnd: PUT jen s printMinutes prodlouží endTime bez
+      // timingChanged/type flagů — bez této podmínky by obešel chain push
+      // i finální pojistku a tiše překryl následníka (audit REL-03).
+      const endChangedByComputation =
+        computedEnd !== null && computedEnd.getTime() !== oldBlock.endTime.getTime();
+      const positionOrTypeChanged =
+        timingChanged || typeChangesToZakazka || typeChangingAwayFromZakazka || endChangedByComputation;
       if (positionOrTypeChanged) {
         if (resultingType === "ZAKAZKA" && resolveChain) {
           shiftedMoves = await resolveChainPushFromDb(
@@ -640,13 +646,15 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
   }
 
-  // Volitelný důvod zamítnutí rezervace (z body)
+  // Volitelný důvod zamítnutí rezervace + force flag (z body)
   let rejectionReason = "Blok vymazán z plánu";
+  let force = false;
   try {
     const body = await request.json();
     if (body?.reason && typeof body.reason === "string" && body.reason.trim()) {
       rejectionReason = body.reason.trim();
     }
+    force = body?.force === true;
   } catch {
     // Bez body — použije se výchozí důvod
   }
@@ -654,11 +662,20 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
   try {
     let deletedMachine = "";
     await prisma.$transaction(async (tx) => {
-      const blockToDelete = await tx.block.findUnique({
-        where: { id },
-        select: { orderNumber: true, reservationId: true, machine: true },
-      });
+      // Celý blok (bez selectu): (a) guard čte locked/printCompletedAt,
+      // (b) JSON snapshot do auditu je jediná cesta k ruční rekonstrukci
+      // omylem smazaného bloku (audit DATA-03) — mazání je jinak nenávratné.
+      const blockToDelete = await tx.block.findUnique({ where: { id } });
       deletedMachine = blockToDelete?.machine ?? "";
+
+      if (blockToDelete && (blockToDelete.locked || blockToDelete.printCompletedAt) && !force) {
+        throw new AppError(
+          "CONFLICT",
+          blockToDelete.printCompletedAt
+            ? "Blok má potvrzený tisk — smazání vyžaduje potvrzení."
+            : "Blok je zamčený — smazání vyžaduje potvrzení."
+        );
+      }
 
       await tx.auditLog.create({
         data: {
@@ -667,6 +684,7 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
           userId: session.id,
           username: session.username,
           action: "DELETE",
+          oldValue: blockToDelete ? JSON.stringify(blockToDelete) : null,
         },
       });
 
@@ -709,6 +727,13 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
     emitSSE("block:deleted", { blockId: id, machine: deletedMachine, sourceUserId: session.id });
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
+    if (isAppError(error) && error.code === "CONFLICT") {
+      // Klient na requiresForce zobrazí potvrzení a zopakuje s force: true.
+      return NextResponse.json(
+        { error: error.message, code: error.code, requiresForce: true },
+        { status: errorStatus(error.code) }
+      );
+    }
     if (isPrismaNotFound(error)) {
       return NextResponse.json({ error: "Blok nenalezen" }, { status: 404 });
     }

@@ -144,6 +144,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [keyDeletePending, setKeyDeletePending] = useState(false);
   const [deleteRejectionReason, setDeleteRejectionReason] = useState("");
   const [multiDeletePending, setMultiDeletePending] = useState(false);
+  // Smazání zamčeného/vytištěného bloku vrátil server s requiresForce —
+  // vyžádané druhé potvrzení (audit DATA-03).
+  const [forceDeleteConfirm, setForceDeleteConfirm] = useState<{ block: Block; rejectionReason?: string; message: string } | null>(null);
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
@@ -690,7 +693,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         body: JSON.stringify({ completed }),
       });
       if (!res.ok) {
-        // revert — znovu načíst
+        // revert — znovu načíst + říct uživateli proč (dřív tichý revert)
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        showToast(err.error ?? "Potvrzení tisku se nepodařilo uložit.", "error");
         const r = await fetch("/api/blocks");
         if (r.ok) { const fresh: Block[] = await r.json(); setBlocks(fresh); }
       } else {
@@ -700,6 +705,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     } catch (e) {
       console.error("Print complete failed", e);
       showToast("Potvrzení tisku se nepodařilo uložit.", "error");
+      // Revert i při síťové výjimce — jinak UI ukazuje potvrzený tisk,
+      // který v DB není, až do dalšího pollu (audit REL-05).
+      try {
+        const r = await fetch("/api/blocks");
+        if (r.ok) { const fresh: Block[] = await r.json(); setBlocks(fresh); }
+      } catch { /* offline — srovná SSE reconnect / poll */ }
     }
   }
 
@@ -1155,14 +1166,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const canUndoCreated = (b: Block) =>
     b.reservationId == null && b.recurrenceType === "NONE" && b.recurrenceParentId == null;
 
-  async function deleteSingleBlockWithUndo(block: Block, rejectionReason?: string) {
+  async function deleteSingleBlockWithUndo(block: Block, rejectionReason?: string, force = false) {
     const fetchOpts: RequestInit = { method: "DELETE" };
+    const deleteBody: Record<string, unknown> = {};
     if (block.reservationId && rejectionReason !== undefined) {
+      deleteBody.reason = rejectionReason;
+    }
+    if (force) deleteBody.force = true;
+    if (Object.keys(deleteBody).length > 0) {
       fetchOpts.headers = { "Content-Type": "application/json" };
-      fetchOpts.body = JSON.stringify({ reason: rejectionReason });
+      fetchOpts.body = JSON.stringify(deleteBody);
     }
     const res = await fetch(`/api/blocks/${block.id}`, fetchOpts);
-    if (!res.ok) throw new Error("Chyba serveru");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string; requiresForce?: boolean };
+      // Zamčený/vytištěný blok — server chce explicitní potvrzení (audit DATA-03).
+      if (err.requiresForce) {
+        setForceDeleteConfirm({ block, rejectionReason, message: err.error ?? "Blok je chráněný — smazání vyžaduje potvrzení." });
+        return;
+      }
+      throw new Error(err.error ?? "Chyba serveru");
+    }
 
     setBlocks((prev) => prev.filter((b) => b.id !== block.id));
     setSelectedBlock(null);
@@ -2047,6 +2071,24 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           </div>
         )}
       </ConfirmDialog>
+      {/* ── Confirm smazání zamčeného/vytištěného bloku (server requiresForce) ── */}
+      <ConfirmDialog
+        open={forceDeleteConfirm !== null}
+        title="Smazat chráněný blok?"
+        message={forceDeleteConfirm ? `${forceDeleteConfirm.message} (${forceDeleteConfirm.block.orderNumber})` : ""}
+        confirmLabel="Přesto smazat"
+        danger
+        onConfirm={() => {
+          if (!forceDeleteConfirm) return;
+          const { block, rejectionReason } = forceDeleteConfirm;
+          setForceDeleteConfirm(null);
+          deleteSingleBlockWithUndo(block, rejectionReason, true).catch((error) => {
+            console.error("Force delete failed", error);
+            showToast("Chyba při mazání bloku.", "error");
+          });
+        }}
+        onCancel={() => setForceDeleteConfirm(null)}
+      />
       {/* ── Confirm hromadného smazání přes klávesnici ── */}
       <ConfirmDialog
         open={multiDeletePending && selectedBlockIds.size > 0}

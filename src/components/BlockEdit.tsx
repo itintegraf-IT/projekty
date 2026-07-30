@@ -620,13 +620,22 @@ export function BlockEdit({
     setSaving(true);
     setError(null);
     try {
+      // expectedUpdatedAt = optimistic lock proti tichému přepisu druhým
+      // plánovačem (audit REL-02). ZÁMĚRNĚ tady, ne v buildPayload —
+      // buildPayload jde i do onSaveAll pro split-série a expectedUpdatedAt
+      // editovaného bloku by shodil uložení sourozenců.
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, resolveChain: true }),
+        body: JSON.stringify({ ...payload, resolveChain: true, expectedUpdatedAt: block.updatedAt }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string; code?: string };
+        if (err.code === "CONFLICT") {
+          const msg = "Blok mezitím uložil jiný uživatel — zavřete detail a otevřete znovu.";
+          onToast?.(msg, "error");
+          throw new Error(msg);
+        }
         if (err.code === "OVERLAP") {
           throw new Error(err.error ?? "Blok koliduje s jiným blokem na stejném stroji.");
         }
