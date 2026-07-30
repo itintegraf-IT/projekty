@@ -198,7 +198,7 @@ interface TimelineGridProps {
   onBlockClick: (block: Block) => void;
   onBlockUpdate: (updatedBlock: Block, addToHistory?: boolean) => void;
   onBlockCreate: (newBlock: Block) => void;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
+  scrollRef: React.RefObject<HTMLDivElement>;
   queueDragItem?: { id: number | string; durationHours: number; type: string } | null;
   onQueueDrop?: (itemId: number | string, machine: string, startTime: Date) => void;
   onQueueDragCancel?: () => void;

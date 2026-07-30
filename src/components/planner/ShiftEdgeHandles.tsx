@@ -41,7 +41,7 @@ export type ShiftEdgeHandlesProps = {
   // Komponenta do něj zapisuje ShiftEdgeDragState (assignable do širšího typu).
   dragStateRef: RefObject<unknown>;
   dragDidMoveRef: RefObject<boolean>;
-  scrollRef: RefObject<HTMLDivElement | null>;
+  scrollRef: RefObject<HTMLDivElement>;
   onReset: (machine: string, ownerDate: Date, shift: ShiftType, edge: ShiftEdge) => void;
 };
 
