@@ -4,20 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/auth";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimiter";
-
-async function recordLogin(entry: {
-  userId: number | null;
-  username: string;
-  success: boolean;
-  failureReason?: string;
-  ipAddress: string;
-}): Promise<void> {
-  try {
-    await prisma.loginLog.create({ data: entry });
-  } catch (err) {
-    logger.error("[login] zápis LoginLog selhal", err);
-  }
-}
+import { recordLogin } from "@/lib/loginLog";
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
@@ -56,6 +43,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Chybí přihlašovací údaje" }, { status: 400 });
     }
 
+    // Druhý limiter per-účet: útok z více IP (botnet, podvržené hlavičky)
+    // by per-IP limit nikdy nepotkal (audit SEC-04).
+    const perUser = checkRateLimit("login-user", u.toLowerCase(), 5, 15 * 60 * 1000);
+    if (!perUser.allowed) {
+      await recordLogin({
+        userId: null, username: u, success: false,
+        failureReason: "USER_RATE_LIMIT", ipAddress: ip,
+      });
+      return NextResponse.json(
+        { error: `Příliš mnoho pokusů. Zkuste znovu za ${Math.ceil(perUser.retryAfterSeconds / 60)} minut.` },
+        { status: 429, headers: { "Retry-After": String(perUser.retryAfterSeconds) } }
+      );
+    }
+
     const user = await prisma.user.findUnique({ where: { username: u } });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       await recordLogin({
@@ -71,14 +72,16 @@ export async function POST(req: NextRequest) {
     // TISKAR jede na kioskových terminálech u strojů (Raspberry Pi, autostart
     // prohlížeče, žádný OS účet). Terminál se přihlásí jednou a session musí
     // vydržet — 7denní default by znamenal ruční přihlašování každý týden.
-    // Ostatní role zůstávají na 7 dnech.
-    const sessionDays = user.role === "TISKAR" ? 365 : 7;
+    // 90 dní (dřív 365) je kompromis: na HTTP jde cookie po síti v plaintextu,
+    // roční platnost ukradeného tokenu je neúměrná (audit K-4).
+    const sessionDays = user.role === "TISKAR" ? 90 : 7;
     await createSession(
       {
         id: user.id,
         username: user.username,
         role: user.role,
         assignedMachine: user.assignedMachine ?? null,
+        tokenVersion: user.tokenVersion,
       },
       { days: sessionDays }
     );

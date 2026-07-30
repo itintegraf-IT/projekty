@@ -14,13 +14,24 @@ function getStore(name: string): Store {
   return store;
 }
 
+/**
+ * IP klienta pro rate limiting a LoginLog.
+ *
+ * Priorita `x-real-ip` (nginx ho na produkci přepisuje skutečnou remote adresou)
+ * a z `x-forwarded-for` se bere POSLEDNÍ hodnota — tu připojuje nejbližší proxy.
+ * První (nejlevější) hodnota je plně pod kontrolou klienta, takže se s ní dal
+ * rate limit obejít a otrávit audit (audit SEC-04 / A-3).
+ */
 export function getClientIp(req: NextRequest | Request): string {
   const h = req.headers;
-  return (
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    h.get("x-real-ip") ??
-    "unknown"
-  );
+  const realIp = h.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  const forwarded = h.get("x-forwarded-for");
+  if (forwarded) {
+    const parts = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
+  return "unknown";
 }
 
 /**

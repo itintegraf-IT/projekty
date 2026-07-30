@@ -3,6 +3,8 @@ import { cookies, headers } from "next/headers";
 import { assertRole } from "./authz";
 import { signSessionToken } from "./sessionToken";
 import { resolveCookieSecure } from "./cookieSecurity";
+import { checkSessionVersion } from "./sessionVersion";
+import { logger } from "./logger";
 
 const jwtSecretRaw = process.env.JWT_SECRET;
 if (!jwtSecretRaw) {
@@ -19,6 +21,8 @@ export interface SessionUser {
   username: string;
   role: string;
   assignedMachine: string | null;
+  /** Verze tokenu pro revokaci — viz sessionVersion.ts. Staré tokeny = 0. */
+  tokenVersion?: number;
 }
 
 const VALID_ROLES = ["ADMIN", "PLANOVAT", "DTP", "MTZ", "OBCHODNIK", "TISKAR", "VIEWER"] as const;
@@ -38,6 +42,7 @@ function parseJwtPayload(payload: unknown): SessionUser {
     username: p.username,
     role: p.role as string,
     assignedMachine: typeof p.assignedMachine === "string" ? p.assignedMachine : null,
+    tokenVersion: typeof p.tokenVersion === "number" ? p.tokenVersion : 0,
   };
 }
 
@@ -91,10 +96,15 @@ export async function getSession(): Promise<SessionUser | null> {
   const c = (await cookies()).get(COOKIE);
   if (!c) return null;
   try {
-    const { payload } = await jwtVerify(c.value, SECRET);
-    return parseJwtPayload(payload);
+    const { payload } = await jwtVerify(c.value, SECRET, { algorithms: ["HS256"] });
+    const user = parseJwtPayload(payload);
+    // Revokace: smazaný účet nebo bumpnutá verze (změna role/hesla) →
+    // token okamžitě neplatný, nečeká se na jeho expiraci (audit SEC-03).
+    const valid = await checkSessionVersion(user.id, user.tokenVersion ?? 0);
+    if (!valid) return null;
+    return user;
   } catch (error) {
-    console.error("Session verification failed", error);
+    logger.warn("Session verification failed", error);
     return null;
   }
 }

@@ -2,6 +2,7 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { validatePassword, BCRYPT_COST } from "@/lib/passwordPolicy";
 import bcrypt from "bcryptjs";
 
 const ROLE_ORDER: Record<string, number> = {
@@ -65,9 +66,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const pwCheck = validatePassword(password, String(username));
+    if (!pwCheck.ok) {
+      return NextResponse.json({ error: pwCheck.error }, { status: 400 });
+    }
+
     const machine = role === "TISKAR" ? String(assignedMachine) : null;
 
-    const passwordHash = await bcrypt.hash(String(password), 10);
+    const passwordHash = await bcrypt.hash(String(password), BCRYPT_COST);
     const user = await prisma.user.create({
       data: { username: String(username), passwordHash, role: String(role), assignedMachine: machine },
       select: { id: true, username: true, role: true, assignedMachine: true, createdAt: true },

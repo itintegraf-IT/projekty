@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { inputStyle, btnPrimary, btnSecondary, btnDanger, btnAddAccent } from "@/lib/uiStyles";
+import { PASSWORD_MIN_LENGTH } from "@/lib/passwordPolicy";
 import { SECTION_BG, SEPARATOR, TEXT_PRIMARY, TEXT_SECONDARY, BORDER_SUBTLE } from "./adminShared";
 
 // ─── Typy ────────────────────────────────────────────────────────────────────
@@ -162,7 +163,8 @@ export function UsersSection({ currentUserId }: { currentUserId: number }) {
                   <input
                     style={inputStyle}
                     type="password"
-                    placeholder="Heslo"
+                    placeholder={`Heslo (min. ${PASSWORD_MIN_LENGTH} znaků)`}
+                    minLength={PASSWORD_MIN_LENGTH}
                     value={addPassword}
                     onChange={(e) => setAddPassword(e.target.value)}
                   />
@@ -220,6 +222,7 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [pwLoading, setPwLoading] = useState(false);
+  const [pwError, setPwError] = useState("");
   const [hovered, setHovered] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -258,14 +261,28 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
   async function handlePasswordSave() {
     if (!newPassword.trim()) return;
     setPwLoading(true);
-    await fetch(`/api/admin/users/${user.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: newPassword }),
-    });
-    setNewPassword("");
-    setShowPasswordForm(false);
-    setPwLoading(false);
+    setPwError("");
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: newPassword }),
+      });
+      if (!res.ok) {
+        // Dřív se odpověď nekontrolovala — odmítnuté heslo (politika, chyba
+        // serveru) vypadalo jako úspěšná změna.
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        setPwError(err.error ?? "Heslo se nepodařilo změnit.");
+        return;
+      }
+      setNewPassword("");
+      setShowPasswordForm(false);
+      onUpdate();
+    } catch {
+      setPwError("Heslo se nepodařilo změnit.");
+    } finally {
+      setPwLoading(false);
+    }
   }
 
   async function handleDelete() {
@@ -471,20 +488,29 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
 
       {/* Inline: změna hesla */}
       {showPasswordForm && (
-        <div style={{ padding: "0 16px 12px", display: "flex", gap: 8 }}>
-          <input
-            style={{ ...inputStyle, flex: 1 }}
-            type="password"
-            placeholder="Nové heslo"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSave(); if (e.key === "Escape") setShowPasswordForm(false); }}
-            autoFocus
-          />
-          <button style={btnSecondary} onClick={() => setShowPasswordForm(false)}>Zrušit</button>
-          <button style={btnPrimary} onClick={handlePasswordSave} disabled={pwLoading || !newPassword.trim()}>
-            {pwLoading ? "..." : "Uložit"}
-          </button>
+        <div style={{ padding: "0 16px 12px" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              style={{ ...inputStyle, flex: 1 }}
+              type="password"
+              placeholder={`Nové heslo (min. ${PASSWORD_MIN_LENGTH} znaků)`}
+              minLength={PASSWORD_MIN_LENGTH}
+              value={newPassword}
+              onChange={(e) => { setNewPassword(e.target.value); setPwError(""); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handlePasswordSave(); if (e.key === "Escape") { setShowPasswordForm(false); setPwError(""); } }}
+              autoFocus
+            />
+            <button style={btnSecondary} onClick={() => { setShowPasswordForm(false); setPwError(""); }}>Zrušit</button>
+            <button style={btnPrimary} onClick={handlePasswordSave} disabled={pwLoading || newPassword.length < PASSWORD_MIN_LENGTH}>
+              {pwLoading ? "..." : "Uložit"}
+            </button>
+          </div>
+          {pwError && (
+            <p style={{ marginTop: 6, fontSize: 12, color: "var(--danger)" }}>{pwError}</p>
+          )}
+          <p style={{ marginTop: 6, fontSize: 11, color: TEXT_SECONDARY }}>
+            Změna hesla odhlásí uživatele na všech zařízeních.
+          </p>
         </div>
       )}
 

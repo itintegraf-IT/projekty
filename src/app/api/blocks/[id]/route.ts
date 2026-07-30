@@ -112,6 +112,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const bypassOverlapCheck = (body as Record<string, unknown>).bypassOverlapCheck === true;
     // resolveChain: server po uložení bloku sám odsune navazující bloky (chain push) v téže transakci.
     const resolveChain = (body as Record<string, unknown>).resolveChain === true;
+    // Optimistic lock MUSÍ být vyzvednut TADY, před `delete` níž: pro ADMIN/PLANOVAT
+    // je `allowed` totožná reference jako `body`, takže delete pole odstraní
+    // i z body a kontrola v transakci by ho už nenašla (tichý lost update).
+    const expectedUpdatedAtRaw = (body as Record<string, unknown>).expectedUpdatedAt;
     // Explicitně smazat příznaky z allowed — nesmí jít do prisma.block.update
     delete (allowed as Record<string, unknown>).bypassScheduleValidation;
     delete (allowed as Record<string, unknown>).bypassOverlapCheck;
@@ -172,8 +176,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         throw new AppError("NOT_FOUND", "Blok nenalezen");
       }
 
-      // Optimistic locking — ověřit, že blok se nezměnil od načtení klientem
-      const expectedUpdatedAt = (body as Record<string, unknown>).expectedUpdatedAt as string | undefined;
+      // Optimistic locking — ověřit, že blok se nezměnil od načtení klientem.
+      // Hodnota pochází z `expectedUpdatedAtRaw` vyzvednuté před delete výše.
+      const expectedUpdatedAt = typeof expectedUpdatedAtRaw === "string" ? expectedUpdatedAtRaw : undefined;
       if (expectedUpdatedAt) {
         const expected = new Date(expectedUpdatedAt);
         if (isNaN(expected.getTime())) {

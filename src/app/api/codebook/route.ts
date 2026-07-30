@@ -11,6 +11,11 @@ export async function GET(request: NextRequest) {
   const includeInactive = searchParams.get("includeInactive") === "true";
 
   try {
+    // Defense-in-depth: jediná route, která dřív spoléhala výhradně na
+    // middleware (audit SEC-07) — Next middleware je historicky křehká vrstva.
+    const session = await getSession();
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const options = await prisma.codebookOption.findMany({
       where: {
         ...(category ? { category } : {}),

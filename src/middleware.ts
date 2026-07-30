@@ -13,8 +13,11 @@ const SECRET = new TextEncoder().encode(jwtSecretRaw);
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Allow login page and auth API without token
-  if (pathname.startsWith("/login") || pathname.startsWith("/api/auth")) {
+  // Login page a explicitně vyjmenované auth routes bez tokenu.
+  // Allowlist místo prefixu `/api/auth` — prefix by automaticky zveřejnil
+  // každou budoucí auth route (audit SEC-08).
+  const PUBLIC_AUTH_ROUTES = ["/api/auth/login", "/api/auth/logout", "/api/auth/kiosk"];
+  if (pathname.startsWith("/login") || PUBLIC_AUTH_ROUTES.includes(pathname)) {
     return NextResponse.next();
   }
 
@@ -37,19 +40,21 @@ export async function middleware(req: NextRequest) {
   }
 
   try {
-    const { payload } = await jwtVerify(cookie.value, SECRET);
+    const { payload } = await jwtVerify(cookie.value, SECRET, { algorithms: ["HS256"] });
     const role = payload.role as string | undefined;
 
-    // TISKAR smí jen / a /api/* (ne /admin, ne /rezervace)
-    if (role === "TISKAR") {
-      if (pathname.startsWith("/admin") || pathname.startsWith("/rezervace")) {
-        return NextResponse.redirect(new URL("/", req.url));
-      }
+    // TISKAR smí jen / a /api/* (ne /rezervace; /admin řeší allowlist níž)
+    if (role === "TISKAR" && pathname.startsWith("/rezervace")) {
+      return NextResponse.redirect(new URL("/", req.url));
     }
 
-    // OBCHODNIK nesmí na /admin
-    if (role === "OBCHODNIK" && pathname.startsWith("/admin")) {
-      return NextResponse.redirect(new URL("/", req.url));
+    // /admin — allowlist místo denylistu, aby nová role nebyla automaticky
+    // průchozí (audit D-1). Page guard v admin/page.tsx zůstává jako druhá
+    // vrstva; výsledné chování rolí je stejné jako dřív.
+    if (pathname.startsWith("/admin")) {
+      if (!role || !["ADMIN", "PLANOVAT"].includes(role)) {
+        return NextResponse.redirect(new URL("/", req.url));
+      }
     }
 
     // /reporty — jen ADMIN

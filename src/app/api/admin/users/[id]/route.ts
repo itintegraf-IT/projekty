@@ -2,6 +2,8 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
+import { bumpTokenVersion, invalidateSessionVersionCache } from "@/lib/sessionVersion";
+import { validatePassword, BCRYPT_COST } from "@/lib/passwordPolicy";
 import bcrypt from "bcryptjs";
 
 // PUT /api/admin/users/[id] — změna role nebo hesla (ADMIN only)
@@ -55,21 +57,31 @@ export async function PUT(
   }
 
   if (body.password !== undefined) {
-    if (String(body.password).length < 1) {
-      return NextResponse.json({ error: "Heslo nesmí být prázdné" }, { status: 400 });
+    const target = await prisma.user.findUnique({ where: { id: numId }, select: { username: true } });
+    const pwCheck = validatePassword(body.password, target?.username);
+    if (!pwCheck.ok) {
+      return NextResponse.json({ error: pwCheck.error }, { status: 400 });
     }
-    data.passwordHash = await bcrypt.hash(String(body.password), 10);
+    data.passwordHash = await bcrypt.hash(String(body.password), BCRYPT_COST);
   }
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "Žádná změna" }, { status: 400 });
   }
 
+  // Změna role nebo hesla musí odhlásit uživatele všude — jinak by starý JWT
+  // se starou rolí platil až do expirace (audit SEC-03).
+  const mustRevokeSessions = data.role !== undefined || data.passwordHash !== undefined;
+
   try {
-    const user = await prisma.user.update({
-      where: { id: numId },
-      data,
-      select: { id: true, username: true, role: true, assignedMachine: true, createdAt: true },
+    const user = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id: numId },
+        data,
+        select: { id: true, username: true, role: true, assignedMachine: true, createdAt: true },
+      });
+      if (mustRevokeSessions) await bumpTokenVersion(tx, numId);
+      return updated;
     });
     return NextResponse.json(user);
   } catch (error) {
@@ -101,6 +113,9 @@ export async function DELETE(
 
   try {
     await prisma.user.delete({ where: { id: numId } });
+    // Cache verzí je per-proces — po smazání ji zahodit, ať se revokace
+    // projeví hned a ne až po vypršení TTL.
+    invalidateSessionVersionCache(numId);
     return NextResponse.json({ ok: true });
   } catch (error) {
     if ((error as { code?: string })?.code === "P2025") {
