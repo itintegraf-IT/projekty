@@ -18,7 +18,9 @@ export function validatePassword(password: unknown, username?: string): Password
     return { ok: false, error: `Heslo musí mít alespoň ${PASSWORD_MIN_LENGTH} znaků.` };
   }
   // bcrypt bere v potaz jen prvních 72 bajtů — delší heslo je tichá past.
-  if (Buffer.byteLength(password, "utf8") > 72) {
+  // TextEncoder místo Buffer: modul se importuje i do klientské komponenty
+  // (UsersSection kvůli PASSWORD_MIN_LENGTH) a Buffer v prohlížeči není.
+  if (new TextEncoder().encode(password).length > 72) {
     return { ok: false, error: "Heslo je příliš dlouhé (maximálně 72 bajtů)." };
   }
   if (username && password.toLowerCase() === username.toLowerCase()) {

@@ -8,7 +8,12 @@ import { recordLogin } from "@/lib/loginLog";
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
-  const { allowed, retryAfterSeconds } = checkRateLimit("login", ip, 10, 15 * 60 * 1000);
+  // Když reverzní proxy neposílá X-Real-IP ani X-Forwarded-For, spadnou VŠICHNI
+  // uživatelé do jednoho bucketu "unknown" a přísný limit by zamkl celou firmu.
+  // Reálnou ochranu účtu v takovém případě dělá per-účet limiter níž.
+  // (Nginx MUSÍ nastavovat X-Real-IP — viz docs/DEPLOY_WORKFLOW.md.)
+  const ipLimitMax = ip === "unknown" ? 100 : 10;
+  const { allowed, retryAfterSeconds } = checkRateLimit("login", ip, ipLimitMax, 15 * 60 * 1000);
   if (!allowed) {
     return NextResponse.json(
       { error: `Příliš mnoho pokusů. Zkuste znovu za ${Math.ceil(retryAfterSeconds / 60)} minut.` },

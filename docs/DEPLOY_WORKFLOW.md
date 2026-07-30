@@ -384,6 +384,21 @@ kdokoli uvnitř sítě/VPN ji teoreticky může odchytit. Zmírnění: přístup
 zkrácení kioskové session (hardening fáze auditu). **Přehodnotit, pokud by se
 aplikace někdy vystavovala mimo VPN** — pak HTTPS + `COOKIE_SECURE=true` + HSTS.
 
+## Nginx: hlavička s IP klienta (POVINNÉ)
+
+Rate limity loginu a `LoginLog` berou IP z `X-Real-IP`, jinak z poslední hodnoty
+`X-Forwarded-For`. Pokud nginx neposílá ani jedno, všichni uživatelé vypadají
+jako jeden klient (`unknown`). V server bloku aplikace proto musí být:
+
+```nginx
+proxy_set_header X-Real-IP        $remote_addr;
+proxy_set_header X-Forwarded-For  $proxy_add_x_forwarded_for;
+proxy_set_header Host             $host;
+```
+
+Ověření po deployi: neúspěšné přihlášení a pak v adminu (LoginLog) zkontrolovat,
+že u záznamu je skutečná IP stanice, ne `unknown` nebo `127.0.0.1`.
+
 ## PM2 provozní hygiena (jednorázově na serveru)
 
 Rotace logů — bez ní PM2 logy rostou donekonečna a plný disk shodí MySQL
