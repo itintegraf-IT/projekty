@@ -4,9 +4,10 @@
 # Závislosti: curl, jq (apt install jq), volitelně msmtp pro e-mail alerty.
 # Instalace a POŘADÍ NASAZENÍ (nejdřív deploy aplikace!): docs/OPS_ZALOHY.md
 #
-# Cron (root):
+# Cron (root) — report v 7:05, NE 7:00: čas dělitelný 15 by kolidoval
+# s pravidelným během o flock a heartbeat by se nedeterministicky ztrácel:
 #   */15 * * * * /usr/local/bin/planovani-healthcheck.sh >> /var/log/planovani-health.log 2>&1
-#   0 7 * * *    /usr/local/bin/planovani-healthcheck.sh --report >> /var/log/planovani-health.log 2>&1
+#   5 7 * * *    /usr/local/bin/planovani-healthcheck.sh --report >> /var/log/planovani-health.log 2>&1
 # ─────────────────────────────────────────────────────────────────────────────
 # Záměrně BEZ set -e: chceme posbírat VŠECHNY problémy, ne skončit na prvním.
 set -uo pipefail
@@ -106,8 +107,8 @@ esac
 find "$BACKUP_ROOT/db" -name '*.sql.gz' -mmin -$((BACKUP_MAX_AGE_H * 60)) 2>/dev/null | grep -q . \
   || PROBLEMS+=("záloha: žádný dump mladší ${BACKUP_MAX_AGE_H} h")
 
-# ── 7) Čerstvost CSV exportu ─────────────────────────────────────────────────
-find "$BACKUP_ROOT/csv" -maxdepth 1 -type d -name '20*' -mmin -$((BACKUP_MAX_AGE_H * 60)) 2>/dev/null | grep -q . \
+# ── 7) Čerstvost CSV exportu (bez rozpracovaných .part torz) ─────────────────
+find "$BACKUP_ROOT/csv" -maxdepth 1 -type d -name '20*' ! -name '*.part' -mmin -$((BACKUP_MAX_AGE_H * 60)) 2>/dev/null | grep -q . \
   || PROBLEMS+=("CSV export: žádný export mladší ${BACKUP_MAX_AGE_H} h")
 
 # ── Vyhodnocení + status soubor + alerting ───────────────────────────────────

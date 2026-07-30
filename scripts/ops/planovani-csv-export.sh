@@ -4,7 +4,9 @@
 # Prismě, aplikaci i formátu dumpu. Otevře Excel CZ dvojklikem (BOM + středník).
 # Běží z ROOT crontabu. Instalace: docs/OPS_ZALOHY.md
 #
-# Cron (root):  15 2 * * * /usr/local/bin/planovani-csv-export.sh >> /var/log/planovani-backup.log 2>&1
+# Cron (root) — 2:20, NE 2:15: čas dělitelný 15 by běžel ve stejnou minutu
+# jako healthcheck a ten by mohl freshness odsouhlasit nad rozpracovaným během:
+#   20 2 * * * /usr/local/bin/planovani-csv-export.sh >> /var/log/planovani-backup.log 2>&1
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 umask 077   # exporty obsahují business data — jen pro root
@@ -12,6 +14,9 @@ umask 077   # exporty obsahují business data — jen pro root
 BACKUP_ROOT=/var/backups/planovanivyroby
 OUT=$BACKUP_ROOT/csv/$(date +%Y%m%d)
 KEEP_DAYS=30
+# Kontrakt všech tvůrců BACKUP_ROOT: adresář musí být 711 (průchozí pro banner).
+mkdir -p "$BACKUP_ROOT"
+chmod 711 "$BACKUP_ROOT"
 # Export jde do .part a přejmenuje se až po úspěchu celého běhu — v csv/
 # nikdy neleží částečné torzo tvářící se jako kompletní export (nález S4).
 # Healthcheck hlídá čerstvost finálního adresáře (kontrola č. 7).
