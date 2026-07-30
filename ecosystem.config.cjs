@@ -15,12 +15,16 @@ module.exports = {
       cwd: __dirname,
       script: "npm",
       args: "start",
-      // Pojistka proti memory leaku — PM2 proces nad limitem restartuje.
-      max_memory_restart: "512M",
+      // POZOR: PM2 tady měří jen npm wrapper (~50-80 MB), ne skutečný
+      // next-server child — tenhle limit je jen záložní strop. Skutečnou
+      // ochranu proti memory leaku dělá NODE_OPTIONS níž: heap limit se
+      // dědí do child procesů, server nad ním spadne a PM2 ho restartuje.
+      max_memory_restart: "1G",
       // Fork mód s JEDINOU instancí je ZÁMĚR: rate-limiter loginů a mapa SSE
       // spojení jsou in-memory per proces — v cluster módu (instances > 1)
       // by přestaly fungovat. NIKDY nepřidávat instances/exec_mode cluster.
       env: {
+        NODE_OPTIONS: "--max-old-space-size=768",
         NODE_ENV: "production",
         // next start respektuje PORT
         PORT: process.env.PORT || "3020",

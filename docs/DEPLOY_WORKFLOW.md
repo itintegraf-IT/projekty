@@ -401,22 +401,29 @@ Start po rebootu serveru (audit OPS-06 — dosud nikde nezajištěno):
 ```bash
 pm2 startup systemd   # vypíše sudo příkaz — spustit ho
 pm2 save
-systemctl status pm2-administrator   # ověření, že unit existuje a je enabled
+systemctl is-enabled pm2-administrator   # musí vrátit "enabled"
 ```
 
 Propsání změn `ecosystem.config.cjs` (např. `max_memory_restart`) do běžícího
-procesu — obyčejný `pm2 reload` env/limity nepřečte:
+procesu — obyčejný `pm2 reload` env/limity nepřečte. **Provádět mimo špičku**
+(pár sekund výpadku + odpojení SSE všem přihlášeným):
 
 ```bash
-pm2 delete planovanivyroby && pm2 start ecosystem.config.cjs && pm2 save
+pm2 delete planovanivyroby
+ss -ltnp | grep 3020   # MUSÍ být prázdné — orphan next-server by držel port
+pm2 start ecosystem.config.cjs && pm2 save
 ```
 
 Gotchy:
 
 - **NIKDY nenastavovat `instances > 1` / cluster mód** — rate-limiter loginů
   a SSE spojení jsou in-memory per proces (komentář v ecosystem.config.cjs).
-- Chyby aplikace se hledají v **out** logu, ne v error logu (logger píše vše
-  na stdout): `grep '"level":"error"' ~/.pm2/logs/planovanivyroby-out.log`.
+- PM2 měří paměť jen npm wrapperu, ne next-server childu — skutečný memory
+  limit dělá `NODE_OPTIONS --max-old-space-size` v ecosystem.config.cjs.
+  Ověření na serveru: `pm2 ls` (mem ~50-80 MB) vs. `ps aux | grep next-server`.
+- **Aplikační** chyby (logger) jdou na stdout → `-out.log`:
+  `grep '"level":"error"' ~/.pm2/logs/planovanivyroby-out.log`.
+  Pády procesu a framework chyby jdou na stderr → `-error.log`. Číst oba.
 
 ## Automatizace do budoucna
 
