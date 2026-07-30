@@ -434,6 +434,11 @@ pull, instalaci, Prisma validate/generate/migrate, bootstrap, build a PM2 reload
 běží z root cronu — skript `scripts/ops/planovani-backup.sh`, postup a restore
 viz `docs/OPS_ZALOHY.md`. Ruční dump před deployem (krok 4b) zůstává v platnosti.
 
+⚠️ PŘED upgradem na Next 17: přejmenovat `src/middleware.ts` → `proxy.ts`
+(export `proxy`; codemod `npx @next/codemod@canary middleware-to-proxy`).
+V Next 16 je to jen deprecation warning, ale pokud by Next 17 soubor přestal
+číst, celá auth vrstva by tiše zmizela.
+
 Co bych automatizoval později:
 
 - Přidat lokální helper pro merge `Vojta -> michal`, který před pushem spustí testy a build.

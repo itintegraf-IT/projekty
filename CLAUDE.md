@@ -71,7 +71,7 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 ```
 `errorStatus` je kanonická mapa kód→HTTP v `errors.ts` (žádné lokální kopie).
 
-**Auth v nových API routes → `requireRole([...])`** (`src/lib/auth.ts`) UVNITŘ try (hází `UNAUTHORIZED`/`FORBIDDEN` → catch výše). Čisté jádro `assertRole` v `src/lib/authz.ts`.
+**Auth v nových API routes → `requireRole([...])`** (`src/lib/auth.ts`) UVNITŘ try (hází `UNAUTHORIZED`/`FORBIDDEN` → catch výše). Čisté jádro `assertRole` v `src/lib/authz.ts`. Jediné záměrně veřejné routes: `/api/auth/*` a `/api/health` (liveness probe pro monitoring, výjimka v middleware přesnou shodou) — žádné další nepřidávat.
 
 **Logování → vždy `logger`** (`src/lib/logger.ts`), nikdy `console.*` v API routes.
 
@@ -115,7 +115,7 @@ Prod DB `igvyroba` měla historicky ručně vytvořené sloupce (opraveno 12. 4.
 
 - `docs/vyvoj-historie.md` — souhrn featur + implementační reference (tiskové hodiny, split-skupiny B2, copy/paste, reporty, dekompozice fáze E) a historie etap
 - `docs/DEPLOY_WORKFLOW.md` — deploy postup + prod gotchy
-- `docs/OPS_ZALOHY.md` — denní automatická záloha (DB + přílohy + config, root cron), restore postup; **NIKDY `git clean -x` v produkční složce** (smaže přílohy v gitignored `data/`)
+- `docs/OPS_ZALOHY.md` — provozní skripty (denní záloha DB+příloh, health-check à 15 min, CSV export) + restore postup; **NIKDY `git clean -x` v produkční složce** (smaže přílohy v gitignored `data/`)
 - `docs/KIOSK_TERMINAL.md` — kioskový launcher u strojů (přepínač plán ↔ Logica); **pozor na `COOKIE_SECURE`** — na HTTP nasazení musí být `false`, jinak se nikdo nepřihlásí
 - `docs/superpowers/plans/` — detailní plány jednotlivých etap
 - `README.md` · `DOKUMENTACE.md` · `DATABAZE_DOKUMENTACE.md`

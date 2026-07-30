@@ -11,12 +11,23 @@ case $- in
     else
       STATUS=$(cat "$B/last_backup_status" 2>/dev/null || echo "ZATIM ZADNA ZALOHA NEPROBEHLA")
     fi
+    if [ -e "$B/health_status" ] && [ ! -r "$B/health_status" ]; then
+      HEALTH="STATUS NECITELNY (zkontroluj prava na $B/health_status)"
+    else
+      HEALTH=$(cat "$B/health_status" 2>/dev/null || echo "health-check zatim nebezel")
+    fi
     echo "── planovanivyroby ─────────────────────────────────"
     case "$STATUS" in
       OK*) echo "Záloha:  $STATUS" ;;
       *)   printf '\033[1;31mZáloha:  %s\033[0m\n' "$STATUS" ;;
     esac
+    case "$HEALTH" in
+      OK*) echo "Health:  $HEALTH" ;;
+      # Víceřádkový PROBLEM status: vzít hlavičku + první problém na jeden
+      # řádek PŘED printf — reset barvy musí zůstat na konci výstupu.
+      *)   printf '\033[1;31mHealth:  %s\033[0m\n' "$(printf '%s' "$HEALTH" | head -2 | tr '\n' ' ')" ;;
+    esac
     echo "────────────────────────────────────────────────────"
-    unset B STATUS
+    unset B STATUS HEALTH
     ;;
 esac
