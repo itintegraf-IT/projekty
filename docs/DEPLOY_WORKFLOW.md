@@ -375,6 +375,49 @@ Po deployi v aplikaci ověřit:
 10. ☐ Pokud Prisma migrace: ověř `SHOW COLUMNS` že nový sloupec existuje
 11. ☐ UI smoke test v prohlížeči (drag, resize, edit, mazání)
 
+## Provozní rozhodnutí: HTTP uvnitř VPN (30. 7. 2026)
+
+Aplikace je dostupná **výhradně z firemní sítě / přes VPN**, nikdy z internetu.
+Vědomé rozhodnutí (Vojta, 30. 7. 2026, uzavírá audit SEC-02): zůstáváme na HTTP
+s `COOKIE_SECURE=false`. Přijaté riziko: session cookie jde po LAN nešifrovaně —
+kdokoli uvnitř sítě/VPN ji teoreticky může odchytit. Zmírnění: přístup jen VPN,
+zkrácení kioskové session (hardening fáze auditu). **Přehodnotit, pokud by se
+aplikace někdy vystavovala mimo VPN** — pak HTTPS + `COOKIE_SECURE=true` + HSTS.
+
+## PM2 provozní hygiena (jednorázově na serveru)
+
+Rotace logů — bez ní PM2 logy rostou donekonečna a plný disk shodí MySQL
+i aplikaci (audit OPS-04):
+
+```bash
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 20M
+pm2 set pm2-logrotate:retain 14
+pm2 set pm2-logrotate:compress true
+```
+
+Start po rebootu serveru (audit OPS-06 — dosud nikde nezajištěno):
+
+```bash
+pm2 startup systemd   # vypíše sudo příkaz — spustit ho
+pm2 save
+systemctl status pm2-administrator   # ověření, že unit existuje a je enabled
+```
+
+Propsání změn `ecosystem.config.cjs` (např. `max_memory_restart`) do běžícího
+procesu — obyčejný `pm2 reload` env/limity nepřečte:
+
+```bash
+pm2 delete planovanivyroby && pm2 start ecosystem.config.cjs && pm2 save
+```
+
+Gotchy:
+
+- **NIKDY nenastavovat `instances > 1` / cluster mód** — rate-limiter loginů
+  a SSE spojení jsou in-memory per proces (komentář v ecosystem.config.cjs).
+- Chyby aplikace se hledají v **out** logu, ne v error logu (logger píše vše
+  na stdout): `grep '"level":"error"' ~/.pm2/logs/planovanivyroby-out.log`.
+
 ## Automatizace do budoucna
 
 Aktuální `scripts/deploy.sh` je dobrý základ a už automatizuje serverovou část:

@@ -15,6 +15,11 @@ module.exports = {
       cwd: __dirname,
       script: "npm",
       args: "start",
+      // Pojistka proti memory leaku — PM2 proces nad limitem restartuje.
+      max_memory_restart: "512M",
+      // Fork mód s JEDINOU instancí je ZÁMĚR: rate-limiter loginů a mapa SSE
+      // spojení jsou in-memory per proces — v cluster módu (instances > 1)
+      // by přestaly fungovat. NIKDY nepřidávat instances/exec_mode cluster.
       env: {
         NODE_ENV: "production",
         // next start respektuje PORT
