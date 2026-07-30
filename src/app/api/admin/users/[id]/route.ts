@@ -18,7 +18,7 @@ export async function PUT(
   const numId = Number(id);
   if (isNaN(numId)) return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
 
-  const body = await req.json();
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const data: Record<string, unknown> = {};
 
   if (body.role !== undefined) {
@@ -27,14 +27,14 @@ export async function PUT(
       return NextResponse.json({ error: "Nelze změnit vlastní roli" }, { status: 403 });
     }
     const VALID_ROLES = ["ADMIN", "PLANOVAT", "MTZ", "DTP", "TISKAR", "OBCHODNIK", "VIEWER"];
-    if (!VALID_ROLES.includes(body.role)) {
+    if (!VALID_ROLES.includes(String(body.role))) {
       return NextResponse.json({ error: "Neplatná role" }, { status: 400 });
     }
     data.role = String(body.role);
 
     // TISKAR: assignedMachine povinný; ostatní role: vždy vyčistit
     if (body.role === "TISKAR") {
-      if (!body.assignedMachine || !["XL_105", "XL_106"].includes(body.assignedMachine)) {
+      if (!body.assignedMachine || !["XL_105", "XL_106"].includes(String(body.assignedMachine))) {
         return NextResponse.json({ error: "Tiskař musí mít přiřazený stroj (XL_105 nebo XL_106)" }, { status: 400 });
       }
       data.assignedMachine = String(body.assignedMachine);
@@ -48,7 +48,7 @@ export async function PUT(
     if (targetUser.role !== "TISKAR") {
       return NextResponse.json({ error: "Stroj lze přiřadit jen roli TISKAR" }, { status: 400 });
     }
-    if (!["XL_105", "XL_106"].includes(body.assignedMachine)) {
+    if (!["XL_105", "XL_106"].includes(String(body.assignedMachine))) {
       return NextResponse.json({ error: "Neplatný stroj" }, { status: 400 });
     }
     data.assignedMachine = String(body.assignedMachine);
@@ -73,8 +73,11 @@ export async function PUT(
     });
     return NextResponse.json(user);
   } catch (error) {
-    logger.error("Update admin user failed", error);
-    return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
+    if ((error as { code?: string })?.code === "P2025") {
+      return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
+    }
+    logger.error("[PUT /api/admin/users/[id]] neočekávaná chyba", error);
+    return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });
   }
 }
 
@@ -100,7 +103,10 @@ export async function DELETE(
     await prisma.user.delete({ where: { id: numId } });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    logger.error("Delete admin user failed", error);
-    return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
+    if ((error as { code?: string })?.code === "P2025") {
+      return NextResponse.json({ error: "Uživatel nenalezen" }, { status: 404 });
+    }
+    logger.error("[DELETE /api/admin/users/[id]] neočekávaná chyba", error);
+    return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });
   }
 }

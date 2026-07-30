@@ -20,11 +20,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
   }
 
-  const { startDate, endDate, label, machine } = await req.json();
+  const putBody = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  const { startDate, endDate, label, machine } = putBody as {
+    startDate?: string; endDate?: string; label?: string; machine?: string | null;
+  };
   if (!startDate || !endDate || !label) {
     return NextResponse.json({ error: "Chybí povinná pole" }, { status: 400 });
   }
-  if (machine != null && !MACHINES.includes(machine)) {
+  if (machine != null && !(MACHINES as readonly string[]).includes(machine)) {
     return NextResponse.json({ error: "Neplatná hodnota stroje" }, { status: 400 });
   }
 

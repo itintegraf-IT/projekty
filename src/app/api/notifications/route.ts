@@ -10,8 +10,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await request.json();
-  const { blockId, blockOrderNumber, type, message, targetUserId, reservationId } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Neplatný formát požadavku" }, { status: 400 });
+  }
+  const { blockId, blockOrderNumber, type, message, targetUserId, reservationId } = body as {
+    blockId?: number; blockOrderNumber?: string | null; type?: string;
+    message?: string; targetUserId?: number; reservationId?: number | null;
+  };
 
   // Rozlišení: starý BLOCK_NOTIFY flow (blockId) vs. nový rezervační flow (targetUserId)
   if (targetUserId !== undefined) {
