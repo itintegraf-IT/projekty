@@ -4,6 +4,7 @@ import { weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { pragueOf } from "@/lib/dateUtils";
 import { expandPrintTime, MAX_SPAN_DAYS, type CompanyDayInterval } from "@/lib/printTime";
+import { blockOverlapsBlockedTimeWithTemplates } from "@/lib/workingTime";
 import { AppError } from "@/lib/errors";
 
 type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
@@ -17,11 +18,50 @@ export type AppliedMove = ChainMove & {
   oldEndTime: Date;
 };
 
+/** Řádek bloku, ze kterého se odvozuje geometrie posunu. */
+type GeometryRow = {
+  type: string;
+  startTime: Date;
+  endTime: Date;
+  printMinutes: number | null;
+  scheduleBypassed: boolean;
+};
+
+/**
+ * JEDINÝ zdroj pravdy o tom, jak se blok při chain pushi posouvá. Volá ho jak
+ * mapování vstupů pro `computeChainPush`, tak nezávislá pojistka po posunu —
+ * kdyby se ta dvě místa rozešla, pojistka by hlásila falešný SCHEDULE_VIOLATION.
+ *
+ * - ZAKAZKA: tiskové hodiny (délka z `printMinutes`, re-expanze přes pauzy směn,
+ *   legacy fallback zarovnaný na 30min mřížku).
+ * - REZERVACE / UDRZBA: rigidní interval — PŘESNÁ délka bez zaokrouhlení, bez
+ *   roztažení přes pauzy; celý se musí vejít do pracovní doby.
+ */
+export function chainPushGeometry(r: GeometryRow): {
+  printMinutes: number;
+  scheduleBypassed: boolean;
+  rigid: boolean;
+} {
+  const spanMinutes = (r.endTime.getTime() - r.startTime.getTime()) / 60000;
+  if (r.type !== "ZAKAZKA") {
+    return { printMinutes: spanMinutes, scheduleBypassed: false, rigid: true };
+  }
+  return {
+    printMinutes: r.printMinutes ?? Math.max(30, Math.round(spanMinutes / 30) * 30),
+    scheduleBypassed: r.scheduleBypassed,
+    rigid: false,
+  };
+}
+
 /**
  * Serverový chain push proti živé DB. Anchor blok je už zapsán na své cílové pozici;
- * tato funkce načte ostatní ZAKAZKA bloky stroje v okolním okně, spočítá posuny přes
- * `computeChainPush` (re-expanze per blok podle printMinutes + scheduleBypassed)
- * a zapíše je v rámci PŘEDANÉ transakce `tx`.
+ * tato funkce načte ostatní bloky stroje v okolním okně (VŠECHNY typy — zakázky,
+ * rezervace i údržbu), spočítá posuny přes `computeChainPush` a zapíše je v rámci
+ * PŘEDANÉ transakce `tx`.
+ *
+ * Geometrie posunu se liší podle typu (viz `chainPushGeometry`): zakázka se
+ * re-expanduje přes tiskové hodiny, rezervace a údržba se posouvají jako pevný
+ * interval se zachovanou délkou. Nepohyblivé jsou jen zamčené a vytištěné bloky.
  *
  * Kalendář (weekShifts + companyDays) se načítá VŽDY — expanze odsunutých bloků na něm
  * stojí bez ohledu na bypass flag requestu (ten se týká jen anchoru a je vyřešen
@@ -38,7 +78,14 @@ export async function resolveChainPushFromDb(
   tx: PrismaTransactionClient,
   machine: string,
   anchor: { id: number; startTime: Date; endTime: Date },
-  excludeIds: ReadonlySet<number> = new Set()
+  excludeIds: ReadonlySet<number> = new Set(),
+  /**
+   * Sourozenci z téže dávky (lasso): načtou se jako PŘEKÁŽKA, ale neposouvají se.
+   * Na rozdíl od `excludeIds` (úplně neviditelné) tím chain push umístí odsunuté
+   * bloky až za ně — jinak by na sourozence dosedly a finální pojistka by
+   * celou dávku odmítla 409.
+   */
+  frozenIds: ReadonlySet<number> = new Set()
 ): Promise<AppliedMove[]> {
   // Okno bloků: den před anchorem až 90 dní za jeho koncem (chain push posouvá jen dopředu).
   const windowStart = new Date(anchor.startTime.getTime() - DAY_MS);
@@ -93,15 +140,28 @@ export async function resolveChainPushFromDb(
   const weekShifts: MachineWeekShiftsRow[] = serializeWeekShifts(rawWeekShifts);
   const companyDays: CompanyDayInterval[] = cdRows.map((c) => ({ start: c.startDate, end: c.endDate }));
 
+  // Rigidní blok (rezervace/údržba), který NA SVÉ SOUČASNÉ POZICI kalendáři
+  // nevyhovuje, se posouvat nesmí: leží tam vědomě (víkendová údržba, servis
+  // uvnitř celozávodní odstávky, noční rezervace) nebo je delší než jakékoli
+  // provozní okno. Posun by ho vystěhoval do výroby, případně teleportoval
+  // o týdny. Takový blok zůstává ZDÍ přesně jako před 31. 7. 2026.
+  const nonConforming = new Set<number>();
+  for (const r of rows) {
+    if (r.type === "ZAKAZKA") continue;
+    const mimoSmenu = blockOverlapsBlockedTimeWithTemplates(machine, r.startTime, r.endTime, weekShifts);
+    const vOdstavce = companyDays.some((cd) => cd.start < r.endTime && cd.end > r.startTime);
+    if (mimoSmenu || vOdstavce) nonConforming.add(r.id);
+  }
+
   const others: BlockInterval[] = rows.map((r) => ({
     id: r.id,
     startTime: r.startTime,
     endTime: r.endTime,
-    // Vytištěné bloky se chovají jako zamčené. Ne-ZAKAZKA (REZERVACE/UDRZBA) jsou pro
-    // ZAKAZKA chain-push PEVNÁ PŘEKÁŽKA — nikdy se neposouvají (jen ZAKAZKA se odsouvá).
-    locked: r.locked || r.printCompletedAt != null || r.type !== "ZAKAZKA",
-    printMinutes: r.printMinutes,
-    scheduleBypassed: r.scheduleBypassed,
+    // Zeď = zámek, potvrzený tisk, sourozenec z téže dávky (frozenIds) nebo
+    // rigidní blok mimo kalendář. Typ sám o sobě zdí není (rozhodnutí 31. 7. 2026).
+    locked:
+      r.locked || r.printCompletedAt != null || frozenIds.has(r.id) || nonConforming.has(r.id),
+    ...chainPushGeometry(r),
   }));
 
   const rowById = new Map(rows.map((r) => [r.id, r]));
@@ -110,13 +170,20 @@ export async function resolveChainPushFromDb(
   if (!result.ok) {
     if (result.reason === "LOCKED_CONFLICT") {
       const l = rowById.get(result.lockedId);
-      const kind =
-        l && l.type !== "ZAKAZKA"
-          ? l.type === "REZERVACE"
-            ? "rezervací"
-            : "údržbou"
-          : `zamčeným blokem #${l?.orderNumber ?? result.lockedId}`;
-      throw new AppError("OVERLAP", `Nelze uvolnit místo — koliduje s ${kind}. Vyber jiné místo.`);
+      const num = `#${l?.orderNumber ?? result.lockedId}`;
+      const noun = l?.type === "REZERVACE" ? "rezervací" : l?.type === "UDRZBA" ? "údržbou" : "zakázkou";
+      const predlozka = noun === "zakázkou" ? "se" : "s";
+      let duvod: string;
+      if (l?.printCompletedAt != null) {
+        duvod = `koliduje ${predlozka} ${noun} ${num}, která má potvrzený tisk`;
+      } else if (l && !l.locked && nonConforming.has(l.id)) {
+        // Blok leží mimo pracovní dobu nebo v odstávce — tam ho někdo umístil
+        // vědomě, automaticky se neposouvá.
+        duvod = `koliduje ${predlozka} ${noun} ${num} mimo pracovní dobu (posuň ji ručně)`;
+      } else {
+        duvod = `koliduje se zamčenou ${noun} ${num}`;
+      }
+      throw new AppError("OVERLAP", `Nelze uvolnit místo — ${duvod}. Vyber jiné místo.`);
     }
     const b = rowById.get(result.blockId);
     throw new AppError(
@@ -138,12 +205,25 @@ export async function resolveChainPushFromDb(
         `Auto-posun bloku #${r.orderNumber ?? m.id} přesáhl horizont plánování — uvolni místo ručně.`
       );
     }
-    // Legacy fallback (printMinutes == null): zarovnat na 30min grid — musí souhlasit s
-    // fallbackem v computeChainPush (overlapResolver.ts), jinak by tato pojistka falešně
-    // hlásila drift na bloku, který chain push umístil se stejným (zarovnaným) pm.
-    const pm = r.printMinutes ?? Math.max(30, Math.round((r.endTime.getTime() - r.startTime.getTime()) / 60000 / 30) * 30);
-    const exp = expandPrintTime(machine, m.startTime, pm, weekShifts, companyDays, r.scheduleBypassed);
-    const cdHit = r.scheduleBypassed
+    // Geometrie MUSÍ být tatáž, jakou použil chain push (`chainPushGeometry`) —
+    // jinak by pojistka hlásila drift na bloku, který sama umístila správně.
+    const g = chainPushGeometry(r);
+    if (g.rigid) {
+      // Rigidní blok: kontroluje se zachovaná délka, pracovní doba a odstávka
+      // (žádná re-expanze — rezervace se přes pauzy neroztahuje).
+      const movedMinutes = (m.endTime.getTime() - m.startTime.getTime()) / 60000;
+      const cdHit = companyDays.find((cd) => cd.start < m.endTime && cd.end > m.startTime);
+      const outsideShift = blockOverlapsBlockedTimeWithTemplates(machine, m.startTime, m.endTime, weekShifts);
+      if (movedMinutes !== g.printMinutes || cdHit || outsideShift) {
+        throw new AppError(
+          "SCHEDULE_VIOLATION",
+          `Auto-posun bloku #${r.orderNumber ?? m.id} nesedí na kalendář — uvolni místo ručně.`
+        );
+      }
+      continue;
+    }
+    const exp = expandPrintTime(machine, m.startTime, g.printMinutes, weekShifts, companyDays, g.scheduleBypassed);
+    const cdHit = g.scheduleBypassed
       ? companyDays.find((cd) => cd.start < m.endTime && cd.end > m.startTime)
       : undefined;
     if (!exp.ok || exp.end.getTime() !== m.endTime.getTime() || cdHit) {

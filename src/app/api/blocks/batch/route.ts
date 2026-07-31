@@ -172,14 +172,17 @@ export async function POST(request: NextRequest) {
         checkByMachine.set(u.machine, arr);
       }
 
-      // Chain push (resolveChain) — každý přesunutý ZAKAZKA blok odsune navazující;
-      // sourozenci z téže dávky (lasso) se neposouvají (excludeIds = movedIds).
+      // Chain push (resolveChain) — každý přesunutý blok odsune navazující, nezávisle
+      // na typu (rozhodnutí 31. 7. 2026). Sourozenci z téže dávky (lasso) se předávají
+      // jako ZMRAZENÉ překážky: neposouvají se, ale chain push je vidí a umístí
+      // odsunuté bloky až za ně (kdyby byli neviditelní, blok by na sourozence
+      // dosedl a finální pojistka by celou dávku odmítla).
       const shiftedMoves: AppliedMove[] = [];
-      if (resolveChain && zakazkaUpdates.length > 0) {
-        const movedIds = new Set(zakazkaUpdates.map((u) => u.id));
+      if (resolveChain && updates.length > 0) {
+        const movedIds = new Set(updates.map((u) => u.id));
         // Sestupně dle startTime — pozdější blok uvolní místo dřív (kompozičně korektnější
         // chain push při více anchorech v jedné dávce). Finální pojistka je záchrana.
-        const anchorsByStartDesc = [...zakazkaUpdates].sort(
+        const anchorsByStartDesc = [...updates].sort(
           (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
         );
         for (const u of anchorsByStartDesc) {
@@ -187,7 +190,8 @@ export async function POST(request: NextRequest) {
             tx,
             u.machine,
             { id: u.id, startTime: new Date(u.startTime), endTime: computedEnds.get(u.id)?.end ?? new Date(u.endTime) },
-            movedIds
+            new Set<number>(),  // nic se neschovává…
+            movedIds            // …sourozenci jsou vidět jako zmrazené překážky
           );
           shiftedMoves.push(...moves);
           const arr = checkByMachine.get(u.machine) ?? [];

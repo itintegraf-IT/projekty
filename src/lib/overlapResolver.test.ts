@@ -247,3 +247,89 @@ describe("computeChainPush — re-expanze přes víkendovou odstávku (XL_106)",
     }
   });
 });
+
+// ── Rigidní bloky (REZERVACE / UDRZBA) — pevná délka, do pracovní doby ──────
+describe("computeChainPush — rigidní bloky (rezervace/údržba)", () => {
+  const rigidBlk = (id: number, start: number, end: number, opts: { locked?: boolean } = {}): BlockInterval => ({
+    id,
+    startTime: H(start),
+    endTime: H(end),
+    locked: opts.locked ?? false,
+    printMinutes: (end - start) * 60,
+    scheduleBypassed: false,
+    rigid: true,
+  });
+
+  it("rigidní blok se odsune za anchor se zachovanou délkou", () => {
+    const r = computeChainPush("XL_105", { id: 1, startTime: H(10), endTime: H(12) }, [rigidBlk(2, 11, 13)], [], NO_CD);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.deepEqual(r.moves[0]!.startTime, H(12));
+      assert.deepEqual(r.moves[0]!.endTime, H(14));
+    }
+  });
+
+  it("rigidní blok se NEroztáhne přes odstávku — celý ji přeskočí", () => {
+    // Zakázka by přes odstávku pauzla (end by se posunul o její délku).
+    // Rigidní blok musí zůstat souvislý, tedy začít až za ní.
+    const cd: CompanyDayInterval[] = [{ start: H(12), end: H(15) }];
+    const r = computeChainPush("XL_105", { id: 1, startTime: H(10), endTime: H(12) }, [rigidBlk(2, 11, 13)], [], cd);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.deepEqual(r.moves[0]!.startTime, H(15));
+      assert.deepEqual(r.moves[0]!.endTime, H(17));
+      const delkaH = (r.moves[0]!.endTime.getTime() - r.moves[0]!.startTime.getTime()) / 3600000;
+      assert.equal(delkaH, 2, "délka rigidního bloku se nesmí změnit");
+    }
+  });
+
+  it("rigidní blok přeskočí zamčený blok v cestě", () => {
+    const r = computeChainPush(
+      "XL_105",
+      { id: 1, startTime: H(10), endTime: H(12) },
+      [rigidBlk(2, 11, 13), blk(3, 12, 14, { locked: true })],
+      [],
+      NO_CD
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      const m = r.moves.find((x) => x.id === 2)!;
+      assert.deepEqual(m.startTime, H(14), "musí začít až za zamčeným blokem");
+      assert.deepEqual(m.endTime, H(16));
+    }
+  });
+
+  it("rigidní blok se neteleportuje za horizont — raději PLACEMENT_FAILED", () => {
+    // Stroj jede jen ranní směnu (6–14) → 20h blok se nevejde do žádného okna.
+    // Bez horizontu by se posouval dál a dál, až by dorazil do týdne bez rozvrhu
+    // (hardcoded fallback = nonstop) a skočil o týdny i s celou kaskádou.
+    const morningOnly = [0, 1, 2, 3, 4, 5, 6].flatMap((d) =>
+      [W1, W2].map((w) => mkDay(w, d, { m: true }))
+    );
+    const dlouhy: BlockInterval = {
+      id: 2,
+      startTime: P(W1, 7),
+      endTime: new Date(P(W1, 7).getTime() + 20 * 3600000), // 20 h
+      locked: false,
+      printMinutes: 20 * 60,
+      scheduleBypassed: false,
+      rigid: true,
+    };
+    const r = computeChainPush(
+      "XL_106",
+      { id: 1, startTime: P(W1, 6), endTime: P(W1, 8) },
+      [dlouhy],
+      morningOnly,
+      NO_CD
+    );
+    assert.equal(r.ok, false, "neumístitelný blok nesmí být teleportován");
+    if (!r.ok) assert.equal(r.reason, "PLACEMENT_FAILED");
+  });
+
+  it("rigidní blok s korumpovanou délkou → PLACEMENT_FAILED, ne výjimka", () => {
+    const bad: BlockInterval = { ...rigidBlk(2, 11, 13), printMinutes: -60 };
+    const r = computeChainPush("XL_105", { id: 1, startTime: H(10), endTime: H(12) }, [bad], [], NO_CD);
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.reason, "PLACEMENT_FAILED");
+  });
+});

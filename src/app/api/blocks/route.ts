@@ -206,9 +206,11 @@ export async function POST(request: NextRequest) {
       // autoShiftIfBusy (queue-drop je posílá tak, že existující pre-check větev neběží).
       // Duration-based (ne-ZAKAZKA nemá printMinutes); slot je jen kandidát, finální
       // assertNoOverlapForBlocks (níže) drží souběh.
-      // Pozn.: self-shift je scoped jen na POST (queue-drop). PUT (grid-drag) a batch (lasso)
-      // REZERVACI při kolizi tvrdě odmítnou přes net (409) — vědomý known-gap, viz spec R5.
-      if (finalType === "REZERVACE" && !bypassOverlapCheck) {
+      // Pozn.: od 31. 7. 2026 platí chain push pro všechny typy, takže s `resolveChain`
+      // si rezervace udělá místo odsunutím následníků a uhýbat sama NESMÍ — jinak by
+      // si uhnula dřív, než chain push dostane šanci, a drop z fronty by se choval
+      // jinak než drag v gridu. Self-shift zůstává jen pro cesty bez resolveChain.
+      if (finalType === "REZERVACE" && !bypassOverlapCheck && !resolveChain) {
         const conflict = await tx.block.findFirst({
           where: { machine: body.machine, startTime: { lt: endTime }, endTime: { gt: startTime } },
           select: { id: true },
@@ -347,8 +349,9 @@ export async function POST(request: NextRequest) {
       }
 
       // Chain push (resolveChain) — nový blok zůstane na cíli, navazující se odsunou.
+      // Platí pro všechny typy (rozhodnutí 31. 7. 2026).
       let shiftedMoves: AppliedMove[] = [];
-      if (resolveChain && finalType === "ZAKAZKA") {
+      if (resolveChain) {
         shiftedMoves = await resolveChainPushFromDb(
           tx,
           body.machine,

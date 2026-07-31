@@ -79,6 +79,12 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 **Overlap guard platí pro VŠECHNY typy bloků** (ZAKAZKA, REZERVACE, UDRZBA — ne jen ZAKAZKA), na všech 5 zápisových cestách (POST/PUT/batch/split/reflow). `assertNoOverlapForBlocks`/`checkBlockOverlap` (`src/lib/overlapCheck.ts`) jsou type-agnostické odjakživa — nový kód, který mění `startTime`/`endTime`/`machine` bloku libovolného typu, musí na konci transakce zavolat `assertNoOverlapForBlocks` se seznamem ID dotčených bloků. Reflow endpointy (`src/lib/reflow.server.ts`) tuto pojistku dřív nevolaly vůbec (reálný bug, opraven 16. 7. 2026) — nepřidávat žádnou novou mutační cestu bez ní. Detaily → `docs/vyvoj-historie.md`.
 
+**Chain push (odsouvání navazujících bloků) platí pro VŠECHNY typy** — od 31. 7. 2026 si rezervace i údržba udělají místo stejně jako zakázka (dřív byly pevná zeď a drop se odmítl 409). Geometrie posunu se ale liší a je v jediném zdroji pravdy `chainPushGeometry` (`src/lib/overlapResolver.server.ts`), který volá jak push, tak jeho nezávislá pojistka:
+- **ZAKAZKA** → tiskové hodiny: délka z `printMinutes`, re-expanze přes pauzy směn.
+- **REZERVACE/UDRZBA** → rigidní interval: PŘESNÁ délka (žádné zaokrouhlení na 30 min, žádné roztažení), start přes `snapToNextValidStartWithTemplates` (týž helper, jaký používá ruční drag na klientovi), horizont posunu `MAX_RIGID_PUSH_MS` = 7 dní.
+
+**Zdí (neposouvá se, drop se odmítne) zůstává:** zamčený blok · blok s potvrzeným tiskem · **rigidní blok, který na své současné pozici nevyhovuje kalendáři** (leží mimo pracovní dobu nebo v odstávce — typicky víkendová údržba či servis naplánovaný na celozávodní odstávku; posun by ho vystěhoval do výroby) · sourozenci z téže dávky v batchi (`frozenIds` — načtou se jako překážka, ale neposouvají se).
+
 **Audit → každá mutace v `$transaction`** společně se zápisem do `AuditLog` (jinak nekonzistentní stav).
 
 **Mouse handlery na blocích** začínají `if (e.button !== 0) return;` (jen levé tlačítko).

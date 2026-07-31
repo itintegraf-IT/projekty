@@ -21,7 +21,8 @@ export function isBlockedSlotDynamic(
 
 type BlockRef = { machine: string; originalStart: Date; originalEnd: Date };
 
-function blockOverlapsBlockedTimeWithTemplates(
+/** Leží kterýkoli slot bloku mimo pracovní dobu stroje? (používá i serverový chain push) */
+export function blockOverlapsBlockedTimeWithTemplates(
   machine: string,
   start: Date,
   end: Date,

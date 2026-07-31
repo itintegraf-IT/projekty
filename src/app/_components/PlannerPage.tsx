@@ -1015,6 +1015,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (eb.id === cleanUpdated.id) return cleanUpdated;
       return shifted.find((s) => s.id === eb.id) ?? eb;
     });
+    // Odsunutí navazujících bloků nesmí proběhnout tiše (od 31. 7. 2026 se
+    // odsouvají i rezervace a údržba — rozsah může být větší, než uživatel čeká).
+    if (shifted.length > 0) {
+      showToast(`Posunuto ${shifted.length} navazujících bloků — zkontroluj timeline.`, "info");
+    }
     // Lokální propagace sdílených polí do split sourozenců
     if (cleanUpdated.splitGroupId != null) {
       const patch: Partial<Block> = {};
@@ -1143,6 +1148,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
       );
     });
+    // Odsunutí navazujících bloků nesmí proběhnout tiše — od 31. 7. 2026 se
+    // odsouvají i rezervace a údržba, takže rozsah může být větší, než uživatel čeká.
+    if (shifted.length > 0) {
+      showToast(`Posunuto ${shifted.length} navazujících bloků — zkontroluj timeline.`, "info");
+    }
   }
 
   function handleDataChipDoubleClick(blockId: number, rect: DOMRect) {

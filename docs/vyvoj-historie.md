@@ -2,6 +2,37 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Chain push pro všechny typy bloků (31. 7. 2026)
+
+Do 31. 7. 2026 platilo: zakázku šlo přetáhnout na obsazené místo (server odsunul
+navazující bloky — chain push), ale rezervace a údržba to odmítly chybou „blok
+koliduje". Ověřeno spuštěním kódu z doby před auditem, že šlo o **záměrné původní
+chování** (spec `2026-07-16-overlap-guard-all-types-design.md`, pravidla R4/R5),
+ne o regresi. Rozhodnutím majitele se sjednotilo: **všechny typy se chovají stejně**.
+
+**Proč to nešlo udělat prostým odblokováním:** chain push posouvá bloky přes
+tiskové hodiny — délku bere z `printMinutes`, zaokrouhluje na 30 minut a blok
+roztahuje přes pauzy směn. U rezervací by to změnilo jejich délku (45 min → 30 min)
+a přes víkend by je natáhlo. Proto vznikla **třetí geometrie posunu — rigidní blok**:
+přesná délka, žádné roztažení, start přes `snapToNextValidStartWithTemplates`
+(týž helper, jaký používá ruční přetažení na klientovi), horizont 7 dní.
+
+**Co zůstává zdí** (multi-agent review odhalil, že bez toho by se plán rozsypal):
+zamčený blok · potvrzený tisk · rigidní blok, který na své současné pozici
+nevyhovuje kalendáři (víkendová údržba, servis uvnitř celozávodní odstávky —
+posun by je vystěhoval do výroby) · sourozenci z téže dávky v batchi.
+
+**Klíčové soubory:** `src/lib/overlapResolver.ts` (`placeRigidAfter`, `rigid` flag,
+`MAX_RIGID_PUSH_MS`) · `src/lib/overlapResolver.server.ts` (`chainPushGeometry` jako
+jediný zdroj pravdy pro push i jeho pojistku, `frozenIds`) · gate odblokován v POST,
+PUT a batch; self-shift rezervace se s `resolveChain` už neuplatní.
+
+**Známé omezení (backlog):** `Reservation.scheduledStartTime/EndTime` se při chain
+pushi neaktualizují a obchodník nedostane notifikaci · Ctrl+Z po vytvoření bloku
+nevrací odsunuté bloky (starší díra, s odsouváním rezervací větší dopad) · série
+rezervací z fronty nově odsouvá výrobu místo aby uhýbala.
+
+
 ## Co aplikace umí
 
 ### 1. Planner

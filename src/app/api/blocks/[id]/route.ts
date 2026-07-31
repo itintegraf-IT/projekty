@@ -520,7 +520,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         }
       }
 
-      // ── Chain push (jen ZAKAZKA) + tvrdá pojistka (všechny typy) ──
+      // ── Chain push (VŠECHNY typy) + tvrdá pojistka (všechny typy) ──
       let shiftedMoves: AppliedMove[] = [];
       // Net běží při změně pozice/času/stroje NEBO změně typu jakýmkoliv směrem (spec R1):
       // ZAKAZKA↔ne-ZAKAZKA na legacy-kolidujícím místě jinak net přeskočí.
@@ -532,7 +532,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       const positionOrTypeChanged =
         timingChanged || typeChangesToZakazka || typeChangingAwayFromZakazka || endChangedByComputation;
       if (positionOrTypeChanged) {
-        if (resultingType === "ZAKAZKA" && resolveChain) {
+        // Odsouvání navazujících bloků platí pro VŠECHNY typy (rozhodnutí 31. 7. 2026):
+        // rezervace i údržba si udělají místo stejně jako zakázka. Nepohyblivé zůstávají
+        // jen zamčené a vytištěné bloky — to řeší resolveChainPushFromDb.
+        if (resolveChain) {
           shiftedMoves = await resolveChainPushFromDb(
             tx,
             updated.machine,

@@ -90,6 +90,15 @@ posunutých bloků proti expanzi, ne raw overlap query).
 `assertNoOverlapForBlocks(machine, [blockId, ...moves.map(m => m.id)], tx)`. Jedna oprava kryje
 i `reflowMachineInTx` (loopuje přes `reflowBlockInTx`). `reflow.server.ts` je in-scope soubor.
 
+> ⚠️ **SUPERSEDED 31. 7. 2026 — R4 a R5 už neplatí.**
+> Rozhodnutím majitele se chain push rozšířil na VŠECHNY typy: rezervace i údržba
+> se odsouvají stejně jako zakázka (rigidní geometrie — přesná délka, do pracovní
+> doby, horizont 7 dní). Pevnou zdí zůstává jen zamčený blok, blok s potvrzeným
+> tiskem a rigidní blok, který na své pozici nevyhovuje kalendáři (víkendová
+> údržba, servis v odstávce). R5 (self-shift rezervace) se s `resolveChain`
+> nepoužívá — rezervace si místo udělá odsunutím, neuhýbá.
+> Aktuální pravidla: `CLAUDE.md` → „Chain push (odsouvání navazujících bloků)".
+
 ### R4 — Chain push musí vnímat ne-ZAKAZKA jako pevnou překážku
 `src/lib/overlapResolver.server.ts:63` — `others` fetch má natvrdo `type: "ZAKAZKA"`. Po
 rozšíření netu ZAKAZKA anchor narazí na REZERVACE/UDRZBA souseda, kterého chain push „nevidí",

@@ -7,6 +7,10 @@ import {
   SLOT_MS,
   type CompanyDayInterval,
 } from "@/lib/printTime";
+import {
+  snapToNextValidStartWithTemplates,
+  blockOverlapsBlockedTimeWithTemplates,
+} from "@/lib/workingTime";
 
 /** Interval existujícího bloku na JEDNOM stroji (volající filtruje podle stroje). */
 export type BlockInterval = {
@@ -18,7 +22,21 @@ export type BlockInterval = {
   printMinutes: number | null;
   /** Blok vědomě mimo kalendář → při posunu se NEre-expanduje (end = start + pm souvisle). */
   scheduleBypassed: boolean;
+  /**
+   * Rigidní blok (REZERVACE / UDRZBA): posouvá se jako PEVNÝ interval — přesná délka
+   * (žádné zaokrouhlení na 30 min, žádné roztažení přes pauzy směn), ale celý se musí
+   * vejít do pracovní doby stroje. Odpovídá tomu, co dělá ruční přetažení na klientovi
+   * (`snapToNextValidStartWithTemplates`), takže chain push dá stejný výsledek jako myš.
+   */
+  rigid?: boolean;
 };
+
+/**
+ * Maximální vzdálenost, o kterou chain push odsune RIGIDNÍ blok (rezervace/údržba).
+ * Odpovídá `MAX_AUTO_SHIFT_MS` u zakázek — dál už to není „udělání místa",
+ * ale teleport, který uživatel nečeká.
+ */
+export const MAX_RIGID_PUSH_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Navržený posun jednoho bloku. */
 export type ChainMove = { id: number; startTime: Date; endTime: Date };
@@ -86,11 +104,12 @@ export function computeChainPush(
       return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
     }
 
-    // Nejdřív s pravidlem minimálního segmentu; když nevyjde, z nouze bez něj
-    // (blok, který se bez porušení nevejde nikam, se radši pauzne než neumístí).
-    const pos =
-      placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, MIN_PRINT_SEGMENT_MINUTES) ??
-      placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, 0);
+    // Rigidní blok (rezervace/údržba) má vlastní umístění — pevná délka do pracovní doby.
+    // Pravidlo minimálního segmentu se ho netýká (nedělí se na tiskové úseky).
+    const pos = next.rigid
+      ? placeRigidAfter(machine, pEnd, pm, locked, weekShifts, companyDays)
+      : placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, MIN_PRINT_SEGMENT_MINUTES) ??
+        placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, 0);
     if (!pos) return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
 
     moves.push({ id: next.id, startTime: pos.start, endTime: pos.end });
@@ -98,6 +117,59 @@ export function computeChainPush(
   }
 
   return { ok: true, moves };
+}
+
+/**
+ * Umístění RIGIDNÍHO bloku (rezervace / údržba): pevná délka, celý se musí vejít
+ * do pracovní doby stroje, nesmí zasáhnout firemní odstávku ani zamčený blok.
+ *
+ * Na rozdíl od tiskových bloků se NEre-expanduje přes pauzy (rezervace o 45 minutách
+ * zůstane 45 minut) a nezaokrouhluje se na 30min mřížku délky. Používá stejný
+ * `snapToNextValidStartWithTemplates` jako ruční přetažení na klientovi, takže
+ * odsunutý blok skončí přesně tam, kam by ho uživatel položil myší.
+ */
+function placeRigidAfter(
+  machine: string,
+  fromMs: number,
+  durationMinutes: number,
+  locked: BlockInterval[],
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayInterval[]
+): { start: Date; end: Date } | null {
+  const durationMs = durationMinutes * 60000;
+  // Horizont posunu: bez něj by se blok, který se do žádného okna nevejde,
+  // posouval dál a dál, až by dorazil do týdne bez rozvrhu (tam hardcoded
+  // fallback tvrdí nonstop provoz) a teleportoval se o týdny — a s ním celá
+  // kaskáda. Volající si neumístitelný blok ošetří jako zeď.
+  const horizonMs = fromMs + MAX_RIGID_PUSH_MS;
+  let cursorMs = Math.ceil(fromMs / SLOT_MS) * SLOT_MS;
+
+  for (let g = 0; g < 100; g++) {
+    if (cursorMs > horizonMs) return null;
+    const snapped = snapToNextValidStartWithTemplates(machine, new Date(cursorMs), durationMs, weekShifts);
+    const startMs = snapped.getTime();
+    const endMs = startMs + durationMs;
+
+    // Helper má vlastní strop iterací a při neúspěchu vrací vstup beze změny —
+    // ověřit, že navržené okno opravdu celé leží v pracovní době.
+    if (blockOverlapsBlockedTimeWithTemplates(machine, snapped, new Date(endMs), weekShifts)) {
+      cursorMs = startMs + SLOT_MS;
+      continue;
+    }
+    const cdHit = companyDays.find((cd) => cd.start.getTime() < endMs && cd.end.getTime() > startMs);
+    if (cdHit) {
+      cursorMs = Math.ceil(cdHit.end.getTime() / SLOT_MS) * SLOT_MS;
+      continue;
+    }
+    const lockHit = locked.find((l) => l.startTime.getTime() < endMs && l.endTime.getTime() > startMs);
+    if (lockHit) {
+      cursorMs = Math.ceil(lockHit.endTime.getTime() / SLOT_MS) * SLOT_MS;
+      continue;
+    }
+    if (endMs > horizonMs) return null;
+    return { start: snapped, end: new Date(endMs) };
+  }
+  return null;
 }
 
 /**
