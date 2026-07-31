@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { logger } from "./logger";
 
 /**
  * Revokace sessions (audit SEC-03): JWT nese `tokenVersion` a tady se
@@ -44,9 +45,24 @@ export async function checkSessionVersion(userId: number, tokenVersion: number):
     const current = await loadVersion(userId, Date.now());
     if (current === null) return false;
     return current === tokenVersion;
-  } catch {
+  } catch (err) {
+    // Fail-open nesmí být němý: trvale rozbitý dotaz (např. chybějící sloupec
+    // po nedokončené migraci) by jinak revokaci vypnul navždy a nikdo by se to
+    // nedozvěděl. Log je rate-limitovaný, ať nezaplaví PM2 log.
+    logFailOpen(err);
     return true;
   }
+}
+
+let lastFailOpenLogAt = 0;
+function logFailOpen(err: unknown): void {
+  const now = Date.now();
+  if (now - lastFailOpenLogAt < 60_000) return;
+  lastFailOpenLogAt = now;
+  logger.error(
+    "[sessionVersion] kontrola verze tokenu selhala — revokace sessions je DOČASNĚ NEAKTIVNÍ (fail-open). Ověř migraci tokenVersion a stav DB.",
+    err
+  );
 }
 
 /** Minimální tvar transakčního klienta, který bumpTokenVersion potřebuje. */

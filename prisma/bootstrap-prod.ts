@@ -13,6 +13,8 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "node:crypto";
+import { BCRYPT_COST } from "../src/lib/passwordPolicy";
 
 const prisma = new PrismaClient();
 
@@ -129,20 +131,22 @@ async function main() {
     console.log(`ℹ️  Pracovní doba: ${machineWorkHoursCount} záznamů již existuje — přeskočeno.`);
   }
 
-  // 3. Admin účet — vytvořit pouze pokud žádný admin neexistuje
-  //    POZOR: změň heslo ihned po prvním přihlášení!
+  // 3. Admin účet — vytvořit pouze pokud žádný admin neexistuje.
+  //    Heslo se generuje náhodně a vypíše JEDNOU do konzole deploye —
+  //    natvrdo zapsané heslo v repu by po nasazení zůstalo znát každému,
+  //    kdo repo viděl (review S6).
   const adminExists = await prisma.user.findFirst({ where: { role: "ADMIN" } });
   if (!adminExists) {
-    const defaultPassword = "ChangeMe123!";
+    const defaultPassword = randomBytes(12).toString("base64url"); // 16 znaků
     await prisma.user.create({
       data: {
         username: "admin",
-        passwordHash: await bcrypt.hash(defaultPassword, 10),
+        passwordHash: await bcrypt.hash(defaultPassword, BCRYPT_COST),
         role: "ADMIN",
       },
     });
     console.log(`✅ Admin účet vytvořen: username=admin, heslo=${defaultPassword}`);
-    console.log(`⚠️  OKAMŽITĚ ZMĚŇ HESLO po prvním přihlášení!`);
+    console.log(`⚠️  ULOŽ SI HESLO TEĎ — jinde se už nezobrazí. Po přihlášení ho změň.`);
   } else {
     console.log(`ℹ️  Admin: účet '${adminExists.username}' již existuje — přeskočeno.`);
   }

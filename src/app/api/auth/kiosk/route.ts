@@ -22,7 +22,12 @@ export const KIOSK_SESSION_DAYS = 30;
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
   try {
-    const { allowed, retryAfterSeconds } = checkRateLimit("kiosk", ip, 5, 15 * 60 * 1000);
+    // Limit se klíčuje podle `device`, ne IP: terminály jsou typicky za jednou
+    // adresou (a bez X-Real-IP by spadly do sdíleného bucketu "unknown") —
+    // hromadný restart po výpadku proudu by pak část hal nechal viset na 429.
+    // Zařízení je zároveň přirozená identita pro brute-force klíče (review S1).
+    const rateKey = req.nextUrl.searchParams.get("device")?.slice(0, 64) || ip;
+    const { allowed, retryAfterSeconds } = checkRateLimit("kiosk", rateKey, 10, 15 * 60 * 1000);
     if (!allowed) {
       await recordLogin({
         userId: null, username: "(kiosk)", success: false,

@@ -384,6 +384,20 @@ kdokoli uvnitř sítě/VPN ji teoreticky může odchytit. Zmírnění: přístup
 zkrácení kioskové session (hardening fáze auditu). **Přehodnotit, pokud by se
 aplikace někdy vystavovala mimo VPN** — pak HTTPS + `COOKIE_SECURE=true` + HSTS.
 
+## Migrace tokenVersion — ověřit PŘED restartem aplikace
+
+Fáze 4 auditu přidala sloupec `User.tokenVersion` (revokace sessions). Pokud
+by se nasadil kód bez migrace, **login by přestal fungovat** (Prisma by žádala
+neexistující sloupec → 500), zatímco stávající sessions by dál běžely — takže
+by to vypadalo, že aplikace je zdravá. `scripts/deploy.sh` má pořadí správně
+(migrate → build → reload), ale při ručním zásahu ověř:
+
+```bash
+sudo mysql igvyroba -e "SHOW COLUMNS FROM User LIKE 'tokenVersion'"   # musí vrátit řádek
+```
+
+Po nasazení otestuj přihlášení jedním účtem dřív, než odejdeš od terminálu.
+
 ## Nginx: hlavička s IP klienta (POVINNÉ)
 
 Rate limity loginu a `LoginLog` berou IP z `X-Real-IP`, jinak z poslední hodnoty

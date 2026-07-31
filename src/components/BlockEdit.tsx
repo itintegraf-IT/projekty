@@ -101,7 +101,8 @@ export function BlockEdit({
   onSave: (updated: Block) => void;
   onBlockUpdate?: (updated: Block) => void;
   allBlocks: Block[];
-  onDeleteAll: (ids: number[]) => Promise<void>;
+  /** Vrací false, když mazání čeká na potvrzení (zamčený/vytištěný blok) — panel pak nezavírat. */
+  onDeleteAll: (ids: number[]) => Promise<boolean | void>;
   onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<boolean>;
   canEdit?: boolean;
   canEditData?: boolean;
@@ -123,6 +124,9 @@ export function BlockEdit({
   const [locked, setLocked]           = useState(block.locked);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
+  // Po 409 CONFLICT: další Uložit zapíše přes aktuální verzi (bez zámku),
+  // ať uživatel nepřijde o rozepsané změny slepým opakováním (review F4 #3).
+  const [conflictOverride, setConflictOverride] = useState(false);
   const [showOrderNumberPrompt, setShowOrderNumberPrompt] = useState(false);
   const [promptOrderNumber, setPromptOrderNumber] = useState("");
 
@@ -624,16 +628,26 @@ export function BlockEdit({
       // plánovačem (audit REL-02). ZÁMĚRNĚ tady, ne v buildPayload —
       // buildPayload jde i do onSaveAll pro split-série a expectedUpdatedAt
       // editovaného bloku by shodil uložení sourozenců.
+      // Zdroj pravdy je čerstvý záznam z allBlocks (chain push mohl blok
+      // odsunout); po potvrzeném konfliktu se zámek vynechá = vědomý přepis.
+      const freshUpdatedAt = allBlocks.find((b) => b.id === block.id)?.updatedAt ?? block.updatedAt;
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...payload, resolveChain: true, expectedUpdatedAt: block.updatedAt }),
+        body: JSON.stringify({
+          ...payload,
+          resolveChain: true,
+          ...(conflictOverride ? {} : { expectedUpdatedAt: freshUpdatedAt }),
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string; code?: string };
         if (err.code === "CONFLICT") {
-          const msg = "Blok mezitím uložil jiný uživatel — zavřete detail a otevřete znovu.";
-          onToast?.(msg, "error");
+          // Konflikt = blok v DB je novější. Nabídnout uložení přes čerstvý
+          // stav místo slepého retry, který by 409 opakoval donekonečna.
+          const msg = "Blok mezitím změnil někdo jiný. Klikněte na Uložit znovu — změny se zapíšou přes aktuální verzi.";
+          setConflictOverride(true);
+          onToast?.("Blok mezitím změnil jiný uživatel.", "error");
           throw new Error(msg);
         }
         if (err.code === "OVERLAP") {
@@ -1143,8 +1157,8 @@ export function BlockEdit({
                   if (seriesConfirm === "save" && pendingSavePayload.current) {
                     await doSave(pendingSavePayload.current);
                   } else if (seriesConfirm === "delete") {
-                    await onDeleteAll([block.id]);
-                    onClose();
+                    const deleted = await onDeleteAll([block.id]);
+                    if (deleted !== false) onClose();
                   }
                   setSeriesConfirm(null);
                 }}
@@ -1175,8 +1189,8 @@ export function BlockEdit({
                     onClose();
                   } else if (seriesConfirm === "delete") {
                     const ids = getFollowingSeriesIds();
-                    await onDeleteAll(ids);
-                    onClose();
+                    const deleted = await onDeleteAll(ids);
+                    if (deleted !== false) onClose();
                   }
                   setSeriesConfirm(null);
                 }}
@@ -1238,7 +1252,7 @@ export function BlockEdit({
                 <div style={{ display: "flex", gap: 6 }}>
                   <Button
                     variant="destructive" size="sm"
-                    onClick={() => onDeleteAll([block.id]).then(onClose)}
+                    onClick={() => onDeleteAll([block.id]).then((deleted) => { if (deleted !== false) onClose(); })}
                     className="flex-1 text-xs"
                   >
                     Smazat

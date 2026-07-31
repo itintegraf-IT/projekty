@@ -3,7 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/auth";
-import { checkRateLimit, getClientIp } from "@/lib/rateLimiter";
+import {
+  checkRateLimit, getClientIp, isRateLimited, recordFailure,
+  clearRateLimit, getRetryAfterSeconds,
+} from "@/lib/rateLimiter";
 import { recordLogin } from "@/lib/loginLog";
 
 export async function POST(req: NextRequest) {
@@ -50,36 +53,47 @@ export async function POST(req: NextRequest) {
 
     // Druhý limiter per-účet: útok z více IP (botnet, podvržené hlavičky)
     // by per-IP limit nikdy nepotkal (audit SEC-04).
-    const perUser = checkRateLimit("login-user", u.toLowerCase(), 5, 15 * 60 * 1000);
-    if (!perUser.allowed) {
-      await recordLogin({
-        userId: null, username: u, success: false,
-        failureReason: "USER_RATE_LIMIT", ipAddress: ip,
-      });
-      return NextResponse.json(
-        { error: `Příliš mnoho pokusů. Zkuste znovu za ${Math.ceil(perUser.retryAfterSeconds / 60)} minut.` },
-        { status: 429, headers: { "Retry-After": String(perUser.retryAfterSeconds) } }
-      );
-    }
-
+    //
+    // Heslo se ověřuje VŽDY jako první a limit blokuje jen CHYBNÉ pokusy —
+    // jinak by kdokoli z LAN pěti špatnými hesly zamkl cizí účet (i admina)
+    // a majitel se správným heslem by se nedostal dovnitř (review S2).
+    // Brute-force tím neztrácí ochranu: útočník bez hesla dostane 429 a
+    // hrubou sílu navíc drží per-IP limit výš.
+    const userKey = u.toLowerCase();
     const user = await prisma.user.findUnique({ where: { username: u } });
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+    const credentialsOk = !!user && (await bcrypt.compare(password, user.passwordHash));
+
+    if (!credentialsOk) {
+      recordFailure("login-user", userKey, 15 * 60 * 1000);
+      const limited = isRateLimited("login-user", userKey, 5);
       await recordLogin({
         userId: user?.id ?? null,
         username: u,
         success: false,
-        failureReason: "INVALID_CREDENTIALS",
+        failureReason: limited ? "USER_RATE_LIMIT" : "INVALID_CREDENTIALS",
         ipAddress: ip,
       });
+      if (limited) {
+        const retryAfter = getRetryAfterSeconds("login-user", userKey);
+        return NextResponse.json(
+          { error: `Příliš mnoho neúspěšných pokusů. Zkuste znovu za ${Math.ceil(retryAfter / 60)} minut.` },
+          { status: 429, headers: { "Retry-After": String(retryAfter) } }
+        );
+      }
       return NextResponse.json({ error: "Nesprávné přihlašovací údaje" }, { status: 401 });
     }
+    // Úspěch → počítadlo neúspěchů pryč.
+    clearRateLimit("login-user", userKey);
 
     // TISKAR jede na kioskových terminálech u strojů (Raspberry Pi, autostart
-    // prohlížeče, žádný OS účet). Terminál se přihlásí jednou a session musí
-    // vydržet — 7denní default by znamenal ruční přihlašování každý týden.
-    // 90 dní (dřív 365) je kompromis: na HTTP jde cookie po síti v plaintextu,
-    // roční platnost ukradeného tokenu je neúměrná (audit K-4).
-    const sessionDays = user.role === "TISKAR" ? 90 : 7;
+    // prohlížeče, žádný OS účet). Terminál se přihlašuje RUČNĚ heslem a nemá
+    // žádný automatický re-bootstrap — kratší session by po expiraci ukázala
+    // u stroje přihlašovací formulář, ke kterému obsluha nezná heslo
+    // (review V3). Delší platnost je vědomý ústupek k HTTP-uvnitř-VPN
+    // rozhodnutí; revokace je od Fáze 4 okamžitá přes tokenVersion.
+    // Kioskový bootstrap endpoint (/api/auth/kiosk) má 30 dní — ten se umí
+    // obnovit sám svým klíčem.
+    const sessionDays = user.role === "TISKAR" ? 365 : 7;
     await createSession(
       {
         id: user.id,

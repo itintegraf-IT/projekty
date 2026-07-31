@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 process.env.JWT_SECRET = "test-secret-aspon-32-znaku-1234567890";
 
 test("signSessionToken: default ~7 dní", async () => {
-  const { signSessionToken } = await import("./sessionToken.ts");
+  const { signSessionToken } = await import("./sessionToken");
   const { decodeJwt } = await import("jose");
   const token = await signSessionToken({ id: 1, username: "a", role: "TISKAR", assignedMachine: null });
   const { iat, exp } = decodeJwt(token);
@@ -15,7 +15,7 @@ test("signSessionToken: default ~7 dní", async () => {
 });
 
 test("signSessionToken: 365d ~365 dní", async () => {
-  const { signSessionToken } = await import("./sessionToken.ts");
+  const { signSessionToken } = await import("./sessionToken");
   const { decodeJwt } = await import("jose");
   const token = await signSessionToken(
     { id: 1, username: "a", role: "TISKAR", assignedMachine: null },

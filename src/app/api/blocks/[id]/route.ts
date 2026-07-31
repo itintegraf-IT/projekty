@@ -689,7 +689,10 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
           userId: session.id,
           username: session.username,
           action: "DELETE",
-          oldValue: blockToDelete ? JSON.stringify(blockToDelete) : null,
+          // Ořez na 60 kB: sloupec je @db.Text (64 kB) a extrémně dlouhá
+          // materialNote by jinak shodila celou transakci (P2000) a blok by
+          // nešel smazat (review F4 #8).
+          oldValue: blockToDelete ? JSON.stringify(blockToDelete).slice(0, 60000) : null,
         },
       });
 

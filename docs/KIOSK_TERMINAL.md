@@ -109,6 +109,14 @@ Kiosk nemá OS účet — přihlášení řeší až plán uvnitř rámu:
 Session tiskařských účtů drží **365 dní** (ostatní role 7 dní), takže se to znovu
 neřeší. Nastavení je v `src/app/api/auth/login/route.ts`.
 
+**Proč tak dlouho:** tahle varianta se přihlašuje ručně heslem a nemá žádný
+automatický re-bootstrap — po expiraci by se u stroje objevil přihlašovací
+formulář, ke kterému obsluha nezná heslo. Riziko delší platnosti cookie je
+vědomý ústupek k rozhodnutí „HTTP jen uvnitř VPN" (viz `DEPLOY_WORKFLOW.md`);
+od Fáze 4 auditu jde session kdykoli okamžitě zneplatnit — stačí v `/admin`
+změnit heslo nebo stroj daného účtu (`tokenVersion`). Alternativní varianta
+`/api/auth/kiosk` má session 30 dní, protože se umí obnovit sama svým klíčem.
+
 ## Ověření po nasazení
 
 - [ ] `COOKIE_SECURE=false` je v produkčním ENV a aplikace byla restartovaná

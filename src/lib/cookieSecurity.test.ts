@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveCookieSecure } from "./cookieSecurity.ts";
+import { resolveCookieSecure } from "./cookieSecurity";
 
 test("explicitní COOKIE_SECURE=true vyhrává nad vším", () => {
   assert.equal(

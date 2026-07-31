@@ -147,6 +147,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Smazání zamčeného/vytištěného bloku vrátil server s requiresForce —
   // vyžádané druhé potvrzení (audit DATA-03).
   const [forceDeleteConfirm, setForceDeleteConfirm] = useState<{ block: Block; rejectionReason?: string; message: string } | null>(null);
+  // Totéž pro hromadné mazání — souhrnné potvrzení chráněných bloků.
+  const [multiForceDelete, setMultiForceDelete] = useState<{ ids: number[] } | null>(null);
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
@@ -696,8 +698,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         // revert — znovu načíst + říct uživateli proč (dřív tichý revert)
         const err = await res.json().catch(() => ({})) as { error?: string };
         showToast(err.error ?? "Potvrzení tisku se nepodařilo uložit.", "error");
-        const r = await fetch("/api/blocks");
-        if (r.ok) { const fresh: Block[] = await r.json(); setBlocks(fresh); }
+        // .catch: selhání refetche nesmí propadnout do vnějšího catch a vyvolat
+        // druhý toast + druhý fetch (review F4 #7).
+        const r = await fetch("/api/blocks").catch(() => null);
+        if (r?.ok) { const fresh: Block[] = await r.json(); setBlocks(fresh); }
       } else {
         const updated: Block = await res.json();
         setBlocks((prev) => prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)));
@@ -997,8 +1001,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const sh = shifted.find((s) => s.id === b.id);
       return sh ?? b;
     }));
-    setSelectedBlock((sel) => (sel?.id === cleanUpdated.id ? cleanUpdated : sel));
-    setEditingBlock((eb) => eb?.id === cleanUpdated.id ? cleanUpdated : eb);
+    setSelectedBlock((sel) => {
+      if (!sel) return sel;
+      if (sel.id === cleanUpdated.id) return cleanUpdated;
+      return shifted.find((s) => s.id === sel.id) ?? sel;
+    });
+    // Chain push mohl odsunout PRÁVĚ EDITOVANÝ blok — bez převzetí z `shifted`
+    // by v panelu zůstal starý updatedAt (falešný 409 „uložil jiný uživatel"
+    // a ztráta rozepsané editace) i starý startTime (chybný dopočet endTime
+    // u ne-ZAKAZKA bloků). Review F4 #1.
+    setEditingBlock((eb) => {
+      if (!eb) return eb;
+      if (eb.id === cleanUpdated.id) return cleanUpdated;
+      return shifted.find((s) => s.id === eb.id) ?? eb;
+    });
     // Lokální propagace sdílených polí do split sourozenců
     if (cleanUpdated.splitGroupId != null) {
       const patch: Partial<Block> = {};
@@ -1166,7 +1182,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const canUndoCreated = (b: Block) =>
     b.reservationId == null && b.recurrenceType === "NONE" && b.recurrenceParentId == null;
 
-  async function deleteSingleBlockWithUndo(block: Block, rejectionReason?: string, force = false) {
+  /** @returns true = blok skutečně smazán; false = čeká se na force potvrzení. */
+  async function deleteSingleBlockWithUndo(block: Block, rejectionReason?: string, force = false): Promise<boolean> {
     const fetchOpts: RequestInit = { method: "DELETE" };
     const deleteBody: Record<string, unknown> = {};
     if (block.reservationId && rejectionReason !== undefined) {
@@ -1183,7 +1200,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // Zamčený/vytištěný blok — server chce explicitní potvrzení (audit DATA-03).
       if (err.requiresForce) {
         setForceDeleteConfirm({ block, rejectionReason, message: err.error ?? "Blok je chráněný — smazání vyžaduje potvrzení." });
-        return;
+        return false;
       }
       throw new Error(err.error ?? "Chyba serveru");
     }
@@ -1197,12 +1214,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (block.reservationId) {
       setReservationQueue((prev) => prev.filter((q) => q.id !== `r_${block.reservationId}`));
       // REZERVACE bloky přeskakujeme undo — vztah rezervace↔blok je komplexní
-      return;
+      return true;
     }
 
     // Série/rezervace z undo vynecháváme (komplexní vztahy); split část ale ANO —
     // payload nese splitGroupId, takže se blok undo-obnovou vrátí do skupiny (3/3).
-    if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return;
+    if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return true;
 
     // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2).
     // B2: splitGroupId je FK na stabilní SplitGroup.id (přežije smazání kteréhokoli člena,
@@ -1212,6 +1229,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const payload = blockToCreatePayload(block, { splitGroupId: block.splitGroupId ?? undefined });
 
     recordUndo(buildDeleteCommand("Smazání bloku", [{ payload }]));
+    return true;
   }
 
   async function handleDeleteBlock(id: number, rejectionReason?: string) {
@@ -1225,18 +1243,48 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
-  async function handleDeleteAll(ids: number[]) {
+  /** Dokončí hromadné mazání chráněných (zamčených/vytištěných) bloků s force. */
+  async function forceDeleteMany(ids: number[]) {
+    try {
+      const results = await Promise.all(
+        ids.map((id) =>
+          fetch(`/api/blocks/${id}`, {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ force: true }),
+          })
+            .then((r) => ({ id, ok: r.ok }))
+            .catch(() => ({ id, ok: false }))
+        )
+      );
+      const done = results.filter((r) => r.ok).map((r) => r.id);
+      const failed = results.length - done.length;
+      if (done.length > 0) {
+        setBlocks((prev) => prev.filter((b) => !done.includes(b.id)));
+        if (done.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
+        if (done.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
+        showToast(`Smazáno ${done.length} chráněných bloků (bez možnosti vrátit).`, "info");
+      }
+      if (failed > 0) showToast(`${failed} blok${failed > 1 ? "y" : ""} se nepodařilo smazat.`, "error");
+    } catch (error) {
+      console.error("Force multi delete failed", error);
+      showToast("Chyba při mazání bloků.", "error");
+    }
+  }
+
+  /** @returns true = mazání proběhlo; false = čeká se na force potvrzení nebo selhalo. */
+  async function handleDeleteAll(ids: number[]): Promise<boolean> {
     // Single delete — s undo podporou
     if (ids.length === 1) {
       const block = blocks.find((b) => b.id === ids[0]);
       if (block) {
         try {
-          await deleteSingleBlockWithUndo(block);
+          return await deleteSingleBlockWithUndo(block);
         } catch (error) {
           console.error("Block delete failed", error);
           showToast("Chyba při mazání bloku.", "error");
+          return false;
         }
-        return;
       }
     }
 
@@ -1247,23 +1295,49 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       (b) => b.recurrenceType === "NONE" && b.recurrenceParentId === null
     );
     const complex = toDelete.filter((b) => !standalone.some((s) => s.id === b.id));
-    // Smazat vše — zachytit které DELETE uspěly (na serveru ne jen síťově)
-    let deletedIds: number[];
-    try {
-      const responses = await Promise.all(
-        ids.map((id) => fetch(`/api/blocks/${id}`, { method: "DELETE" }).then((r) => ({ id, ok: r.ok })))
+    // Smazat vše — zachytit které DELETE uspěly (na serveru ne jen síťově).
+    // Zamčené / vytištěné bloky vrací 409 requiresForce — ty se nesmí ztratit
+    // v anonymním „N bloků se nepodařilo smazat" (review F4 #2): posbírají se
+    // a nabídnou v jednom souhrnném potvrzení.
+    const deleteOnce = async (idList: number[], force: boolean) => {
+      const results = await Promise.all(
+        idList.map((id) =>
+          fetch(`/api/blocks/${id}`, {
+            method: "DELETE",
+            ...(force
+              ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) }
+              : {}),
+          })
+            .then(async (r) => {
+              if (r.ok) return { id, ok: true, needsForce: false };
+              const err = await r.json().catch(() => ({})) as { requiresForce?: boolean };
+              return { id, ok: false, needsForce: err.requiresForce === true };
+            })
+            .catch(() => ({ id, ok: false, needsForce: false }))
+        )
       );
+      return results;
+    };
+
+    let deletedIds: number[];
+    let protectedIds: number[] = [];
+    try {
+      const responses = await deleteOnce(ids, false);
       deletedIds = responses.filter((r) => r.ok).map((r) => r.id);
-      if (deletedIds.length < ids.length) {
-        const failCount = ids.length - deletedIds.length;
-        showToast(`${failCount} blok${failCount > 1 ? "y" : ""} se nepodařilo smazat.`, "error");
+      protectedIds = responses.filter((r) => !r.ok && r.needsForce).map((r) => r.id);
+      const otherFails = responses.filter((r) => !r.ok && !r.needsForce).length;
+      if (otherFails > 0) {
+        showToast(`${otherFails} blok${otherFails > 1 ? "y" : ""} se nepodařilo smazat.`, "error");
+      }
+      if (protectedIds.length > 0) {
+        setMultiForceDelete({ ids: protectedIds });
       }
     } catch (error) {
       console.error("Multi delete failed", error);
       showToast("Chyba při mazání bloků.", "error");
-      return;
+      return false;
     }
-    if (deletedIds.length === 0) return;
+    if (deletedIds.length === 0) return false;
     setBlocks((prev) => prev.filter((b) => !deletedIds.includes(b.id)));
     if (deletedIds.includes(editingBlock?.id ?? -1)) setEditingBlock(null);
     if (deletedIds.includes(selectedBlock?.id ?? -1)) setSelectedBlock(null);
@@ -1272,13 +1346,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     // Undo jen pro standalone bloky, které byly skutečně smazány
     const deletedStandalone = standalone.filter((b) => deletedIds.includes(b.id));
-    if (deletedStandalone.length === 0) return;
+    if (deletedStandalone.length === 0) return protectedIds.length === 0;
 
     // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2).
     // B2: splitGroupId přežije deleci (FK na stabilní SplitGroup.id) → posílat vždy;
     // každá smazaná část se vrátí do své skupiny (i když se maže root + listy najednou).
     const payloads = deletedStandalone.map((b) => blockToCreatePayload(b, { splitGroupId: b.splitGroupId ?? undefined }));
     recordUndo(buildDeleteCommand("Smazání bloků", payloads.map((payload) => ({ payload }))));
+    return protectedIds.length === 0;
   }
 
   async function handleSaveAll(ids: number[], payload: Record<string, unknown>): Promise<boolean> {
@@ -2088,6 +2163,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           });
         }}
         onCancel={() => setForceDeleteConfirm(null)}
+      />
+      {/* ── Confirm hromadného smazání chráněných bloků (server requiresForce) ── */}
+      <ConfirmDialog
+        open={multiForceDelete !== null}
+        title={`Smazat ${multiForceDelete?.ids.length ?? 0} chráněných bloků?`}
+        message="Tyto bloky jsou zamčené nebo mají potvrzený tisk. Smazání je nevratné (undo se pro ně nezaznamenává)."
+        confirmLabel="Přesto smazat"
+        danger
+        onConfirm={() => {
+          const ids = multiForceDelete?.ids ?? [];
+          setMultiForceDelete(null);
+          if (ids.length > 0) forceDeleteMany(ids);
+        }}
+        onCancel={() => setMultiForceDelete(null)}
       />
       {/* ── Confirm hromadného smazání přes klávesnici ── */}
       <ConfirmDialog

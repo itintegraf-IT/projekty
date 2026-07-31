@@ -69,9 +69,12 @@ export async function PUT(
     return NextResponse.json({ error: "Žádná změna" }, { status: 400 });
   }
 
-  // Změna role nebo hesla musí odhlásit uživatele všude — jinak by starý JWT
-  // se starou rolí platil až do expirace (audit SEC-03).
-  const mustRevokeSessions = data.role !== undefined || data.passwordHash !== undefined;
+  // Změna role, hesla NEBO přiřazeného stroje musí odhlásit uživatele všude.
+  // assignedMachine je v JWT a autorizuje potvrzení tisku, čtení bloku, denní
+  // report, SSE filtr i tiskařské poznámky — bez bumpu by přesunutý tiskař
+  // potvrzoval tisk na STARÉM stroji a na novém dostával 403 (review V2).
+  const mustRevokeSessions =
+    data.role !== undefined || data.passwordHash !== undefined || data.assignedMachine !== undefined;
 
   try {
     const user = await prisma.$transaction(async (tx) => {
@@ -83,6 +86,9 @@ export async function PUT(
       if (mustRevokeSessions) await bumpTokenVersion(tx, numId);
       return updated;
     });
+    // Invalidace cache až PO commitu — uvnitř transakce by paralelní request
+    // stihl načíst starou verzi a nacachovat ji na dalších 30 s (review 2a).
+    if (mustRevokeSessions) invalidateSessionVersionCache(numId);
     return NextResponse.json(user);
   } catch (error) {
     if ((error as { code?: string })?.code === "P2025") {

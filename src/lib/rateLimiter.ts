@@ -41,6 +41,40 @@ export function getClientIp(req: NextRequest | Request): string {
  * - max   — povolený počet requestů v okně
  * - windowMs — velikost okna
  */
+/**
+ * Varianta pro počítání POUZE neúspěchů (login per účet): `isRateLimited`
+ * jen čte stav, `recordFailure` inkrementuje, `clearRateLimit` maže po
+ * úspěšném přihlášení. Oddělené, aby úspěšný login nevyčerpával limit
+ * a útočník nemohl cizí účet držet zamčený (review S2).
+ */
+export function isRateLimited(name: string, key: string, max: number): boolean {
+  const entry = getStore(name).get(key);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) return false;
+  return entry.count >= max;
+}
+
+export function recordFailure(name: string, key: string, windowMs: number): void {
+  const store = getStore(name);
+  const now = Date.now();
+  const entry = store.get(key);
+  if (!entry || now > entry.resetAt) {
+    store.set(key, { count: 1, resetAt: now + windowMs });
+    return;
+  }
+  entry.count += 1;
+}
+
+export function clearRateLimit(name: string, key: string): void {
+  getStore(name).delete(key);
+}
+
+export function getRetryAfterSeconds(name: string, key: string): number {
+  const entry = getStore(name).get(key);
+  if (!entry) return 0;
+  return Math.max(0, Math.ceil((entry.resetAt - Date.now()) / 1000));
+}
+
 export function checkRateLimit(
   name: string,
   key: string,

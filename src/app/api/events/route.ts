@@ -1,4 +1,5 @@
 import { getSession } from "@/lib/auth";
+import { checkSessionVersion } from "@/lib/sessionVersion";
 import { eventBus, type SSEEventType, type SSEPayload } from "@/lib/eventBus";
 import { logger } from "@/lib/logger";
 import { canAccessBlockNotes, type NoteRole } from "@/lib/blockNotePermissions";
@@ -150,13 +151,27 @@ export async function GET() {
       // Initial comment
       controller.enqueue(encoder.encode(": connected\n\n"));
 
-      // Heartbeat
+      // Heartbeat + periodická revalidace session: stream jinak žije hodiny
+      // a uživatel se změněnou rolí nebo smazaným účtem by dál dostával
+      // eventy staré role, dokud spojení nespadne (review S4).
       const heartbeatInterval = setInterval(() => {
-        try {
-          controller.enqueue(encoder.encode("event: heartbeat\ndata: \n\n"));
-        } catch {
-          if (cleanup) cleanup();
-        }
+        void (async () => {
+          const stillValid = await checkSessionVersion(
+            authedSession.id,
+            authedSession.tokenVersion ?? 0
+          );
+          if (!stillValid) {
+            logger.info("[sse] session revokována — zavírám stream", { userId: authedSession.id });
+            if (cleanup) cleanup();
+            try { controller.close(); } catch { /* už zavřený */ }
+            return;
+          }
+          try {
+            controller.enqueue(encoder.encode("event: heartbeat\ndata: \n\n"));
+          } catch {
+            if (cleanup) cleanup();
+          }
+        })();
       }, HEARTBEAT_MS);
 
       // Event listener
