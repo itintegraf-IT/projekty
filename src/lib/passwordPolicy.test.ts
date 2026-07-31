@@ -14,7 +14,7 @@ test("validatePassword: krátké heslo odmítne, hraniční délku přijme", () 
   const exact = "a".repeat(PASSWORD_MIN_LENGTH);
   const shortResult = validatePassword(short);
   assert.equal(shortResult.ok, false);
-  if (!shortResult.ok) assert.match(shortResult.error, /alespoň 12/);
+  if (!shortResult.ok) assert.match(shortResult.error, new RegExp(`alespoň ${PASSWORD_MIN_LENGTH}`));
   assert.equal(validatePassword(exact).ok, true);
 });
 

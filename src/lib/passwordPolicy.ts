@@ -3,7 +3,8 @@
  * heslo, což v praxi končí u účtů typu `tiskar/tiskar` na terminálech.
  * Platí jen pro nově zakládaná a měněná hesla — stávající účty se nemění.
  */
-export const PASSWORD_MIN_LENGTH = 12;
+/** Minimální délka hesla — hodnotu určil Vojta (8 znaků), neměnit bez domluvy. */
+export const PASSWORD_MIN_LENGTH = 8;
 
 /** bcrypt cost. 10 bylo pro rok 2026 na spodní hranici. */
 export const BCRYPT_COST = 12;
