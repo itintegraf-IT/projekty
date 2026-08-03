@@ -34,6 +34,8 @@ import {
   ContextMenuSubContent,
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
+import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
+import { printDoneSize } from "@/lib/tiskarBlockView";
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 // Vizuální config bloků žije v @/lib/blockStyles (sdílený s blockShades — audit #14/C5).
@@ -397,6 +399,24 @@ export function BlockCard({
   // Layout mody se řídí výškou prvního print segmentu (obsah se má vejít do tiskové části,
   // ne propadnout do pauzy) — pro bloky bez segmentů (99 % plánu) je to prostě clampedHeight.
   const layoutHeight  = contentHeight ?? clampedHeight;
+
+  // Velikost tlačítka Hotovo (jen tiskařský režim) — pravidla v tiskarBlockView.ts
+  const printDone = printDoneSize(layoutHeight);
+  const togglePrintDone = () => {
+    if (!onPrintComplete) return;
+    setPrintPending(true);
+    onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false));
+  };
+  // Čtvercová varianta tlačítka Hotovo — sdílená pro MODE_COMPACT i MODE_TINY/MICRO
+  const squareDoneButton = isTiskar && onPrintComplete && block.type === "ZAKAZKA" && printDone?.variant === "square" ? (
+    <PrintDoneButton
+      size={printDone}
+      isDone={isPrintDone}
+      completedAt={block.printCompletedAt}
+      pending={printPending}
+      onToggle={togglePrintDone}
+    />
+  ) : null;
 
   const dataDeadlineState = deadlineState(block.dataRequiredDate, block.dataOk, now, block.startTime);
   const dataDisplayLabel = block.dataStatusLabel?.trim() || "";
@@ -801,13 +821,7 @@ export function BlockCard({
                   )}
                 </div>
               )}
-              {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && (
-                <button onClick={(e) => { e.stopPropagation(); setPrintPending(true); onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false)); }} disabled={printPending}
-                  style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "none", cursor: printPending ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: isPrintDone ? "rgba(100,116,139,0.3)" : "rgba(34,197,94,0.35)", color: isPrintDone ? "var(--text-muted)" : "#22c55e", opacity: printPending ? 0.5 : 1, transition: "all 0.12s ease-out", fontFamily: "inherit" }}
-                  title={isPrintDone ? "Vrátit hotovo" : "Označit jako hotovo"}>
-                  {printPending ? "·" : isPrintDone ? "↩" : "✓"}
-                </button>
-              )}
+              {squareDoneButton}
               {splitPartner && clampedHeight >= 32 && (() => {
                 const { state, time } = getSplitChipState(splitPartner);
                 return (
@@ -930,13 +944,7 @@ export function BlockCard({
                   )}
                 </div>
               )}
-              {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && (
-                <button onClick={(e) => { e.stopPropagation(); setPrintPending(true); onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false)); }} disabled={printPending}
-                  style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 5, border: "none", cursor: printPending ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", background: isPrintDone ? "rgba(100,116,139,0.3)" : "rgba(34,197,94,0.35)", color: isPrintDone ? "var(--text-muted)" : "#22c55e", opacity: printPending ? 0.5 : 1, transition: "all 0.12s ease-out", fontFamily: "inherit" }}
-                  title={isPrintDone ? "Vrátit hotovo" : "Označit jako hotovo"}>
-                  {printPending ? "·" : isPrintDone ? "↩" : "✓"}
-                </button>
-              )}
+              {squareDoneButton}
             </div>
           </div>
         );
@@ -1104,24 +1112,16 @@ export function BlockCard({
       )}
 
 
-      {/* Hotovo tlačítko pro TISKAR (FULL mode) */}
-      {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && MODE_FULL && (
-        <div style={{ padding: "2px 7px 5px", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); setPrintPending(true); onPrintComplete(block.id, !isPrintDone).finally(() => setPrintPending(false)); }}
-            disabled={printPending}
-            style={{
-              padding: "3px 10px", borderRadius: 5, border: "none",
-              cursor: printPending ? "not-allowed" : "pointer",
-              fontSize: 11, fontWeight: 600, fontFamily: "inherit",
-              transition: "all 0.12s ease-out",
-              background: isPrintDone ? "rgba(100,116,139,0.25)" : "rgba(34,197,94,0.3)",
-              color: isPrintDone ? "var(--text-muted)" : "#22c55e",
-              opacity: printPending ? 0.5 : 1,
-            }}
-          >
-            {printPending ? "…" : isPrintDone ? "Vrátit hotovo" : "Hotovo"}
-          </button>
+      {/* Hotovo tlačítko pro TISKAR (FULL mode) — pruh přes celou šířku karty */}
+      {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && MODE_FULL && printDone?.variant === "bar" && (
+        <div style={{ padding: "2px 7px 5px", flexShrink: 0 }}>
+          <PrintDoneButton
+            size={printDone}
+            isDone={isPrintDone}
+            completedAt={block.printCompletedAt}
+            pending={printPending}
+            onToggle={togglePrintDone}
+          />
         </div>
       )}
 
