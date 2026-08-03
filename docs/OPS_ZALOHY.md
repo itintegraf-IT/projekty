@@ -43,14 +43,19 @@ df -h /var                                                 # volné místo na z�
 **Fáze 1 — deploy aplikace** (podle `DEPLOY_WORKFLOW.md`, včetně dump + PRE
 snapshot). Aplikace musí mít `/api/health` — bez něj neinstalovat health cron.
 Hned po prvním deployi s novým `ecosystem.config.cjs` **jednorázově, mimo
-špičku** (deploy.sh dělá jen `pm2 reload`, který NODE_OPTIONS/memory limity
-NEPROPÍŠE — vynechání tohoto kroku nespustí žádný alarm!):
+špičku** (deploy.sh dělá jen `pm2 reload`, který změny v bloku `env`
+a memory limity NEPROPÍŠE — vynechání tohoto kroku nespustí žádný alarm!):
 
 ```bash
 pm2 delete planovanivyroby
 ss -ltnp | grep 3020        # MUSÍ být prázdné (orphan next-server)
 pm2 start ecosystem.config.cjs && pm2 save
-ps aux | grep next-server   # v procesu vidět --max-old-space-size=768
+# Tvrdý strop haldy ZÁMĚRNĚ nastavený není (rozhodnuto při go/no-go auditu
+# 3. 8. 2026 — nebyl podložen měřením). Následující příkaz proto NESMÍ nic vypsat:
+ps -o args= -C node | grep max-old-space-size
+# Místo stropu se sleduje skutečná spotřeba — změř ji ve špičce (střídání směn)
+# a teprve podle naměřené hodnoty případně strop doplň s ~2× rezervou:
+ps -o rss=,args= -C node | grep next-server
 curl -s http://localhost:3020/api/health   # → {"status":"ok"}
 ```
 
@@ -116,10 +121,37 @@ Zálohy jsou root-only (`umask 077`) — **všechny čtecí příkazy potřebuj�
 jinak selžou na Permission denied (a to typicky uprostřed havárie):
 
 ```bash
-pm2 stop planovanivyroby
+# 1) Zastavit aplikaci POD JEJÍM UŽIVATELEM. `pm2 stop` spuštěný jako root mluví
+#    s vlastním prázdným démonem, vypíše „Process name not found" a aplikace běží
+#    dál — pak by importu psala do DB pod rukama.
+sudo -u administrator -i pm2 stop planovanivyroby
+ss -ltnp | grep 3020 || echo "aplikace stojí"          # nesmí nic vypsat
+
+# 2) POJISTNÁ ZÁLOHA aktuálního stavu. Dump má --add-drop-table, takže import
+#    nenávratně přepíše všechno, co v DB je. Bez tohohle kroku není cesta zpět,
+#    když se ukáže, že se obnovoval špatný soubor.
+sudo sh -c 'umask 077; mysqldump --single-transaction --routines --events igvyroba | gzip > /var/backups/planovanivyroby/db/PRE_RESTORE_$(date +%Y%m%d_%H%M%S).sql.gz'
+
+# 3) Ověřit zdrojový soubor DŘÍV, než se ho dotkneme
+sudo gzip -t /var/backups/planovanivyroby/db/igvyroba_<STAMP>.sql.gz
+sudo zgrep -c 'CREATE TABLE `Block`' /var/backups/planovanivyroby/db/igvyroba_<STAMP>.sql.gz   # musí být 1
+
+# 4) Vlastní obnova
 sudo sh -c 'zcat /var/backups/planovanivyroby/db/igvyroba_<STAMP>.sql.gz | mysql igvyroba'
-pm2 start planovanivyroby
+
+# 5) Dorovnat schéma. Dump je ze starší doby a přepsal i _prisma_migrations, takže
+#    sloupce z novějších migrací (např. User.tokenVersion) v DB chybí. Kód je ale
+#    nový → bez tohohle kroku se NIKDO nepřihlásí, a /api/health přitom hlásí OK.
+cd /var/www/planovanivyroby && sudo -u administrator npx prisma migrate deploy
+sudo mysql igvyroba -e "SHOW COLUMNS FROM User LIKE 'tokenVersion'"    # musí vrátit řádek
+
+# 6) Start a ověření
+sudo -u administrator -i pm2 start planovanivyroby
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3020/api/health   # 200
 ```
+
+Po startu **vždy vyzkoušet přihlášení jedním účtem** — je to jediná kontrola,
+která odhalí rozjeté schéma proti kódu.
 
 Přílohy (po obnově zkontrolovat vlastnictví, ať je aplikace přečte):
 

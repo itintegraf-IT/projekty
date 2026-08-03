@@ -441,6 +441,12 @@ function UserRow({ user, isSelf, isLast, onUpdate }: {
                   ))}
                 </div>
               )}
+              {/* Změna role i přiřazeného stroje bumpne tokenVersion → server zneplatní
+                  všechny vydané tokeny účtu. U tiskaře to shodí i terminál u stroje,
+                  ke kterému obsluha nezná heslo (docs/KIOSK_TERMINAL.md). */}
+              <p style={{ padding: "8px 14px", margin: 0, fontSize: 11, lineHeight: 1.35, color: TEXT_SECONDARY, borderTop: `1px solid ${SEPARATOR}` }}>
+                Změna odhlásí uživatele na všech zařízeních — u tiskaře i terminál u stroje.
+              </p>
             </div>
           )}
         </div>

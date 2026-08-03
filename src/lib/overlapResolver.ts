@@ -43,8 +43,18 @@ export type ChainMove = { id: number; startTime: Date; endTime: Date };
 
 export type ChainPushResult =
   | { ok: true; moves: ChainMove[] }
-  | { ok: false; reason: "LOCKED_CONFLICT"; lockedId: number }
+  | { ok: false; reason: "LOCKED_CONFLICT"; lockedId: number; unplaceable?: boolean }
   | { ok: false; reason: "PLACEMENT_FAILED"; blockId: number };
+
+/** Interní výsledek jednoho průchodu — navíc rozlišuje neumístitelný rigidní blok. */
+type ChainPushAttempt = ChainPushResult | { ok: false; reason: "RIGID_UNPLACEABLE"; blockId: number };
+
+/**
+ * Kolik rigidních bloků smí jeden chain push degradovat na zeď, než to vzdá.
+ * Každé opakování zafixuje právě jeden blok, takže strop = max. počet rigidních
+ * bloků v jedné kaskádě. V praxi jednotky, 20 je bezpečná rezerva proti smyčce.
+ */
+const MAX_IMMOVABLE_RETRIES = 20;
 
 /**
  * Chain push: anchor blok je fixní na své pozici, navazující kolidující bloky se
@@ -57,6 +67,11 @@ export type ChainPushResult =
  * - Anchor kolidující se zamčeným blokem nelze vyřešit → LOCKED_CONFLICT
  *   (spec: „zamčený blok → drop se odmítne s hláškou, žádné tiché přeskládání").
  * - printMinutes <= 0 (korupce dat) → PLACEMENT_FAILED, nikdy raw throw.
+ * - Rigidní blok, pro který se v horizontu `MAX_RIGID_PUSH_MS` nenajde místo
+ *   (typicky za víc než týden dlouhou celozávodní odstávkou), se NEshazuje celou
+ *   operací — degraduje se na zeď a kaskáda pokračuje kolem něj. To je přesně
+ *   chování, jaké měly rezervace a údržba před 31. 7. 2026; bez toho by drop,
+ *   který dnes projde, po zavedení rigidní geometrie skončil na 422.
  *
  * Pure funkce — žádné DB volání. Posuny jsou monotónně dopředné → konverguje.
  */
@@ -67,16 +82,47 @@ export function computeChainPush(
   weekShifts: MachineWeekShiftsRow[],
   companyDays: CompanyDayInterval[]
 ): ChainPushResult {
+  // Rigidní bloky, které se v horizontu nikam nevejdou → zeď. Zjistí se až pokusem
+  // o umístění, takže se průchod opakuje s postupně rostoucí množinou.
+  const immovable = new Set<number>();
+  let lastUnplaceable = -1;
+  for (let attempt = 0; attempt <= MAX_IMMOVABLE_RETRIES; attempt++) {
+    const result = computeChainPushAttempt(machine, anchor, others, weekShifts, companyDays, immovable);
+    if (result.ok || result.reason !== "RIGID_UNPLACEABLE") return result;
+    lastUnplaceable = result.blockId;
+    immovable.add(result.blockId);
+  }
+  return { ok: false, reason: "PLACEMENT_FAILED", blockId: lastUnplaceable };
+}
+
+function computeChainPushAttempt(
+  machine: string,
+  anchor: { id: number; startTime: Date; endTime: Date },
+  others: BlockInterval[],
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayInterval[],
+  immovable: ReadonlySet<number>
+): ChainPushAttempt {
   const sorted = others
     .filter((b) => b.id !== anchor.id)
     .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
-  const locked = sorted.filter((b) => b.locked);
+  // Neposunutelný = zamčený NEBO rigidní blok, pro který se v horizontu nenašlo místo.
+  const isImmovable = (b: BlockInterval) => b.locked || immovable.has(b.id);
+  const locked = sorted.filter(isImmovable);
   const anchorStart = anchor.startTime.getTime();
 
   const anchorHit = locked.find(
     (l) => l.startTime.getTime() < anchor.endTime.getTime() && l.endTime.getTime() > anchorStart
   );
-  if (anchorHit) return { ok: false, reason: "LOCKED_CONFLICT", lockedId: anchorHit.id };
+  if (anchorHit) {
+    return {
+      ok: false,
+      reason: "LOCKED_CONFLICT",
+      lockedId: anchorHit.id,
+      // Zeď kvůli horizontu, ne kvůli zámku — volající to hlásí jinou hláškou.
+      ...(!anchorHit.locked && immovable.has(anchorHit.id) ? { unplaceable: true } : {}),
+    };
+  }
 
   const moves: ChainMove[] = [];
   const placed = new Set<number>();
@@ -89,8 +135,8 @@ export function computeChainPush(
     if (!next) break;
     placed.add(next.id);
 
-    if (next.locked) {
-      // Zamčený blok nelze posunout — posuň kurzor za jeho konec.
+    if (isImmovable(next)) {
+      // Zamčený (nebo v horizontu neumístitelný) blok nelze posunout — kurzor za jeho konec.
       pEnd = Math.max(pEnd, next.endTime.getTime());
       continue;
     }
@@ -110,7 +156,12 @@ export function computeChainPush(
       ? placeRigidAfter(machine, pEnd, pm, locked, weekShifts, companyDays)
       : placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, MIN_PRINT_SEGMENT_MINUTES) ??
         placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, 0);
-    if (!pos) return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
+    if (!pos) {
+      // Rigidní blok se v horizontu nikam nevejde → volající ho zafixuje jako zeď
+      // a spustí průchod znovu. Zakázka horizont nemá, u ní je to skutečné selhání.
+      if (next.rigid) return { ok: false, reason: "RIGID_UNPLACEABLE", blockId: next.id };
+      return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
+    }
 
     moves.push({ id: next.id, startTime: pos.start, endTime: pos.end });
     pEnd = pos.end.getTime();

@@ -169,8 +169,24 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       return r.json();
     },
     deleteBlock: async (id) => {
-      const r = await fetch(`/api/blocks/${id}`, { method: "DELETE" });
-      if (!r.ok) throw new Error("Chyba serveru");
+      // Undo/redo maže blok, který uživatel sám před chvílí vytvořil — proto smí
+      // přebít zámek (`force`). NESMÍ ale přebít potvrzený tisk: tiskař ho mohl
+      // odklepnout mezitím a klientská kopie bloku o tom nemusí vědět (SSE update
+      // se pro právě editovaný blok záměrně zahazuje). Rozhoduje proto ČERSTVÝ
+      // stav ze serveru, ne `blocksRef`.
+      const check = await fetch(`/api/blocks/${id}`);
+      if (check.ok) {
+        const aktualni = await check.json().catch(() => null) as { printCompletedAt?: string | null } | null;
+        if (aktualni?.printCompletedAt) {
+          throw new Error("Tisk bloku mezitím potvrdil tiskař — vrácení zpět by smazalo hotovou práci. Smaž blok ručně, pokud to opravdu chceš.");
+        }
+      }
+      const r = await fetch(`/api/blocks/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force: true }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
     },
     batchUpdate: async (updates) => {
       // bypassScheduleValidation: true — undo/redo vrací bloky do dříve existujícího
@@ -1104,6 +1120,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const newBlocks = blocksRef.current.map((b) => results.find((r) => r.id === b.id) ?? b);
       blocksRef.current = newBlocks;
       setBlocks(newBlocks);
+      // Stejná hláška jako u jednotlivého přesunu a vytvoření bloku — batch odsouvá
+      // od 31. 7. 2026 i rezervace a údržbu, a to se nesmí stát potichu.
+      if (shiftedResults.length > 0) {
+        showToast(`Posunuto ${shiftedResults.length} navazujících bloků — zkontroluj timeline.`, "info");
+      }
 
       const prevSnaps = [
         ...(updates
@@ -1629,9 +1650,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         body: JSON.stringify(queueParentBody),
       });
       if (!res1.ok) {
-        const err = await res1.json().catch(() => ({})) as { error?: string };
-        // 409 = rezervace už není QUEUE_READY (mohla být mezitím naplánována někým jiným)
-        if (res1.status === 409 && isReservationItem) {
+        const err = await res1.json().catch(() => ({})) as { error?: string; code?: string };
+        // Jen 409 z důvodu „rezervace už není QUEUE_READY" (naplánoval ji mezitím
+        // někdo jiný) znamená zastaralý seznam. Ostatní 409 (typicky OVERLAP —
+        // místo blokuje zamčená nebo odklepnutá zakázka) mají vlastní srozumitelný
+        // text ze serveru a výzva k obnovení stránky by uživatele posílala jinam.
+        if (res1.status === 409 && isReservationItem && err.code === "RESERVATION_NOT_AVAILABLE") {
           showToast(`Rezervace ${item.reservationCode ?? ""} už není dostupná — obnovte stránku.`, "error");
           setDraggingQueueItem(null);
           return;

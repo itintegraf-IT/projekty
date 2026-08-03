@@ -24,6 +24,38 @@ export function printDoneSize(layoutHeight: number): PrintDoneSize | null {
   return null;
 }
 
+// ── Výškový rozpočet karty v tiskařském režimu ────────────────────────────────
+// Karta je flex column s `overflow: hidden`, takže co se nevejde, to se ořízne.
+// Tlačítko Hotovo má přednost před SplitChipem — tiskař musí mít vždy čím
+// odklepnout tisk. Hodnoty odpovídají skutečným stylům v BlockCard/SplitChip
+// (změřeno v prohlížeči 3. 8. 2026); jsou to horní odhady, ne přesná typografie.
+
+/** Řádek 1 karty: paddingTop 5 + řádek 12 px/1.2 + paddingBottom 3. */
+const HEADER_ROW_PX = 23;
+/** Řádek specifikace: až 2 řádky 10 px/1.3 + paddingBottom 3. */
+const SPEC_ROW_PX = 29;
+/** SplitChip včetně marginTop 6, borderu a paddingu. */
+const SPLIT_CHIP_PX = 25;
+/** Odsazení kolem pruhu Hotovo: paddingTop 2 + paddingBottom 5. */
+const PRINT_BAR_PADDING_PX = 7;
+
+/**
+ * Vejde se SplitChip do karty, aniž by vytlačil tlačítko Hotovo pod ořez?
+ *
+ * Bez této brzdy skončil na hodinovém bloku (52 px) se split partnerem celý
+ * zelený pruh Hotovo mimo kartu a tiskař neměl jak potvrdit tisk — regrese
+ * zachycená před nasazením 3. 8. 2026.
+ */
+export function splitChipFits(
+  layoutHeight: number,
+  printDone: PrintDoneSize | null,
+  hasSpecRow: boolean
+): boolean {
+  const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
+  const used = HEADER_ROW_PX + (hasSpecRow ? SPEC_ROW_PX : 0) + barReserve;
+  return layoutHeight - used >= SPLIT_CHIP_PX;
+}
+
 /**
  * Běží tisk bloku právě teď? Rozhoduje o zeleném zvýraznění karty u tiskaře.
  * Konec je vyloučený (t < end), aby na hranici dvou navazujících bloků

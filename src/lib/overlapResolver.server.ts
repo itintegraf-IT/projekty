@@ -176,6 +176,10 @@ export async function resolveChainPushFromDb(
       let duvod: string;
       if (l?.printCompletedAt != null) {
         duvod = `koliduje ${predlozka} ${noun} ${num}, která má potvrzený tisk`;
+      } else if (result.unplaceable) {
+        // Rigidní blok, pro který se v horizontu 7 dní nenašlo volné místo v kalendáři
+        // (typicky za dlouhou celozávodní odstávkou) — chová se jako zeď, ale zamčený není.
+        duvod = `koliduje ${predlozka} ${noun} ${num}, kterou není kam odsunout (v dosahu týdne není volné místo)`;
       } else if (l && !l.locked && nonConforming.has(l.id)) {
         // Blok leží mimo pracovní dobu nebo v odstávce — tam ho někdo umístil
         // vědomě, automaticky se neposouvá.

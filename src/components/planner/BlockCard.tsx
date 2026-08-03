@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
-import { printDoneSize, isBlockRunningNow } from "@/lib/tiskarBlockView";
+import { printDoneSize, isBlockRunningNow, splitChipFits } from "@/lib/tiskarBlockView";
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 // Vizuální config bloků žije v @/lib/blockStyles (sdílený s blockShades — audit #14/C5).
@@ -1119,20 +1119,10 @@ export function BlockCard({
       )}
 
 
-      {/* SplitChip — jen pro TISKAR, MODE_FULL */}
-      {MODE_FULL && splitPartner && clampedHeight >= 32 && (() => {
-        const { state, time } = getSplitChipState(splitPartner);
-        return (
-          <SplitChip
-            partnerMachine={splitPartner.machine}
-            state={state}
-            time={time}
-            onClick={() => onSplitChipClick?.(splitPartner.id)}
-          />
-        );
-      })()}
-
-      {/* Hotovo tlačítko pro TISKAR (FULL mode) — pruh přes celou šířku karty */}
+      {/* Hotovo tlačítko pro TISKAR (FULL mode) — pruh přes celou šířku karty.
+          MUSÍ zůstat PŘED SplitChipem: karta má overflow:hidden, takže prvek
+          vykreslený dřív má přednost. Opačné pořadí propadlo tlačítko pod ořez
+          u hodinových bloků se split partnerem (regrese zachycená 3. 8. 2026). */}
       {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && MODE_FULL && printDone?.variant === "bar" && (
         <div style={{ padding: "2px 7px 5px", flexShrink: 0 }}>
           <PrintDoneButton
@@ -1144,6 +1134,20 @@ export function BlockCard({
           />
         </div>
       )}
+
+      {/* SplitChip — jen pro TISKAR, MODE_FULL. Zobrazí se jen když na něj po
+          tlačítku Hotovo zbylo místo, ať v kartě nevisí useknutý proužek. */}
+      {MODE_FULL && splitPartner && splitChipFits(layoutHeight, printDone, showSpec && !!block.specifikace) && (() => {
+        const { state, time } = getSplitChipState(splitPartner);
+        return (
+          <SplitChip
+            partnerMachine={splitPartner.machine}
+            state={state}
+            time={time}
+            onClick={() => onSplitChipClick?.(splitPartner.id)}
+          />
+        );
+      })()}
 
       {/* Výrobní štítky OBÁLKA/VNITŘKY — vpravo dole (FULL mode, je tam prostor).
           U TISKAŘE je spodní pruh obsazen tlačítkem Hotovo / SplitChipem → zvednout výš.

@@ -192,6 +192,42 @@ sudo mysql igvyroba < ~/backups/igvyroba_pre_deploy_<TIMESTAMP>.sql
 Před restorem **zastav aplikaci** (`pm2 stop ecosystem.config.cjs`), aby
 nepsala do DB během importu.
 
+**POZOR — rollback DB bez rollbacku kódu rozbije přihlašování.** Dump je pořízen
+PŘED migracemi a obsahuje `--add-drop-table`, takže restore odstraní sloupce, které
+migrace přidaly (např. `User.tokenVersion`), a zároveň vrátí staré `_prisma_migrations`.
+Pokud na serveru zůstane nový kód, Prisma sáhne na neexistující sloupec a **každý
+pokus o přihlášení skončí chybou 500**. Zákeřné je, že to zvenku vypadá zdravě:
+už přihlášení uživatelé jedou dál a `/api/health` dělá jen `SELECT 1`, takže hlásí OK.
+
+Platí proto jedno ze dvou:
+
+1. **Rollback DB i kódu zároveň.** Pozor: samotný `git checkout` kód nevrátí —
+   `next start` servíruje zkompilovaný build z `.next/`, který zůstane nový.
+   Bez rebuildu skončíš přesně na té 500 při přihlášení, které ses chtěl vyhnout.
+   Celá sekvence:
+
+```bash
+pm2 stop ecosystem.config.cjs
+git checkout <commit-pred-deployem>
+npm ci
+npx prisma generate
+npm run build                                  # BEZ tohoto kroku je rollback jen zdánlivý
+sudo mysql igvyroba < ~/backups/igvyroba_pre_deploy_<TIMESTAMP>.sql
+pm2 start ecosystem.config.cjs
+```
+2. **Rollback jen DB** — po importu a PŘED `pm2 start` vždy spustit migrace znovu
+   a ověřit výsledek:
+
+```bash
+cd /var/www/planovanivyroby
+npx prisma migrate deploy
+sudo mysql igvyroba -e "SHOW COLUMNS FROM User LIKE 'tokenVersion'"   # musí vrátit řádek
+pm2 start ecosystem.config.cjs
+```
+
+Po startu vždy vyzkoušet přihlášení jedním účtem — je to jediná kontrola, která
+tuhle třídu chyby odhalí.
+
 ## 5. Dry-run deploye
 
 Deploy script je na serveru ve větvi `michal`.
@@ -447,9 +483,16 @@ Gotchy:
 
 - **NIKDY nenastavovat `instances > 1` / cluster mód** — rate-limiter loginů
   a SSE spojení jsou in-memory per proces (komentář v ecosystem.config.cjs).
-- PM2 měří paměť jen npm wrapperu, ne next-server childu — skutečný memory
-  limit dělá `NODE_OPTIONS --max-old-space-size` v ecosystem.config.cjs.
-  Ověření na serveru: `pm2 ls` (mem ~50-80 MB) vs. `ps aux | grep next-server`.
+- PM2 měří paměť jen npm wrapperu, ne next-server childu — `max_memory_restart`
+  proto na skutečnou spotřebu serveru nedosáhne. Tvrdý strop haldy přes
+  `NODE_OPTIONS --max-old-space-size` **záměrně nastavený není** (go/no-go audit
+  3. 8. 2026: nebyl podložen měřením a při překročení shodí plán u všech strojů).
+  Sledovat spotřebu, ne strop: `ps -o rss=,args= -C node | grep next-server`
+  ve špičce; strop doplnit až s naměřenou hodnotou a ~2× rezervou.
+- **`tsconfig.tsbuildinfo` už není v gitu** (od 3. 8. 2026). Pokud na serveru
+  zůstal jako lokálně změněný soubor, `git pull --ff-only` na něm zakopne —
+  před deployem ho stačí zahodit: `git checkout -- tsconfig.tsbuildinfo`
+  (nebo `rm -f tsconfig.tsbuildinfo`, je to jen cache TypeScriptu).
 - **Aplikační** chyby (logger) jdou na stdout → `-out.log`:
   `grep '"level":"error"' ~/.pm2/logs/planovanivyroby-out.log`.
   Pády procesu a framework chyby jdou na stderr → `-error.log`. Číst oba.

@@ -72,6 +72,16 @@ export async function POST(request: NextRequest) {
 
     let startTime = new Date(body.startTime);
     let endTime = new Date(body.endTime);
+    // Pojistka proti bloku se záporným nebo nulovým trváním: takový interval by prošel
+    // skrz VŠECHNY kontroly překryvu (s obráceným pořadím se s ničím neprotne) a v plánu
+    // by se vykreslil se zápornou výškou. U ZAKAZKA to zachytí až tiskové hodiny,
+    // u REZERVACE/UDRZBA není žádná jiná brzda.
+    if (!Number.isFinite(startTime.getTime()) || !Number.isFinite(endTime.getTime())) {
+      throw new AppError("VALIDATION_ERROR", "Neplatný začátek nebo konec bloku.");
+    }
+    if (endTime.getTime() <= startTime.getTime()) {
+      throw new AppError("VALIDATION_ERROR", "Konec bloku musí být po jeho začátku.");
+    }
     const originalStart = new Date(body.startTime);
     const durationMs = endTime.getTime() - startTime.getTime();
     let wasShifted = false;
@@ -414,8 +424,10 @@ export async function POST(request: NextRequest) {
       );
     }
     if (error instanceof Error && error.message === "RESERVATION_NOT_AVAILABLE") {
+      // `code` je tu nutné: klient rozlišuje tuhle 409 od 409 z overlap guardu,
+      // aby uživateli nepodsouval „obnovte stránku" místo skutečného důvodu.
       return NextResponse.json(
-        { error: "Rezervace již není dostupná — jiný plánovač ji mezitím přiřadil" },
+        { error: "Rezervace již není dostupná — jiný plánovač ji mezitím přiřadil", code: "RESERVATION_NOT_AVAILABLE" },
         { status: 409 }
       );
     }

@@ -299,7 +299,37 @@ describe("computeChainPush — rigidní bloky (rezervace/údržba)", () => {
     }
   });
 
-  it("rigidní blok se neteleportuje za horizont — raději PLACEMENT_FAILED", () => {
+  it("rigidní blok za dlouhou odstávkou se stane zdí — kaskáda projde (regrese 3. 8. 2026)", () => {
+    // Reálný scénář: celozávodní odstávka delší než horizont rigidního posunu (7 dní).
+    // Rezervace se za ni nemá kam vejít. PŘED opravou to shodilo CELÝ přesun na 422,
+    // přestože na produkci (kde je rezervace pevná zeď) tentýž přesun projde.
+    const shifts = [W1, W2].flatMap((w) => [1, 2, 3, 4, 5].map((d) => mkDay(w, d, { m: true, a: true })));
+    const odstavka: CompanyDayInterval[] = [
+      { start: P("2026-08-22", 0), end: P("2026-09-05", 0) }, // 14 dní
+    ];
+    const zakazka: BlockInterval = {
+      id: 2, startTime: P("2026-08-21", 19), endTime: P("2026-08-21", 21),
+      locked: false, printMinutes: 120, scheduleBypassed: false,
+    };
+    const rezervace: BlockInterval = {
+      id: 3, startTime: P("2026-08-21", 20), endTime: P("2026-08-21", 22),
+      locked: false, printMinutes: 120, scheduleBypassed: false, rigid: true,
+    };
+    const r = computeChainPush(
+      "XL_106",
+      { id: 1, startTime: P("2026-08-21", 18), endTime: P("2026-08-21", 20) },
+      [zakazka, rezervace],
+      shifts,
+      odstavka
+    );
+    assert.equal(r.ok, true, "neumístitelná rezervace nesmí shodit celou operaci");
+    if (r.ok) {
+      assert.ok(!r.moves.some((m) => m.id === 3), "rezervace zůstane na místě (zeď)");
+      assert.ok(r.moves.some((m) => m.id === 2), "zakázka se odsune kolem ní");
+    }
+  });
+
+  it("neumístitelný rigidní blok pod anchorem → LOCKED_CONFLICT s příznakem unplaceable", () => {
     // Stroj jede jen ranní směnu (6–14) → 20h blok se nevejde do žádného okna.
     // Bez horizontu by se posouval dál a dál, až by dorazil do týdne bez rozvrhu
     // (hardcoded fallback = nonstop) a skočil o týdny i s celou kaskádou.
@@ -322,8 +352,16 @@ describe("computeChainPush — rigidní bloky (rezervace/údržba)", () => {
       morningOnly,
       NO_CD
     );
+    // Blok se nikam nevejde → degraduje na zeď. Anchor na něm leží, takže se drop
+    // odmítne stejně jako u zamčeného bloku — ale s příznakem, že zamčený NENÍ.
     assert.equal(r.ok, false, "neumístitelný blok nesmí být teleportován");
-    if (!r.ok) assert.equal(r.reason, "PLACEMENT_FAILED");
+    if (!r.ok) {
+      assert.equal(r.reason, "LOCKED_CONFLICT");
+      if (r.reason === "LOCKED_CONFLICT") {
+        assert.equal(r.lockedId, 2);
+        assert.equal(r.unplaceable, true, "hláška nesmí tvrdit, že je blok zamčený");
+      }
+    }
   });
 
   it("rigidní blok s korumpovanou délkou → PLACEMENT_FAILED, ne výjimka", () => {

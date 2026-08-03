@@ -17,6 +17,18 @@ import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/bl
 
 type RouteContext = { params: Promise<{ id: string }> };
 
+/**
+ * Ořízne text tak, aby se vešel do `maxBytes` bajtů v UTF-8. Řez může padnout
+ * doprostřed vícebajtového znaku — `TextDecoder` s `fatal: false` ho nahradí
+ * U+FFFD, takže výsledek je vždy platný string. Slouží pro sloupce `@db.Text`,
+ * jejichž limit je v bajtech, ne ve znacích.
+ */
+function truncateUtf8(text: string, maxBytes: number): string {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.byteLength <= maxBytes) return text;
+  return new TextDecoder("utf-8").decode(bytes.subarray(0, maxBytes));
+}
+
 export async function GET(_: NextRequest, { params }: RouteContext) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -203,6 +215,14 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
 
         if (checkType !== "ZAKAZKA") {
           // Z ZAKAZKA pryč (nebo ne-ZAKAZKA blok): printMinutes vyčistit, end = požadovaný.
+          // Pojistka: ne-ZAKAZKA větev neprochází validateAndComputeEnd, takže je to
+          // jediné místo, kde lze zachytit end <= start. Takový blok by se navíc vyhnul
+          // VŠEM kontrolám překryvu (interval s obráceným pořadím se s ničím neprotne).
+          // Vzniká reálně: chain push posune blok pod otevřeným editorem a BlockEdit
+          // pak počítá end ze zastaralého startu.
+          if (requestedEnd.getTime() <= checkStart.getTime()) {
+            throw new AppError("VALIDATION_ERROR", "Konec bloku musí být po jeho začátku. Zavři a znovu otevři detail bloku — mezitím se posunul.");
+          }
           computedEnd = requestedEnd;
           computedPrintMinutes = null;
           computedBypassed = false;
@@ -692,10 +712,12 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
           userId: session.id,
           username: session.username,
           action: "DELETE",
-          // Ořez na 60 kB: sloupec je @db.Text (64 kB) a extrémně dlouhá
-          // materialNote by jinak shodila celou transakci (P2000) a blok by
-          // nešel smazat (review F4 #8).
-          oldValue: blockToDelete ? JSON.stringify(blockToDelete).slice(0, 60000) : null,
+          // Ořez na 60 kB: sloupec je @db.Text, jehož limit je 65 535 BAJTŮ.
+          // Ořezávat se proto musí po bajtech — `.slice()` počítá UTF-16 znaky,
+          // takže česká diakritika (2 B/znak) by 60 000 znaků nafoukla až na
+          // ~120 kB, transakce by spadla na P2000 a blok by nešel smazat vůbec
+          // (review F4 #8, upřesněno go/no-go auditem 3. 8. 2026).
+          oldValue: blockToDelete ? truncateUtf8(JSON.stringify(blockToDelete), 60000) : null,
         },
       });
 

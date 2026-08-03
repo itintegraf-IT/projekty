@@ -37,3 +37,7 @@ Thumbs.db
 # Reservation attachments storage (filesystem, not in git)
 data/
 !data/reservation-attachments/.gitkeep
+
+# Inkrementální cache TypeScriptu — přepíše ji každé `tsc --noEmit`, a deploy.sh
+# odmítá deploy nad nečistým pracovním stromem. Verzovaná nemá co dělat.
+tsconfig.tsbuildinfo

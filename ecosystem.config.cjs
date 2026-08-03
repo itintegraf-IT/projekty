@@ -16,15 +16,17 @@ module.exports = {
       script: "npm",
       args: "start",
       // POZOR: PM2 tady měří jen npm wrapper (~50-80 MB), ne skutečný
-      // next-server child — tenhle limit je jen záložní strop. Skutečnou
-      // ochranu proti memory leaku dělá NODE_OPTIONS níž: heap limit se
-      // dědí do child procesů, server nad ním spadne a PM2 ho restartuje.
+      // next-server child — na skutečnou spotřebu serveru tenhle limit nedosáhne.
+      // Tvrdý strop haldy přes NODE_OPTIONS tu ZÁMĚRNĚ NENÍ: dokud na produkci
+      // nezměříme reálnou špičku (`ps -o rss=,cmd= -C node` ve střídání směn),
+      // byl by to odhad naslepo — a při jeho překročení proces spadne a všem
+      // u strojů na dobu restartu zmizí plán. Přidat až s naměřenou hodnotou
+      // a ~2× rezervou (rozhodnuto při go/no-go auditu 3. 8. 2026).
       max_memory_restart: "1G",
       // Fork mód s JEDINOU instancí je ZÁMĚR: rate-limiter loginů a mapa SSE
       // spojení jsou in-memory per proces — v cluster módu (instances > 1)
       // by přestaly fungovat. NIKDY nepřidávat instances/exec_mode cluster.
       env: {
-        NODE_OPTIONS: "--max-old-space-size=768",
         NODE_ENV: "production",
         // next start respektuje PORT
         PORT: process.env.PORT || "3020",

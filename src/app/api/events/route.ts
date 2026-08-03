@@ -154,7 +154,13 @@ export async function GET() {
       // Heartbeat + periodická revalidace session: stream jinak žije hodiny
       // a uživatel se změněnou rolí nebo smazaným účtem by dál dostával
       // eventy staré role, dokud spojení nespadne (review S4).
+      // Pojistka proti vrstvení: `checkSessionVersion` plní cache až po doběhnutí
+      // dotazu, takže při zpomalené DB (běžící mysqldump, velký report) by každý
+      // další tik šel znovu do DB a soutěžil s uživatelskými zápisy.
+      let revalidating = false;
       const heartbeatInterval = setInterval(() => {
+        if (revalidating) return;
+        revalidating = true;
         void (async () => {
           const stillValid = await checkSessionVersion(
             authedSession.id,
@@ -171,7 +177,11 @@ export async function GET() {
           } catch {
             if (cleanup) cleanup();
           }
-        })();
+        })()
+          // Bez .catch() by neošetřená rejection (např. z cleanup() nad rozpadlou
+          // mapou spojení) shodila celý Node proces a s ním plán u všech strojů.
+          .catch((err) => logger.error("[sse] heartbeat selhal", err))
+          .finally(() => { revalidating = false; });
       }, HEARTBEAT_MS);
 
       // Event listener
