@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
-import { printDoneSize } from "@/lib/tiskarBlockView";
+import { printDoneSize, isBlockRunningNow } from "@/lib/tiskarBlockView";
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 // Vizuální config bloků žije v @/lib/blockStyles (sdílený s blockShades — audit #14/C5).
@@ -386,6 +386,11 @@ export function BlockCard({
   const ctxMouseRef     = useRef<{ x: number; y: number } | null>(null);
 
   const isPrintDone   = block.printCompletedAt != null;
+  // Zelené zvýraznění bloku, jehož tisk právě běží — jen u tiskaře, jen zakázky.
+  // `now` tiká z TimelineGrid po 60 s, žádný vlastní časovač tu nevzniká.
+  const isRunningNow = isTiskar === true
+    && block.type === "ZAKAZKA"
+    && isBlockRunningNow(block.startTime, block.endTime, now, isPrintDone);
   const isPozastaveno = block.type === "ZAKAZKA" && block.blockVariant === "POZASTAVENO";
   const isUnconfirmedReservation = block.type === "REZERVACE" && block.reservationId != null && !block.reservationConfirmedAt;
   const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
@@ -587,6 +592,8 @@ export function BlockCard({
         outlineOffset: isCopied ? "2px" : undefined,
         boxShadow: block.locked
           ? `${shadow}, 0 0 0 1px rgba(251,191,36,0.35)`
+          : isRunningNow
+          ? `${shadow}, 0 0 0 2px var(--success)`
           : shadow,
         background: shadedBackground,
         display: "flex", flexDirection: "column",
@@ -608,7 +615,7 @@ export function BlockCard({
           <Hourglass size={11} strokeWidth={2} color="rgba(168,85,247,1)" />
         </div>
       ) : (
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
+        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: isRunningNow ? 5 : 3, background: isRunningNow ? "var(--success)" : s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
       )}
 
       {/* Modrý selection overlay */}
