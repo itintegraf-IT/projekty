@@ -76,7 +76,20 @@ uživatele to jen vrátí na login. Nezaměnit s odmítnutým heslem (to hlásí
 ## 2. Terminál (Michal)
 
 V configu autostartu nahradit adresu Logiky adresou launcheru a doplnit `pntid`
-daného stroje:
+daného stroje.
+
+### Které `pntid` patří kterému stroji
+
+Ověřeno 3. 8. 2026 přímo z Logiky (název stroje vyčten z HTML panelu):
+
+| Stroj | `pntid` | Adresa launcheru | `PUGroupId` v Logice |
+| --- | --- | --- | --- |
+| **XL 105** | `2` | `…/vyroba-terminal.html?pntid=2` | 3 |
+| **XL 106** | `25` | `…/vyroba-terminal.html?pntid=25` | 32 |
+
+Adresy obou strojů se liší **jen tímhle číslem** — stejný host, stejná stránka.
+Launcher je proto jeden soubor pro oba terminály; `pntid` bez parametru padá na
+výchozích `25`, tedy XL 106.
 
 ```bash
 chromium-browser \
@@ -127,6 +140,27 @@ změnit heslo nebo stroj daného účtu (`tokenVersion`). Alternativní varianta
 - [ ] Přepnutí tam a zpět **nezruší** rozdělaný stav v Logice
 - [ ] Po rebootu terminálu je plán stále přihlášený
 - [ ] Tlačítko **Obnovit** přenačte jen právě zobrazenou aplikaci
+
+## ⚠️ Past: launcher po HTTPS dnes Sběr dat nenačte
+
+Ověřeno 3. 8. 2026. Launcher se chová podle protokolu, na kterém běží: po **HTTP**
+sahá na Logicu napřímo (`http://192.168.10.214:81/…`), po **HTTPS** na proxy
+`/logica/` na vlastním serveru. Ta proxy ale **na produkci nastavená není**:
+
+```
+https://planovani.integraf.cz/logica/machinepanelhand.aspx?pntid=2
+  → 307, přesměrování na /login
+```
+
+Ten 307 znamená, že nginx žádné `location /logica/` nemá, požadavek propadl do
+Next.js aplikace a auth middleware ho odmítl. Prakticky: **terminál nasměrovaný na
+`https://` adresu launcheru ukáže místo Sběru dat prázdný rám** — bez srozumitelné
+chybové hlášky.
+
+Dnes to nevadí, protože nasazení je vědomě po HTTP (viz §1) a tam launcher jde na
+Logicu napřímo. Ale **v configu terminálů musí být `http://`**. Kdo by to chtěl
+narovnat natrvalo, přidá do nginx vhostu `location /logica/` podle sekce níž —
+je to pět minut práce a HTTPS varianta pak funguje taky.
 
 ## Kdyby se někdy přešlo na HTTPS
 

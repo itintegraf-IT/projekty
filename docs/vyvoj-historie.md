@@ -2,6 +2,41 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Tlačítko Hotovo u stroje — tiskařský režim (3. 8. 2026)
+
+Terminál u tiskového stroje se ovládá myší z odstupu, ale tlačítko „Hotovo" bylo
+navržené pro plánovače u stolu: text 11 px, cíl ~26 × 62 px v rohu karty, pozadí
+`rgba(34,197,94,0.3)` se zeleným textem (zelená na zelené, na dálku vybledlá) —
+a barvy natvrdo, tedy rozbitý světlý režim.
+
+**Co se změnilo** (spec `2026-08-03-tlacitko-hotovo-tiskar-design.md`, plán
+`2026-08-03-tlacitko-hotovo-tiskar.md`):
+
+- Rozhodovací pravidla jsou v `src/lib/tiskarBlockView.ts` (čistá logika, 9 testů):
+  `printDoneSize(layoutHeight)` a `isBlockRunningNow(start, end, now, isDone)`.
+- Vzhled je v jediné komponentě `src/components/planner/PrintDoneButton.tsx`,
+  která nahradila **tři téměř shodné kopie** tlačítka v `BlockCard.tsx`
+  (MODE_FULL / MODE_COMPACT / MODE_TINY+MICRO).
+- Velikost podle výšky bloku: ≥ 140 px → pruh 40 px, 96–139 → 32 px, 48–95 → 24 px
+  (vždy přes celou šířku karty), 14–47 px → čtverec 26 px, pod 14 px nic.
+  Prahy navazují na existující layout režimy karty.
+- Plná `var(--success)` s novým tokenem **`--success-contrast`** (obě témata).
+- Blok, jehož tisk právě běží, má zelený prstenec a zesílený levý pruh (3 → 5 px).
+  Vyhodnocuje se z propu `now`, který `BlockCard` už dostával — žádný nový časovač.
+
+**Vědomá rozhodnutí:** bez potvrzovacího mezikroku (akce je vratná, ovládá se myší);
+bez samostatné obrazovky „Monitor" a přepínače Monitor ↔ Plán, protože kioskový
+launcher už jednu úroveň přepínání má (Sběr dat ↔ Plánování) a druhá by byla
+nepřehledná. Ztlumení hotových bloků se nedělalo — `BLOCK_PRINT_DONE` ho už řeší.
+
+**Gotchy odchycené závěrečným review:** pruh Hotovo se musí renderovat **až za**
+SplitChipem, jinak ho u split zakázky vytlačí mimo kartu (`overflow: hidden`);
+resize handle se tiskaři nevykresluje vůbec (`!block.locked && !isTiskar`), protože
+mu jinak ukusoval pravý dolní roh tlačítka a stejně nemá právo měnit délku bloku.
+
+**Známá kosmetika (backlog):** prstenec běžícího bloku má dole jen tři strany —
+navazující blok na témže stroji má stejný z-index a přemaluje spodní 2 px.
+
 ## Chain push pro všechny typy bloků (31. 7. 2026)
 
 Do 31. 7. 2026 platilo: zakázku šlo přetáhnout na obsazené místo (server odsunul
