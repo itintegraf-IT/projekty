@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { PrintDoneSize } from "@/lib/tiskarBlockView";
 import { formatPragueTime } from "@/lib/dateUtils";
 
@@ -21,12 +22,15 @@ type Props = {
  */
 export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }: Props) {
   const isBar = size.variant === "bar";
+  const [hovered, setHovered] = useState(false);
 
   const barLabel = isDone
     ? completedAt
       ? `✓ Hotovo ${formatPragueTime(new Date(completedAt))}`
       : "✓ Hotovo"
     : "✓ HOTOVO";
+
+  const isHoverActive = hovered && !pending && !isDone;
 
   return (
     <button
@@ -35,6 +39,8 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
         e.stopPropagation();
         onToggle();
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       disabled={pending}
       title={isDone ? "Vrátit hotovo" : "Označit jako hotovo"}
       style={{
@@ -51,7 +57,8 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
         fontSize: isDone && isBar ? Math.min(size.fontSize, 13) : size.fontSize,
         fontWeight: isDone ? 620 : 750,
         letterSpacing: isDone ? 0 : "0.05em",
-        background: isDone ? "var(--surface-3)" : "var(--success)",
+        background: isDone ? "var(--surface-3)" : isHoverActive ? "color-mix(in oklab, var(--success) 82%, white)" : "var(--success)",
+        boxShadow: isHoverActive ? "0 0 0 3px color-mix(in oklab, var(--success) 34%, transparent)" : undefined,
         color: isDone ? "var(--text-muted)" : "var(--success-contrast)",
         opacity: pending ? 0.5 : 1,
         transition: "all 0.12s ease-out",

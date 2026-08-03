@@ -1119,19 +1119,6 @@ export function BlockCard({
       )}
 
 
-      {/* Hotovo tlačítko pro TISKAR (FULL mode) — pruh přes celou šířku karty */}
-      {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && MODE_FULL && printDone?.variant === "bar" && (
-        <div style={{ padding: "2px 7px 5px", flexShrink: 0 }}>
-          <PrintDoneButton
-            size={printDone}
-            isDone={isPrintDone}
-            completedAt={block.printCompletedAt}
-            pending={printPending}
-            onToggle={togglePrintDone}
-          />
-        </div>
-      )}
-
       {/* SplitChip — jen pro TISKAR, MODE_FULL */}
       {MODE_FULL && splitPartner && clampedHeight >= 32 && (() => {
         const { state, time } = getSplitChipState(splitPartner);
@@ -1145,6 +1132,19 @@ export function BlockCard({
         );
       })()}
 
+      {/* Hotovo tlačítko pro TISKAR (FULL mode) — pruh přes celou šířku karty */}
+      {isTiskar && onPrintComplete && block.type === "ZAKAZKA" && MODE_FULL && printDone?.variant === "bar" && (
+        <div style={{ padding: "2px 7px 5px", flexShrink: 0 }}>
+          <PrintDoneButton
+            size={printDone}
+            isDone={isPrintDone}
+            completedAt={block.printCompletedAt}
+            pending={printPending}
+            onToggle={togglePrintDone}
+          />
+        </div>
+      )}
+
       {/* Výrobní štítky OBÁLKA/VNITŘKY — vpravo dole (FULL mode, je tam prostor).
           U TISKAŘE je spodní pruh obsazen tlačítkem Hotovo / SplitChipem → zvednout výš.
           Resize handle sedí v rohu (bottom:0 right:0, 20×20) — když je přítomný
@@ -1157,7 +1157,7 @@ export function BlockCard({
       )}
 
       {/* Resize handle — rohový iOS-style */}
-      {!block.locked && (
+      {!block.locked && !isTiskar && (
         <div
           onMouseEnter={() => setResizeHovered(true)}
           onMouseLeave={() => setResizeHovered(false)}
