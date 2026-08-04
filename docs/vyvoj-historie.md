@@ -460,9 +460,8 @@ teleport až +5,3 dne, nová drží start a pauzne; Σ tisku přesně 27,0 h).
 
 Sedm bodů z druhé série připomínek Lukáše Lukeše. Spec:
 `docs/superpowers/specs/2026-08-04-pripominky-planovace-design.md`, plán
-`docs/superpowers/plans/2026-08-04-pripominky-planovace.md`. Body „odlišení dnů
-a směn" a „OBÁLKA/VNITŘKY jako jedna volba" odloženy — čekají na osobní
-dovysvětlení od Lukáše.
+`docs/superpowers/plans/2026-08-04-pripominky-planovace.md`. Bod „odlišení dnů
+a směn" odložen — čeká na osobní dovysvětlení od Lukáše.
 
 - **Výchozí délka tisku 1 h** (`useJobBuilder.ts`): `resetBuilderForm` nenulovala
   `durationHours`, takže každý nový záznam zdědil délku předchozího. Konstanta
@@ -515,6 +514,11 @@ dovysvětlení od Lukáše.
   historie; záměrně neposílá `expectedUpdatedAt` (serverová propagace do split
   sourozenců by druhý PUT shodila na 409), souběh hlídá guard nad živým stavem
   provedený celý před prvním zápisem.
+- **Výlučnost OBÁLKA/VNITŘKY** (`toggleProductionVariant` v `productionTags.ts`):
+  klik na druhou variantu první rovnou vypne, klik na jedinou aktivní ji vypne.
+  Historický stav s oběma zaškrtnutými se klikem vyčistí na kliknutou variantu.
+  DB zůstává na dvou nezávislých booleanech — výlučnost hlídá jen UI, logika žije
+  v `ProductionTagsRow` pro všechny tři konzumenty.
 - **Split a reflow undo nadále nemají** (`TimelineGrid.tsx`, `PlannerPage`
   reflow handlery) — vědomě mimo rozsah, nejcitlivější serverové cesty.
 

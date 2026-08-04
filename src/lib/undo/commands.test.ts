@@ -499,3 +499,46 @@ test("buildCreateCommand: bez odsunutých se chová jako dřív (zpětná kompat
   assert.equal(deleted, 1);
   assert.equal(calls.batch.length, 0, "žádný zbytečný batch, když se nic neodsunulo");
 });
+
+test("buildMultiEditCommand: po skipu je redo možné (osvěžená verze)", async () => {
+  // Server propagoval sourozence sám → skip. Bez osvěžení updatedAt by opačný
+  // směr spadl na guard s předchozí verzí a krok historie by byl mrtvý.
+  const live = new Map([
+    [1, blk(1, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })],
+    // sourozenec už vrácený serverovou propagací, verze sedí na `after`
+    [2, blk(2, { type: "REZERVACE", orderNumber: "R123", updatedAt: "v2" })],
+  ]);
+  const { effects, puts } = makeMultiEffects(live);
+  const before = [flipBefore(1), flipBefore(2)];
+  const after = [flipAfter(1), flipAfter(2)];
+  const cmd = buildMultiEditCommand("x", before, after);
+  await cmd.undo(effects);
+  // před undo měl snapshot „v1"; bez osvěžení by redo spadlo na guard
+  assert.equal(before[1].updatedAt, "v2", "skipnutý cíl si musí vzít živou verzi");
+  await cmd.redo(effects); // nesmí spadnout na StaleUndoError
+  // undo: blok 1 (blok 2 skipnut) · redo: oba, protože propagace už neplatí
+  assert.deepEqual(puts.map((p) => p.id), [1, 1, 2]);
+});
+
+test("buildMultiEditCommand: vrací i řetězově odsunuté sousedy", async () => {
+  const live = new Map([
+    [1, blk(1, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })],
+    [9, blk(9, { startTime: "2026-07-10T12:00:00.000Z", updatedAt: "s2" })],
+  ]);
+  const { effects } = makeMultiEffects(live);
+  const batched: unknown[][] = [];
+  effects.batchUpdate = async (u) => {
+    batched.push(u);
+    return u.map((x) => {
+      const cur = live.get(x.id)!;
+      const next = { ...cur, startTime: x.startTime, endTime: x.endTime, machine: x.machine, updatedAt: "s3" } as Block;
+      live.set(x.id, next);
+      return next;
+    });
+  };
+  const shiftedBefore = [{ id: 9, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "s2" }];
+  const shiftedAfter = [{ id: 9, startTime: "2026-07-10T12:00:00.000Z", endTime: "2026-07-10T13:00:00.000Z", machine: "XL_105", updatedAt: "s2" }];
+  await buildMultiEditCommand("x", [flipBefore(1)], [flipAfter(1)], shiftedBefore, shiftedAfter).undo(effects);
+  assert.equal(batched.length, 1, "odsunutý soused se musí vrátit");
+  assert.equal(live.get(9)!.startTime, "2026-07-10T08:00:00.000Z");
+});

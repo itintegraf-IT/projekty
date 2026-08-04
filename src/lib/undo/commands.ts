@@ -108,8 +108,16 @@ export function buildMultiEditCommand(
   label: string,
   before: EditSnapshot[],
   after: EditSnapshot[],
+  shiftedBefore: BlockSnapshot[] = [],
+  shiftedAfter: BlockSnapshot[] = [],
 ): HistoryEntry {
-  const apply = async (effects: UndoEffects, targets: EditSnapshot[], expected: EditSnapshot[]) => {
+  const apply = async (
+    effects: UndoEffects,
+    targets: EditSnapshot[],
+    expected: EditSnapshot[],
+    shiftedTarget: BlockSnapshot[],
+    shiftedExpected: BlockSnapshot[],
+  ) => {
     const expMap = new Map(expected.map((e) => [e.id, e.updatedAt]));
     for (const t of targets) {
       const live = effects.getLiveBlock(t.id);
@@ -120,7 +128,12 @@ export function buildMultiEditCommand(
       const live = effects.getLiveBlock(t.id) as unknown as Record<string, unknown> | undefined;
       const alreadyThere = live !== undefined
         && Object.entries(t.fields).every(([k, v]) => live[k] === v);
-      if (alreadyThere) continue;
+      if (alreadyThere) {
+        // Server cíl překlopil sám (propagace do split skupiny) a bumpnul mu
+        // verzi. Bez tohohle by opačný směr spadl na guard s předchozí verzí.
+        t.updatedAt = (live as { updatedAt: string }).updatedAt;
+        continue;
+      }
       const updated = await effects.putBlock(t.id, {
         ...t.fields,
         resolveChain: true,
@@ -131,11 +144,14 @@ export function buildMultiEditCommand(
       effects.addToState([cleanUpdated]);
       if (siblings && siblings.length > 0) effects.addToState(siblings);
     }
+    // Změna typu REZERVACE→ZAKAZKA umí blok re-expandovat přes pauzy směn
+    // a odsunout následníky; bez tohohle by je Ctrl+Z nechal přesunuté.
+    await restoreShifted(effects, shiftedTarget, shiftedExpected);
   };
   return {
     label,
-    undo: (effects) => apply(effects, before, after),
-    redo: (effects) => apply(effects, after, before),
+    undo: (effects) => apply(effects, before, after, shiftedBefore, shiftedAfter),
+    redo: (effects) => apply(effects, after, before, shiftedAfter, shiftedBefore),
   };
 }
 

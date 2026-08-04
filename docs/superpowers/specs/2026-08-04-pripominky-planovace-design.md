@@ -1,6 +1,6 @@
 # Připomínky plánovače (srpen 2026) — design
 
-Datum: 2026-08-04 · Stav: implementováno (etapy 1–5), body 5 a 6 odloženy
+Datum: 2026-08-04 · Stav: implementováno (body 1–4, 6–9); bod 5 odložen
 Navazuje na: `2026-07-09-planovac-4-body-design.md` (první série připomínek téhož plánovače)
 
 ## Kontext
@@ -22,7 +22,8 @@ připomínky zněly — jsou popsaná níž u příslušných bodů.
 | 9 · Expedice | Badge „PO DEADLINE" do stejné logiky | Vojta doplnil po prvním kole |
 | 7 · Překlopení rezervace | Potvrzovací dialog, ne automatika | Vojta |
 | 8 · Rozsah undo | Vložení + drop z fronty + hromadné uložení | Vojta; split a reflow vědomě mimo |
-| 5, 6 | Odloženo | Vojta se doptá Lukáše; podklady v artifactu |
+| 6 · OBÁLKA/VNITŘKY | Varianta A — vzájemná výlučnost | Vojta 4. 8. 2026 |
+| 5 · Dny a směny | Odloženo | Vojta se doptá Lukáše; podklady v artifactu |
 
 ## Zjištění, která změnila zadání
 
@@ -87,7 +88,7 @@ tatáž validace, chain push i audit. Write-path surface zůstává beze změny.
   a pošle obchodníkovi notifikaci; DELETE se řídí jen `reservationId` bez ohledu
   na typ (`api/blocks/[id]/route.ts:727-758`). Po hromadném překlopení
   viditelnější, ale není to důsledek této dávky.
-- Body 5 a 6 — čekají na dovysvětlení od Lukáše.
+- Bod 5 — čeká na dovysvětlení od Lukáše.
 
 ## Otevřené otázky pro Lukáše
 

@@ -1103,7 +1103,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     anchorPayload: Record<string, unknown>,
     siblingIds: number[],
   ): Promise<boolean> {
-    const flipFields = (b: Block) => ({ type: b.type, orderNumber: b.orderNumber, blockVariant: b.blockVariant });
+    // endTime je součástí snapshotu záměrně: překlopení na ZAKAZKA přepne blok
+    // na model tiskových hodin a server ho může re-expandovat přes pauzy směn.
+    // Bez endTime by Ctrl+Z vrátil typ, ale nechal prodlouženou délku.
+    const flipFields = (b: Block) => ({
+      type: b.type, orderNumber: b.orderNumber, blockVariant: b.blockVariant, endTime: b.endTime,
+    });
+    const flipShiftBefore: BlockSnapshot[] = [];
+    const flipShiftAfter: BlockSnapshot[] = [];
     const before: EditSnapshot[] = [];
     const after: EditSnapshot[] = [];
 
@@ -1114,19 +1121,39 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     snapshotBefore(anchorId);
     siblingIds.forEach(snapshotBefore);
 
-    const putFlip = async (id: number, body: Record<string, unknown>) => {
+    const putFlip = async (id: number, body: Record<string, unknown>, lock?: string) => {
       const res = await fetch(`/api/blocks/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, resolveChain: true }),
+        // Optimistic lock jen u kotvy (parita s doSave, audit REL-02). Sourozenci
+        // ho mít nesmí: kotvin PUT jim serverovou propagací bumpne verzi a lock
+        // by je shodil na vlastní 409.
+        body: JSON.stringify({ ...body, resolveChain: true, ...(lock ? { expectedUpdatedAt: lock } : {}) }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? `Chyba při překlopení bloku ${id}`);
       }
       const updated: Block = await res.json();
+      // Snapshot odsunutých MUSÍ vzniknout před handleBlockUpdate (staré pozice
+      // jsou jen v blocksRef). Týž soused může figurovat u víc bloků dávky —
+      // první „před" je předdávková pozice, poslední „po" ta konečná.
+      const sh = snapshotShiftedFromResponse(updated);
+      sh.before.forEach((b, i) => {
+        const known = flipShiftBefore.findIndex((x) => x.id === b.id);
+        if (known === -1) { flipShiftBefore.push(b); flipShiftAfter.push(sh.after[i]); }
+        else flipShiftAfter[known] = sh.after[i];
+      });
       handleBlockUpdate(updated); // bez addToHistory — historii zapisujeme jednu za celek
       after.push({ id, updatedAt: updated.updatedAt, fields: flipFields(updated) });
+      // Server propaguje sdílená pole na split sourozence (SPLIT_SHARED_FIELDS)
+      // a bumpne jim verzi — i bloku, který jsme zapsali dřív. Bez téhle
+      // re-synchronizace by undo padlo na guard se zastaralou verzí, přestože
+      // nikdo cizí nic nezměnil.
+      for (const sib of (updated as Block & { siblings?: Block[] }).siblings ?? []) {
+        const known = after.find((x) => x.id === sib.id);
+        if (known) { known.updatedAt = sib.updatedAt; known.fields = flipFields(sib); }
+      }
       return updated;
     };
 
@@ -1145,11 +1172,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         changed.length > 1 ? "Překlopení rezervace" : "Překlopení na zakázku",
         changed,
         changed.map((b) => after.find((x) => x.id === b.id)!),
+        flipShiftBefore.filter((x) => !changed.some((c) => c.id === x.id)),
+        flipShiftAfter.filter((_, i) => !changed.some((c) => c.id === flipShiftBefore[i].id)),
       ));
     };
 
     try {
-      const updatedAnchor = await putFlip(anchorId, anchorPayload);
+      const anchorLock = blocksRef.current.find((b) => b.id === anchorId)?.updatedAt;
+      const updatedAnchor = await putFlip(anchorId, anchorPayload, anchorLock);
       const targetOrderNumber = updatedAnchor.orderNumber;
 
       for (const id of siblingIds) {
@@ -1169,9 +1199,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
       recordFlipUndo();
       setEditingBlock(null); // parita s onSave — po úspěšném uložení panel zavíráme
+      const flipped = 1 + siblingIds.length;
       showToast(
         siblingIds.length > 0
-          ? `Rezervace překlopena na zakázku (${1 + siblingIds.length} bloků).`
+          ? `Rezervace překlopena na zakázku (${flipped} ${flipped < 5 ? "bloky" : "bloků"}).`
           : "Rezervace překlopena na zakázku.",
         "success",
       );

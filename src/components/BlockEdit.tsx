@@ -747,7 +747,10 @@ export function BlockEdit({
           e.key === "Enter" && !e.shiftKey &&
           (e.target as HTMLElement).tagName !== "TEXTAREA" &&
           (e.target as HTMLElement).tagName !== "SELECT" &&
-          !seriesConfirm && !showOrderNumberPrompt
+          // flipOrderNumber = otevřený dialog překlopení. Bez něj by Enter
+          // probublal z tlačítka dialogu sem, preventDefault zrušil jeho
+          // aktivaci a místo překlopení by se uložila rezervace beze změny.
+          !seriesConfirm && !showOrderNumberPrompt && flipOrderNumber === null
         ) {
           e.preventDefault();
           handleSave();

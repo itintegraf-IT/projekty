@@ -863,6 +863,9 @@ export function BlockCard({
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
+              {/* Značka specifikace i tady — bez ní by karta 14–43 px neukázala
+                  ani pás, ani „S", ani proužek (proužek je potlačen hasSpecChip). */}
+              {hasSpecChip && <SpecChip text={block.specifikace!} />}
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={{
                     ...chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
