@@ -39,3 +39,29 @@ test("sanitizeUndoOps odmítne neplatné id a duplicitní id", () => {
   rejects([{ kind: "remove", id: -3 }], "id");
   rejects([{ kind: "remove", id: 1 }, { kind: "upsert", id: 1, fields: {} }], "vícekrát");
 });
+
+test("sanitizeUndoOps odmítne seznam delší než 200 operací", () => {
+  const ops = Array.from({ length: 201 }, (_, i) => ({ kind: "remove" as const, id: i + 1 }));
+  rejects(ops, "příliš dlouhý");
+});
+
+test("sanitizeUndoOps odmítne fields, který není objekt", () => {
+  rejects([{ kind: "upsert", id: 1, fields: null }], "Chybí fields");
+  rejects([{ kind: "upsert", id: 2, fields: [] }], "Chybí fields");
+  rejects([{ kind: "upsert", id: 3, fields: "string" }], "Chybí fields");
+});
+
+test("sanitizeUndoOps odmítne hodnotu v fields, která je objekt nebo pole", () => {
+  rejects([{ kind: "upsert", id: 1, fields: { printMinutes: { increment: 999999999 } } }], "neplatný formát");
+  rejects([{ kind: "upsert", id: 2, fields: { description: ["pole", "hodnot"] } }], "neplatný formát");
+});
+
+test("sanitizeUndoOps odmítne neplatný expectedUpdatedAt", () => {
+  rejects([{ kind: "remove", id: 1, expectedUpdatedAt: "ne-je-datum" }], "Neplatné expectedUpdatedAt");
+  rejects([{ kind: "upsert", id: 2, fields: {}, expectedUpdatedAt: "" }], "Neplatné expectedUpdatedAt");
+});
+
+test("sanitizeUndoOps odmítne ID větší než 2147483647", () => {
+  rejects([{ kind: "remove", id: 2147483648 }], "id");
+  rejects([{ kind: "upsert", id: 9007199254740992, fields: {} }], "id");
+});

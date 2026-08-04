@@ -29,7 +29,7 @@ export function sanitizeUndoOps(raw: unknown): UndoOp[] {
     if (typeof item !== "object" || item === null) bad("Operace není objekt.");
     const o = item as Record<string, unknown>;
 
-    if (!Number.isInteger(o.id) || (o.id as number) <= 0) bad(`Neplatné id bloku: ${String(o.id)}`);
+    if (!Number.isInteger(o.id) || (o.id as number) <= 0 || (o.id as number) > 2147483647) bad(`Neplatné id bloku: ${String(o.id)}`);
     const id = o.id as number;
     if (seen.has(id)) bad(`Blok ${id} je v dávce vícekrát — undo musí mít na blok jedinou operaci.`);
     seen.add(id);
@@ -54,6 +54,11 @@ export function sanitizeUndoOps(raw: unknown): UndoOp[] {
     const fields: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(o.fields as Record<string, unknown>)) {
       if (!isRestorableField(key)) bad(`Pole "${key}" undo obnovovat nesmí (blok ${id}).`);
+      // Hodnota musí být primitivum (string, number, boolean, null), ne objekt ani pole.
+      // Prisma by atomické operace jako { increment: 999 } interpretoval špatně.
+      if (typeof value === "object" && value !== null) {
+        bad(`Pole "${key}" má neplatný formát (pole nebo objekt), povolena jsou jen primitiva: blok ${id}).`);
+      }
       fields[key] = value;
     }
     ops.push({ kind: "upsert", id, expectedUpdatedAt, fields });
