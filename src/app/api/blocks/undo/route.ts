@@ -6,6 +6,7 @@ import { isAppError, errorStatus, AppError } from "@/lib/errors";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { emitSSE } from "@/lib/eventBus";
 import { sanitizeUndoOps, applyUndoOps, type UndoDirection } from "@/lib/undoApply.server";
+import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 
 /**
  * Atomické undo/redo — celý krok historie v JEDNÉ transakci.
@@ -60,6 +61,13 @@ export async function POST(request: NextRequest) {
         })
       : [];
     const serialized = rows.map(serializeBlock);
+    // Notes gate JEN na přímou HTTP odpověď mutujícímu — SSE payloady (níže) musí zůstat
+    // PLNÉ (s notes), protože `/api/events/route.ts` je filtruje per-connection nezávisle
+    // (`stripNotesFromPayload`) podle role KAŽDÉHO příjemce, ne podle role mutujícího.
+    // Vzor identický s `batch/route.ts:271-272`: dnešní allowlist (ADMIN/PLANOVAT) má na
+    // notes právo vždy, gate je tu pro konzistenci a jako pojistka proti budoucímu
+    // rozšíření rolí endpointu (review Tasku 4).
+    const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
 
     // Mapování na EXISTUJÍCÍ události — klientské handlery zůstávají beze změny.
     const created = new Set(result.createdIds);
@@ -76,7 +84,10 @@ export async function POST(request: NextRequest) {
       emitSSE("block:deleted", { blockId: id, machine, sourceUserId: session.id });
     }
 
-    return NextResponse.json({ updated: serialized, removed: result.removed.map((r) => r.id) });
+    return NextResponse.json({
+      updated: serialized.map((b) => stripNotesIfDenied(b, canSeeNotes)),
+      removed: result.removed.map((r) => r.id),
+    });
   } catch (err) {
     if (isAppError(err)) return NextResponse.json({ error: err.message, code: err.code }, { status: errorStatus(err.code) });
     logger.error("[POST /api/blocks/undo] neočekávaná chyba", err);
