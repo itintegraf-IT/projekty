@@ -10,9 +10,8 @@ import {
   formatPragueDateShort,
   formatPragueDateTime,
   normalizeCivilDateInput,
-  utcToPragueDateStr,
 } from "@/lib/dateUtils";
-import { deadlineState } from "@/lib/deadlineState";
+import { deadlineState, isPastExpeditionDeadline } from "@/lib/deadlineState";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
@@ -381,11 +380,10 @@ export function BlockCard({
   const isUnconfirmedReservation = block.type === "REZERVACE" && block.reservationId != null && !block.reservationConfirmedAt;
   const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
   // Deadline štítek — nezávislé na isOverdue (to je „konec bloku je v minulosti").
-  // Tady srovnáváme civilní datum konce (Praha) s civilním datem deadlineExpedice:
-  // string porovnání dateStr je DST-safe a přesně odpovídá „po deadline dni", i když
-  // je blok ještě naplánovaný do budoucna (na rozdíl od isOverdue běží nezávisle na `now`).
-  const isPastDeadline = block.type === "ZAKAZKA" && !!block.deadlineExpedice
-    && utcToPragueDateStr(new Date(block.endTime)) > block.deadlineExpedice;
+  // Termín expedice je okamžik 14:00 pražského času, ne celý den (viz deadlineState.ts);
+  // běží nezávisle na `now`, takže hlásí i bloky naplánované do budoucna.
+  const isPastDeadline = block.type === "ZAKAZKA"
+    && isPastExpeditionDeadline(block.endTime, block.deadlineExpedice);
   const clampedHeight = Math.max(height, 20);
   // Layout mody se řídí výškou prvního print segmentu (obsah se má vejít do tiskové části,
   // ne propadnout do pauzy) — pro bloky bez segmentů (99 % plánu) je to prostě clampedHeight.

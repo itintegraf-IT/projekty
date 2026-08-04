@@ -49,3 +49,22 @@ export function deadlineState(
   if (utcToPragueDateStr(now) === dueDateStr) return "warning";
   return "none";
 }
+
+/**
+ * Štítek „PO DEADLINE" — tisk skončí až po termínu expedice. Stejná 14:00
+ * semantika jako deadlineState: zboží musí být hotové, než odpoledne odjede,
+ * takže konec tisku v 15:00 v den expedice už je pozdě (do 8/2026 se porovnávaly
+ * celé dny, takže tenhle případ propadl).
+ *
+ * Nezávislé na `now` — hlásí i bloky naplánované do budoucna.
+ */
+export function isPastExpeditionDeadline(
+  endTime: string | Date,
+  deadlineExpedice: string | null | undefined,
+): boolean {
+  const dueDateStr = normalizeCivilDateInput(deadlineExpedice);
+  if (!dueDateStr) return false;
+  const end = new Date(endTime);
+  if (isNaN(end.getTime())) return false;
+  return end.getTime() > pragueToUTC(dueDateStr, DEADLINE_HOUR, 0).getTime();
+}

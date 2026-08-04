@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEADLINE_HOUR, deadlineState } from "./deadlineState";
+import { DEADLINE_HOUR, deadlineState, isPastExpeditionDeadline } from "./deadlineState";
 
 // Pomocník: pražský čas → UTC Date (bez závislosti na pragueToUTC, aby test
 // neověřoval sám sebe). Léto = UTC+2, zima = UTC+1.
@@ -82,4 +82,31 @@ test("akceptuje ISO timestamp i civilní datum na vstupu termínu", () => {
   const startAfter = summer(21, 6).toISOString();
   assert.equal(deadlineState("2026-07-20T00:00:00.000Z", false, summer(20, 15), startAfter), "danger");
   assert.equal(deadlineState("2026-07-20", false, summer(20, 15), startAfter), "danger");
+});
+
+// ─── isPastExpeditionDeadline ────────────────────────────────────────────────
+
+test("expedice: konec tisku po 14:00 dne termínu je po deadline", () => {
+  const due = "2026-07-20";
+  assert.equal(isPastExpeditionDeadline(summer(20, 13, 59), due), false);
+  assert.equal(isPastExpeditionDeadline(summer(20, 14, 0), due), false); // přesně v termínu ještě stíhá
+  assert.equal(isPastExpeditionDeadline(summer(20, 14, 1), due), true);  // dřív propadalo (týž den)
+  assert.equal(isPastExpeditionDeadline(summer(21, 6), due), true);
+});
+
+test("expedice: konec před dnem termínu je vždy v pořádku", () => {
+  assert.equal(isPastExpeditionDeadline(summer(19, 22), "2026-07-20"), false);
+  assert.equal(isPastExpeditionDeadline(summer(20, 6), "2026-07-20"), false);
+});
+
+test("expedice: bez termínu nebo s nevalidním koncem nehlásí nic", () => {
+  assert.equal(isPastExpeditionDeadline(summer(25, 10), null), false);
+  assert.equal(isPastExpeditionDeadline(summer(25, 10), ""), false);
+  assert.equal(isPastExpeditionDeadline("nesmysl", "2026-07-20"), false);
+});
+
+test("expedice: funguje v zimním čase a bere ISO timestamp termínu", () => {
+  assert.equal(isPastExpeditionDeadline(winter(20, 14, 1), "2026-01-20"), true);
+  assert.equal(isPastExpeditionDeadline(winter(20, 13, 59), "2026-01-20"), false);
+  assert.equal(isPastExpeditionDeadline(winter(20, 15), "2026-01-20T00:00:00.000Z"), true);
 });
