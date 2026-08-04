@@ -29,26 +29,32 @@ test("printDoneSize: pod 14 px se tlačítko nekreslí", () => {
 
 test("splitChipFits: hodinový blok (52 px) s pruhem Hotovo chip neunese", () => {
   // Přesně případ, kdy tlačítko Hotovo propadlo pod ořez karty (regrese 3. 8. 2026).
-  assert.equal(splitChipFits(52, printDoneSize(52), false), false);
+  assert.equal(splitChipFits(52, printDoneSize(52), 0), false);
 });
 
 test("splitChipFits: dvouhodinový blok (104 px) chip i tlačítko unese", () => {
-  assert.equal(splitChipFits(104, printDoneSize(104), false), true);
+  assert.equal(splitChipFits(104, printDoneSize(104), 0), true);
 });
 
 test("splitChipFits: hranice pásma s pruhem 24 px", () => {
   // rozpočet: řádek 1 (23) + pruh (24+7) + chip (25) = 79
-  assert.equal(splitChipFits(79, printDoneSize(79), false), true);
-  assert.equal(splitChipFits(78, printDoneSize(78), false), false);
+  assert.equal(splitChipFits(79, printDoneSize(79), 0), true);
+  assert.equal(splitChipFits(78, printDoneSize(78), 0), false);
 });
 
-test("splitChipFits: řádek specifikace ubere místo chipu", () => {
-  assert.equal(splitChipFits(95, printDoneSize(95), false), true);
-  assert.equal(splitChipFits(95, printDoneSize(95), true), false);
+test("splitChipFits: pás specifikace ubere místo chipu podle počtu řádků", () => {
+  // rozpočet 95 px: řádek 1 (23) + pruh (24+7) + chip (25) = 79, zbývá 16
+  assert.equal(splitChipFits(95, printDoneSize(95), 0), true);
+  assert.equal(splitChipFits(95, printDoneSize(95), 1), false); // +20 → nevejde se
+  assert.equal(splitChipFits(95, printDoneSize(95), 2), false); // +33 → tím spíš
+  // jednořádkový pás se vejde na vyšší kartě, dvouřádkový už ne
+  // rozpočet 110 px: řádek 1 (23) + pruh (32+7) + chip (25) = 87, zbývá 23
+  assert.equal(splitChipFits(110, printDoneSize(110), 1), true);  // +20 → 107 ≤ 110
+  assert.equal(splitChipFits(110, printDoneSize(110), 2), false); // +33 → 120 > 110
 });
 
 test("splitChipFits: bez pruhu Hotovo (mimo tiskaře) stačí i nízká karta", () => {
-  assert.equal(splitChipFits(48, null, false), true);
+  assert.equal(splitChipFits(48, null, 0), true);
 });
 
 test("isBlockRunningNow: čas uvnitř bloku = běží", () => {

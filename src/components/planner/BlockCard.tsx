@@ -17,6 +17,7 @@ import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/producti
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
 import { Lock, Clock, Hourglass } from "lucide-react";
 import { SplitChip } from "@/components/SplitChip";
+import { SpecBand, SpecChip } from "@/components/planner/SpecBand";
 import { getSplitChipState } from "@/lib/splitHelpers";
 import {
   HoverCard,
@@ -470,7 +471,18 @@ export function BlockCard({
   const showDatesFull    = !isTiskar && MODE_FULL && layoutHeight >= 60 && block.type !== "UDRZBA"; // plný DateBadge řádek (≥60px)
   const showDatesCompact = !isTiskar && MODE_FULL && layoutHeight < 60  && block.type !== "UDRZBA"; // kompaktní chip řádek (48–59px)
   const showDates        = showDatesFull;
-  const showSpec   = layoutHeight >= 80;  // 3. řádek — specifikace
+  // Pás specifikace (SpecBand). Práh snížen z 80 px na celý MODE_FULL (≥48 px) —
+  // při výchozím přiblížení má hodinová zakázka 52 px a plánovač na ní spec
+  // dřív neviděl vůbec. V tiskařském režimu práh ZŮSTÁVÁ na 80 px: karta má
+  // overflow:hidden a pás vykreslený před tlačítkem Hotovo by ho na nízké kartě
+  // vytlačil pod ořez (regrese 3. 8. 2026) — tlačítko má přednost. Tiskaři pod
+  // 80 px zbývá svislý proužek, resp. značka „S" v jednořádkových režimech.
+  const showSpec     = isTiskar ? layoutHeight >= 80 : MODE_FULL;
+  const specTwoLine  = layoutHeight >= 80;   // pod 80 px se vejde jen jeden řádek s elipsou
+  const hasSpecBand  = showSpec && !!block.specifikace;
+  const specRows: 0 | 1 | 2 = hasSpecBand ? (specTwoLine ? 2 : 1) : 0;
+  // Značka „S" místo pásu — jen v jednořádkových režimech, které mají řádek chipů.
+  const hasSpecChip  = !hasSpecBand && !!block.specifikace && (MODE_COMPACT || MODE_TINY || MODE_MICRO_TEXT);
   // Popis za číslem zakázky. Zobrazujeme v celém FULL módu (≥48px), ne až od 66px —
   // jinak bloky v pásmu 48–65px (typicky 2–2,5h při odzoomu) neukazovaly popis,
   // zatímco menší COMPACT/TINY bloky ho ukazují. Číslo zakázky výšku řádku určuje,
@@ -736,6 +748,9 @@ export function BlockCard({
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
+              {/* Na nízké kartě se pás specifikace nevejde — zbývá značka na začátku
+                  řádku (flexShrink 0, takže ji popis nikdy nevytlačí) a text v tooltipu. */}
+              {hasSpecChip && <SpecChip text={block.specifikace!} />}
               {!isTiskar && <>
                 <span style={{
                     ...dateChip(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
@@ -777,18 +792,11 @@ export function BlockCard({
                 {isPrintDone && <span style={{ marginLeft: 4, fontSize: 9, color: "#22c55e", fontWeight: 700 }}>✓</span>}
                 {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={11} strokeWidth={2.5} color="#f59e0b" /></span>}
               </span>
-              {(block.description || block.specifikace) && (
+              {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
-                  {block.description && (
-                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
-                      {block.description}
-                    </span>
-                  )}
-                  {block.specifikace && (
-                    <span style={{ fontSize: 9, fontStyle: "italic", color: "var(--text-muted)", opacity: 0.72, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 2, minWidth: 0 }}>
-                      {block.description ? "· " : ""}{block.specifikace}
-                    </span>
-                  )}
+                  <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                    {block.description}
+                  </span>
                 </span>
               )}
             </div>
@@ -897,18 +905,11 @@ export function BlockCard({
               <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={8} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
               </span>
-              {(block.description || block.specifikace) && (
+              {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
-                  {block.description && (
-                    <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
-                      {block.description}
-                    </span>
-                  )}
-                  {block.specifikace && (
-                    <span style={{ fontSize: 9, fontStyle: "italic", color: "var(--text-muted)", opacity: 0.72, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 2, minWidth: 0 }}>
-                      {block.description ? "· " : ""}{block.specifikace}
-                    </span>
-                  )}
+                  <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                    {block.description}
+                  </span>
                 </span>
               )}
             </div>
@@ -1089,18 +1090,8 @@ export function BlockCard({
         );
       })()}
 
-      {/* ── Řádek 3: Specifikace (celý text) ── */}
-      {showSpec && block.specifikace && (
-        <div style={{ padding: "0 9px 3px", flexShrink: 0, position: "relative", zIndex: 2 }}>
-          <span style={{
-            fontSize: 10, color: s.textSub, opacity: 0.82, lineHeight: 1.3,
-            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}>
-            {block.specifikace}
-          </span>
-        </div>
-      )}
+      {/* ── Řádek 3: Specifikace — zvýrazněný amber pás ── */}
+      {hasSpecBand && <SpecBand text={block.specifikace!} twoLine={specTwoLine} />}
 
 
       {/* Hotovo tlačítko pro TISKAR (FULL mode) — pruh přes celou šířku karty.
@@ -1121,7 +1112,7 @@ export function BlockCard({
 
       {/* SplitChip — jen pro TISKAR, MODE_FULL. Zobrazí se jen když na něj po
           tlačítku Hotovo zbylo místo, ať v kartě nevisí useknutý proužek. */}
-      {MODE_FULL && splitPartner && splitChipFits(layoutHeight, printDone, showSpec && !!block.specifikace) && (() => {
+      {MODE_FULL && splitPartner && splitChipFits(layoutHeight, printDone, specRows) && (() => {
         const { state, time } = getSplitChipState(splitPartner);
         return (
           <SplitChip
@@ -1263,8 +1254,10 @@ export function BlockCard({
         document.body,
       )}
 
-      {/* ── Indikátor specifikace — svislý proužek vpravo ── */}
-      {block.specifikace && block.specifikace.length > 0 && !showSpec && (
+      {/* ── Indikátor specifikace — svislý proužek vpravo. Poslední záchrana pro
+             karty, kde není ani pás, ani řádek chipů se značkou „S": micro tečky
+             pod 14 px a tiskařský režim pod 80 px (tam má přednost Hotovo). ── */}
+      {block.specifikace && !hasSpecBand && !hasSpecChip && (
         <div
           title="Obsahuje specifikaci"
           style={{

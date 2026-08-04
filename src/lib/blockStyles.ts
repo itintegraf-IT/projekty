@@ -105,6 +105,13 @@ export function getBlockStyleKey(type: string, variant?: string | null): string 
   return type;
 }
 
+/**
+ * Zvýraznění specifikace na kartě bloku (SpecBand/SpecChip). Amber je v plánu
+ * už zavedená barva „něco si přečti" — tiskařské poznámky i zámkové pásy —
+ * takže zvýrazněná specifikace nezavádí do plánu novou barvu.
+ */
+export const SPEC_HIGHLIGHT = { bg: "#fbbf24", text: "#221703" } as const;
+
 /** Průhledný odstín barvy — sdílený helper pro chipy/overlaye. */
 export function tint(color: string, percent: number): string {
   return `color-mix(in oklab, ${color} ${percent}%, transparent)`;

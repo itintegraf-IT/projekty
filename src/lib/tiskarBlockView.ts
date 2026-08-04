@@ -32,8 +32,10 @@ export function printDoneSize(layoutHeight: number): PrintDoneSize | null {
 
 /** Řádek 1 karty: paddingTop 5 + řádek 12 px/1.2 + paddingBottom 3. */
 const HEADER_ROW_PX = 23;
-/** Řádek specifikace: až 2 řádky 10 px/1.3 + paddingBottom 3. */
-const SPEC_ROW_PX = 29;
+/** Pás specifikace (SpecBand) na jeden řádek: 13 px textu + 4 padding + 3 pod. */
+const SPEC_ROW_1_PX = 20;
+/** Pás specifikace přes dva řádky: 26 px textu + 4 padding + 3 pod. */
+const SPEC_ROW_2_PX = 33;
 /** SplitChip včetně marginTop 6, borderu a paddingu. */
 const SPLIT_CHIP_PX = 25;
 /** Odsazení kolem pruhu Hotovo: paddingTop 2 + paddingBottom 5. */
@@ -49,10 +51,11 @@ const PRINT_BAR_PADDING_PX = 7;
 export function splitChipFits(
   layoutHeight: number,
   printDone: PrintDoneSize | null,
-  hasSpecRow: boolean
+  specRows: 0 | 1 | 2
 ): boolean {
   const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
-  const used = HEADER_ROW_PX + (hasSpecRow ? SPEC_ROW_PX : 0) + barReserve;
+  const specReserve = specRows === 2 ? SPEC_ROW_2_PX : specRows === 1 ? SPEC_ROW_1_PX : 0;
+  const used = HEADER_ROW_PX + specReserve + barReserve;
   return layoutHeight - used >= SPLIT_CHIP_PX;
 }
 
