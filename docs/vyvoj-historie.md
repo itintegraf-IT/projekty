@@ -456,6 +456,68 @@ teleport až +5,3 dne, nová drží start a pauzne; Σ tisku přesně 27,0 h).
   beze změny — kopie záměrně NEdědí split skupinu.
 
 
+## Připomínky plánovače (4. 8. 2026)
+
+Sedm bodů z druhé série připomínek Lukáše Lukeše. Spec:
+`docs/superpowers/specs/2026-08-04-pripominky-planovace-design.md`, plán
+`docs/superpowers/plans/2026-08-04-pripominky-planovace.md`. Body „odlišení dnů
+a směn" a „OBÁLKA/VNITŘKY jako jedna volba" odloženy — čekají na osobní
+dovysvětlení od Lukáše.
+
+- **Výchozí délka tisku 1 h** (`useJobBuilder.ts`): `resetBuilderForm` nenulovala
+  `durationHours`, takže každý nový záznam zdědil délku předchozího. Konstanta
+  `DEFAULT_DURATION_HOURS` (`plannerTypes.ts`); sjednocen i fallback
+  v `reservationToQueueItem` (2 h → 1 h).
+- **Překlopení rezervace → varianta Bez technologie**: popup posílal
+  `blockVariant` ze stavu, který je u rezervace vždy STANDARD
+  (`normalizeBlockVariant`). Nově `RESERVATION_FLIP_VARIANT` v `blockVariants.ts`;
+  obě potvrzovací cesty popupu sjednoceny do `confirmFlipToZakazka`.
+- **Termínová kolize od 14:00** (`src/lib/deadlineState.ts` — nový, přesun
+  z `BlockCard`): logika porovnávala civilní datumové stringy, takže hranicí byla
+  půlnoc. Termín je nově okamžik `pragueToUTC(due, DEADLINE_HOUR = 14, 0)`
+  (DST-safe). Posunuly se všechny tři prahy: `earlyStart` podle skutečného
+  timestampu startu tisku (nově se označí i zakázka startující v den termínu
+  ráno), `warning` do 14:00 dne termínu, `danger` od 14:00. Stejný okamžik
+  používá i `isPastExpeditionDeadline` pro badge „PO DEADLINE".
+- **Zvýrazněná specifikace** (`src/components/planner/SpecBand.tsx` — nový):
+  amber pás s tmavým textem místo textu v barvě popisu, práh snížen z 80 px na
+  celý MODE_FULL. Tři podoby podle výšky: ≥ 80 px dva řádky, 48–79 px jeden
+  řádek s elipsou, 14–47 px značka „S" v řádku chipů, pod 14 px dosavadní svislý
+  proužek. V tiskařském režimu práh zůstává na 80 px — pás se kreslí před
+  tlačítkem Hotovo a na nízké kartě by ho vytlačil pod ořez (regrese 3. 8. 2026).
+  `splitChipFits` proto dostal místo `hasSpecRow: boolean` parametr
+  `specRows: 0 | 1 | 2` (pás má jiný výškový rozpočet než dosavadní text).
+- **Výrobní štítky u rezervací**: pipeline je zahazovala na třech místech —
+  `PlanningForm` je neměl, `reservationToQueueItem` je natvrdo nuloval a builder
+  je kreslil jen pro ZAKAZKA. Podmínky rozšířeny na `type !== "UDRZBA"` (parita
+  s `BlockEdit`); v `planningPayload` se archy/série ukládají stejným tvarem jako
+  na `Block` (JSON string).
+- **Překlopení celé rezervace** (`src/lib/reservationSiblings.ts` — nový):
+  bloky téže rezervace **nesdílí `reservationId`** — kopie ho záměrně neposílá
+  (`blockPayload.ts`), split tail nekopíruje (`split/route.ts`) a druhý drop téže
+  rezervace server odmítne 409. Jediné pojítko je `orderNumber` s vynuceným kódem
+  rezervace, proto `findReservationSiblings` matchuje `orderNumber` NEBO
+  `reservationId`, vždy s filtrem `type === "REZERVACE"` (Job Builder formát čísla
+  nevaliduje). Potvrzuje se `ConfirmDialog`em; anchor dostane plný payload
+  z formuláře, sourozenci jen `orderNumber`/`type`/`blockVariant` — jinak by se
+  jim přepsal vlastní popis, termíny a štítky. Sourozenec už překlopený serverovou
+  propagací (`SPLIT_SHARED_FIELDS`) se přeskočí.
+- **Undo řetězově odsunutých bloků**: tažení myší je ukládalo správně
+  (`handleBlockUpdate` počítá `shiftedOld` z `blocksRef`); díry byly ve vkládání,
+  dropu z fronty a hromadném uložení. `buildCreateCommand` rozšířen o
+  `shiftedBefore`/`shiftedAfter` — **na pořadí operací záleží**: undo maže
+  vytvořený blok PŘED návratem sousedů, redo naopak sousedy nejdřív odsune a
+  teprve pak POSTne (POST má overlap guard). `snapshotShiftedFromResponse` musí
+  běžet PŘED `handleBlockCreate`, protože staré pozice existují jen v `blocksRef`
+  — server je v odpovědi nevrací. `handleSaveAll` zapisuje historii vůbec poprvé,
+  se snapshotem všech bloků před smyčkou (PUT jednoho může propagovat na
+  sourozence). Nový builder `buildMultiEditCommand` dělá z N bloků jeden krok
+  historie; záměrně neposílá `expectedUpdatedAt` (serverová propagace do split
+  sourozenců by druhý PUT shodila na 409), souběh hlídá guard nad živým stavem
+  provedený celý před prvním zápisem.
+- **Split a reflow undo nadále nemají** (`TimelineGrid.tsx`, `PlannerPage`
+  reflow handlery) — vědomě mimo rozsah, nejcitlivější serverové cesty.
+
 ## Copy/Paste flow
 
 ### Copy/Paste flow (aktualizováno 2. 7. 2026 — etapa 4 tiskových hodin)
