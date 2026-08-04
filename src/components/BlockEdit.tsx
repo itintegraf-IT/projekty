@@ -9,7 +9,7 @@ import { Switch }    from "@/components/ui/switch";
 import { Lock } from "lucide-react";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { type Block, type CompanyDay } from "@/app/_components/TimelineGrid";
-import { BLOCK_VARIANTS, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
+import { BLOCK_VARIANTS, RESERVATION_FLIP_VARIANT, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
 import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
@@ -618,6 +618,22 @@ export function BlockEdit({
         ? { printMinutes: Math.round(durationHours * 60) }
         : { endTime: new Date(new Date(block.startTime).getTime() + durationHours * 3600000).toISOString() }),
     };
+  }
+
+  /**
+   * Překlopení rezervace na zakázku — jediné místo, kde se skládá payload flipu.
+   * Varianta je natvrdo RESERVATION_FLIP_VARIANT: rezervace variantu nenese
+   * (normalizeBlockVariant jí vrací STANDARD), takže hodnota ze stavu by z každé
+   * překlopené zakázky udělala „Klasickou" (připomínka plánovače, 8/2026).
+   */
+  function confirmFlipToZakazka(num: string) {
+    setShowOrderNumberPrompt(false);
+    setPromptOrderNumber("");
+    const payload = buildPayload();
+    payload.orderNumber = num;
+    payload.type = "ZAKAZKA";
+    payload.blockVariant = RESERVATION_FLIP_VARIANT;
+    doSave(payload);
   }
 
   async function doSave(payload: Record<string, unknown>) {
@@ -1305,14 +1321,7 @@ export function BlockEdit({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && promptOrderNumber.trim()) {
                   e.stopPropagation();
-                  const num = promptOrderNumber.trim();
-                  setShowOrderNumberPrompt(false);
-                  setPromptOrderNumber("");
-                  const payload = buildPayload();
-                  payload.orderNumber = num;
-                  payload.type = "ZAKAZKA";
-                  payload.blockVariant = blockVariant;
-                  doSave(payload);
+                  confirmFlipToZakazka(promptOrderNumber.trim());
                 }
                 if (e.key === "Escape") {
                   setShowOrderNumberPrompt(false);
@@ -1326,16 +1335,7 @@ export function BlockEdit({
               <button
                 type="button"
                 disabled={!promptOrderNumber.trim()}
-                onClick={() => {
-                  const num = promptOrderNumber.trim();
-                  setShowOrderNumberPrompt(false);
-                  setPromptOrderNumber("");
-                  const payload = buildPayload();
-                  payload.orderNumber = num;
-                  payload.type = "ZAKAZKA";
-                  payload.blockVariant = blockVariant;
-                  doSave(payload);
-                }}
+                onClick={() => confirmFlipToZakazka(promptOrderNumber.trim())}
                 style={{ flex: 1, padding: "8px 12px", borderRadius: 8, border: "none", background: promptOrderNumber.trim() ? "#10b981" : "var(--surface-2)", color: promptOrderNumber.trim() ? "#fff" : "var(--text-muted)", fontWeight: 600, fontSize: 12, cursor: promptOrderNumber.trim() ? "pointer" : "not-allowed" }}
               >
                 Potvrdit

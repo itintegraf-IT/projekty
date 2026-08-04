@@ -8,6 +8,14 @@ export const VARIANT_CONFIG: Record<BlockVariant, { label: string; color: string
   POZASTAVENO:      { label: "Pozastaveno",       color: "#d00000" },
 };
 
+/**
+ * Varianta, kterou dostane zakázka vzniklá překlopením rezervace. Rezervace nemá
+ * variantu (normalizeBlockVariant vrací pro ne-ZAKAZKA vždy STANDARD), takže bez
+ * tohoto výchozího nastavení skončila každá překlopená zakázka jako „Klasická"
+ * (připomínka plánovače, 8/2026).
+ */
+export const RESERVATION_FLIP_VARIANT: BlockVariant = "BEZ_TECHNOLOGIE";
+
 export function normalizeBlockVariant(
   variant: string | null | undefined,
   type: string

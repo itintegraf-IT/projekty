@@ -18,7 +18,7 @@ import {
   type JobPreset,
   type JobPresetDraftValues,
 } from "@/lib/jobPresets";
-import { type CodebookOption } from "@/lib/plannerTypes";
+import { DEFAULT_DURATION_HOURS, type CodebookOption } from "@/lib/plannerTypes";
 import type { Toast } from "@/components/ToastContainer";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ export function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     serie: [],
     jobPresetId: typeof p.jobPresetId === "number" ? p.jobPresetId : typeof p.jobPresetId === "string" ? Number(p.jobPresetId) || null : null,
     jobPresetLabel: typeof p.jobPresetLabel === "string" ? p.jobPresetLabel : null,
-    durationHours: typeof p.durationHours === "number" ? p.durationHours : 2,
+    durationHours: typeof p.durationHours === "number" ? p.durationHours : DEFAULT_DURATION_HOURS,
     description: typeof p.description === "string" ? p.description : r.companyName,
     dataStatusId: null,
     dataStatusLabel: null,
@@ -164,7 +164,7 @@ export function useJobBuilder({
   const [orderNumber, setOrderNumber]     = useState("");
   const [type, setType]                   = useState("ZAKAZKA");
   const [blockVariant, setBlockVariant]   = useState<BlockVariant>("STANDARD");
-  const [durationHours, setDurationHours] = useState(1);
+  const [durationHours, setDurationHours] = useState(DEFAULT_DURATION_HOURS);
   const [description, setDescription]     = useState("");
   const [bDeadlineExpedice, setBDeadlineExpedice] = useState("");
   const [bDataStatusId, setBDataStatusId]         = useState<string>("");
@@ -362,6 +362,9 @@ export function useJobBuilder({
     setBJobPresetId(null);
     setBJobPresetLabel("");
     setBlockVariant("STANDARD");
+    // Délka se resetuje spolu se zbytkem formuláře — bez toho každý další záznam
+    // zdědil délku naposledy přidaného (připomínka plánovače, 8/2026).
+    setDurationHours(DEFAULT_DURATION_HOURS);
   }
 
   function handleAddToQueue() {

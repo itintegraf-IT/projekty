@@ -38,6 +38,14 @@ export function getJobPresetTone(preset: Pick<JobPreset, "name">, index: number)
 }
 
 // ─── Duration options (0:30 … 40:00 v 30minutových krocích) ──────────────────
+
+/**
+ * Výchozí délka tisku nového záznamu (hodiny). Platí pro zakázky i rezervace
+ * zakládané builderem — po odeslání se formulář vrací sem, aby další záznam
+ * nedědil délku předchozího (připomínka plánovače, 8/2026).
+ */
+export const DEFAULT_DURATION_HOURS = 1;
+
 export const DURATION_OPTIONS = Array.from({ length: 80 }, (_, i) => {
   const totalMinutes = (i + 1) * 30;
   const h = Math.floor(totalMinutes / 60);

@@ -12,6 +12,7 @@ import {
   normalizeCivilDateInput,
   utcToPragueDateStr,
 } from "@/lib/dateUtils";
+import { deadlineState } from "@/lib/deadlineState";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 import { BLOCK_VARIANTS, VARIANT_CONFIG, type BlockVariant } from "@/lib/blockVariants";
@@ -57,21 +58,6 @@ function fmtDateShort(s: string | null | undefined): string {
   const normalized = normalizeCivilDateInput(s);
   if (!normalized) return "–";
   return formatPragueDateShort(civilDateToUTCMidnight(normalized));
-}
-
-function deadlineState(requiredDate: string | null | undefined, ok: boolean, now: Date, blockStartTime?: string | Date): "none" | "ok" | "warning" | "danger" | "earlyStart" {
-  const dueDateStr = normalizeCivilDateInput(requiredDate);
-  if (!dueDateStr) return "none";
-  if (ok) return "ok";
-  const todayDateStr = utcToPragueDateStr(now);
-  // Blok startuje dříve než dorazí materiál/data
-  if (blockStartTime) {
-    const start = new Date(blockStartTime);
-    if (!isNaN(start.getTime()) && utcToPragueDateStr(start) < dueDateStr) return "earlyStart";
-  }
-  if (todayDateStr === dueDateStr) return "warning";
-  if (todayDateStr > dueDateStr) return "danger";
-  return "none";
 }
 
 const FIELD_ACCENT = {
