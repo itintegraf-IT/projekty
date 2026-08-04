@@ -585,6 +585,14 @@ export function BlockDetail({
                   {log.action === "AUTO_REFLOW" && log.oldValue && log.newValue && (
                     <span style={{ color: "#f59e0b" }}> · ⟳ přepočet dle kalendáře: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span></span>
                   )}
+                  {(log.action === "UNDO" || log.action === "REDO") && (
+                    <span style={{ color: "var(--text-muted)" }}>
+                      {" "}· {log.action === "UNDO" ? "↶ vráceno zpět" : "↷ znovu provedeno"}
+                      {log.oldValue && log.newValue && (
+                        <span style={{ color: "var(--text)" }}>: {fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span>
+                      )}
+                    </span>
+                  )}
                   {log.action === "NOTE_CREATE" && log.newValue && (
                     <span> · <span style={{ color: "#f59e0b" }}>📝 Přidána poznámka tiskaře:</span> <span style={{ color: "var(--text)" }}>{log.newValue}</span></span>
                   )}

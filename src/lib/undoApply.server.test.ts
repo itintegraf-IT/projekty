@@ -133,7 +133,7 @@ test("applyUndoOps: upsert zapíše off-grid start doslova (opravený incident 4
   await applyUndoOps(tx, [{
     kind: "upsert", id: 1,
     fields: { startTime: "2026-09-02T14:45:00.000Z", endTime: "2026-09-02T16:45:00.000Z", machine: "XL_105" },
-  }], actor, "Přesun bloku", "undo");
+  }], actor, "undo");
   assert.equal(updateMock.mock.callCount(), 1);
   // store drží Date (toPrismaData konvertuje ISO string před zápisem — stejně jako
   // zbytek repa, viz batch/route.ts a [id]/route.ts), proto porovnání přes toISOString().
@@ -145,7 +145,7 @@ test("applyUndoOps: upsert zachová endTime přes noční pauzu (žádný přepo
   await applyUndoOps(tx, [{
     kind: "upsert", id: 1,
     fields: { startTime: "2026-09-02T18:00:00.000Z", endTime: "2026-09-03T06:00:00.000Z", printMinutes: 240, machine: "XL_105" },
-  }], actor, "Přesun bloku", "undo");
+  }], actor, "undo");
   assert.equal(store.get(1)!.endTime.toISOString(), "2026-09-03T06:00:00.000Z", "endTime se NEsmí dopočítat z printMinutes");
 });
 
@@ -155,7 +155,7 @@ test("applyUndoOps: stale expectedUpdatedAt → CONFLICT a ŽÁDNÝ zápis", asy
     () => applyUndoOps(tx, [
       { kind: "upsert", id: 1, expectedUpdatedAt: "2026-08-01T10:00:00.000Z", fields: { machine: "XL_106" } },
       { kind: "upsert", id: 2, expectedUpdatedAt: "1999-01-01T00:00:00.000Z", fields: { machine: "XL_106" } },
-    ], actor, "Přesun bloku", "undo"),
+    ], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "CONFLICT",
   );
   assert.equal(updateMock.mock.callCount(), 0, "zámek se kontroluje PŘED prvním zápisem");
@@ -165,15 +165,15 @@ test("applyUndoOps: stale expectedUpdatedAt → CONFLICT a ŽÁDNÝ zápis", asy
 
 test("applyUndoOps: remove neexistujícího bloku je úspěch (idempotence)", async () => {
   const { tx, deleteMock } = mkTx([]);
-  const res = await applyUndoOps(tx, [{ kind: "remove", id: 99 }], actor, "Vložení bloku", "undo");
-  assert.deepEqual(res.removedIds, []);
+  const res = await applyUndoOps(tx, [{ kind: "remove", id: 99 }], actor, "undo");
+  assert.deepEqual(res.removed, []);
   assert.equal(deleteMock.mock.callCount(), 0, "chybějící řádek se nemaže, jen se přeskočí");
 });
 
 test("applyUndoOps: remove bloku s potvrzeným tiskem → CONFLICT", async () => {
   const { tx, deleteMock } = mkTx([row({ printCompletedAt: T("2026-09-01T12:00:00.000Z") })]);
   await assert.rejects(
-    () => applyUndoOps(tx, [{ kind: "remove", id: 1 }], actor, "Vložení bloku", "undo"),
+    () => applyUndoOps(tx, [{ kind: "remove", id: 1 }], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "CONFLICT",
   );
   assert.equal(deleteMock.mock.callCount(), 0);
@@ -184,7 +184,7 @@ test("applyUndoOps: upsert chybějícího bloku ho vytvoří s PŮVODNÍM id", a
   const res = await applyUndoOps(tx, [{
     kind: "upsert", id: 738,
     fields: { orderNumber: "17300", machine: "XL_105", startTime: "2026-09-02T14:00:00.000Z", endTime: "2026-09-02T16:00:00.000Z" },
-  }], actor, "Smazání bloku", "undo");
+  }], actor, "undo");
   assert.deepEqual(res.createdIds, [738]);
   assert.equal((createMock.mock.calls[0].arguments[0] as { data: { id: number } }).data.id, 738);
   assert.ok(store.has(738));
@@ -193,7 +193,7 @@ test("applyUndoOps: upsert chybějícího bloku ho vytvoří s PŮVODNÍM id", a
 test("applyUndoOps: vytvoření bez povinného pole → VALIDATION_ERROR", async () => {
   const { tx, createMock } = mkTx([]);
   await assert.rejects(
-    () => applyUndoOps(tx, [{ kind: "upsert", id: 738, fields: { orderNumber: "17300" } }], actor, "Smazání bloku", "undo"),
+    () => applyUndoOps(tx, [{ kind: "upsert", id: 738, fields: { orderNumber: "17300" } }], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "VALIDATION_ERROR",
   );
   assert.equal(createMock.mock.callCount(), 0);
@@ -203,7 +203,7 @@ test("applyUndoOps: výsledný překryv → OVERLAP (pojistka nemá únikovou ce
   const { tx } = mkTx([row()], { conflicts: [{ id: 2, orderNumber: "17301" }] });
   await assert.rejects(
     () => applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { machine: "XL_105", startTime: "2026-09-02T14:00:00.000Z", endTime: "2026-09-02T16:00:00.000Z" } }],
-      actor, "Přesun bloku", "undo"),
+      actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "OVERLAP",
   );
 });
@@ -213,7 +213,7 @@ test("applyUndoOps: zapíše audit s akcí UNDO a spanem start–end", async () 
   await applyUndoOps(tx, [{
     kind: "upsert", id: 1,
     fields: { machine: "XL_105", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" },
-  }], actor, "Přesun bloku", "undo");
+  }], actor, "undo");
   const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
   assert.equal(rows[0].action, "UNDO");
   assert.equal(rows[0].userId, 42);
@@ -231,7 +231,7 @@ test("applyUndoOps: dávka přes DVA stroje — kontrola stroje B nesmí dostat 
   await applyUndoOps(tx, [
     { kind: "upsert", id: 1, fields: { machine: "XL_105", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" } },
     { kind: "upsert", id: 2, fields: { machine: "XL_106", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" } },
-  ], actor, "Přesun dvou bloků", "undo");
+  ], actor, "undo");
 
   // Volání findMany PO tom prvním (index 0 = počáteční načtení existujících řádků) patří
   // finální pojistce — každé smí obsahovat jen id bloku, který na daný stroj skutečně patří.
@@ -251,7 +251,7 @@ test("applyUndoOps: vytvoření s obráceným intervalem (end < start) → VALID
     () => applyUndoOps(tx, [{
       kind: "upsert", id: 740,
       fields: { orderNumber: "17301", machine: "XL_105", startTime: "2026-09-02T16:00:00.000Z", endTime: "2026-09-02T14:00:00.000Z" },
-    }], actor, "Obnova bloku", "undo"),
+    }], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "VALIDATION_ERROR",
   );
   assert.equal(createMock.mock.callCount(), 0);
@@ -262,7 +262,7 @@ test("applyUndoOps: update mění jen startTime, posune ho za DB endTime → VAL
   // nezmiňuje vůbec (musí se dopočítat z DB, ne mlčky projít).
   const { tx, updateMock } = mkTx([row()]);
   await assert.rejects(
-    () => applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { startTime: "2026-09-02T17:00:00.000Z" } }], actor, "Přesun bloku", "undo"),
+    () => applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { startTime: "2026-09-02T17:00:00.000Z" } }], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "VALIDATION_ERROR",
   );
   assert.equal(updateMock.mock.callCount(), 0);
@@ -272,7 +272,7 @@ test("applyUndoOps: update mění jen endTime, posune ho před DB startTime → 
   // row() má startTime 2026-09-02T14:00 — op posílá jen endTime 13:00.
   const { tx, updateMock } = mkTx([row()]);
   await assert.rejects(
-    () => applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { endTime: "2026-09-02T13:00:00.000Z" } }], actor, "Přesun bloku", "undo"),
+    () => applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { endTime: "2026-09-02T13:00:00.000Z" } }], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "VALIDATION_ERROR",
   );
   assert.equal(updateMock.mock.callCount(), 0);
@@ -284,7 +284,7 @@ test("applyUndoOps: neparsovatelné datum ('zítra') → VALIDATION_ERROR, ne Ra
     () => applyUndoOps(tx, [{
       kind: "upsert", id: 741,
       fields: { orderNumber: "17302", machine: "XL_105", startTime: "zítra", endTime: "2026-09-02T14:00:00.000Z" },
-    }], actor, "Obnova bloku", "undo"),
+    }], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "VALIDATION_ERROR",
   );
   assert.equal(createMock.mock.callCount(), 0);
@@ -293,7 +293,7 @@ test("applyUndoOps: neparsovatelné datum ('zítra') → VALIDATION_ERROR, ne Ra
 test("applyUndoOps: update s startTime: null → VALIDATION_ERROR (nesmí se tiše zapsat jako epoch 1970)", async () => {
   const { tx, updateMock, store } = mkTx([row()]);
   await assert.rejects(
-    () => applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { startTime: null } }], actor, "Přesun bloku", "undo"),
+    () => applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { startTime: null } }], actor, "undo"),
     (e: unknown) => isAppError(e) && e.code === "VALIDATION_ERROR",
   );
   assert.equal(updateMock.mock.callCount(), 0);
@@ -302,7 +302,7 @@ test("applyUndoOps: update s startTime: null → VALIDATION_ERROR (nesmí se ti�
 
 test("applyUndoOps: zamykající SELECT ... FOR UPDATE proběhne PŘED findMany (I1)", async () => {
   const { tx, callOrder, queryRawMock } = mkTx([row()]);
-  await applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { machine: "XL_105" } }], actor, "Přesun bloku", "undo");
+  await applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { machine: "XL_105" } }], actor, "undo");
 
   const firstQueryRawIdx = callOrder.indexOf("queryRaw");
   const firstFindManyIdx = callOrder.indexOf("findMany");
@@ -324,8 +324,8 @@ test("applyUndoOps: zamykající SELECT ... FOR UPDATE proběhne PŘED findMany 
 
 test("applyUndoOps: prázdná dávka ops vrátí prázdný výsledek bez volání DB (I1 guard pro Prisma.join)", async () => {
   const { tx, findManyMock, queryRawMock } = mkTx([]);
-  const res = await applyUndoOps(tx, [], actor, "Prázdná dávka", "undo");
-  assert.deepEqual(res, { updatedIds: [], createdIds: [], removedIds: [] });
+  const res = await applyUndoOps(tx, [], actor, "undo");
+  assert.deepEqual(res, { updatedIds: [], createdIds: [], removed: [] });
   assert.equal(findManyMock.mock.callCount(), 0);
   assert.equal(queryRawMock.mock.callCount(), 0);
 });
@@ -337,7 +337,7 @@ test("applyUndoOps: změna stroje — finální pojistka kontroluje CÍLOVÝ str
   await applyUndoOps(tx, [{
     kind: "upsert", id: 1,
     fields: { machine: "XL_106", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" },
-  }], actor, "Přesun bloku", "undo");
+  }], actor, "undo");
 
   // Overlap-check dotaz z overlapCheck.ts má 5 argumentů (strings + machine + id +
   // endTime + startTime); zamykající dotaz z kroku výše má jen 2 — filtr je odliší.
@@ -350,7 +350,7 @@ test("applyUndoOps: změna stroje — finální pojistka kontroluje CÍLOVÝ str
 
 test("applyUndoOps: remove zapíše CELÝ blok jako JSON do oldValue (I3 — obnova po redu bez dalšího undo kroku)", async () => {
   const { tx, auditMock } = mkTx([row({ id: 5, orderNumber: "99001", machine: "XL_106" })]);
-  await applyUndoOps(tx, [{ kind: "remove", id: 5 }], actor, "Smazání bloku", "undo");
+  const res = await applyUndoOps(tx, [{ kind: "remove", id: 5 }], actor, "undo");
 
   const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
   assert.equal(rows[0].field, "delete");
@@ -359,6 +359,9 @@ test("applyUndoOps: remove zapíše CELÝ blok jako JSON do oldValue (I3 — obn
   assert.equal(snapshot.id, 5);
   assert.equal(snapshot.orderNumber, "99001");
   assert.equal(snapshot.machine, "XL_106");
+  // `removed` musí nést i machine ze smazaného bloku (Task 4 endpoint z něj skládá
+  // block:deleted SSE payload — TISKAR filtr v events/route.ts je bez něj fail-closed).
+  assert.deepEqual(res.removed, [{ id: 5, machine: "XL_106" }]);
 });
 
 test("DATE_FIELDS: pokrývá přesně očekávanou množinu DateTime sloupců (M6 tripwire)", () => {

@@ -74,7 +74,13 @@ export function sanitizeUndoOps(raw: unknown): UndoOp[] {
 type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
 
 export type UndoActor = { id: number; username: string };
-export type UndoApplyResult = { updatedIds: number[]; createdIds: number[]; removedIds: number[] };
+/**
+ * `removed` nese i `machine` (ne jen `removedIds: number[]`) — SSE gate pro roli
+ * TISKAR (`shouldSendEvent` v `src/app/api/events/route.ts`) filtruje `block:deleted`
+ * podle `payload.machine === assignedMachine` a je fail-closed: bez stroje by tiskař
+ * o smazání vlastního bloku přes undo/redo nikdy nezjistil (ověřeno grepem, ne odhadem).
+ */
+export type UndoApplyResult = { updatedIds: number[]; createdIds: number[]; removed: Array<{ id: number; machine: string }> };
 
 const span = (start: unknown, end: unknown) =>
   `${new Date(start as string).toISOString()}–${new Date(end as string).toISOString()}`;
@@ -94,17 +100,18 @@ const span = (start: unknown, end: unknown) =>
  * `assertNoOverlapForBlocks`. Rané overlap kontroly se nespouštějí vůbec —
  * mezistavy uvnitř transakce nikdo nevidí, takže na pořadí operací nezáleží.
  *
- * `label` se do funkce nese kvůli budoucímu volajícímu (Task 4 endpoint) —
- * samo tělo funkce ho nepoužívá, protože nic neloguje (viz komentář u returnu).
+ * NEbere `label` (odstraněno v Tasku 4 — bylo to nepoužité, viz `progress.md`
+ * review Tasku 3, M2). Popisek kroku zůstává jen na vstupu HTTP endpointu a
+ * loguje se AŽ PO commitu přes `logger.info` — sem by nesměl vůbec, funkce
+ * běží uvnitř transakce a log napsaný odtud by přežil i rollback.
  */
 export async function applyUndoOps(
   tx: PrismaTransactionClient,
   ops: UndoOp[],
   actor: UndoActor,
-  label: string,
   direction: UndoDirection,
 ): Promise<UndoApplyResult> {
-  if (ops.length === 0) return { updatedIds: [], createdIds: [], removedIds: [] };
+  if (ops.length === 0) return { updatedIds: [], createdIds: [], removed: [] };
   const ids = ops.map((o) => o.id);
 
   // Zamykající čtení MUSÍ být první dotaz v transakci. Obyčejný `findMany` je pod
@@ -197,7 +204,7 @@ export async function applyUndoOps(
     }
   }
 
-  const result: UndoApplyResult = { updatedIds: [], createdIds: [], removedIds: [] };
+  const result: UndoApplyResult = { updatedIds: [], createdIds: [], removed: [] };
   const auditRows: Record<string, unknown>[] = [];
   // Kontrola PER STROJ (vzor `checkByMachine` z batch/route.ts) — assertNoOverlapForBlocks
   // filtruje `machine = ?` uvnitř sebe, takže smí dostat jen id bloků, které na ten stroj
@@ -216,7 +223,7 @@ export async function applyUndoOps(
     const row = byId.get(op.id);
     if (!row) continue; // idempotence: co neexistuje, je už smazané
     await tx.block.delete({ where: { id: op.id } });
-    result.removedIds.push(op.id);
+    result.removed.push({ id: op.id, machine: row.machine });
     auditRows.push({
       blockId: op.id, orderNumber: row.orderNumber, userId: actor.id, username: actor.username,
       action: direction === "undo" ? "UNDO" : "REDO",
