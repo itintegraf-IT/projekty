@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseProductionTags, serializeProductionTags, formatProductionTags, compactTagChip, formatProductionTypeChip } from "./productionTags";
+import { parseProductionTags, serializeProductionTags, formatProductionTags, compactTagChip, formatProductionTypeChip, toggleProductionVariant } from "./productionTags";
 
 test("parseProductionTags: validní JSON pole vrátí pole stringů", () => {
   assert.deepEqual(parseProductionTags('["1. TA","5. TA"]'), ["1. TA", "5. TA"]);
@@ -68,4 +68,65 @@ test("formatProductionTypeChip: jen archy / jen série / nic", () => {
   assert.equal(formatProductionTypeChip('["1. TA"]', null), "1 TA");
   assert.equal(formatProductionTypeChip(null, '["3. série"]'), "3 série");
   assert.equal(formatProductionTypeChip(null, null), "");
+});
+
+// ─── toggleProductionVariant (vzájemná výlučnost OBÁLKA/VNITŘKY) ─────────────
+
+test("toggleProductionVariant: z prázdna zapne kliknutou variantu", () => {
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: false, vnitrky: false }, "obalka"),
+    { obalka: true, vnitrky: false },
+  );
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: false, vnitrky: false }, "vnitrky"),
+    { obalka: false, vnitrky: true },
+  );
+});
+
+test("toggleProductionVariant: klik na druhou variantu první vypne (jádro featury)", () => {
+  // Tohle je ta ušetřená kliknutí — dřív musel plánovač první variantu odškrtnout ručně.
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: true, vnitrky: false }, "vnitrky"),
+    { obalka: false, vnitrky: true },
+  );
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: false, vnitrky: true }, "obalka"),
+    { obalka: true, vnitrky: false },
+  );
+});
+
+test("toggleProductionVariant: klik na jedinou aktivní ji vypne (zpět na žádný štítek)", () => {
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: true, vnitrky: false }, "obalka"),
+    { obalka: false, vnitrky: false },
+  );
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: false, vnitrky: true }, "vnitrky"),
+    { obalka: false, vnitrky: false },
+  );
+});
+
+test("toggleProductionVariant: historický stav s oběma se klikem vyčistí na kliknutou", () => {
+  // Data z doby před výlučností — klik nesmí skončit u druhé varianty osamocené.
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: true, vnitrky: true }, "obalka"),
+    { obalka: true, vnitrky: false },
+  );
+  assert.deepEqual(
+    toggleProductionVariant({ obalka: true, vnitrky: true }, "vnitrky"),
+    { obalka: false, vnitrky: true },
+  );
+});
+
+test("toggleProductionVariant: nikdy nevrátí obě zapnuté", () => {
+  const states = [
+    { obalka: false, vnitrky: false }, { obalka: true, vnitrky: false },
+    { obalka: false, vnitrky: true }, { obalka: true, vnitrky: true },
+  ];
+  for (const s of states) {
+    for (const click of ["obalka", "vnitrky"] as const) {
+      const r = toggleProductionVariant(s, click);
+      assert.ok(!(r.obalka && r.vnitrky), `${JSON.stringify(s)} + ${click} → obě zapnuté`);
+    }
+  }
 });

@@ -69,3 +69,26 @@ export function formatProductionTypeChip(
   if (ta && se) return `${ta} · ${se}`;
   return ta || se;
 }
+
+/**
+ * Přepnutí štítku OBÁLKA/VNITŘKY se vzájemnou výlučností — zakázka je vždy
+ * buď obálka, nebo vnitřky, nikdy obojí (rozhodnutí Vojty 8/2026 na základě
+ * připomínky plánovače: „šlo by to nastavit tak, aby to byla vždy jen jedna
+ * z variant? ušetří mi to dvě kliknutí u každé zakázky").
+ *
+ * Pole v DB zůstávají dva nezávislé booleany (žádná migrace), výlučnost hlídá
+ * jen UI. Stav „obě zaškrtnuté" proto v historických datech existovat může —
+ * klik na jednu z dlaždic ho vyčistí na tu kliknutou místo toho, aby ji vypnul.
+ */
+export function toggleProductionVariant(
+  current: { obalka: boolean; vnitrky: boolean },
+  clicked: "obalka" | "vnitrky",
+): { obalka: boolean; vnitrky: boolean } {
+  const clickedActive = clicked === "obalka" ? current.obalka : current.vnitrky;
+  const otherActive = clicked === "obalka" ? current.vnitrky : current.obalka;
+  // Vypnout jde jen tehdy, když je kliknutá dlaždice jediná aktivní.
+  const next = !clickedActive || otherActive;
+  return clicked === "obalka"
+    ? { obalka: next, vnitrky: false }
+    : { obalka: false, vnitrky: next };
+}
