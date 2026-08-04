@@ -9,9 +9,9 @@
 ```bash
 npm run build        # build (spustit lokálně před pushem — chytí TS chyby dřív než server)
 npm run lint         # vrací warningy, 0 chyb je OK
-# celá test suite (550 testů, node:test + tsx) — glob NEJDE do podsložek,
-# proto se undo testy musí uvést zvlášť (jinak jich 30 tiše nepoběží):
-node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts
+# celá test suite (560 testů, node:test + tsx) — glob NEJDE do podsložek,
+# proto se každá složka s testy musí uvést zvlášť (jinak tiše nepoběží):
+node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/app/_components/*.test.ts
 ```
 
 `--experimental-test-module-mocks` je nutný jen kvůli `scheduleSlotFinder.server.test.ts` (`mock.module`); ostatní ho nepotřebují.
