@@ -448,8 +448,8 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
                     )}
                   </div>
 
-                  {/* ── Výrobní štítky (jen ZAKAZKA, jednorázová zakázka) ── */}
-                  {type === "ZAKAZKA" && bRecurrenceType === "NONE" && (
+                  {/* ── Výrobní štítky (zakázka i rezervace, jednorázový záznam) ── */}
+                  {type !== "UDRZBA" && bRecurrenceType === "NONE" && (
                     <div style={{ paddingTop: 12, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}>
                       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>Výrobní štítky</div>
                       <ProductionTagsRow
@@ -460,7 +460,7 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
                       />
                     </div>
                   )}
-                  {type === "ZAKAZKA" && bRecurrenceType !== "NONE" && (
+                  {type !== "UDRZBA" && bRecurrenceType !== "NONE" && (
                     <div style={{ paddingTop: 12, paddingBottom: 14, borderBottom: "1px solid var(--border)", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
                       Štítky (OBÁLKA/VNITŘKY, archy, série) nastavíš u série po založení — editací bloku.
                     </div>

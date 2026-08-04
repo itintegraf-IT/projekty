@@ -5,6 +5,8 @@ import DatePickerField from "@/app/_components/DatePickerField";
 import { Reservation } from "./RezervacePage";
 import { DURATION_OPTIONS } from "@/lib/plannerTypes";
 import { NativeSelect } from "@/components/NativeSelect";
+import { ProductionTagsRow } from "@/components/planner/ProductionTagsRow";
+import { parseProductionTags, serializeProductionTags } from "@/lib/productionTags";
 
 interface Props {
   reservation: Reservation;
@@ -77,11 +79,23 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
   const [specifikace, setSpecifikace] = useState<string>(
     (existing?.specifikace as string | undefined) ?? ""
   );
+  // Výrobní štítky — v planningPayload uložené stejným tvarem jako na Blocku
+  // (JSON string u archů/série), aby existoval jediný formát napříč pipeline.
+  const [obalka, setObalka] = useState<boolean>(Boolean(existing?.obalka));
+  const [vnitrky, setVnitrky] = useState<boolean>(Boolean(existing?.vnitrky));
+  const [tiskoveArchy, setTiskoveArchy] = useState<string[]>(
+    parseProductionTags(existing?.tiskoveArchy as string | null | undefined)
+  );
+  const [serie, setSerie] = useState<string[]>(
+    parseProductionTags(existing?.serie as string | null | undefined)
+  );
 
   const [dataOpts, setDataOpts] = useState<CodebookOption[]>([]);
   const [materialOpts, setMaterialOpts] = useState<CodebookOption[]>([]);
   const [barvyOpts, setBarvyOpts] = useState<CodebookOption[]>([]);
   const [lakOpts, setLakOpts] = useState<CodebookOption[]>([]);
+  const [tiskoveArchyOpts, setTiskoveArchyOpts] = useState<string[]>([]);
+  const [serieOpts, setSerieOpts] = useState<string[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,6 +112,18 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
       setBarvyOpts(barvy);
       setLakOpts(lak);
     }).catch(console.error);
+  }, []);
+
+  // Číselníky multi-selectů (TA/série) — stejný vzor jako BlockEdit; prázdný
+  // seznam při chybě znamená jen dropdown bez voleb, ne rozbitý formulář.
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/codebook?category=TISKOVY_ARCH").then((r) => r.json()),
+      fetch("/api/codebook?category=SERIE").then((r) => r.json()),
+    ]).then(([ta, se]) => {
+      setTiskoveArchyOpts((ta as Array<{ label: string }>).map((o) => o.label));
+      setSerieOpts((se as Array<{ label: string }>).map((o) => o.label));
+    }).catch(() => { /* prázdný seznam = dropdown ukáže hint */ });
   }, []);
 
   function resolveLabel(opts: CodebookOption[], id: string): string | null {
@@ -134,6 +160,10 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
         lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
         lakStatusLabel: lakStatusId ? resolveLabel(lakOpts, lakStatusId) : null,
         specifikace: specifikace || null,
+        obalka,
+        vnitrky,
+        tiskoveArchy: serializeProductionTags(tiskoveArchy),
+        serie: serializeProductionTags(serie),
       };
       const res = await fetch(`/api/reservations/${reservation.id}`, {
         method: "PATCH",
@@ -326,6 +356,23 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
           <label style={labelStyle}>Termín expedice</label>
           <DatePickerField value={deadlineExpedice} onChange={setDeadlineExpedice} asButton />
         </div>
+      </div>
+
+      {/* ── Výrobní štítky ── */}
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+        <div style={sectionLabel}>Výrobní štítky</div>
+        <ProductionTagsRow
+          obalka={obalka}
+          onObalkaChange={setObalka}
+          vnitrky={vnitrky}
+          onVnitrkyChange={setVnitrky}
+          tiskoveArchy={tiskoveArchy}
+          onTiskoveArchyChange={setTiskoveArchy}
+          tiskoveArchyOpts={tiskoveArchyOpts}
+          serie={serie}
+          onSerieChange={setSerie}
+          serieOpts={serieOpts}
+        />
       </div>
 
       {/* ── Poznámky ── */}

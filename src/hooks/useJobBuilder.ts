@@ -19,6 +19,7 @@ import {
   type JobPresetDraftValues,
 } from "@/lib/jobPresets";
 import { DEFAULT_DURATION_HOURS, type CodebookOption } from "@/lib/plannerTypes";
+import { parseProductionTags } from "@/lib/productionTags";
 import type { Toast } from "@/components/ToastContainer";
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
@@ -99,10 +100,14 @@ export function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     orderNumber: r.code,
     type: "REZERVACE",
     blockVariant: "STANDARD",
-    obalka: false,
-    vnitrky: false,
-    tiskoveArchy: [],
-    serie: [],
+    // Výrobní štítky z planningPayload (PlanningForm je ukládá stejným tvarem
+    // jako Block — archy/série jako JSON string). Do 8/2026 tu byly natvrdo
+    // false/[] a štítky nastavené plánovačem u rezervace se cestou do fronty
+    // tiše ztrácely.
+    obalka: Boolean(p.obalka),
+    vnitrky: Boolean(p.vnitrky),
+    tiskoveArchy: parseProductionTags(typeof p.tiskoveArchy === "string" ? p.tiskoveArchy : null),
+    serie: parseProductionTags(typeof p.serie === "string" ? p.serie : null),
     jobPresetId: typeof p.jobPresetId === "number" ? p.jobPresetId : typeof p.jobPresetId === "string" ? Number(p.jobPresetId) || null : null,
     jobPresetLabel: typeof p.jobPresetLabel === "string" ? p.jobPresetLabel : null,
     durationHours: typeof p.durationHours === "number" ? p.durationHours : DEFAULT_DURATION_HOURS,
@@ -227,10 +232,11 @@ export function useJobBuilder({
     setBJobPresetLabel("");
   }, [bJobPresetId, bJobPresetLabel, jobPresets, type]);
 
-  // Výrobní štítky (obalka/vnitrky/tiskoveArchy/serie) patří jen ZAKAZKA — při přepnutí
-  // typu je vynulovat, ať ve stavu nezůstane stará hodnota z dřívějšího ZAKAZKA výběru.
+  // Výrobní štítky (obalka/vnitrky/tiskoveArchy/serie) dávají smysl u zakázek
+  // i rezervací (parita s BlockEditem, kde je nemá jen údržba) — u UDRZBA je
+  // při přepnutí typu vynulovat, ať ve stavu nezůstane stará hodnota.
   useEffect(() => {
-    if (type === "ZAKAZKA") return;
+    if (type !== "UDRZBA") return;
     setBObalka(false);
     setBVnitrky(false);
     setBTiskoveArchy([]);
@@ -402,10 +408,12 @@ export function useJobBuilder({
         deadlineExpedice: bDeadlineExpedice,
         recurrenceType: bRecurrenceType,
         recurrenceCount: bRecurrenceType !== "NONE" ? bRecurrenceCount : 1,
-        obalka: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bObalka : false,
-        vnitrky: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bVnitrky : false,
-        tiskoveArchy: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bTiskoveArchy : [],
-        serie: type === "ZAKAZKA" && bRecurrenceType === "NONE" ? bSerie : [],
+        // Štítky nese zakázka i rezervace (ne údržba); u série se nastavují až
+        // po založení editací bloku, proto guard na recurrenceType.
+        obalka: type !== "UDRZBA" && bRecurrenceType === "NONE" ? bObalka : false,
+        vnitrky: type !== "UDRZBA" && bRecurrenceType === "NONE" ? bVnitrky : false,
+        tiskoveArchy: type !== "UDRZBA" && bRecurrenceType === "NONE" ? bTiskoveArchy : [],
+        serie: type !== "UDRZBA" && bRecurrenceType === "NONE" ? bSerie : [],
       },
     ]);
     resetBuilderForm();
