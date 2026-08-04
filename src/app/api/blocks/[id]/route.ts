@@ -14,20 +14,9 @@ import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck"
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { truncateUtf8 } from "@/lib/textTruncate";
 
 type RouteContext = { params: Promise<{ id: string }> };
-
-/**
- * Ořízne text tak, aby se vešel do `maxBytes` bajtů v UTF-8. Řez může padnout
- * doprostřed vícebajtového znaku — `TextDecoder` s `fatal: false` ho nahradí
- * U+FFFD, takže výsledek je vždy platný string. Slouží pro sloupce `@db.Text`,
- * jejichž limit je v bajtech, ne ve znacích.
- */
-function truncateUtf8(text: string, maxBytes: number): string {
-  const bytes = new TextEncoder().encode(text);
-  if (bytes.byteLength <= maxBytes) return text;
-  return new TextDecoder("utf-8").decode(bytes.subarray(0, maxBytes));
-}
 
 export async function GET(_: NextRequest, { params }: RouteContext) {
   const session = await getSession();

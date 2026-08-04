@@ -1,8 +1,10 @@
+import { Prisma } from "@prisma/client";
 import { AppError } from "@/lib/errors";
 import { isRestorableField } from "@/lib/undo/restoreFields";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { logger } from "@/lib/logger";
 import { SLOT_MS } from "@/lib/timeSlots";
+import { truncateUtf8 } from "@/lib/textTruncate";
 
 export type UndoOp =
   | { kind: "upsert"; id: number; expectedUpdatedAt?: string; fields: Record<string, unknown> }
@@ -87,9 +89,13 @@ const span = (start: unknown, end: unknown) =>
  * ani `expandPrintTime`, takže mřížkovou bránu nepotřebuje — ta je jen
  * předsazená pojistka před tvrdým throwem uvnitř expanze.
  *
- * Co běží VŽDY: optimistic lock, zákaz smazat vytištěný blok a finální
+ * Co běží VŽDY: optimistic lock (na zamykajícím čtení, viz níže), zákaz smazat
+ * vytištěný blok, kontrola platného a správně seřazeného intervalu a finální
  * `assertNoOverlapForBlocks`. Rané overlap kontroly se nespouštějí vůbec —
  * mezistavy uvnitř transakce nikdo nevidí, takže na pořadí operací nezáleží.
+ *
+ * `label` se do funkce nese kvůli budoucímu volajícímu (Task 4 endpoint) —
+ * samo tělo funkce ho nepoužívá, protože nic neloguje (viz komentář u returnu).
  */
 export async function applyUndoOps(
   tx: PrismaTransactionClient,
@@ -98,11 +104,24 @@ export async function applyUndoOps(
   label: string,
   direction: UndoDirection,
 ): Promise<UndoApplyResult> {
+  if (ops.length === 0) return { updatedIds: [], createdIds: [], removedIds: [] };
   const ids = ops.map((o) => o.id);
-  const existing = await tx.block.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, orderNumber: true, machine: true, startTime: true, endTime: true, updatedAt: true, printCompletedAt: true },
-  });
+
+  // Zamykající čtení MUSÍ být první dotaz v transakci. Obyčejný `findMany` je pod
+  // MySQL REPEATABLE READ jen consistent read (nebere zámky) — mezi ním a
+  // následným update/delete by mohl vklouznout souběžný commit odjinud a
+  // optimistic lock i printCompletedAt guard níž by ho vůbec neviděly (TOCTOU
+  // mezera, kterou měl přesun do transakce zavřít, ale beze zámku nezavírá).
+  // `SELECT ... FOR UPDATE` bere per-row X-zámky — stejný vzor jako
+  // assertNoOverlapForBlocks v overlapCheck.ts. Vybírá záměrně jen `id`: zamyká
+  // celý řádek bez ohledu na to, které sloupce jsou v SELECT listu, a skutečná
+  // data načte hned pod tím normální typovaný `findMany` — raw `SELECT *` by
+  // MySQL BOOLEAN sloupce (locked, dataOk, ...) vrátil jako 0/1 místo true/false
+  // (ověřeno přímo proti dev DB), což by rozbilo JSON snapshot v kroku 4 níž.
+  // Konzistentní read `findMany` hned po zamykajícím čtení uvidí přesně to, co
+  // jsme právě zamkli (žádná jiná transakce se mezitím k těm řádkům nedostane).
+  await tx.$queryRaw`SELECT id FROM Block WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
+  const existing = await tx.block.findMany({ where: { id: { in: ids } } });
   const byId = new Map(existing.map((b) => [b.id, b]));
 
   // ── 1. Optimistic lock — VŠECHNY najednou, PŘED prvním zápisem ───────────
@@ -118,6 +137,12 @@ export async function applyUndoOps(
   }
 
   // ── 2. Business pravidlo: vytištěný blok se nemaže ───────────────────────
+  // Záměrně NEkontrolujeme `locked` — undo/redo smí zámek přebít (maže typicky
+  // blok, který uživatel sám před chvílí vytvořil nebo sám zamkl), parita
+  // s klientským `deleteBlock({ force: true })` (PlannerPage.tsx, undoEffectsRef).
+  // Co undo přebít NESMÍ, je potvrzený tisk — tiskař ho mohl mezitím odklepnout
+  // nezávisle na tom, co plánovač zrovna vrací zpět — proto zůstává jen tahle
+  // jedna kontrola. Není to mezera, je to záměr.
   for (const op of ops) {
     if (op.kind !== "remove") continue;
     const row = byId.get(op.id);
@@ -135,6 +160,40 @@ export async function applyUndoOps(
     const missing = REQUIRED_ON_CREATE.filter((f) => op.fields[f] === undefined || op.fields[f] === null);
     if (missing.length > 0) {
       throw new AppError("VALIDATION_ERROR", `Obnova bloku ${op.id} nemá povinná pole: ${missing.join(", ")}.`);
+    }
+  }
+
+  // ── 3b. Neplatný nebo obrácený interval ───────────────────────────────────
+  // Jediná zápisová cesta v repu, která by bez týhle kontroly zapsala obrácené
+  // nebo nedatovatelné startTime/endTime doslova (parita s POST /api/blocks,
+  // src/app/api/blocks/route.ts:79-84). Takový blok projde VŠEMI kontrolami
+  // překryvu (obrácené hranice se s ničím neprotnou) a je od té chvíle pro
+  // assertNoOverlapForBlocks neviditelný i z druhé strany — na jeho místo by
+  // šlo naplánovat cokoliv jiného, aniž by to kdy spadlo na OVERLAP. Musí běžet
+  // před prvním zápisem.
+  for (const op of ops) {
+    if (op.kind !== "upsert") continue;
+    const row = byId.get(op.id);
+    const hasStart = "startTime" in op.fields;
+    const hasEnd = "endTime" in op.fields;
+    if (!hasStart && !hasEnd) continue; // operace se času vůbec netýká
+
+    // Chybějící pole na VYTVOŘENÍ už zachytil krok 3. Tady zbývá UPDATE, kde
+    // může být zadané jen jedno z dvojice — druhé se bere z DB (aktuální díky
+    // zamykajícímu čtení výše). `null`/chybějící by na update přepsal NOT NULL
+    // sloupec a spadl by na Prisma constraint chybu místo čisté AppError.
+    const startRaw = hasStart ? op.fields.startTime : row?.startTime;
+    const endRaw = hasEnd ? op.fields.endTime : row?.endTime;
+    if (startRaw == null || endRaw == null) {
+      throw new AppError("VALIDATION_ERROR", `Blok ${op.id}: startTime/endTime nesmí být prázdné.`);
+    }
+    const start = startRaw instanceof Date ? startRaw : new Date(startRaw as string);
+    const end = endRaw instanceof Date ? endRaw : new Date(endRaw as string);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+      throw new AppError("VALIDATION_ERROR", `Blok ${op.id}: neplatné datum ve startTime/endTime.`);
+    }
+    if (end.getTime() <= start.getTime()) {
+      throw new AppError("VALIDATION_ERROR", `Blok ${op.id}: endTime musí být striktně po startTime.`);
     }
   }
 
@@ -161,7 +220,12 @@ export async function applyUndoOps(
     auditRows.push({
       blockId: op.id, orderNumber: row.orderNumber, userId: actor.id, username: actor.username,
       action: direction === "undo" ? "UNDO" : "REDO",
-      field: "delete", oldValue: span(row.startTime, row.endTime), newValue: null,
+      // Celý blok jako JSON, stejně jako DELETE endpoint ([id]/route.ts) — jediná
+      // cesta k ruční rekonstrukci bloku, kterého se undo/redo zbaví bez dalšího
+      // undo kroku po ruce (audit DATA-03). Ořez na 60 kB ze stejného důvodu jako
+      // tam: sloupec je @db.Text s limitem 65 535 BAJTŮ, řezat se musí po bajtech
+      // kvůli diakritice (truncateUtf8, ne `.slice()`).
+      field: "delete", oldValue: truncateUtf8(JSON.stringify(row), 60000), newValue: null,
     });
   }
 
@@ -210,12 +274,21 @@ export async function applyUndoOps(
     await assertNoOverlapForBlocks(machine, ids, tx);
   }
 
-  logger.info(`[undo] ${direction} "${label}" — ${result.updatedIds.length} upraveno, ${result.createdIds.length} obnoveno, ${result.removedIds.length} smazáno`);
+  // Logování záměrně NENÍ tady. Funkce běží uvnitř `prisma.$transaction` — log
+  // napsaný tady by přežil i rollback (výjimka odjinud v téže transakci, nebo
+  // pád commitu samotného) a tvářil by se jako proběhlé undo, které se ve
+  // skutečnosti nestalo. Parita se zbytkem `*.server.ts` v repu (reflow.server.ts
+  // apod.) — logování dělá až volající route PO commitu, z vráceného `result`.
   return result;
 }
 
-/** Datumové sloupce přicházejí jako ISO string; Prisma chce Date. */
-const DATE_FIELDS = new Set([
+/**
+ * Datumové sloupce přicházejí jako ISO string; Prisma chce Date.
+ * Exportováno jen kvůli tripwire testu (undoApply.server.test.ts) — nový
+ * DateTime sloupec přidaný do UNDO_RESTORABLE_FIELDS bez odpovídajícího
+ * zápisu sem by poslal ISO string místo Date do Prisma a spadl by na 500.
+ */
+export const DATE_FIELDS = new Set([
   "startTime", "endTime", "deadlineExpedice", "dataRequiredDate",
   "materialRequiredDate", "pantoneRequiredDate", "expeditionPublishedAt",
 ]);
