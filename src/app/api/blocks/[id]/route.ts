@@ -179,6 +179,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       "blockVariant",
       "jobPresetLabel",
       "obalka", "vnitrky", "tiskoveArchy", "serie",
+      // Podstata překlopení rezervace na zakázku (REZERVACE→ZAKAZKA, R123→5000).
+      // Do 8/2026 tu chyběly, takže v historii bloku byla po překlopení vidět
+      // jen změna varianty a dohledat vznik zakázky nešlo.
+      "type", "orderNumber",
     ] as const;
     type AuditedField = typeof AUDITED_FIELDS[number];
 

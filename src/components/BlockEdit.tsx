@@ -12,7 +12,7 @@ import { type Block, type CompanyDay } from "@/app/_components/TimelineGrid";
 import { BLOCK_VARIANTS, RESERVATION_FLIP_VARIANT, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
 import { findReservationSiblings } from "@/lib/reservationSiblings";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
+import { formatPragueDateShort, utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
 import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
 import { parseProductionTags, serializeProductionTags } from "@/lib/productionTags";
@@ -1406,24 +1406,58 @@ export function BlockEdit({
         width={360}
         confirmLabel={`Překlopit všechny (${reservationSiblings.length + 1})`}
         cancelLabel="Zrušit"
+        // Fokus schválně NEbere hromadná volba: sourozenci se párují podle čísla
+        // rezervace přes celou databázi, takže se mezi ně může dostat i cizí blok
+        // se shodným ručně zadaným číslem. Enter má padnout na bezpečnější variantu.
+        autoFocusConfirm={false}
         message={(() => {
           const total = reservationSiblings.length + 1;
-          const machines = new Set([block.machine, ...reservationSiblings.map((b) => b.machine)]).size;
           // Česká shoda: 2–4 „bloky", 5+ „bloků" (1 sem nepadá — dialog se bez sourozenců neotevře).
-          const blokySlovo = total < 5 ? "bloky" : "bloků";
           return (
             <>
-              Rezervace <strong>{block.orderNumber}</strong> má {total} {blokySlovo}
-              {machines > 1 ? ` na ${machines} strojích` : ""}. Překlopit na zakázku{" "}
-              <strong>{flipOrderNumber}</strong> všechny, nebo jen tento?
+              Rezervace <strong>{block.orderNumber}</strong> má {total} {total < 5 ? "bloky" : "bloků"}.
+              Překlopit na zakázku <strong>{flipOrderNumber}</strong> všechny, nebo jen tento?
             </>
           );
         })()}
         onConfirm={() => { if (flipOrderNumber) runFlip(flipOrderNumber, true); }}
         onCancel={() => setFlipOrderNumber(null)}
       >
+        {/* Výpis toho, co se reálně překlopí. Bez něj plánovač nepozná, že se
+            mezi sourozence připletla jiná rezervace se stejným číslem. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, margin: "10px 0 4px", maxHeight: 160, overflowY: "auto" }}>
+          {[block, ...reservationSiblings].map((b) => (
+            <div
+              key={b.id}
+              style={{
+                display: "flex", alignItems: "baseline", gap: 6, fontSize: 11,
+                padding: "4px 8px", borderRadius: 6,
+                background: b.id === block.id ? "var(--surface-2)" : "transparent",
+                border: `1px solid ${b.id === block.id ? "var(--border)" : "transparent"}`,
+              }}
+            >
+              <span style={{ fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap" }}>
+                {b.machine === "XL_105" ? "XL 105" : b.machine === "XL_106" ? "XL 106" : b.machine}
+              </span>
+              <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                {formatPragueDateShort(new Date(b.startTime))}
+              </span>
+              {b.description && (
+                <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {b.description}
+                </span>
+              )}
+              {b.id === block.id && (
+                <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                  TENTO
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
         <button
           type="button"
+          autoFocus
           onClick={() => { if (flipOrderNumber) runFlip(flipOrderNumber, false); }}
           style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
         >

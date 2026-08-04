@@ -22,6 +22,8 @@ export const FIELD_LABELS: Record<string, string> = {
   vnitrky: "Vnitřky",
   tiskoveArchy: "Tiskové archy",
   serie: "Série",
+  type: "Typ záznamu",
+  orderNumber: "Číslo zakázky",
 };
 
 export function fmtAuditVal(val: string | null, field: string | null): string {

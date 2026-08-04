@@ -1551,6 +1551,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   async function handleSaveAll(ids: number[], payload: Record<string, unknown>): Promise<boolean> {
+    const saveBefore: EditSnapshot[] = [];
+    const saveAfter: EditSnapshot[] = [];
+    /**
+     * Zapíše historii za bloky, které se reálně uložily. Volá se i z catch —
+     * když PUT spadne u třetího z pěti, první dva už v DB změněné jsou
+     * a bez tohohle by je Ctrl+Z nevrátil (stejný vzor jako u překlopení).
+     */
+    const recordSaveAllUndo = () => {
+      if (saveBefore.length === 0) return;
+      recordUndo(buildMultiEditCommand(
+        saveBefore.length > 1 ? "Hromadná úprava" : "Úprava bloku",
+        saveBefore, saveAfter,
+      ));
+    };
     try {
       // Pokud payload obsahuje endTime, spočítat durationMs a aplikovat per-block
       const hasEndTime = payload.endTime !== undefined;
@@ -1569,8 +1583,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const prevById = new Map(
         ids.map((id) => [id, blocksRef.current.find((b) => b.id === id)] as const),
       );
-      const saveBefore: EditSnapshot[] = [];
-      const saveAfter: EditSnapshot[] = [];
       for (const id of ids) {
         let blockPayload = payload;
         if (hasEndTime) {
@@ -1592,7 +1604,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const updated: Block = await res.json();
         const prev = prevById.get(id);
         if (prev) {
-          const changed = EDIT_TRACKED_FIELDS.filter(
+          // endTime schválně lokálně, ne v globálním EDIT_TRACKED_FIELDS —
+          // ten používá i handleBlockUpdate, kde délku řeší
+          // buildMoveOrResizeCommand, a vznikl by dvojí zápis do historie.
+          const trackedHere = [...EDIT_TRACKED_FIELDS, "endTime" as const];
+          const changed = trackedHere.filter(
             (f) => JSON.stringify((prev as unknown as Record<string, unknown>)[f])
                 !== JSON.stringify((updated as unknown as Record<string, unknown>)[f]),
           );
@@ -1610,12 +1626,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         results.push(updated);
         handleBlockUpdate(updated);
       }
-      if (saveBefore.length > 0) {
-        recordUndo(buildMultiEditCommand(
-          saveBefore.length > 1 ? "Hromadná úprava" : "Úprava bloku",
-          saveBefore, saveAfter,
-        ));
-      }
+      recordSaveAllUndo();
 
       if (editingBlock && ids.includes(editingBlock.id)) {
         const updatedEditing = results.find((r) => r.id === editingBlock.id);
@@ -1624,6 +1635,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       return true;
     } catch (error) {
       console.error("Series save failed", error);
+      recordSaveAllUndo(); // co se stihlo uložit, musí jít vrátit
       showToast(error instanceof Error ? error.message : "Chyba při ukládání série.", "error");
       return false;
     }
