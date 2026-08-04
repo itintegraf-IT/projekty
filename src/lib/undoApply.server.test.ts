@@ -102,16 +102,17 @@ function mkTx(rows: Row[], opts: { conflicts?: { id: number; orderNumber: string
     return cur ?? null;
   });
   const auditMock = mock.fn(async (a: { data: unknown[] }) => ({ count: a.data.length }));
+  const findManyMock = mock.fn(async (a: { where: { id: { in: number[] } } }) =>
+    a.where.id.in.map((i) => store.get(i)).filter(Boolean));
   const tx = {
     block: {
-      findMany: mock.fn(async (a: { where: { id: { in: number[] } } }) =>
-        a.where.id.in.map((i) => store.get(i)).filter(Boolean)),
+      findMany: findManyMock,
       update: updateMock, create: createMock, delete: deleteMock,
     },
     auditLog: { createMany: auditMock },
     $queryRaw: mock.fn(async () => opts.conflicts ?? []),
   } as never;
-  return { tx, store, updateMock, createMock, deleteMock, auditMock };
+  return { tx, store, updateMock, createMock, deleteMock, auditMock, findManyMock };
 }
 
 test("applyUndoOps: upsert zapíše off-grid start doslova (opravený incident 4. 8.)", async () => {
@@ -205,4 +206,26 @@ test("applyUndoOps: zapíše audit s akcí UNDO a spanem start–end", async () 
   assert.equal(rows[0].userId, 42);
   assert.ok(String(rows[0].oldValue).includes("–"), "oldValue je span 'start–end'");
   assert.ok(String(rows[0].newValue).includes("2026-09-02T10:00:00.000Z"));
+});
+
+test("applyUndoOps: dávka přes DVA stroje — kontrola stroje B nesmí dostat id bloku ze stroje A (cross-machine false positive)", async () => {
+  // Blok 1 zůstává na XL_105, blok 2 jde na XL_106 — stejné časové okno na DVOU různých
+  // strojích je naprosto v pořádku. Finální pojistka (assertNoOverlapForBlocks) filtruje
+  // `machine = ?` uvnitř sebe — pokud by dostala id bloku z jiného stroje, srovnávala by
+  // cizí časové okno proti tomuto stroji a nahlásila by falešnou kolizi (viz batch/route.ts
+  // vzor `checkByMachine`, kde se id strojům striktně rozdělují, ne sdílí plošně).
+  const { tx, findManyMock } = mkTx([row({ id: 1, machine: "XL_105" }), row({ id: 2, machine: "XL_106" })]);
+  await applyUndoOps(tx, [
+    { kind: "upsert", id: 1, fields: { machine: "XL_105", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" } },
+    { kind: "upsert", id: 2, fields: { machine: "XL_106", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" } },
+  ], actor, "Přesun dvou bloků", "undo");
+
+  // Volání findMany PO tom prvním (index 0 = počáteční načtení existujících řádků) patří
+  // finální pojistce — každé smí obsahovat jen id bloku, který na daný stroj skutečně patří.
+  const overlapCalls = findManyMock.mock.calls.slice(1);
+  assert.equal(overlapCalls.length, 2, "assertNoOverlapForBlocks se volá jednou za cílový stroj");
+  for (const call of overlapCalls) {
+    const ids = (call.arguments[0] as { where: { id: { in: number[] } } }).where.id.in;
+    assert.equal(ids.length, 1, `kontrola jednoho stroje nesmí táhnout id bloků z jiných strojů: ${JSON.stringify(ids)}`);
+  }
 });

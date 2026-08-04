@@ -140,7 +140,16 @@ export async function applyUndoOps(
 
   const result: UndoApplyResult = { updatedIds: [], createdIds: [], removedIds: [] };
   const auditRows: Record<string, unknown>[] = [];
-  const machinesToCheck = new Set<string>();
+  // Kontrola PER STROJ (vzor `checkByMachine` z batch/route.ts) — assertNoOverlapForBlocks
+  // filtruje `machine = ?` uvnitř sebe, takže smí dostat jen id bloků, které na ten stroj
+  // skutečně patří. Plochý seznam všech upsertnutých id předaný do KAŽDÉHO stroje by při
+  // dávce přes víc strojů srovnával cizí časová okna a hlásil falešné kolize.
+  const idsByMachine = new Map<string, number[]>();
+  const addToMachine = (machine: string, id: number) => {
+    const arr = idsByMachine.get(machine) ?? [];
+    arr.push(id);
+    idsByMachine.set(machine, arr);
+  };
 
   // ── 4. Nejdřív mazání (uvolní místo), pak zápisy ─────────────────────────
   for (const op of ops) {
@@ -164,7 +173,7 @@ export async function applyUndoOps(
     if (row) {
       const saved = await tx.block.update({ where: { id: op.id }, data });
       result.updatedIds.push(op.id);
-      machinesToCheck.add(saved.machine);
+      addToMachine(saved.machine, op.id);
       auditRows.push({
         blockId: op.id, orderNumber: saved.orderNumber, userId: actor.id, username: actor.username,
         action: direction === "undo" ? "UNDO" : "REDO",
@@ -178,7 +187,7 @@ export async function applyUndoOps(
       // nesnižuje, takže budoucí kolize nehrozí.
       const saved = await tx.block.create({ data: { ...data, id: op.id } as never });
       result.createdIds.push(op.id);
-      machinesToCheck.add(saved.machine);
+      addToMachine(saved.machine, op.id);
       auditRows.push({
         blockId: op.id, orderNumber: saved.orderNumber, userId: actor.id, username: actor.username,
         action: direction === "undo" ? "UNDO" : "REDO",
@@ -192,12 +201,13 @@ export async function applyUndoOps(
   if (auditRows.length > 0) await tx.auditLog.createMany({ data: auditRows as never });
 
   // ── 5. Finální pojistka — běží VŽDY, bez únikové cesty ───────────────────
-  // Stroje z CÍLOVÉHO stavu: funkce filtruje `machine = ?`, takže přesun na
-  // jiný stroj musí kontrolovat ten nový. Stroje, ze kterých se jen odcházelo,
-  // kontrolu nepotřebují — uvolněné místo překryv nevyrobí.
-  const upsertedIds = [...result.updatedIds, ...result.createdIds];
-  for (const machine of machinesToCheck) {
-    await assertNoOverlapForBlocks(machine, upsertedIds, tx);
+  // Stroje z CÍLOVÉHO stavu, každý jen se svými id: funkce filtruje `machine = ?`,
+  // takže přesun na jiný stroj musí kontrolovat ten nový, a id musí patřit tomu
+  // stroji, který se zrovna kontroluje (jinak by srovnávala časová okna napříč
+  // nesouvisejícími stroji). Stroje, ze kterých se jen odcházelo, kontrolu
+  // nepotřebují — uvolněné místo překryv nevyrobí.
+  for (const [machine, ids] of idsByMachine) {
+    await assertNoOverlapForBlocks(machine, ids, tx);
   }
 
   logger.info(`[undo] ${direction} "${label}" — ${result.updatedIds.length} upraveno, ${result.createdIds.length} obnoveno, ${result.removedIds.length} smazáno`);
