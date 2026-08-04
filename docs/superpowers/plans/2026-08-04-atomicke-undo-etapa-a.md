@@ -1120,7 +1120,83 @@ export function buildEditCommand(
 }
 ```
 
-**Poznámka k `siblings`:** dřív se z odpovědi PUT dobíraly split sourozenci propagovaní serverem. Endpoint žádnou propagaci nespouští (zapisuje doslova), takže sourozenci musí být ve snapshotu jako samostatné cíle — to řeší Task 7 u `buildMultiEditCommand`. Tady je `buildEditCommand` používaný jen pro jednoblokové editace a resize, kde propagace nenastává.
+- [ ] **Step 3b: Doplnit `printMinutes` do resize snapshotu**
+
+**Proč:** dnešní undo resize posílá jen `endTime` a **spoléhá na to, že PUT route
+z něj `printMinutes` dopočítá** (`api/blocks/[id]/route.ts:153-157`, případ 2).
+Endpoint zapisuje doslova a nic nederivuje, takže bez `printMinutes` ve snapshotu
+by po undo zůstal blok se spanem ≠ `printMinutes` — nekonzistentní stav.
+
+V `src/lib/undo/types.ts` rozšířit `BlockSnapshot`:
+
+```typescript
+export type BlockSnapshot = {
+  id: number;
+  startTime: string;
+  endTime: string;
+  machine: string;
+  updatedAt: string;
+  /** Jen u ZAKAZKA. Endpoint nederivuje, takže resize musí obnovit i tiskové minuty. */
+  printMinutes?: number | null;
+};
+```
+
+V `posOp` přidat pole jen když je přítomné (aby se u rezervací neposílalo `null`):
+
+```typescript
+function posOp(t: BlockSnapshot, expectedUpdatedAt?: string): UndoOpClient {
+  return {
+    kind: "upsert", id: t.id, expectedUpdatedAt,
+    fields: {
+      startTime: t.startTime, endTime: t.endTime, machine: t.machine,
+      ...(t.printMinutes !== undefined ? { printMinutes: t.printMinutes } : {}),
+    },
+  };
+}
+```
+
+A v `buildMoveOrResizeCommand` větev `endChanged` doplnit `printMinutes` do obou stran:
+
+```typescript
+  if (endChanged) {
+    return buildEditCommand(
+      "Změna délky",
+      { id: prev.id, updatedAt: prev.updatedAt, fields: { endTime: prev.endTime, printMinutes: prev.printMinutes ?? null } },
+      { id: updated.id, updatedAt: updated.updatedAt, fields: { endTime: updated.endTime, printMinutes: updated.printMinutes ?? null } },
+      shiftedBefore, shiftedAfter,
+    );
+  }
+```
+
+Volající místo `buildMoveOrResizeCommand` (`PlannerPage.tsx:1061-1065`) musí do
+`prevSnap`/`updatedSnap` doplnit `printMinutes: (prev as Block).printMinutes` resp.
+`cleanUpdated.printMinutes`.
+
+Test:
+
+```typescript
+test("buildMoveOrResizeCommand: resize obnovuje i printMinutes (endpoint nederivuje)", async () => {
+  const live = new Map([[1, blk(1, { endTime: "2026-07-10T11:00:00.000Z", printMinutes: 180, updatedAt: "v2" })]]);
+  const { effects, calls } = makeEffects(live);
+  const cmd = buildMoveOrResizeCommand(
+    { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1", printMinutes: 60 },
+    { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2", printMinutes: 180 },
+  );
+  assert.ok(cmd, "změna endu musí dát undo záznam");
+  await cmd.undo(effects);
+  const fields = (calls.undo[0].ops[0] as { fields: Record<string, unknown> }).fields;
+  assert.equal(fields.endTime, "2026-07-10T09:00:00.000Z");
+  assert.equal(fields.printMinutes, 60, "bez printMinutes by blok zůstal se spanem ≠ tiskové minuty");
+});
+```
+
+**Poznámka k split sourozencům — POZOR, dnešní undo se spoléhá na server:**
+`buildEditCommand` visí na obecné cestě úpravy bloku (`PlannerPage.tsx:1079`),
+která u split bloku propaguje `SPLIT_SHARED_FIELDS` do sourozenců. Dnešní undo
+je vrací tak, že **znovu spustí serverovou propagaci** (PUT primáru → server
+přepíše sourozence). Endpoint nepropaguje nic, takže sourozenci musí být ve
+snapshotu jako samostatné cíle. Řeší to Task 7, Step 5b — do té doby je undo
+editace split bloku dočasně neúplné (uvnitř větve, nikam se nenasazuje).
 
 - [ ] **Step 4: Spustit testy a ověřit, že prochází**
 
@@ -1401,6 +1477,70 @@ buildDeleteCommand("Smazání bloku", blocks.map((b) => ({ id: b.id, fields: blo
 ```
 
 Totéž pro `buildCreateCommand` — `created` nese nově `{ id, updatedAt, fields: blockToRestoreFields(b) }` místo `{ id, updatedAt, payload }`.
+
+- [ ] **Step 5b: Split sourozenci do snapshotu (jinak vzniká regrese)**
+
+**Proč:** `handleBlockUpdate` (`PlannerPage.tsx:1060-1085`) dnes zaznamená do
+historie **jen primární blok**. Sourozence ze split skupiny vrací undo tím, že
+PUT primáru znovu spustí serverovou propagaci `SPLIT_SHARED_FIELDS`. Endpoint
+nepropaguje, takže bez tohohle kroku by po Ctrl+Z zůstali sourozenci se změněnou
+hodnotou — regrese proti dnešku.
+
+Server je vrací v poli `siblings` (`PlannerPage.tsx:1004`). Jejich **předchozí**
+hodnoty se musí sebrat z `blocksRef.current` **před** `setBlocks` na řádku 1015 —
+stejný vzor, jaký už používá `shiftedOld` na řádku 1011:
+
+```typescript
+    // Sourozenci ze split skupiny PŘED aplikací odpovědi — undo je musí vrátit
+    // adresně, protože atomický endpoint SPLIT_SHARED_FIELDS nepropaguje.
+    const siblingsOld = siblings
+      .map((s) => blocksRef.current.find((b) => b.id === s.id))
+      .filter((b): b is Block => b != null);
+```
+
+a v bloku historie (za `changedFields`) místo `buildEditCommand` použít
+`buildMultiEditCommand`, když sourozenci existují:
+
+```typescript
+      if (changedFields.length > 0) {
+        const pick = (src: Record<string, unknown>) => {
+          const out: Record<string, unknown> = {};
+          for (const f of changedFields) out[f] = src[f];
+          return out;
+        };
+        const beforeTargets = [
+          { id: prev.id, updatedAt: (prev as Block).updatedAt, fields: pick(prev as Record<string, unknown>) },
+          ...siblingsOld.map((o) => ({ id: o.id, updatedAt: o.updatedAt, fields: pick(o as unknown as Record<string, unknown>) })),
+        ];
+        const afterTargets = [
+          { id: cleanUpdated.id, updatedAt: cleanUpdated.updatedAt, fields: pick(cleanUpdated as unknown as Record<string, unknown>) },
+          ...siblings.map((s) => ({ id: s.id, updatedAt: s.updatedAt, fields: pick(s as unknown as Record<string, unknown>) })),
+        ];
+        recordUndo(buildMultiEditCommand("Úprava bloku", beforeTargets, afterTargets, shiftedBefore, shiftedAfter));
+      }
+```
+
+`buildEditCommand` zůstává v kódu — používá ho `buildMoveOrResizeCommand` pro
+resize, kde sourozenci nevznikají.
+
+Test do `commands.test.ts`:
+
+```typescript
+test("buildMultiEditCommand: split sourozenci se vrací adresně, ne přes propagaci", async () => {
+  const live = new Map([
+    [1, blk(1, { splitGroupId: 5, orderNumber: "NOVE", updatedAt: "a2" })],
+    [2, blk(2, { splitGroupId: 5, orderNumber: "NOVE", updatedAt: "b2" })],
+  ]);
+  const { effects, calls } = makeEffects(live);
+  await buildMultiEditCommand(
+    "Úprava bloku",
+    [{ id: 1, updatedAt: "a1", fields: { orderNumber: "PUVODNI" } }, { id: 2, updatedAt: "b1", fields: { orderNumber: "PUVODNI" } }],
+    [{ id: 1, updatedAt: "a2", fields: { orderNumber: "NOVE" } }, { id: 2, updatedAt: "b2", fields: { orderNumber: "NOVE" } }],
+  ).undo(effects);
+  assert.equal(calls.undo[0].ops.length, 2, "sourozenec je vlastní operace, ne důsledek propagace");
+  assert.equal(live.get(2)!.orderNumber, "PUVODNI");
+});
+```
 
 - [ ] **Step 6: Spustit testy a ověřit, že prochází**
 
