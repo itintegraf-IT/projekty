@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
-import { type BlockVariant } from "@/lib/blockVariants";
+import { RESERVATION_FLIP_VARIANT, type BlockVariant } from "@/lib/blockVariants";
 import {
   addDaysToCivilDate,
   diffCivilDateDays,
@@ -20,8 +20,8 @@ import { blockToCreatePayload } from "@/lib/blockPayload";
 import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { serializeProductionTags } from "@/lib/productionTags";
 import { useUndoManager } from "./useUndoManager";
-import type { UndoEffects } from "@/lib/undo/types";
-import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
+import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
+import { buildMoveCommand, buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -1086,6 +1086,110 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
+  /**
+   * Překlopení celé rezervace na zakázku (připomínka plánovače, 8/2026).
+   *
+   * Rezervace bývá rozpuštěná do víc bloků (OBÁLKA na XL 105, VNITŘKY na
+   * XL 106) a plánovač je dřív musel překlápět po jednom. Editovaný blok
+   * dostane plný payload z formuláře, sourozenci jen minimum
+   * (`orderNumber`/`type`/`blockVariant`) — jinak by se jim přepsal vlastní
+   * popis, termíny a štítky hodnotami z anchoru.
+   *
+   * Sourozenec, kterého server překlopil sám (split skupina, SPLIT_SHARED_FIELDS),
+   * se přeskočí. Celá akce je JEDEN krok historie, takže Ctrl+Z vrátí všechny.
+   */
+  async function handleFlipReservation(
+    anchorId: number,
+    anchorPayload: Record<string, unknown>,
+    siblingIds: number[],
+  ): Promise<boolean> {
+    const flipFields = (b: Block) => ({ type: b.type, orderNumber: b.orderNumber, blockVariant: b.blockVariant });
+    const before: EditSnapshot[] = [];
+    const after: EditSnapshot[] = [];
+
+    const snapshotBefore = (id: number) => {
+      const live = blocksRef.current.find((b) => b.id === id);
+      if (live) before.push({ id, updatedAt: live.updatedAt, fields: flipFields(live) });
+    };
+    snapshotBefore(anchorId);
+    siblingIds.forEach(snapshotBefore);
+
+    const putFlip = async (id: number, body: Record<string, unknown>) => {
+      const res = await fetch(`/api/blocks/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, resolveChain: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? `Chyba při překlopení bloku ${id}`);
+      }
+      const updated: Block = await res.json();
+      handleBlockUpdate(updated); // bez addToHistory — historii zapisujeme jednu za celek
+      after.push({ id, updatedAt: updated.updatedAt, fields: flipFields(updated) });
+      return updated;
+    };
+
+    /**
+     * Zapíše historii za to, co se REÁLNĚ změnilo. Volá se i po chybě uprostřed
+     * dávky — bez toho by po částečném selhání zůstaly už překlopené bloky
+     * v plánu bez možnosti vrátit je Ctrl+Z.
+     */
+    const recordFlipUndo = () => {
+      const changed = before.filter((b) => {
+        const a = after.find((x) => x.id === b.id);
+        return a && JSON.stringify(a.fields) !== JSON.stringify(b.fields);
+      });
+      if (changed.length === 0) return;
+      recordUndo(buildMultiEditCommand(
+        changed.length > 1 ? "Překlopení rezervace" : "Překlopení na zakázku",
+        changed,
+        changed.map((b) => after.find((x) => x.id === b.id)!),
+      ));
+    };
+
+    try {
+      const updatedAnchor = await putFlip(anchorId, anchorPayload);
+      const targetOrderNumber = updatedAnchor.orderNumber;
+
+      for (const id of siblingIds) {
+        const live = blocksRef.current.find((b) => b.id === id);
+        if (!live) continue;
+        // Split sourozenec už překlopený serverovou propagací → další PUT je zbytečný.
+        if (live.type === "ZAKAZKA" && live.orderNumber === targetOrderNumber) {
+          after.push({ id, updatedAt: live.updatedAt, fields: flipFields(live) });
+          continue;
+        }
+        await putFlip(id, {
+          orderNumber: targetOrderNumber,
+          type: "ZAKAZKA",
+          blockVariant: RESERVATION_FLIP_VARIANT,
+        });
+      }
+
+      recordFlipUndo();
+      setEditingBlock(null); // parita s onSave — po úspěšném uložení panel zavíráme
+      showToast(
+        siblingIds.length > 0
+          ? `Rezervace překlopena na zakázku (${1 + siblingIds.length} bloků).`
+          : "Rezervace překlopena na zakázku.",
+        "success",
+      );
+      return true;
+    } catch (error) {
+      console.error("Reservation flip failed", error);
+      recordFlipUndo(); // co prošlo, musí jít vrátit
+      const done = after.length;
+      showToast(
+        done > 0
+          ? `Překlopeno ${done} z ${1 + siblingIds.length} bloků, pak nastala chyba: ${error instanceof Error ? error.message : "neznámá chyba"}`
+          : (error instanceof Error ? error.message : "Chyba při překlopení rezervace."),
+        "error",
+      );
+      return false;
+    }
+  }
+
   // Vrací true při úspěchu — volající (group cut) podle toho rozhodne, zda vyčistit clipboard.
   async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]): Promise<boolean> {
     const originals = new Map(updates.map(u => [u.id, blocksRef.current.find(b => b.id === u.id)]));
@@ -1154,6 +1258,34 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       showToast(error instanceof Error ? error.message : "Hromadný posun se nepodařilo uložit.", "error");
       return false;
     }
+  }
+
+  /**
+   * Staré a nové pozice bloků, které při vytvoření odsunul serverový chain push.
+   *
+   * MUSÍ se volat PŘED `handleBlockCreate` — staré pozice existují jen
+   * v `blocksRef`, odpověď serveru je nemá (vrací odsunuté bloky už s novými
+   * časy). Bez toho vrátil Ctrl+Z jen vložený blok a odsunuté zakázky zůstaly
+   * přesunuté (připomínka plánovače, 8/2026).
+   */
+  function snapshotShiftedFromResponse(resp: Block & { shifted?: Block[] }): {
+    before: BlockSnapshot[];
+    after: BlockSnapshot[];
+  } {
+    const snap = (b: Block): BlockSnapshot => ({
+      id: b.id, startTime: b.startTime as string, endTime: b.endTime as string,
+      machine: b.machine, updatedAt: b.updatedAt,
+    });
+    const shifted = (resp.shifted ?? []).filter((s) => typeof s.id === "number");
+    const before: BlockSnapshot[] = [];
+    const after: BlockSnapshot[] = [];
+    for (const s of shifted) {
+      const live = blocksRef.current.find((b) => b.id === s.id);
+      if (!live) continue; // blok mimo klientský stav — undo by ho stejně neuměl vrátit
+      before.push(snap(live));
+      after.push(snap(s));
+    }
+    return { before, after };
   }
 
   function handleBlockCreate(newBlock: Block) {
@@ -1397,6 +1529,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
 
       const results: Block[] = [];
+      // Undo hromadného uložení (série / split skupina). Do 8/2026 tahle cesta
+      // nezapisovala do historie vůbec — Ctrl+Z po „Uložit vše" nevrátil nic.
+      // Sleduje se týž seznam polí jako u editace jednoho bloku.
+      // Snapshot PŘED smyčkou: PUT jednoho bloku může přes SPLIT_SHARED_FIELDS
+      // propagovat změnu na sourozence, takže po prvním kole už `blocksRef`
+      // nedrží původní hodnoty a undo by je vzalo jako „před".
+      const prevById = new Map(
+        ids.map((id) => [id, blocksRef.current.find((b) => b.id === id)] as const),
+      );
+      const saveBefore: EditSnapshot[] = [];
+      const saveAfter: EditSnapshot[] = [];
       for (const id of ids) {
         let blockPayload = payload;
         if (hasEndTime) {
@@ -1416,8 +1559,31 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           throw new Error(err.error ?? `Chyba při ukládání bloku ${id}`);
         }
         const updated: Block = await res.json();
+        const prev = prevById.get(id);
+        if (prev) {
+          const changed = EDIT_TRACKED_FIELDS.filter(
+            (f) => JSON.stringify((prev as unknown as Record<string, unknown>)[f])
+                !== JSON.stringify((updated as unknown as Record<string, unknown>)[f]),
+          );
+          if (changed.length > 0) {
+            const beforeFields: Record<string, unknown> = {};
+            const afterFields: Record<string, unknown> = {};
+            for (const f of changed) {
+              beforeFields[f] = (prev as unknown as Record<string, unknown>)[f];
+              afterFields[f] = (updated as unknown as Record<string, unknown>)[f];
+            }
+            saveBefore.push({ id, updatedAt: prev.updatedAt, fields: beforeFields });
+            saveAfter.push({ id, updatedAt: updated.updatedAt, fields: afterFields });
+          }
+        }
         results.push(updated);
         handleBlockUpdate(updated);
+      }
+      if (saveBefore.length > 0) {
+        recordUndo(buildMultiEditCommand(
+          saveBefore.length > 1 ? "Hromadná úprava" : "Úprava bloku",
+          saveBefore, saveAfter,
+        ));
       }
 
       if (editingBlock && ids.includes(editingBlock.id)) {
@@ -1663,11 +1829,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         throw new Error(err.error ?? "Chyba serveru");
       }
       const parentBlock: Block = await res1.json();
+      const queueShift = snapshotShiftedFromResponse(parentBlock); // před handleBlockCreate!
       handleBlockCreate(parentBlock);
       if (canUndoCreated(parentBlock)) {
         recordUndo(buildCreateCommand("Umístění z fronty", [
           { id: parentBlock.id, updatedAt: parentBlock.updatedAt, payload: queueParentBody },
-        ]));
+        ], queueShift.before, queueShift.after));
       }
 
       // Vytvořit children bloky (pokud opakování > 1).
@@ -1846,11 +2013,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         throw new Error(err.error ?? "Chyba serveru");
       }
       const newBlock: Block = await res.json();
+      const pasteShift = snapshotShiftedFromResponse(newBlock); // před handleBlockCreate!
       handleBlockCreate(newBlock);
       if (canUndoCreated(newBlock)) {
         recordUndo(buildCreateCommand("Vložení bloku", [
           { id: newBlock.id, updatedAt: newBlock.updatedAt, payload: pasteBody },
-        ]));
+        ], pasteShift.before, pasteShift.after));
       }
     } catch (error) {
       console.error("Block paste failed", error);
@@ -1987,6 +2155,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // Všechny POST proběhly úspěšně — přidej do lokálního stavu.
     // Server (resolveChain) umístil každý blok na cíl a odsunul navazující; handleBlockCreate
     // aplikuje i posunuté bloky (pole shifted).
+    // Snapshot odsunutých ze VŠECH odpovědí musí vzniknout před prvním
+    // handleBlockCreate — jakmile se stav přepíše, staré pozice jsou pryč.
+    // Blok vytvořený dřív v této dávce může být v `shifted` pozdějšího POSTu;
+    // ten do undo nepatří (vrací ho už buildCreateCommand jako created), proto
+    // se odfiltruje podle id.
+    // Týž soused může být v `shifted` několika odpovědí (POST 1 ho odsunul,
+    // POST 2 znovu). Pro undo je správné PRVNÍ `before` (původní pozice před
+    // celou dávkou) a POSLEDNÍ `after` (kde blok reálně skončil).
+    const groupCreatedIds = new Set(created.map((b) => b.id));
+    const groupBeforeById = new Map<number, BlockSnapshot>();
+    const groupAfterById = new Map<number, BlockSnapshot>();
+    for (const b of created) {
+      const snap = snapshotShiftedFromResponse(b);
+      snap.before.forEach((x, i) => {
+        if (groupCreatedIds.has(x.id)) return; // vytvořené bloky řeší created, ne shifted
+        if (!groupBeforeById.has(x.id)) groupBeforeById.set(x.id, x);
+        groupAfterById.set(x.id, snap.after[i]);
+      });
+    }
+    const groupShiftBefore = [...groupBeforeById.values()];
+    const groupShiftAfter = groupShiftBefore.map((b) => groupAfterById.get(b.id)!);
     created.forEach((b) => handleBlockCreate(b));
 
     // createdBodies[i] odpovídá created[i] (naplněno ve stejné iteraci výše) — zip podle indexu,
@@ -1996,7 +2185,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       .filter((r) => canUndoCreated(r.block))
       .map(({ id, updatedAt, payload }) => ({ id, updatedAt, payload }));
     if (createdRefs.length > 0) {
-      recordUndo(buildCreateCommand("Vložení skupiny", createdRefs));
+      recordUndo(buildCreateCommand("Vložení skupiny", createdRefs, groupShiftBefore, groupShiftAfter));
     }
 
   }
@@ -2691,6 +2880,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               allBlocks={blocks}
               onDeleteAll={handleDeleteAll}
               onSaveAll={handleSaveAll}
+              onFlipReservation={handleFlipReservation}
               canEdit={canEdit}
               canEditData={canEditData}
               canEditDataDate={canEditDataDate}

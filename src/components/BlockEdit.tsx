@@ -10,6 +10,8 @@ import { Lock } from "lucide-react";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { type Block, type CompanyDay } from "@/app/_components/TimelineGrid";
 import { BLOCK_VARIANTS, RESERVATION_FLIP_VARIANT, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
+import { findReservationSiblings } from "@/lib/reservationSiblings";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
 import { stripSeriesPropagatedFields } from "@/lib/seriesPropagation";
@@ -83,6 +85,7 @@ export function BlockEdit({
   allBlocks,
   onDeleteAll,
   onSaveAll,
+  onFlipReservation,
   canEdit = true,
   canEditData = true,
   canEditDataDate = true,
@@ -104,6 +107,8 @@ export function BlockEdit({
   /** Vrací false, když mazání čeká na potvrzení (zamčený/vytištěný blok) — panel pak nezavírat. */
   onDeleteAll: (ids: number[]) => Promise<boolean | void>;
   onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<boolean>;
+  /** Překlopení rezervace na zakázku včetně ostatních bloků téže rezervace. */
+  onFlipReservation?: (anchorId: number, payload: Record<string, unknown>, siblingIds: number[]) => Promise<boolean>;
   canEdit?: boolean;
   canEditData?: boolean;
   canEditDataDate?: boolean;
@@ -129,6 +134,15 @@ export function BlockEdit({
   const [conflictOverride, setConflictOverride] = useState(false);
   const [showOrderNumberPrompt, setShowOrderNumberPrompt] = useState(false);
   const [promptOrderNumber, setPromptOrderNumber] = useState("");
+  /** Zadané číslo zakázky čekající na rozhodnutí „jen tento / všechny bloky rezervace". */
+  const [flipOrderNumber, setFlipOrderNumber] = useState<string | null>(null);
+
+  // Ostatní bloky téže rezervace — kopie na druhém stroji i split části.
+  // Počítá se jen u rezervace; u zakázky by shoda čísel byla bezvýznamná.
+  const reservationSiblings = useMemo(
+    () => (block.type === "REZERVACE" ? findReservationSiblings(block, allBlocks) : []),
+    [block, allBlocks],
+  );
 
   // Délka tisku — pro ZAKAZKA vychází z printMinutes (tiskové hodiny), ne z elapsed
   // start→end. Elapsed může u pozastaveného bloku vzrůst na hodnotu mimo DURATION_OPTIONS
@@ -626,14 +640,44 @@ export function BlockEdit({
    * (normalizeBlockVariant jí vrací STANDARD), takže hodnota ze stavu by z každé
    * překlopené zakázky udělala „Klasickou" (připomínka plánovače, 8/2026).
    */
-  function confirmFlipToZakazka(num: string) {
-    setShowOrderNumberPrompt(false);
-    setPromptOrderNumber("");
+  function buildFlipPayload(num: string): Record<string, unknown> {
     const payload = buildPayload();
     payload.orderNumber = num;
     payload.type = "ZAKAZKA";
     payload.blockVariant = RESERVATION_FLIP_VARIANT;
-    doSave(payload);
+    return payload;
+  }
+
+  function confirmFlipToZakazka(num: string) {
+    setShowOrderNumberPrompt(false);
+    setPromptOrderNumber("");
+    // Rezervace bývá rozpuštěná do víc bloků (obálka na jednom stroji, vnitřky
+    // na druhém). Když nějaké najdeme, necháme plánovače rozhodnout — tiché
+    // překlopení všeho by bylo stejně překvapivé jako dnešní překlopení jednoho.
+    if (reservationSiblings.length > 0 && onFlipReservation) {
+      setFlipOrderNumber(num);
+      return;
+    }
+    doSave(buildFlipPayload(num));
+  }
+
+  async function runFlip(num: string, includeSiblings: boolean) {
+    setFlipOrderNumber(null);
+    if (!onFlipReservation) { doSave(buildFlipPayload(num)); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const ok = await onFlipReservation(
+        block.id,
+        buildFlipPayload(num),
+        includeSiblings ? reservationSiblings.map((b) => b.id) : [],
+      );
+      // Chybu už ohlásil toast z PlannerPage; tady jen necháme panel otevřený
+      // s hláškou, aby plánovač viděl, že se nic neuložilo.
+      if (!ok) setError("Překlopení se nepovedlo. Zkuste to znovu.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function doSave(payload: Record<string, unknown>) {
@@ -1351,6 +1395,38 @@ export function BlockEdit({
           </div>
         </div>
       )}
+
+      {/* Rezervace rozpuštěná do víc bloků — nechat plánovače rozhodnout, co překlopit. */}
+      <ConfirmDialog
+        open={flipOrderNumber !== null}
+        title="Překlopit celou rezervaci?"
+        width={360}
+        confirmLabel={`Překlopit všechny (${reservationSiblings.length + 1})`}
+        cancelLabel="Zrušit"
+        message={(() => {
+          const total = reservationSiblings.length + 1;
+          const machines = new Set([block.machine, ...reservationSiblings.map((b) => b.machine)]).size;
+          // Česká shoda: 2–4 „bloky", 5+ „bloků" (1 sem nepadá — dialog se bez sourozenců neotevře).
+          const blokySlovo = total < 5 ? "bloky" : "bloků";
+          return (
+            <>
+              Rezervace <strong>{block.orderNumber}</strong> má {total} {blokySlovo}
+              {machines > 1 ? ` na ${machines} strojích` : ""}. Překlopit na zakázku{" "}
+              <strong>{flipOrderNumber}</strong> všechny, nebo jen tento?
+            </>
+          );
+        })()}
+        onConfirm={() => { if (flipOrderNumber) runFlip(flipOrderNumber, true); }}
+        onCancel={() => setFlipOrderNumber(null)}
+      >
+        <button
+          type="button"
+          onClick={() => { if (flipOrderNumber) runFlip(flipOrderNumber, false); }}
+          style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+        >
+          Jen tento blok
+        </button>
+      </ConfirmDialog>
     </div>
   );
 }

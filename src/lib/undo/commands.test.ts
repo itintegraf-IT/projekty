@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMoveCommand, buildEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "./commands";
+import { buildMoveCommand, buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "./commands";
 import { StaleUndoError, type Block, type EditSnapshot, type UndoEffects } from "./types";
 
 function blk(id: number, over: Partial<Block> = {}): Block {
@@ -337,4 +337,165 @@ test("buildEditCommand: undo pošle PUT s bypassScheduleValidation:true (undo ne
   assert.equal(calls.put[0].body.bypassScheduleValidation, true, "undo edit musí obcházet validaci pracovní doby — vrací dříve existující stav");
   await cmd.redo(effects);
   assert.equal(calls.put[1].body.bypassScheduleValidation, true, "redo edit taktéž");
+});
+
+// ─── buildMultiEditCommand ────────────────────────────────────────────────────
+
+/** Fake effects s funkčním putBlock: zapisuje pole do živé mapy a bumpne updatedAt. */
+function makeMultiEffects(live: Map<number, Block>) {
+  const puts: Array<{ id: number; body: Record<string, unknown> }> = [];
+  const effects: UndoEffects = {
+    getLiveBlock: (id) => live.get(id),
+    putBlock: async (id, body) => {
+      puts.push({ id, body });
+      const cur = live.get(id)!;
+      const next = { ...cur, ...body, updatedAt: cur.updatedAt + "+" } as Block;
+      live.set(id, next);
+      return next;
+    },
+    batchUpdate: async () => [],
+    addToState: (blocks) => { for (const b of blocks) live.set(b.id, b); },
+    removeFromState: () => {},
+    postBlock: async () => { throw new Error("unused"); },
+    deleteBlock: async () => { throw new Error("unused"); },
+  };
+  return { effects, puts };
+}
+
+const flipBefore = (id: number): EditSnapshot =>
+  ({ id, updatedAt: "v1", fields: { type: "REZERVACE", orderNumber: "R123" } });
+const flipAfter = (id: number): EditSnapshot =>
+  ({ id, updatedAt: "v2", fields: { type: "ZAKAZKA", orderNumber: "5000" } });
+
+test("buildMultiEditCommand: undo vrátí VŠECHNY bloky jedním krokem", async () => {
+  const live = new Map([
+    [1, blk(1, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })],
+    [2, blk(2, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })],
+  ]);
+  const { effects, puts } = makeMultiEffects(live);
+  const cmd = buildMultiEditCommand("Překlopení rezervace", [flipBefore(1), flipBefore(2)], [flipAfter(1), flipAfter(2)]);
+  await cmd.undo(effects);
+  assert.equal(puts.length, 2);
+  assert.deepEqual(puts.map((p) => p.id), [1, 2]);
+  assert.equal(puts[0].body.type, "REZERVACE");
+  assert.equal(puts[1].body.orderNumber, "R123");
+});
+
+test("buildMultiEditCommand: neposílá expectedUpdatedAt (server propaguje do split sourozenců)", async () => {
+  const live = new Map([[1, blk(1, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })]]);
+  const { effects, puts } = makeMultiEffects(live);
+  await buildMultiEditCommand("x", [flipBefore(1)], [flipAfter(1)]).undo(effects);
+  assert.equal(puts[0].body.expectedUpdatedAt, undefined);
+  assert.equal(puts[0].body.resolveChain, true);
+  assert.equal(puts[0].body.bypassScheduleValidation, true);
+});
+
+test("buildMultiEditCommand: cíl už v požadovaném stavu se přeskočí", async () => {
+  // Blok 2 server propagoval sám (split sourozenec) — druhý PUT by byl zbytečný.
+  const live = new Map([
+    [1, blk(1, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })],
+    [2, blk(2, { type: "REZERVACE", orderNumber: "R123", updatedAt: "v2" })],
+  ]);
+  const { effects, puts } = makeMultiEffects(live);
+  await buildMultiEditCommand("x", [flipBefore(1), flipBefore(2)], [flipAfter(1), flipAfter(2)]).undo(effects);
+  assert.deepEqual(puts.map((p) => p.id), [1]);
+});
+
+test("buildMultiEditCommand: guard proběhne PŘED prvním zápisem (žádné částečné undo)", async () => {
+  const live = new Map([
+    [1, blk(1, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })],
+    [2, blk(2, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "CIZI" })], // někdo změnil
+  ]);
+  const { effects, puts } = makeMultiEffects(live);
+  const cmd = buildMultiEditCommand("x", [flipBefore(1), flipBefore(2)], [flipAfter(1), flipAfter(2)]);
+  await assert.rejects(() => cmd.undo(effects), StaleUndoError);
+  assert.equal(puts.length, 0, "blok 1 se nesmí zapsat, když blok 2 neprojde guardem");
+});
+
+test("buildMultiEditCommand: chybějící blok ve stavu shodí undo", async () => {
+  const live = new Map([[1, blk(1, { type: "ZAKAZKA", updatedAt: "v2" })]]);
+  const { effects } = makeMultiEffects(live);
+  const cmd = buildMultiEditCommand("x", [flipBefore(1), flipBefore(9)], [flipAfter(1), flipAfter(9)]);
+  await assert.rejects(() => cmd.undo(effects), StaleUndoError);
+});
+
+test("buildMultiEditCommand: redo znovu překlopí a undo je pak zase možné", async () => {
+  const live = new Map([[1, blk(1, { type: "ZAKAZKA", orderNumber: "5000", updatedAt: "v2" })]]);
+  const { effects, puts } = makeMultiEffects(live);
+  const before = [flipBefore(1)];
+  const after = [flipAfter(1)];
+  const cmd = buildMultiEditCommand("x", before, after);
+  await cmd.undo(effects);          // → REZERVACE, updatedAt v2+
+  assert.equal(before[0].updatedAt, "v2+", "snapshot si osvěží verzi z odpovědi");
+  await cmd.redo(effects);          // → ZAKAZKA
+  assert.deepEqual(puts.map((p) => p.body.type), ["REZERVACE", "ZAKAZKA"]);
+});
+
+// ─── buildCreateCommand s odsunutými sousedy ─────────────────────────────────
+
+test("buildCreateCommand: undo smaže vytvořený blok A vrátí odsunuté sousedy", async () => {
+  const live = new Map([
+    [1, blk(1, { updatedAt: "new" })],                                             // vytvořený
+    [2, blk(2, { startTime: "2026-07-10T09:00:00.000Z", updatedAt: "v2" })],        // odsunutý
+  ]);
+  const { effects, calls } = makeEffects(live);
+  const order: string[] = [];
+  effects.deleteBlock = async () => { order.push("delete"); };
+  const origBatch = effects.batchUpdate;
+  effects.batchUpdate = async (u) => { order.push("batch"); return origBatch(u); };
+
+  const created = [{ id: 1, updatedAt: "new", payload: { orderNumber: "X" } }];
+  const shiftedBefore = [{ id: 2, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v2" }];
+  const shiftedAfter = [{ id: 2, startTime: "2026-07-10T09:00:00.000Z", endTime: "2026-07-10T10:00:00.000Z", machine: "XL_105", updatedAt: "v2" }];
+
+  await buildCreateCommand("Vložení", created, shiftedBefore, shiftedAfter).undo(effects);
+  assert.deepEqual(order, ["delete", "batch"], "místo se musí uvolnit dřív, než se soused vrátí");
+  assert.equal(live.get(2)!.startTime, "2026-07-10T08:00:00.000Z");
+});
+
+test("buildCreateCommand: redo nejdřív odsune sousedy, pak POSTne blok", async () => {
+  const live = new Map([[2, blk(2, { startTime: "2026-07-10T08:00:00.000Z", updatedAt: "v2" })]]);
+  const { effects } = makeEffects(live);
+  const order: string[] = [];
+  effects.postBlock = async () => { order.push("post"); return blk(1, { updatedAt: "again" }); };
+  const origBatch = effects.batchUpdate;
+  effects.batchUpdate = async (u) => { order.push("batch"); return origBatch(u); };
+
+  const created = [{ id: 1, updatedAt: "new", payload: { orderNumber: "X" } }];
+  const shiftedBefore = [{ id: 2, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v2" }];
+  const shiftedAfter = [{ id: 2, startTime: "2026-07-10T09:00:00.000Z", endTime: "2026-07-10T10:00:00.000Z", machine: "XL_105", updatedAt: "v2" }];
+
+  await buildCreateCommand("Vložení", created, shiftedBefore, shiftedAfter).redo(effects);
+  assert.deepEqual(order, ["batch", "post"], "POST má overlap guard — místo musí být volné předem");
+  assert.equal(created[0].id, 1);
+  assert.equal(created[0].updatedAt, "again", "remap id/verze pro další undo");
+});
+
+test("buildCreateCommand: změněný odsunutý soused shodí undo dřív, než se cokoli smaže", async () => {
+  const live = new Map([
+    [1, blk(1, { updatedAt: "new" })],
+    [2, blk(2, { updatedAt: "CIZI" })], // někdo jiný s ním mezitím hnul
+  ]);
+  const { effects } = makeEffects(live);
+  let deleted = 0;
+  effects.deleteBlock = async () => { deleted++; };
+  const created = [{ id: 1, updatedAt: "new", payload: {} }];
+  const shiftedBefore = [{ id: 2, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v2" }];
+  const shiftedAfter = [{ id: 2, startTime: "2026-07-10T09:00:00.000Z", endTime: "2026-07-10T10:00:00.000Z", machine: "XL_105", updatedAt: "v2" }];
+
+  await assert.rejects(
+    () => buildCreateCommand("Vložení", created, shiftedBefore, shiftedAfter).undo(effects),
+    StaleUndoError,
+  );
+  assert.equal(deleted, 0, "nic se nesmí smazat, když sousedy nejde vrátit");
+});
+
+test("buildCreateCommand: bez odsunutých se chová jako dřív (zpětná kompatibilita)", async () => {
+  const live = new Map([[1, blk(1, { updatedAt: "new" })]]);
+  const { effects, calls } = makeEffects(live);
+  let deleted = 0;
+  effects.deleteBlock = async () => { deleted++; };
+  await buildCreateCommand("Vložení", [{ id: 1, updatedAt: "new", payload: {} }]).undo(effects);
+  assert.equal(deleted, 1);
+  assert.equal(calls.batch.length, 0, "žádný zbytečný batch, když se nic neodsunulo");
 });
