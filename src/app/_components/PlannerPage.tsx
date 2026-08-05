@@ -23,6 +23,7 @@ import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
 import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
+import { buildSplitEditTargets } from "@/lib/undo/splitSiblingFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -1031,7 +1032,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       .map((s) => blocksRef.current.find((b) => b.id === s.id))
       .filter((b): b is Block => b != null);
     // Sourozenci ze split skupiny PŘED aplikací odpovědi — undo je musí vrátit
-    // adresně, protože atomický endpoint SPLIT_SHARED_FIELDS nepropaguje.
+    // adresně, protože atomický endpoint SPLIT_SHARED_FIELDS nepropaguje. `siblingsOld`
+    // je filtrovaný na to, co reálně existuje v blocksRef.current (server může poslat
+    // sourozence, který klient lokálně nemá) — `buildSplitEditTargets` níž si sám
+    // spočítá průnik se `siblings`, takže tahle případná asymetrie nikdy nerozjede
+    // beforeTargets/afterTargets na různou délku (review Tasku 7, nález M3).
     const siblingsOld = siblings
       .map((s) => blocksRef.current.find((b) => b.id === s.id))
       .filter((b): b is Block => b != null);
@@ -1096,25 +1101,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         (f) => JSON.stringify((prev as Record<string, unknown>)[f]) !== JSON.stringify((cleanUpdated as Record<string, unknown>)[f]),
       );
       if (changedFields.length > 0) {
-        const pick = (src: Record<string, unknown>) => {
-          const out: Record<string, unknown> = {};
-          for (const f of changedFields) out[f] = src[f];
-          return out;
-        };
         const shiftedBefore = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false }));
         const shiftedAfter = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt, printMinutes: s.printMinutes ?? null, scheduleBypassed: s.scheduleBypassed ?? false }));
         // Sourozenci jako ADRESNÉ cíle (ne propagace) — atomický endpoint SPLIT_SHARED_FIELDS
         // nepropaguje, takže bez nich by po Ctrl+Z zůstali se změněnou hodnotou (regrese
-        // proti staré propagační cestě). Jejich `siblingsOld`/`siblings` hodnoty jsou
-        // sebrané výše, PŘED aplikací odpovědi do stavu.
-        const beforeTargets = [
-          { id: prev.id, updatedAt: (prev as Block).updatedAt, fields: pick(prev as Record<string, unknown>) },
-          ...siblingsOld.map((o) => ({ id: o.id, updatedAt: o.updatedAt, fields: pick(o as unknown as Record<string, unknown>) })),
-        ];
-        const afterTargets = [
-          { id: cleanUpdated.id, updatedAt: cleanUpdated.updatedAt, fields: pick(cleanUpdated as unknown as Record<string, unknown>) },
-          ...siblings.map((s) => ({ id: s.id, updatedAt: s.updatedAt, fields: pick(s as unknown as Record<string, unknown>) })),
-        ];
+        // proti staré propagační cestě). buildSplitEditTargets jim ale pošle jen průnik
+        // changedFields ∩ SPLIT_SHARED_FIELDS — ne celý changedFields (review I1): server
+        // na sourozence propaguje jen sdílená pole, zbytek EDIT_TRACKED_FIELDS (locked,
+        // materialNote, materialIssued, obalka, vnitrky, tiskoveArchy, serie) se jich netýká.
+        const { beforeTargets, afterTargets } = buildSplitEditTargets(
+          changedFields, SPLIT_SHARED_FIELDS,
+          prev, cleanUpdated, siblingsOld, siblings,
+        );
         recordUndo(buildMultiEditCommand("Úprava bloku", beforeTargets, afterTargets, shiftedBefore, shiftedAfter));
       }
     }
@@ -1468,7 +1466,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // blok je osamocený člen ✂1/1 (neškodné, ne FK crash) — viz CLAUDE.md.
     const fields = blockToRestoreFields(block);
 
-    recordUndo(buildDeleteCommand("Smazání bloku", [{ id: block.id, fields }]));
+    recordUndo(buildDeleteCommand("Smazání bloku", [{ id: block.id, updatedAt: block.updatedAt, fields }]));
     return true;
   }
 
@@ -1592,7 +1590,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // B2: splitGroupId přežije deleci (FK na stabilní SplitGroup.id) → posílat vždy; každá
     // smazaná část se vrátí do své skupiny (i když se maže root + listy najednou). Endpoint
     // obnoví bloky pod PŮVODNÍMI id (žádný remap).
-    recordUndo(buildDeleteCommand("Smazání bloků", deletedStandalone.map((b) => ({ id: b.id, fields: blockToRestoreFields(b) }))));
+    recordUndo(buildDeleteCommand("Smazání bloků", deletedStandalone.map((b) => ({ id: b.id, updatedAt: b.updatedAt, fields: blockToRestoreFields(b) }))));
     return protectedIds.length === 0;
   }
 

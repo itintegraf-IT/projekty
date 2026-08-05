@@ -263,8 +263,8 @@ export function buildCreateCommand(
   };
 }
 
-/** Snapshot smazaného bloku — `fields` z `blockToRestoreFields`. */
-type DeletedRef = { id: number; fields: Record<string, unknown> };
+/** Snapshot smazaného bloku — `fields` z `blockToRestoreFields`, `updatedAt` z okamžiku smazání. */
+type DeletedRef = { id: number; updatedAt: string; fields: Record<string, unknown> };
 
 /**
  * undo = obnovit smazané bloky pod PŮVODNÍM id; redo = smazat je znovu.
@@ -272,6 +272,15 @@ type DeletedRef = { id: number; fields: Record<string, unknown> };
  * Původní id znamená, že bloku zůstane navázaná historie v AuditLogu
  * i notifikace. Zároveň tím mizí remap (`restoredId`) a s ním třída duplicit,
  * kdy opakované Ctrl+Z vyrábělo další a další kopie.
+ *
+ * `expectedUpdatedAt` na OBOU směrech (review Tasku 7, nález M1). Na undo je to
+ * bezpečné vždy — `sanitizeUndoOps`/`applyUndoOps` kontrolu přeskočí, pokud řádek
+ * ještě neexistuje (typický případ: blok je smazaný), takže na PRVNÍ undo nemá
+ * žádný efekt. Skutečně chrání REDO: blok se vrací pod PŮVODNÍM id, které vidí
+ * každý klient přes SSE — bez zámku by ho mohl kdokoli mezi undo a redo
+ * přesunout/upravit a redo by tu změnu beze stopy smazal. `refresh(deleted, ...)`
+ * po undu je nutný, aby redo dostalo updatedAt ČERSTVĚ obnoveného řádku, ne
+ * hodnotu z okamžiku smazání (ta by u druhého a dalšího cyklu byla vždy stale).
  */
 export function buildDeleteCommand(label: string, deleted: DeletedRef[]): HistoryEntry {
   return {
@@ -279,14 +288,15 @@ export function buildDeleteCommand(label: string, deleted: DeletedRef[]): Histor
     undo: async (effects) => {
       const res = await effects.applyUndo({
         label, direction: "undo",
-        ops: deleted.map((d) => ({ kind: "upsert" as const, id: d.id, fields: d.fields })),
+        ops: deleted.map((d) => ({ kind: "upsert" as const, id: d.id, expectedUpdatedAt: d.updatedAt, fields: d.fields })),
       });
+      refresh(deleted, res.updated);
       effects.addToState(res.updated);
     },
     redo: async (effects) => {
       const res = await effects.applyUndo({
         label, direction: "redo",
-        ops: deleted.map((d) => ({ kind: "remove" as const, id: d.id })),
+        ops: deleted.map((d) => ({ kind: "remove" as const, id: d.id, expectedUpdatedAt: d.updatedAt })),
       });
       effects.removeFromState(res.removed);
     },

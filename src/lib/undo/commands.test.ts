@@ -27,6 +27,11 @@ function blk(id: number, over: Partial<Block> = {}): Block {
  * putBlock/postBlock/deleteBlock zůstávají jen jako stub "unused", nic je nevolá.
  * batchUpdate zůstává funkční (nad `live` mapou) čistě pro negativní asserce typu
  * "MOVE jde přes applyUndo, NE přes starý batchUpdate" (calls.batch.length === 0).
+ *
+ * POZOR (review Tasku 7, nález I3): `applyUndo` tady mutuje `live` PŘÍMO, takže asserce
+ * typu `live.has(id)` projdou i BEZ volání `addToState`/`removeFromState` — v reálné
+ * aplikaci je `live` == `blocksRef.current` a ten se mění VÝHRADNĚ přes tyhle dvě effect
+ * metody. Testy proto vedle `live.*` musí ověřovat i `calls.added`/`calls.removed`.
  */
 function makeEffects(live: Map<number, Block>) {
   const calls = {
@@ -242,11 +247,18 @@ test("buildCreateCommand: undo smaže vytvořený blok A vrátí sousedy v JEDNO
   assert.deepEqual(kinds, ["remove", "upsert"]);
   assert.equal(live.has(10), false);
   assert.equal(live.get(2)!.startTime, "2026-07-10T09:00:00.000Z");
+  // I3: `live.*` výše projde i bez volání addToState/removeFromState (fake mutuje
+  // `live` přímo) — v reálné appce je addToState/removeFromState jediná cesta,
+  // kterou se stav dostane do blocksRef.current, proto se musí ověřit zvlášť.
+  assert.equal(calls.removed.length, 1, "removeFromState se skutečně zavolal");
+  assert.deepEqual(calls.removed[0], [10]);
+  assert.equal(calls.added.length, 1, "addToState se skutečně zavolal pro vráceného souseda");
+  assert.deepEqual(calls.added[0].map((b) => b.id), [2]);
 });
 
 test("buildCreateCommand: redo obnoví blok se STEJNÝM id (žádný remap)", async () => {
   const live = new Map([[2, blk(2, { startTime: "2026-07-10T09:00:00.000Z", updatedAt: "w1" })]]);
-  const { effects } = makeEffects(live);
+  const { effects, calls } = makeEffects(live);
   const cmd = buildCreateCommand(
     "Vložení bloku",
     [{ id: 10, updatedAt: "n1", fields: { orderNumber: "X", machine: "XL_105", startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z" } }],
@@ -255,6 +267,38 @@ test("buildCreateCommand: redo obnoví blok se STEJNÝM id (žádný remap)", as
   );
   await cmd.redo(effects);
   assert.ok(live.has(10), "blok se vrátil pod původním id");
+  assert.equal(calls.added.length, 1, "addToState se skutečně zavolal (I3)");
+  assert.deepEqual(calls.added[0].map((b) => b.id).sort((a, b) => a - b), [2, 10], "addToState dostal jak obnovený blok, tak odsunutého souseda");
+});
+
+test("buildCreateCommand: undo → redo → undo se sousedy — redo vrátí souseda na AFTER pozici, druhé undo neshodí guard", async () => {
+  // Review I2: mutační test prokázal, že bez `...shiftedAfter.map(posOp)` v redo ops
+  // a bez `refresh(...)` po undu/redu zůstane 25/25 zelených. Scénář: plánovač vloží
+  // zakázku, která odsune dvacet navazujících bloků, Ctrl+Z vrátí všechno, Ctrl+Y má
+  // vrátit stav zpátky VČETNĚ sousedů — bez toho by dávka spadla na overlap pojistku
+  // (soused zůstal na staré pozici) a bez refresh by druhé Ctrl+Z spadlo na StaleUndoError
+  // a krok historie by se nenávratně zahodil.
+  const live = new Map([
+    [10, blk(10, { updatedAt: "n1" })],
+    [2, blk(2, { startTime: "2026-07-10T12:00:00.000Z", updatedAt: "w2" })],
+  ]);
+  const { effects, calls } = makeEffects(live);
+  const created = [{ id: 10, updatedAt: "n1", fields: { orderNumber: "X", machine: "XL_105", startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z" } }];
+  const shiftedBefore = [{ id: 2, startTime: "2026-07-10T09:00:00.000Z", endTime: "2026-07-10T10:00:00.000Z", machine: "XL_105", updatedAt: "w1", printMinutes: null, scheduleBypassed: false }];
+  const shiftedAfter = [{ id: 2, startTime: "2026-07-10T12:00:00.000Z", endTime: "2026-07-10T13:00:00.000Z", machine: "XL_105", updatedAt: "w2", printMinutes: null, scheduleBypassed: false }];
+  const cmd = buildCreateCommand("Vložení bloku", created, shiftedBefore, shiftedAfter);
+
+  await cmd.undo(effects);
+  assert.equal(live.get(2)!.startTime, "2026-07-10T09:00:00.000Z", "1. undo: soused na BEFORE pozici");
+
+  await cmd.redo(effects);
+  assert.ok(live.has(10), "blok obnoven pod původním id");
+  assert.equal(live.get(2)!.startTime, "2026-07-10T12:00:00.000Z", "redo musí vrátit souseda na AFTER pozici (mutace: chybějící shiftedAfter ops)");
+
+  await cmd.undo(effects); // nesmí spadnout na StaleUndoError (mutace: chybějící refresh)
+  assert.equal(live.has(10), false);
+  assert.equal(live.get(2)!.startTime, "2026-07-10T09:00:00.000Z", "2. undo: soused zase na BEFORE pozici");
+  assert.equal(calls.undo.length, 3, "undo → redo → undo = tři volání applyUndo");
 });
 
 test("buildCreateCommand: změněný odsunutý soused shodí undo dřív, než se cokoli smaže", async () => {
@@ -272,6 +316,8 @@ test("buildCreateCommand: změněný odsunutý soused shodí undo dřív, než s
     StaleUndoError,
   );
   assert.equal(calls.undo.length, 0, "nic se nesmí zapsat, když sousedy nejde vrátit — guard proběhne PŘED applyUndo");
+  assert.equal(calls.added.length, 0);
+  assert.equal(calls.removed.length, 0);
 });
 
 test("buildCreateCommand: bez odsunutých sousedů pošle jen smazání vytvořeného bloku", async () => {
@@ -282,25 +328,67 @@ test("buildCreateCommand: bez odsunutých sousedů pošle jen smazání vytvoře
   assert.equal(calls.undo[0].ops.length, 1, "žádný zbytečný soused v dávce");
   assert.equal(calls.undo[0].ops[0].kind, "remove");
   assert.equal(live.has(1), false);
+  assert.deepEqual(calls.removed, [[1]]);
+  // addToState SE volá (bezpodmínečně, s res.updated) — jen s prázdným polem, protože
+  // nebyl žádný soused k upsertu. Volání samo o sobě je neškodné (no-op merge).
+  assert.deepEqual(calls.added, [[]], "addToState dostal prázdné pole — nic se neupsertovalo, jen smazalo");
 });
 
 // ─── buildDeleteCommand ───────────────────────────────────────────────────────
 // Task 7: undo obnoví blok pod PŮVODNÍM id (žádný remap → mizí restoredId a s ním
 // třída duplicit z opakovaného Ctrl+Z), redo ho zase smaže — obojí JEDNO applyUndo volání.
+// Fix round 1 (M1): DeletedRef nese `updatedAt` a undo/redo posílají expectedUpdatedAt —
+// blok se vrací pod PŮVODNÍM id, které vidí přes SSE každý klient, takže bez zámku by
+// redo mohlo smazat mezitímní cizí změnu beze stopy.
 
-test("buildDeleteCommand: undo obnoví blok pod původním id, redo ho zase smaže", async () => {
+test("buildDeleteCommand: undo obnoví blok pod původním id se zámkem, redo ho zase smaže se ZÁMKEM OSVĚŽENÝM po undu", async () => {
   const live = new Map<number, Block>();
   const { effects, calls } = makeEffects(live);
   const cmd = buildDeleteCommand("Smazání bloku", [{
-    id: 738,
+    id: 738, updatedAt: "del1",
     fields: { orderNumber: "17300", machine: "XL_105", startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z" },
   }]);
+
   await cmd.undo(effects);
   assert.ok(live.has(738));
   assert.equal(calls.undo[0].ops[0].kind, "upsert");
+  assert.equal((calls.undo[0].ops[0] as { expectedUpdatedAt?: string }).expectedUpdatedAt, "del1",
+    "undo posílá expectedUpdatedAt zachycený v okamžiku smazání (server ho na neexistujícím řádku přeskočí, ale musí tam být)");
+  assert.equal(calls.added.length, 1, "addToState se skutečně zavolal (I3)");
+  assert.deepEqual(calls.added[0].map((b) => b.id), [738]);
+
+  const restoredUpdatedAt = live.get(738)!.updatedAt;
   await cmd.redo(effects);
   assert.equal(live.has(738), false);
   assert.equal(calls.undo[1].ops[0].kind, "remove");
+  assert.equal((calls.undo[1].ops[0] as { expectedUpdatedAt?: string }).expectedUpdatedAt, restoredUpdatedAt,
+    "redo musí zamykat na ČERSTVOU verzi po undu (refresh), ne na hodnotu z okamžiku smazání — jinak by mezitímní cizí "
+    + "změna (jiný klient přesunul blok po undu) zmizela beze stopy (review M1)");
+  assert.equal(calls.removed.length, 1, "removeFromState se skutečně zavolal (I3)");
+  assert.deepEqual(calls.removed[0], [738]);
+});
+
+test("buildDeleteCommand: dávka dvou bloků — undo obnoví oba, redo oba zase smaže", async () => {
+  // I3: smazaný starý test měl dva bloky v jedné dávce (odpovídá „Smazat vše" nad
+  // lasem) — bez téhle náhrady by vícenásobná obnova neměla pokrytí.
+  const live = new Map<number, Block>();
+  const { effects, calls } = makeEffects(live);
+  const cmd = buildDeleteCommand("Smazání bloků", [
+    { id: 100, updatedAt: "d1", fields: { orderNumber: "A", machine: "XL_105", startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z" } },
+    { id: 200, updatedAt: "d2", fields: { orderNumber: "B", machine: "XL_105", startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z" } },
+  ]);
+
+  await cmd.undo(effects);
+  assert.ok(live.has(100) && live.has(200), "oba bloky obnoveny");
+  assert.equal(calls.undo[0].ops.length, 2, "obě obnovy v jedné dávce");
+  assert.equal(calls.added.length, 1, "jedna dávka do addToState");
+  assert.deepEqual(calls.added[0].map((b) => b.id).sort((a, b) => a - b), [100, 200], "addToState skutečně dostal oba bloky");
+
+  await cmd.redo(effects);
+  assert.equal(live.has(100), false);
+  assert.equal(live.has(200), false);
+  assert.equal(calls.removed.length, 1);
+  assert.deepEqual(calls.removed[0].sort((a, b) => a - b), [100, 200], "removeFromState skutečně dostal oba bloky");
 });
 
 test("buildMoveOrResizeCommand: MOVE (start changed) → undo pošle JEDNO volání applyUndo", async () => {
@@ -376,6 +464,24 @@ test("buildMoveOrResizeCommand: bez změny času/stroje vrátí null", () => {
   assert.equal(cmd, null);
 });
 
+test("buildMoveOrResizeCommand: MOVE větev propíše printMinutes i scheduleBypassed primárního bloku do ops", async () => {
+  // Review I4 — Task 7 Step 0 zpřísnění typu odhalilo, že MOVE větev (na rozdíl od RESIZE)
+  // nikdy neposílala scheduleBypassed primárního bloku. Test jde přes buildMoveOrResizeCommand
+  // (ne přímo přes buildMoveCommand s ručně sestaveným snapshotem) — jedině tak cvičí SAMOTNÉ
+  // sestavení MOVE větve, kde k mezeře došlo. Hodnoty jsou záměrně NE-defaultní (printMinutes
+  // != null, scheduleBypassed != false), aby mutace „natvrdo null/false" test spolehlivě shodila.
+  const live = new Map([[1, blk(1, { startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", updatedAt: "v2" })]]);
+  const { effects, calls } = makeEffects(live);
+  const prev = { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1", printMinutes: 45, scheduleBypassed: true };
+  const updated = { id: 1, startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2", printMinutes: 90, scheduleBypassed: false };
+  const cmd = buildMoveOrResizeCommand(prev, updated, [], []);
+  assert.ok(cmd);
+  await cmd.undo(effects);
+  const fields = (calls.undo[0].ops[0] as { fields: Record<string, unknown> }).fields;
+  assert.equal(fields.printMinutes, 45, "MOVE větev musí nést printMinutes PRIMÁRNÍHO bloku, ne natvrdo null");
+  assert.equal(fields.scheduleBypassed, true, "MOVE větev musí nést scheduleBypassed primárního bloku, ne natvrdo false");
+});
+
 // ─── buildMultiEditCommand ────────────────────────────────────────────────────
 // Task 7: JEDNO applyUndo volání pro všechny cíle + odsunuté sousedy, expectedUpdatedAt
 // se nově posílá u KAŽDÉHO cíle (atomicita ruší kolizi ze sekvenčních PUTů) a skip-pokud-
@@ -408,6 +514,8 @@ test("buildMultiEditCommand: všechny cíle i sourozenci v JEDNOM volání s exp
     "zámek jde nově i na multi-edit — endpoint kontroluje všechny najednou");
   assert.equal(live.get(1)!.type, "REZERVACE");
   assert.equal(live.get(3)!.startTime, "2026-07-10T09:00:00.000Z");
+  assert.equal(calls.added.length, 1, "addToState se skutečně zavolal (I3)");
+  assert.deepEqual(calls.added[0].map((b) => b.id).sort((a, b) => a - b), [1, 2, 3]);
 });
 
 test("buildMultiEditCommand: guard proběhne PŘED prvním zápisem (žádné částečné undo)", async () => {
