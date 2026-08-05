@@ -1,7 +1,11 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { sanitizeUndoOps, applyUndoOps, DATE_FIELDS } from "./undoApply.server";
 import { isAppError } from "./errors";
+import { isRestorableField } from "./undo/restoreFields";
+import { logger } from "./logger";
 
 function rejects(raw: unknown, fragment: string) {
   try {
@@ -83,7 +87,14 @@ function row(over: Partial<Row> = {}): Row {
 }
 
 /** Fake tx podle vzoru reflow.server.test.ts — obyčejné objekty s mock.fn. */
-function mkTx(rows: Row[], opts: { conflicts?: { id: number; orderNumber: string | null }[] } = {}) {
+function mkTx(
+  rows: Row[],
+  opts: {
+    conflicts?: { id: number; orderNumber: string | null }[];
+    /** D3: odstávky, které má loadMachineCalendarRange „najít" — prázdné ve výchozím stavu. */
+    companyDays?: { start: Date; end: Date }[];
+  } = {},
+) {
   const store = new Map(rows.map((r) => [r.id, r]));
   // Pořadí volání napříč RŮZNÝMI mock.fn — potřeba pro test I1 (zamykající SELECT
   // musí proběhnout PŘED findMany). Push je synchronní přímo na místě volání,
@@ -117,15 +128,24 @@ function mkTx(rows: Row[], opts: { conflicts?: { id: number; orderNumber: string
     callOrder.push("queryRaw");
     return opts.conflicts ?? [];
   });
+  // D3: warnIfUnusual volá loadMachineCalendarRange (printTime.server.ts) pro KAŽDÝ upsert,
+  // který mění startTime/endTime — potřebuje companyDay.findMany i machineWeekShifts.findMany.
+  // Výchozí prázdné pole = žádná odstávka, žádné vlastní směny (běžný případ, testy níž na to
+  // nesmí spoléhat implicitně, proto companyDaysMock jde přepsat přes opts.companyDays).
+  const companyDayMock = mock.fn(async (_a: unknown) =>
+    (opts.companyDays ?? []).map((c) => ({ startDate: c.start, endDate: c.end })));
+  const weekShiftsMock = mock.fn(async (_a: unknown) => []);
   const tx = {
     block: {
       findMany: findManyMock,
       update: updateMock, create: createMock, delete: deleteMock,
     },
     auditLog: { createMany: auditMock },
+    companyDay: { findMany: companyDayMock },
+    machineWeekShifts: { findMany: weekShiftsMock },
     $queryRaw: queryRawMock,
   } as never;
-  return { tx, store, updateMock, createMock, deleteMock, auditMock, findManyMock, queryRawMock, callOrder };
+  return { tx, store, updateMock, createMock, deleteMock, auditMock, findManyMock, queryRawMock, companyDayMock, weekShiftsMock, callOrder };
 }
 
 test("applyUndoOps: upsert zapíše off-grid start doslova (opravený incident 4. 8.)", async () => {
@@ -364,13 +384,133 @@ test("applyUndoOps: remove zapíše CELÝ blok jako JSON do oldValue (I3 — obn
   assert.deepEqual(res.removed, [{ id: 5, machine: "XL_106" }]);
 });
 
-test("DATE_FIELDS: pokrývá přesně očekávanou množinu DateTime sloupců (M6 tripwire)", () => {
-  // Nový DateTime sloupec přidaný do UNDO_RESTORABLE_FIELDS bez odpovídajícího
-  // zápisu sem by poslal ISO string místo Date do Prisma → pád na 500.
-  const expected = [
-    "startTime", "endTime", "deadlineExpedice", "dataRequiredDate",
-    "materialRequiredDate", "pantoneRequiredDate", "expeditionPublishedAt",
-  ];
-  assert.deepEqual([...DATE_FIELDS].sort(), [...expected].sort());
-  assert.equal(DATE_FIELDS.size, 7);
+test("DATE_FIELDS: odvozeno ze SKUTEČNÉHO schema.prisma — pokrývá každý DateTime sloupec Blocku z UNDO_RESTORABLE_FIELDS (D2, go/no-go audit 5. 8. 2026)", () => {
+  // Komentář u DATE_FIELDS slibuje: „nový DateTime sloupec přidaný do
+  // UNDO_RESTORABLE_FIELDS bez odpovídajícího zápisu sem by poslal ISO string
+  // místo Date do Prisma a spadl by na 500." Test to donedávna NEPLNIL — jen
+  // porovnával DATE_FIELDS s ručně přepsanou kopií sebe sama (`expected`
+  // literál, který nikdy nečetl ani UNDO_RESTORABLE_FIELDS, ani schéma), takže
+  // by nový zapomenutý DateTime sloupec prošel beze stopy. Tenhle test čte
+  // SKUTEČNÉ schema.prisma, takže slib doopravdy plní.
+  //
+  // Rozhodnutí (D2 nabízelo dvě cesty — spravit test, nebo zmírnit komentář):
+  // schema-parsing je v repu bez precedentu, ale formát Block modelu je
+  // stabilní (jeden sloupec na řádek, typ hned za jménem) a riziko křehkosti
+  // je nízké proti ceně tiché regrese (ISO string do Prisma DateTime sloupce
+  // je runtime pád, ne kompilační chyba — projeví se až při undo konkrétního
+  // bloku v produkci).
+  const schema = readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8");
+  const modelMatch = schema.match(/model Block \{([\s\S]*?)\n\}/);
+  assert.ok(modelMatch, "model Block nenalezen v prisma/schema.prisma — zkontroluj cestu/formát souboru");
+  const body = modelMatch![1];
+
+  // Relační pole (Block?, Block[], Reservation?, ...) nemají typ "DateTime" —
+  // regex vyžaduje typ PŘESNĚ "DateTime" nebo "DateTime?", takže je bezpečně
+  // přeskočí. Konec shody je BUĎ mezera (sloupec má za typem ještě atribut,
+  // např. `createdAt DateTime @default(now())`), NEBO konec řádku (`split("\n")`
+  // už oddělovač useknul, takže bezatributové sloupce jako `startTime DateTime`
+  // s holým `\s` na konci nikdy nechytíš — to byl první pokus a mlčky
+  // vynechal většinu sloupců, testu ovšem procházel, protože `dateTimeColumns`
+  // nebylo prázdné jako celek, jen chybělo přesně to, co mělo být nalezené).
+  const dateTimeColumns = new Set<string>();
+  for (const line of body.split("\n")) {
+    const m = line.match(/^\s*(\w+)\s+DateTime\??(?:\s|$)/);
+    if (m) dateTimeColumns.add(m[1]);
+  }
+  assert.ok(dateTimeColumns.size > 0, "parser nenašel žádný DateTime sloupec — regex/formát schématu se pravděpodobně změnil");
+
+  // Jen průnik s UNDO_RESTORABLE_FIELDS — undo se netýká DateTime sloupců mimo
+  // allowlist (createdAt/updatedAt/printCompletedAt jsou vědomě vyloučené).
+  const expected = [...dateTimeColumns].filter((f) => isRestorableField(f));
+  assert.deepEqual([...DATE_FIELDS].sort(), expected.sort());
+});
+
+// ── I2 (go/no-go audit 5. 8. 2026): audit u NE-pozičního pole ────────────────
+
+test("applyUndoOps (I2): audit u NE-pozičního pole zapíše seznam obnovených klíčů, ne smyšlený časový span", async () => {
+  const { tx, auditMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { materialStatusId: 7 } }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  assert.equal(rows[0].field, "fields", "NE 'startTime/endTime/machine' — pozice se vůbec neobnovuje");
+  assert.equal(rows[0].oldValue, null, "server nezná staré hodnoty jednotlivých polí, jen jejich seznam");
+  assert.equal(rows[0].newValue, "materialStatusId");
+});
+
+test("applyUndoOps (I2): víc obnovených NE-pozičních polí → seznam klíčů SEŘAZENÝ, ne pořadí vložení do objektu", async () => {
+  const { tx, auditMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { pantoneOk: true, dataOk: false } }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  assert.equal(rows[0].newValue, "dataOk, pantoneOk", "abecedně — pantoneOk bylo v objektu první, ale musí být druhé");
+});
+
+test("applyUndoOps (I2): pozice I obchodní pole v JEDNOM opu → pořád span (gate reaguje na PŘÍTOMNOST pozičního pole)", async () => {
+  // Scénář C1c: chain-pushnutý split sourozenec dostane sdílené pole i pozici
+  // v JEDNOM upsertu (buildSplitEditTargetsWithShifted). Audit musí ukázat,
+  // že se pozice DOOPRAVDY změnila, ne seznam klíčů.
+  const { tx, auditMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: { startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105", materialStatusId: 7 },
+  }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  assert.equal(rows[0].field, "startTime/endTime/machine");
+  assert.ok(String(rows[0].oldValue).includes("–"), "oldValue je pořád span 'start–end'");
+});
+
+// ── D3 (go/no-go audit 5. 8. 2026): warn při obnově do firemní odstávky ──────
+
+test("applyUndoOps (D3): obnova pozice DO firemní odstávky zaloguje warn (spec §5 — neblokuje)", async (t) => {
+  const warnSpy = t.mock.method(logger, "warn", () => {});
+  const { tx } = mkTx([row()], {
+    companyDays: [{ start: T("2026-09-02T00:00:00.000Z"), end: T("2026-09-03T00:00:00.000Z") }],
+  });
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: { startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105" },
+  }], actor, "undo");
+  const msgs = warnSpy.mock.calls.map((c) => String(c.arguments[0]));
+  assert.ok(msgs.some((m) => m.includes("odstávk")), `očekávám warn o odstávce, dostal jsem: ${JSON.stringify(msgs)}`);
+});
+
+test("applyUndoOps (D3): obnova pozice MIMO odstávku warn o odstávce nezaloguje", async (t) => {
+  const warnSpy = t.mock.method(logger, "warn", () => {});
+  const { tx } = mkTx([row()], { companyDays: [] });
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: { startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105" },
+  }], actor, "undo");
+  const msgs = warnSpy.mock.calls.map((c) => String(c.arguments[0]));
+  assert.ok(!msgs.some((m) => m.includes("odstávk")));
+});
+
+test("applyUndoOps (D3): čistě obchodní editace (pozice se netýká) nekontroluje odstávku vůbec — MUTAČNÍ POJISTKA", async (t) => {
+  const warnSpy = t.mock.method(logger, "warn", () => {});
+  const { tx } = mkTx([row()], {
+    // row() má startTime 2026-09-02T14:00 — tahle odstávka by ho zasáhla,
+    // KDYBY se kontrolovala bez ohledu na to, jestli se pozice mění. Test tak
+    // odliší „gate podle přítomnosti startTime/endTime v op.fields" od
+    // (chybné) varianty „kontroluj vždy, ať se mění pozice, nebo ne".
+    companyDays: [{ start: T("2026-09-02T00:00:00.000Z"), end: T("2026-09-03T00:00:00.000Z") }],
+  });
+  await applyUndoOps(tx, [{ kind: "upsert", id: 1, fields: { materialStatusId: 7 } }], actor, "undo");
+  assert.equal(warnSpy.mock.calls.length, 0, "operace se času vůbec netýká — žádný warn, ani mřížkový, ani odstávkový");
+});
+
+// ── D4 (go/no-go audit 5. 8. 2026): finální pojistka prochází stroje seřazené ─
+
+test("applyUndoOps (D4): finální pojistka prochází stroje SEŘAZENĚ podle jména, ne v pořadí vložení (prevence deadlocku)", async () => {
+  const { tx, findManyMock } = mkTx([row({ id: 1, machine: "XL_106" }), row({ id: 2, machine: "XL_105" })]);
+  // Op pro XL_106 je v poli PRVNÍ → bez opravy by idsByMachine vložil XL_106
+  // jako první klíč Map (insertion order) a assertNoOverlapForBlocks by nad
+  // ním běžel dřív než nad XL_105 — opačně, než je abecedně.
+  await applyUndoOps(tx, [
+    { kind: "upsert", id: 1, fields: { machine: "XL_106", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" } },
+    { kind: "upsert", id: 2, fields: { machine: "XL_105", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" } },
+  ], actor, "undo");
+  // Volání findMany PO počátečním načtení existujících řádků (index 0) patří
+  // finální pojistce — jedno volání na stroj, v pořadí, ve kterém funkce stroje iteruje.
+  const overlapCalls = findManyMock.mock.calls.slice(1);
+  assert.equal(overlapCalls.length, 2, "assertNoOverlapForBlocks se volá jednou za cílový stroj");
+  const firstIds = (overlapCalls[0].arguments[0] as { where: { id: { in: number[] } } }).where.id.in;
+  assert.deepEqual(firstIds, [2], "XL_105 (blok 2) musí přijít na řadu PŘED XL_106 (blok 1), i když byl v ops až druhý");
 });

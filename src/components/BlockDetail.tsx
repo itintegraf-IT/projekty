@@ -588,7 +588,15 @@ export function BlockDetail({
                   {(log.action === "UNDO" || log.action === "REDO") && (
                     <span style={{ color: "var(--text-muted)" }}>
                       {" "}· {log.action === "UNDO" ? "↶ vráceno zpět" : "↷ znovu provedeno"}
-                      {log.oldValue && log.newValue && (
+                      {/* I2 (go/no-go audit 5. 8. 2026): field === "fields" značí, že se
+                          obnovila obchodní pole beze změny pozice (undoApply.server.ts)
+                          — oldValue/newValue nejsou časový span, ale seznam klíčů, takže
+                          se NESMÍ vykreslit jako šipka mezi časy (falešný dojem přesunu,
+                          který se nekonal). */}
+                      {log.field === "fields" && log.newValue && (
+                        <span style={{ color: "var(--text)" }}>: obnoveno {log.newValue.split(", ").map((k) => FIELD_LABELS[k] ?? k).join(", ")}</span>
+                      )}
+                      {log.field !== "fields" && log.oldValue && log.newValue && (
                         <span style={{ color: "var(--text)" }}>: {fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span>
                       )}
                     </span>

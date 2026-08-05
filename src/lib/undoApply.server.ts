@@ -5,6 +5,7 @@ import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { logger } from "@/lib/logger";
 import { SLOT_MS } from "@/lib/timeSlots";
 import { truncateUtf8 } from "@/lib/textTruncate";
+import { loadMachineCalendarRange } from "@/lib/printTime.server";
 
 export type UndoOp =
   | { kind: "upsert"; id: number; expectedUpdatedAt?: string; fields: Record<string, unknown> }
@@ -246,13 +247,23 @@ export async function applyUndoOps(
       const saved = await tx.block.update({ where: { id: op.id }, data });
       result.updatedIds.push(op.id);
       addToMachine(saved.machine, op.id);
+      // I2 (go/no-go audit 5. 8. 2026): span start–end jen když se pozice
+      // DOOPRAVDY obnovuje. Dřív se psal VŽDY, i pro čistě obchodní editaci
+      // (undo materialStatusId apod.) — oldValue/newValue vyšlo stejné (čas se
+      // nezměnil) a BlockDetail/InfoPanel to vykreslily jako „vráceno zpět:
+      // 2.9. 06:00 → 2.9. 06:00", falešný dojem přesunu, který nikam nevede,
+      // a audit přitom vůbec neobsahoval, co se SKUTEČNĚ vrátilo.
+      const touchesPosition = "startTime" in op.fields || "endTime" in op.fields || "machine" in op.fields;
       auditRows.push({
         blockId: op.id, orderNumber: saved.orderNumber, userId: actor.id, username: actor.username,
         action: direction === "undo" ? "UNDO" : "REDO",
-        field: "startTime/endTime/machine",
-        oldValue: span(row.startTime, row.endTime),
-        newValue: span(saved.startTime, saved.endTime),
+        field: touchesPosition ? "startTime/endTime/machine" : "fields",
+        oldValue: touchesPosition ? span(row.startTime, row.endTime) : null,
+        newValue: touchesPosition
+          ? span(saved.startTime, saved.endTime)
+          : (Object.keys(op.fields).length > 0 ? Object.keys(op.fields).sort().join(", ") : null),
       });
+      await warnIfUnusual(tx, op, saved);
     } else {
       // Obnova s PŮVODNÍM id — historie v AuditLogu a notifikace zůstanou
       // navázané. MySQL AUTO_INCREMENT se explicitním vložením nižší hodnoty
@@ -265,9 +276,8 @@ export async function applyUndoOps(
         action: direction === "undo" ? "UNDO" : "REDO",
         field: "restore", oldValue: null, newValue: span(saved.startTime, saved.endTime),
       });
+      await warnIfUnusual(tx, op, saved);
     }
-
-    warnIfUnusual(op);
   }
 
   if (auditRows.length > 0) await tx.auditLog.createMany({ data: auditRows as never });
@@ -278,8 +288,15 @@ export async function applyUndoOps(
   // stroji, který se zrovna kontroluje (jinak by srovnávala časová okna napříč
   // nesouvisejícími stroji). Stroje, ze kterých se jen odcházelo, kontrolu
   // nepotřebují — uvolněné místo překryv nevyrobí.
-  for (const [machine, ids] of idsByMachine) {
-    await assertNoOverlapForBlocks(machine, ids, tx);
+  //
+  // D4 (go/no-go audit 5. 8. 2026): stroje se prochází SEŘAZENÉ podle jména,
+  // ne v pořadí vložení do Map. Dvě souběžné undo dávky přes tytéž dva stroje
+  // v OPAČNÉM pořadí operací by si jinak mohly zaklínit zámky (dávka A drží
+  // zámek XL_105 a čeká na XL_106, dávka B naopak) — klasický deadlock
+  // z nekonzistentního pořadí zamykání. Seřazené pořadí je globálně stejné
+  // pro každou transakci, takže se nemůže stát.
+  for (const machine of [...idsByMachine.keys()].sort()) {
+    await assertNoOverlapForBlocks(machine, idsByMachine.get(machine)!, tx);
   }
 
   // Logování záměrně NENÍ tady. Funkce běží uvnitř `prisma.$transaction` — log
@@ -309,12 +326,36 @@ function toPrismaData(fields: Record<string, unknown>): Record<string, unknown> 
   return out;
 }
 
-/** Obnova mimo mřížku je legitimní (legacy bloky), ale produkce o ní má vědět. */
-function warnIfUnusual(op: Extract<UndoOp, { kind: "upsert" }>): void {
+/**
+ * Obnova mimo mřížku i obnova do firemní odstávky jsou legitimní (legacy bloky
+ * / vědomý zásah plánovače), ale produkce o obojím má vědět (spec, sekce 5 —
+ * „Co se jen loguje, neblokuje"). D3 (go/no-go audit 5. 8. 2026): odstávkové
+ * varování v návrhu bylo, implementované nebylo — doplněno vedle mřížkového.
+ *
+ * Odstávkový check běží JEN když operace doopravdy restartuje pozici
+ * (`startTime`/`endTime` v `op.fields`) — u čistě obchodní editace (např. undo
+ * změny `materialStatusId`) by warn o pozici, kterou undo vůbec nezměnilo, byl
+ * jen šum. Používá `saved` (stav PO zápisu, plně vyřešený i pro update, který
+ * mění jen jedno z dvojice start/end) — ne `op.fields`, který u update může mít
+ * jen polovinu páru.
+ */
+async function warnIfUnusual(
+  tx: PrismaTransactionClient,
+  op: Extract<UndoOp, { kind: "upsert" }>,
+  saved: { startTime: Date; endTime: Date; machine: string },
+): Promise<void> {
   const start = op.fields.startTime;
-  if (typeof start !== "string") return;
-  const t = new Date(start).getTime();
-  if (!Number.isNaN(t) && t % SLOT_MS !== 0) {
-    logger.warn(`[undo] blok ${op.id} obnoven na start mimo 30min mřížku (${start}) — legacy blok před modelem tiskových hodin`);
+  if (typeof start === "string") {
+    const t = new Date(start).getTime();
+    if (!Number.isNaN(t) && t % SLOT_MS !== 0) {
+      logger.warn(`[undo] blok ${op.id} obnoven na start mimo 30min mřížku (${start}) — legacy blok před modelem tiskových hodin`);
+    }
+  }
+  if ("startTime" in op.fields || "endTime" in op.fields) {
+    const cal = await loadMachineCalendarRange(tx, saved.machine, saved.startTime, saved.endTime);
+    const hit = cal.companyDays.find((c) => c.start < saved.endTime && c.end > saved.startTime);
+    if (hit) {
+      logger.warn(`[undo] blok ${op.id} obnoven do firemní odstávky (${hit.start.toISOString()}–${hit.end.toISOString()})`);
+    }
   }
 }
