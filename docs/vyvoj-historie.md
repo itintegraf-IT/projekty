@@ -501,19 +501,16 @@ a směn" odložen — čeká na osobní dovysvětlení od Lukáše.
   z formuláře, sourozenci jen `orderNumber`/`type`/`blockVariant` — jinak by se
   jim přepsal vlastní popis, termíny a štítky. Sourozenec už překlopený serverovou
   propagací (`SPLIT_SHARED_FIELDS`) se přeskočí.
-- **Undo řetězově odsunutých bloků**: tažení myší je ukládalo správně
+- **Undo řetězově odsunutých bloků** (stav k 4. 8. 2026 — architektura popsaná
+  tady byla den poté nahrazená atomickým endpointem, viz sekce „Atomické undo —
+  etapa A" níž pro AKTUÁLNÍ stav): tažení myší je ukládalo správně
   (`handleBlockUpdate` počítá `shiftedOld` z `blocksRef`); díry byly ve vkládání,
-  dropu z fronty a hromadném uložení. `buildCreateCommand` rozšířen o
-  `shiftedBefore`/`shiftedAfter` — **na pořadí operací záleží**: undo maže
-  vytvořený blok PŘED návratem sousedů, redo naopak sousedy nejdřív odsune a
-  teprve pak POSTne (POST má overlap guard). `snapshotShiftedFromResponse` musí
-  běžet PŘED `handleBlockCreate`, protože staré pozice existují jen v `blocksRef`
-  — server je v odpovědi nevrací. `handleSaveAll` zapisuje historii vůbec poprvé,
+  dropu z fronty a hromadném uložení. `snapshotShiftedFromResponse` musí běžet
+  PŘED `handleBlockCreate`, protože staré pozice existují jen v `blocksRef` —
+  server je v odpovědi nevrací. `handleSaveAll` zapisuje historii vůbec poprvé,
   se snapshotem všech bloků před smyčkou (PUT jednoho může propagovat na
   sourozence). Nový builder `buildMultiEditCommand` dělá z N bloků jeden krok
-  historie; záměrně neposílá `expectedUpdatedAt` (serverová propagace do split
-  sourozenců by druhý PUT shodila na 409), souběh hlídá guard nad živým stavem
-  provedený celý před prvním zápisem.
+  historie.
 - **Výlučnost OBÁLKA/VNITŘKY** (`toggleProductionVariant` v `productionTags.ts`):
   klik na druhou variantu první rovnou vypne, klik na jedinou aktivní ji vypne.
   Historický stav s oběma zaškrtnutými se klikem vyčistí na kliknutou variantu.
@@ -521,6 +518,91 @@ a směn" odložen — čeká na osobní dovysvětlení od Lukáše.
   v `ProductionTagsRow` pro všechny tři konzumenty.
 - **Split a reflow undo nadále nemají** (`TimelineGrid.tsx`, `PlannerPage`
   reflow handlery) — vědomě mimo rozsah, nejcitlivější serverové cesty.
+
+## Atomické undo — etapa A (4.–5. 8. 2026)
+
+Podklad: výzkum `docs/audits/2026-08-04-undo-atomicita-vyzkum.md` (multi-agent,
+4 agenti), spec `docs/superpowers/specs/2026-08-04-atomicke-undo-design.md`,
+plán `docs/superpowers/plans/2026-08-04-atomicke-undo-etapa-a.md`.
+
+**Spouštěč:** undo se do 4. 8. 2026 provádělo jako sekvence nezávislých HTTP
+volání (PUT, PUT, pak batch) bez transakce mezi nimi. Cokoliv selhalo
+uprostřed, zůstalo půl vrácené — a druhý Ctrl+Z nepomohl, protože buildery si
+při dílčím úspěchu přepsaly `updatedAt` z odpovědi, guard ale porovnával živý
+stav proti **protistraně** snapshotu, kterou dílčí úspěch neosvěžil. Konkrétní
+incident: odsunutý blok mimo 30minutovou mřížku (chain push vždy zarovnává,
+undo ho chtělo vrátit mimo mřížku — serverová validace to odmítla, undo
+zůstalo napůl provedené natrvalo).
+
+**Řešení:** nový endpoint `POST /api/blocks/undo` (`src/app/api/blocks/undo/route.ts`,
+tenká slupka; jádro `src/lib/undoApply.server.ts` — `sanitizeUndoOps` +
+`applyUndoOps`) provede **celý krok historie v JEDNÉ Prisma transakci**. Klient
+posílá `ops: (upsert | remove)[]`; endpoint zapisuje hodnoty **doslova**, bez
+`validateAndComputeEnd`/`expandPrintTime` (undo vrací stav, který v DB
+prokazatelně existoval — měřit ho dnešní mřížkovou validací je kategorická
+chyba, přesně to způsobovalo incident výše). Co běží vždy: optimistic lock
+všech cílů najednou PŘED prvním zápisem (`SELECT ... FOR UPDATE` jako první
+dotaz transakce — MySQL REPEATABLE READ jinak založí read-view na
+konzistentním čtení, které zámek nedrží), zákaz smazat vytištěný blok,
+`assertNoOverlapForBlocks` na konci. Klientské buildery (`src/lib/undo/commands.ts`)
+se překlopily ze sekvence `putBlock`/`postBlock`/`deleteBlock`/`batchUpdate` na
+jediné volání `UndoEffects.applyUndo`.
+
+**Pořadí operací uvnitř transakce PŘESTALO být problém** (oprava zastarale
+popsaného pravidla výše u „Undo řetězově odsunutých bloků" — to platilo pro
+starou sekvenční architekturu). Rané overlap kontroly se nespouštějí vůbec —
+mezistavy uvnitř transakce nikdo nevidí, provedou se všechny zápisy (nejdřív
+`remove`, pak `upsert` — čistě proto, aby chybové hlášky dávaly smysl, ne kvůli
+korektnosti) a teprve na konci proběhne jediná `assertNoOverlapForBlocks`.
+Stejně tak `buildMultiEditCommand`/`buildDeleteCommand` nově posílají
+`expectedUpdatedAt` na KAŽDÉM cíli (dřív se to u multi-edit vědomě vynechávalo,
+protože sekvenční PUTy si navzájem bumpovaly verze přes serverovou propagaci) —
+endpoint čte stav jednou a zapisuje až po kontrole všech zámků, takže si cíle
+nemůžou nic shodit.
+
+**Vedlejší efekt zápisu doslova:** `SPLIT_SHARED_FIELDS` (`src/lib/splitSharedFields.ts`)
+se přes starý `PUT /api/blocks/[id]` propagovaly na split sourozence
+automaticky (`updateMany`) — undo je tak dostávalo zpátky zadarmo. Nový
+endpoint nepropaguje nic, takže sourozenec se musí do `ops` dostat ADRESNĚ,
+jinak split skupina se sdílenými poli tiše rozejde. To je celý obsah `undo/`
+modulů níž.
+
+### Go/no-go audit a oprava (5. 8. 2026)
+
+Závěrečná revize před sloučením větve našla Critical: tři nezávislé cesty,
+kde se split sourozenec do `ops` nedostal, a menší nálezy. Oprava:
+
+- **`src/lib/undo/splitSiblingFields.ts`** — tři čisté, testované funkce:
+  `buildSplitEditTargets` (primár + běžní sourozenci, objektový parametr —
+  dřív poziční, ale druhý call site zvýšil riziko tiché záměny páru `before`/
+  `after`, která by beze stopy obrátila směr undo), `buildSplitEditTargetsWithShifted`
+  (navíc pohltí sourozence odsunuté chain pushem, které PUT route vyloučila ze
+  `siblings`, aby neposlala dvojitou SSE událost — takový soused se jinak do
+  `buildSplitEditTargets` vůbec nedostal a `handleBlockUpdate` mu poslalo jen
+  pozici, nikdy sdílená pole), `buildPassiveSiblingTargets` (sourozenci
+  propagovaní serverem, o které si klient explicitně neřekl — typicky
+  „Překlopení rezervace" s volbou „jen tento blok").
+- **`handleSaveAll`** (dialog „Celou sérii" v `BlockEdit.tsx`) sourozence
+  z odpovědi PUTu vůbec nečetl. Split TAIL navíc nikdy nefiguruje v `ids`
+  série (`getSeriesIds()` klíčuje na `recurrenceParentId`, který split route
+  ocasu záměrně nekopíruje — ocas není samostatná série) — sourozenec se musí
+  zapsat adresně ze `siblings` v odpovědi, ne přes rozšíření `ids`.
+- **`handleFlipReservation`** při volbě „jen tento blok" (`siblingIds = []`)
+  ignoroval sourozence, které server přesto propagoval (`updateMany` běží nad
+  celou `splitGroupId` bez ohledu na to, co si klient vyžádal). Diff proti
+  `SPLIT_SHARED_FIELDS` proběhne AŽ PO dokončení všech PUTů dávky, proti stavu
+  zachycenému před první mutací.
+- **AuditLog u polních editací** (`applyUndoOps`) psal span `start–end` pro
+  KAŽDÝ upsert, i když se pozice vůbec neobnovovala (typicky undo editace
+  `materialStatusId`) — `oldValue` vyšlo rovno `newValue` a `BlockDetail`/
+  `InfoPanel` to vykreslily jako „vráceno zpět: 2.9. 06:00 → 2.9. 06:00",
+  falešný přesun, který se nekonal. Teď: `field: "fields"` + seřazený seznam
+  obnovených klíčů v `newValue`, UI ho vykreslí jako text, ne jako šipku.
+- Drobnosti: `logger.warn` doplněn i pro obnovu do firemní odstávky (dřív jen
+  mřížkové varování); finální overlap pojistka prochází stroje seřazené podle
+  jména (prevence deadlocku dvou souběžných dávek); test `DATE_FIELDS`
+  přepsaný, aby doopravdy cross-referencoval `prisma/schema.prisma`, ne ručně
+  přepsanou kopii sebe sama.
 
 ## Copy/Paste flow
 

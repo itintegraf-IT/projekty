@@ -9,7 +9,7 @@
 ```bash
 npm run build        # build (spustit lokálně před pushem — chytí TS chyby dřív než server)
 npm run lint         # vrací warningy, 0 chyb je OK
-# celá test suite (560 testů, node:test + tsx) — glob NEJDE do podsložek,
+# celá test suite (617 testů, node:test + tsx) — glob NEJDE do podsložek,
 # proto se každá složka s testy musí uvést zvlášť (jinak tiše nepoběží):
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/app/_components/*.test.ts
 ```
@@ -72,13 +72,14 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 ```
 `errorStatus` je kanonická mapa kód→HTTP v `errors.ts` (žádné lokální kopie).
 
-**Auth v nových API routes → `requireRole([...])`** (`src/lib/auth.ts`) UVNITŘ try (hází `UNAUTHORIZED`/`FORBIDDEN` → catch výše). Čisté jádro `assertRole` v `src/lib/authz.ts`. Jediné záměrně veřejné routes: `/api/auth/*` a `/api/health` (liveness probe pro monitoring, výjimka v middleware přesnou shodou) — žádné další nepřidávat.
+**Auth v nových API routes → `requireRole([...])`** (`src/lib/auth.ts`) UVNITŘ try (hází `UNAUTHORIZED`/`FORBIDDEN` → catch výše). Čisté jádro `assertRole` v `src/lib/authz.ts`. Jediné záměrně veřejné cesty: `/api/auth/*`, `/api/health` (liveness probe pro monitoring) a `/vyroba-terminal.html` (kioskový launcher u strojů, `docs/KIOSK_TERMINAL.md`) — všechny tři výjimkou v middleware přesnou shodou (`src/middleware.ts`) — žádné další nepřidávat.
 
 **Logování → vždy `logger`** (`src/lib/logger.ts`), nikdy `console.*` v API routes.
 
 **Validace harmonogramu → vždy `validateAndComputeEnd`** (`src/lib/scheduleValidationServer.ts`, jediný zdroj pravdy). Pro každý ZAKAZKA blok s `startTime` (POST/PUT/batch): ulož **end vrácený funkcí** (nikdy z klienta) a do `Block.scheduleBypassed` ulož **`sched.effectivelyBypassed`** (spočítaná pravda), nikdy echo request flagu. Klientské mutační cesty posílají `printMinutes` a snapují **jen start** (`snapStartToNextRunnableSlot`), end dopočítá server. Detaily „tiskových hodin" → `docs/vyvoj-historie.md`.
+**Jediná vědomá výjimka: `POST /api/blocks/undo`** (`src/lib/undoApply.server.ts`) tohle záměrně NEDĚLÁ — zapisuje `startTime`/`endTime`/`printMinutes`/`scheduleBypassed` doslova ze snapshotu, bez `validateAndComputeEnd`/`expandPrintTime`. Undo vrací stav, který v DB prokazatelně existoval; měřit ho dnešní mřížkovou validací je kategorická chyba — přesně to dřív rozbíjelo návrat bloků mimo 30minutovou mřížku (nešlo je vrátit vůbec, selhávalo to pokaždé). Nerozšiřuj tuhle výjimku na žádnou jinou cestu — je vázaná na to, že undo obnovuje již-existující stav, ne nový vstup od uživatele.
 
-**Overlap guard platí pro VŠECHNY typy bloků** (ZAKAZKA, REZERVACE, UDRZBA — ne jen ZAKAZKA), na všech 5 zápisových cestách (POST/PUT/batch/split/reflow). `assertNoOverlapForBlocks`/`checkBlockOverlap` (`src/lib/overlapCheck.ts`) jsou type-agnostické odjakživa — nový kód, který mění `startTime`/`endTime`/`machine` bloku libovolného typu, musí na konci transakce zavolat `assertNoOverlapForBlocks` se seznamem ID dotčených bloků. Reflow endpointy (`src/lib/reflow.server.ts`) tuto pojistku dřív nevolaly vůbec (reálný bug, opraven 16. 7. 2026) — nepřidávat žádnou novou mutační cestu bez ní. Detaily → `docs/vyvoj-historie.md`.
+**Overlap guard platí pro VŠECHNY typy bloků** (ZAKAZKA, REZERVACE, UDRZBA — ne jen ZAKAZKA), na všech 6 zápisových cestách (POST/PUT/batch/split/reflow/undo). `assertNoOverlapForBlocks`/`checkBlockOverlap` (`src/lib/overlapCheck.ts`) jsou type-agnostické odjakživa — nový kód, který mění `startTime`/`endTime`/`machine` bloku libovolného typu, musí na konci transakce zavolat `assertNoOverlapForBlocks` se seznamem ID dotčených bloků. Reflow endpointy (`src/lib/reflow.server.ts`) tuto pojistku dřív nevolaly vůbec (reálný bug, opraven 16. 7. 2026) — nepřidávat žádnou novou mutační cestu bez ní. Detaily → `docs/vyvoj-historie.md`.
 
 **Chain push (odsouvání navazujících bloků) platí pro VŠECHNY typy** — od 31. 7. 2026 si rezervace i údržba udělají místo stejně jako zakázka (dřív byly pevná zeď a drop se odmítl 409). Geometrie posunu se ale liší a je v jediném zdroji pravdy `chainPushGeometry` (`src/lib/overlapResolver.server.ts`), který volá jak push, tak jeho nezávislá pojistka:
 - **ZAKAZKA** → tiskové hodiny: délka z `printMinutes`, re-expanze přes pauzy směn.
@@ -94,6 +95,12 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 **Split-skupiny**: členství dotazuj VÝHRADNĚ `where: { splitGroupId: X }`, NIKDY `id === splitGroupId` — `Block.id` a `SplitGroup.id` jsou nezávislé id-prostory. Split vzniká atomicky přes `POST /api/blocks/[id]/split`.
 
+**Undo → vždy `POST /api/blocks/undo`** (tenká route `src/app/api/blocks/undo/route.ts`, jádro `src/lib/undoApply.server.ts`). Undo vrací stav, který v DB prokazatelně existoval, takže endpoint zapisuje doslova ze snapshotu a NEspouští validaci harmonogramu (viz výjimka výše). Co běží VŽDY: optimistic lock (`expectedUpdatedAt`, kontrolovaný pro všechny cíle najednou před prvním zápisem) a `assertNoOverlapForBlocks` na konci transakce. Nové undo cesty nesmí obcházet `sanitizeUndoOps` (allowlist sloupců `UNDO_RESTORABLE_FIELDS`, `src/lib/undo/restoreFields.ts`).
+- **`SELECT ... FOR UPDATE` musí být PRVNÍ dotaz v transakci** — platí pro undo, ale i pro každou budoucí transakci v repu, která nejdřív čte a pak zapisuje pod optimistic lockem. Pod MySQL REPEATABLE READ založí obyčejný `findMany`/`SELECT` jen consistent-read snapshot bez zámků; teprve zamykající čtení jako první dotaz zajistí, že se zámek i vidění dat kryjí (jinak TOCTOU mezera — souběžný zápis odjinud by proklouzl mezi kontrolou verze a update/delete).
+- **`SPLIT_SHARED_FIELDS` (`src/lib/splitSharedFields.ts`) se přes undo NEPROPAGUJÍ.** PUT route propaguje sdílená pole na split sourozence automaticky (`updateMany`); atomický undo endpoint zapisuje doslova a nic neodvozuje ani nepropaguje. Každý sourozenec, kterého má undo vrátit, musí být v `ops` ADRESNĚ (vlastní `upsert`), typicky přes `buildSplitEditTargets`/`buildSplitEditTargetsWithShifted`/`buildPassiveSiblingTargets` (`src/lib/undo/splitSiblingFields.ts`). Zapomenutý sourozenec = split skupina se sdílenými poli tiše rozejde (šlo o Critical nález go/no-go auditu 5. 8. 2026, tři nezávislé cesty).
+- **Strop 200 operací** v jedné undo dávce (`sanitizeUndoOps`) — nad tím 400 `VALIDATION_ERROR`.
+- **`Block.id` po undo obnově zůstává PŮVODNÍ** (žádný remap) — undo mazání smaže řádek, undo vzkříšení ho vytvoří zpátky se STEJNÝM id (MySQL `AUTO_INCREMENT` se explicitním vložením nižší hodnoty nesnižuje). Mění to předpoklad „smazaný blok je pryč navždy" — `AuditLog.blockId` i `Notification` na něj mohou po redu znovu ukazovat platný řádek.
+
 ## Design tokens a vizuální konvence
 
 - Barvy/rozměry **vždy přes CSS tokeny** z `src/app/globals.css`, **nikdy hex/rgba literál** v komponentě (rozbíjí light mode): `--bg`/`--text`/`--text-muted`, `--surface`/`--surface-2`/`--surface-3`, `--border`, `--ring`, `--brand`/`--brand-contrast`, `--danger`/`--success`/`--warning`/`--info`.
@@ -106,9 +113,9 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 ## Klíčové soubory (index — detail čti v kódu)
 
-**Sdílené jádro:** `src/lib/errors.ts` (AppError/errorStatus) · `authz.ts`+`auth.ts` (requireRole) · `logger.ts` · `scheduleValidationServer.ts` (validateAndComputeEnd) · `printTime.ts`/`printTime.server.ts`/`printTimeClient.ts` (tiskové hodiny) · `blockPayload.ts` (Block→POST payload, jediný zdroj) · `blockStyles.ts` · `machines.ts` · `zLayers.ts` · `dateUtils.ts` · `plannerTypes.ts` · `uiStyles.ts` · `reflow.server.ts` · `calendarDrift.server.ts` · `findConflictingBlocks.ts`.
+**Sdílené jádro:** `src/lib/errors.ts` (AppError/errorStatus) · `authz.ts`+`auth.ts` (requireRole) · `logger.ts` · `scheduleValidationServer.ts` (validateAndComputeEnd) · `printTime.ts`/`printTime.server.ts`/`printTimeClient.ts` (tiskové hodiny) · `blockPayload.ts` (Block→POST payload, jediný zdroj) · `blockStyles.ts` · `machines.ts` · `zLayers.ts` · `dateUtils.ts` · `plannerTypes.ts` · `uiStyles.ts` · `reflow.server.ts` · `calendarDrift.server.ts` · `findConflictingBlocks.ts` · `undoApply.server.ts` (atomické undo/redo, `sanitizeUndoOps`+`applyUndoOps`) · `splitSharedFields.ts` (`SPLIT_SHARED_FIELDS`, sdílené serverem i klientem) · `undo/restoreFields.ts` (`UNDO_RESTORABLE_FIELDS` allowlist) · `undo/splitSiblingFields.ts` (`buildSplitEditTargets`/`buildSplitEditTargetsWithShifted`/`buildPassiveSiblingTargets`).
 
-**Planner:** `src/app/_components/PlannerPage.tsx` (orchestrátor ~2647 ř.) · `TimelineGrid.tsx` (~2355 ř.) · `src/components/planner/BlockCard.tsx` (render bloku) · `src/hooks/useJobBuilder.ts` + `src/components/planner/JobBuilderPanel.tsx` (builder) · `src/components/planner/ProductionTagsRow.tsx` (sdílený řádek výrobních štítků OBÁLKA/VNITŘKY + archy/série — BlockEdit i builder) · `ShutdownManager.tsx` · `ResizeHandle.tsx` · `src/components/BlockEdit.tsx`/`BlockDetail.tsx`/`NativeSelect.tsx`/`PrimaryCta.tsx`/`ModuleHeader.tsx`/`ConfirmDialog.tsx`.
+**Planner:** `src/app/_components/PlannerPage.tsx` (orchestrátor ~3109 ř.) · `TimelineGrid.tsx` (~2355 ř.) · `src/components/planner/BlockCard.tsx` (render bloku) · `src/hooks/useJobBuilder.ts` + `src/components/planner/JobBuilderPanel.tsx` (builder) · `src/components/planner/ProductionTagsRow.tsx` (sdílený řádek výrobních štítků OBÁLKA/VNITŘKY + archy/série — BlockEdit i builder) · `ShutdownManager.tsx` · `ResizeHandle.tsx` · `src/components/BlockEdit.tsx`/`BlockDetail.tsx`/`NativeSelect.tsx`/`PrimaryCta.tsx`/`ModuleHeader.tsx`/`ConfirmDialog.tsx`.
 
 **Admin:** `src/app/admin/_components/` — `AdminDashboard.tsx` (shell) + `UsersSection.tsx`/`CodebookSection.tsx`/`PresetSection.tsx` + `adminShared.ts`.
 
