@@ -1,4 +1,4 @@
-import { StaleUndoError, type BlockSnapshot, type EditSnapshot, type HistoryEntry, type UndoEffects } from "./types";
+import { StaleUndoError, type BlockSnapshot, type EditSnapshot, type HistoryEntry, type UndoEffects, type UndoOpClient } from "./types";
 
 function guard(effects: UndoEffects, expected: BlockSnapshot[]): void {
   for (const s of expected) {
@@ -7,35 +7,60 @@ function guard(effects: UndoEffects, expected: BlockSnapshot[]): void {
   }
 }
 
+/** BlockSnapshot → operace obnovy pozice. printMinutes jen když je ve snapshotu přítomné
+ * (u REZERVACE/UDRZBA se neposílá `null`, aby undo nepsal nesmyslnou hodnotu do bloku,
+ * který tiskové hodiny vůbec nezná). */
+function posOp(t: BlockSnapshot, expectedUpdatedAt?: string): UndoOpClient {
+  return {
+    kind: "upsert", id: t.id, expectedUpdatedAt,
+    fields: {
+      startTime: t.startTime, endTime: t.endTime, machine: t.machine,
+      ...(t.printMinutes !== undefined ? { printMinutes: t.printMinutes } : {}),
+    },
+  };
+}
+
+/** Odpověď serveru → osvěžení verzí ve snapshotech (aby další krok guardem prošel). */
+function refresh(snapshots: Array<{ id: number; updatedAt: string }>, updated: Array<{ id: number; updatedAt: string }>) {
+  const byId = new Map(updated.map((b) => [b.id, b.updatedAt]));
+  for (const s of snapshots) { const u = byId.get(s.id); if (u) s.updatedAt = u; }
+}
+
 /**
- * Poziční přesun (drag / resize / lasso) + odsunutí sousedé. undo/redo přes batchUpdate.
- * before/after jsou mutable: po každém apply se jejich updatedAt osvěží z odpovědi serveru,
+ * Poziční přesun (drag / resize / lasso) + odsunutí sousedé — JEDNO atomické volání
+ * `applyUndo` (POST /api/blocks/undo). Dřív šlo o sekvenci nezávislých `batchUpdate`
+ * volání bez transakce mezi nimi; teď celý krok historie projde buď celý, nebo vůbec.
+ * before/after jsou mutable: po každém apply se jejich updatedAt osvěží z odpovědi,
  * aby další guard/expectedUpdatedAt seděl.
  */
 export function buildMoveCommand(label: string, before: BlockSnapshot[], after: BlockSnapshot[]): HistoryEntry {
-  const apply = async (effects: UndoEffects, target: BlockSnapshot[], expected: BlockSnapshot[]) => {
+  const apply = async (effects: UndoEffects, target: BlockSnapshot[], expected: BlockSnapshot[], direction: "undo" | "redo") => {
     guard(effects, expected);
     const expMap = new Map(expected.map((e) => [e.id, e.updatedAt]));
-    const res = await effects.batchUpdate(
-      target.map((t) => ({
-        id: t.id, startTime: t.startTime, endTime: t.endTime, machine: t.machine,
-        expectedUpdatedAt: expMap.get(t.id),
-      })),
-    );
-    const resMap = new Map(res.map((b) => [b.id, b.updatedAt]));
-    for (const t of target) { const u = resMap.get(t.id); if (u) t.updatedAt = u; }
-    effects.addToState(res);
+    const res = await effects.applyUndo({
+      label, direction,
+      ops: target.map((t) => posOp(t, expMap.get(t.id))),
+    });
+    refresh(target, res.updated);
+    effects.addToState(res.updated);
   };
   return {
     label,
-    undo: (effects) => apply(effects, before, after),
-    redo: (effects) => apply(effects, after, before),
+    undo: (effects) => apply(effects, before, after, "undo"),
+    redo: (effects) => apply(effects, after, before, "redo"),
   };
 }
 
 /**
- * Editace polí primárního bloku (PUT) + volitelná obnova odsunutých sousedů (batch).
- * before/after nesou editovaná pole; shiftedBefore/After pozice sousedů. Mutable updatedAt.
+ * Editace polí primárního bloku + volitelná obnova odsunutých sousedů —
+ * JEDNO atomické volání `applyUndo`. Dřív to byl PUT následovaný batchem, mezi
+ * kterými nebyla transakce: když selhal batch, editace zůstala provedená.
+ *
+ * Guard před voláním kontroluje jen primární blok (rychlá klientská zkratka,
+ * ušetří zbytečný round-trip) — server uvnitř `applyUndo` kontroluje
+ * `expectedUpdatedAt` VŠECH cílů (primár i sousedé) atomicky před prvním
+ * zápisem, takže částečná aplikace kroku historie nehrozí, i když klient
+ * sousedy předem neguarduje.
  */
 export function buildEditCommand(
   label: string,
@@ -46,47 +71,27 @@ export function buildEditCommand(
 ): HistoryEntry {
   const apply = async (
     effects: UndoEffects,
-    target: EditSnapshot,
-    expected: EditSnapshot,
-    shiftedTarget: BlockSnapshot[],
-    shiftedExpected: BlockSnapshot[],
+    target: EditSnapshot, expected: EditSnapshot,
+    shiftedTarget: BlockSnapshot[], shiftedExpected: BlockSnapshot[],
+    direction: "undo" | "redo",
   ) => {
     const live = effects.getLiveBlock(target.id);
     if (!live || live.updatedAt !== expected.updatedAt) throw new StaleUndoError();
-    const updated = await effects.putBlock(target.id, {
-      ...target.fields,
-      expectedUpdatedAt: expected.updatedAt,
-      resolveChain: true,
-      // Undo/redo vrací blok do stavu, který už jednou v DB legitimně existoval
-      // (mohl být umístěn s bypassem / mimo provoz). Bez tohoto flagu server znovu
-      // validuje pracovní dobu a undo selže na tom, co uživatel právě udělal. Server
-      // stejně spočítá skutečnou konformitu (effectivelyBypassed) — stav se nezkazí.
-      bypassScheduleValidation: true,
+    const expMap = new Map(shiftedExpected.map((e) => [e.id, e.updatedAt]));
+    const res = await effects.applyUndo({
+      label, direction,
+      ops: [
+        { kind: "upsert", id: target.id, expectedUpdatedAt: expected.updatedAt, fields: target.fields },
+        ...shiftedTarget.map((t) => posOp(t, expMap.get(t.id))),
+      ],
     });
-    target.updatedAt = updated.updatedAt;
-    const { shifted: _shifted, siblings, ...cleanUpdated } = updated;
-    effects.addToState([cleanUpdated]);
-    // #9: undo/redo shared-field editace split bloku re-triggeruje serverovou propagaci →
-    // aplikovat i vrácené sourozence (čerstvý updatedAt), jinak by undo znovu otevřel falešný
-    // 409 při následném splitu sourozence (symetrie s handleBlockUpdate v PlannerPage).
-    if (siblings && siblings.length > 0) effects.addToState(siblings);
-    if (shiftedTarget.length > 0) {
-      const expMap = new Map(shiftedExpected.map((e) => [e.id, e.updatedAt]));
-      const res = await effects.batchUpdate(
-        shiftedTarget.map((t) => ({
-          id: t.id, startTime: t.startTime, endTime: t.endTime, machine: t.machine,
-          expectedUpdatedAt: expMap.get(t.id),
-        })),
-      );
-      const resMap = new Map(res.map((b) => [b.id, b.updatedAt]));
-      for (const t of shiftedTarget) { const u = resMap.get(t.id); if (u) t.updatedAt = u; }
-      effects.addToState(res);
-    }
+    refresh([target, ...shiftedTarget], res.updated);
+    effects.addToState(res.updated);
   };
   return {
     label,
-    undo: (effects) => apply(effects, before, after, shiftedBefore, shiftedAfter),
-    redo: (effects) => apply(effects, after, before, shiftedAfter, shiftedBefore),
+    undo: (effects) => apply(effects, before, after, shiftedBefore, shiftedAfter, "undo"),
+    redo: (effects) => apply(effects, after, before, shiftedAfter, shiftedBefore, "redo"),
   };
 }
 
@@ -156,10 +161,12 @@ export function buildMultiEditCommand(
 }
 
 /**
- * MOVE vs RESIZE dispatcher pro poziční mutace bloku (drag/resize).
- * - start nebo machine se změnily → MOVE, undo/redo přes batchUpdate (stávající chování).
- * - jen endTime se změnil → RESIZE, undo/redo přes PUT endTime (server invertuje printMinutes
- *   zpět; batch by pro ZAKAZKA endTime ignoroval a undo by byl no-op — viz api/blocks/batch).
+ * MOVE vs RESIZE dispatcher pro poziční mutace bloku (drag/resize). Obě větve teď
+ * jedou přes `applyUndo` (buildMoveCommand/buildEditCommand), liší se jen tvarem polí:
+ * - start nebo machine se změnily → MOVE (buildMoveCommand): startTime/endTime/machine.
+ * - jen endTime se změnil → RESIZE (buildEditCommand): endTime + printMinutes (endpoint
+ *   nic nederivuje, takže bez explicitního printMinutes by po undo zůstal blok se
+ *   spanem, který neodpovídá tiskovým minutám — viz api/blocks/[id]/route.ts:153).
  * - nic se nezměnilo → null (nezaznamenávat prázdnou undo položku).
  */
 export function buildMoveOrResizeCommand(
@@ -186,10 +193,14 @@ export function buildMoveOrResizeCommand(
     );
   }
   if (endChanged) {
+    // printMinutes musí jít v poli explicitně — endpoint nic nederivuje (na rozdíl
+    // od staré PUT route, která z endTime dopočítala printMinutes sama, viz
+    // api/blocks/[id]/route.ts:153). Bez něj by po undo zůstal blok se spanem,
+    // který neodpovídá tiskovým minutám.
     return buildEditCommand(
       "Změna délky",
-      { id: prev.id, updatedAt: prev.updatedAt, fields: { endTime: prev.endTime } },
-      { id: updated.id, updatedAt: updated.updatedAt, fields: { endTime: updated.endTime } },
+      { id: prev.id, updatedAt: prev.updatedAt, fields: { endTime: prev.endTime, printMinutes: prev.printMinutes ?? null } },
+      { id: updated.id, updatedAt: updated.updatedAt, fields: { endTime: updated.endTime, printMinutes: updated.printMinutes ?? null } },
       shiftedBefore,
       shiftedAfter,
     );

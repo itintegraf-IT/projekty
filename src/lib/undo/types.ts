@@ -9,6 +9,8 @@ export type BlockSnapshot = {
   endTime: string;
   machine: string;
   updatedAt: string;
+  /** Jen u ZAKAZKA. Endpoint nederivuje, takže resize musí obnovit i tiskové minuty. */
+  printMinutes?: number | null;
 };
 
 /** Snapshot editovaných polí bloku pro edit/undo (before i after). */

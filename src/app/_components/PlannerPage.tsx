@@ -1073,8 +1073,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       setSelectedBlock((sel) => (sel ? siblings.find((s) => s.id === sel.id) ?? sel : sel));
     }
     if (prev && addToHistory) {
-      const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt };
-      const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt };
+      // printMinutes v obou snapshotech: RESIZE větev buildMoveOrResizeCommand ho posílá na
+      // server doslova (endpoint nic nederivuje) — bez něj by po undo/redo zůstal blok se
+      // spanem, který neodpovídá tiskovým minutám (Task 6, Step 3b).
+      const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt, printMinutes: (prev as Block).printMinutes };
+      const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt, printMinutes: cleanUpdated.printMinutes };
       const shiftedBeforeMove = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt }));
       const shiftedAfterMove = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt }));
       const mutationCmd = buildMoveOrResizeCommand(prevSnap, updatedSnap, shiftedBeforeMove, shiftedAfterMove);
