@@ -48,16 +48,11 @@ export type UndoResponse = { updated: Block[]; removed: number[] };
 
 /** Injektované vedlejší efekty. Reálná implementace žije v PlannerPage; v testech se podstrčí fake. */
 export interface UndoEffects {
-  putBlock(id: number, body: Record<string, unknown>): Promise<Block & { shifted?: Block[]; siblings?: Block[] }>;
-  postBlock(body: Record<string, unknown>): Promise<Block>;
-  deleteBlock(id: number): Promise<void>;
-  batchUpdate(
-    updates: Array<{ id: number; startTime: string; endTime: string; machine: string; expectedUpdatedAt?: string }>,
-  ): Promise<Block[]>;
   /**
-   * Atomické provedení celého kroku historie. Nahrazuje sekvenci
-   * putBlock/batchUpdate/postBlock/deleteBlock — buď projde celá, nebo se
-   * nezmění nic. Chybu ze serveru propaguje jako Error s její hláškou.
+   * Atomické provedení celého kroku historie undo/redo — buď projde celá dávka,
+   * nebo se nezmění nic. Chybu ze serveru propaguje jako Error s její hláškou;
+   * při souběhu (jiný uživatel mezitím blok změnil) navíc nese `.code === "CONFLICT"`
+   * (viz `isStale` v `useUndoManager.ts`, který ho léčí stejně jako `StaleUndoError`).
    */
   applyUndo(req: UndoRequest): Promise<UndoResponse>;
   /** Upsert bloků do stavu (merge podle id). */

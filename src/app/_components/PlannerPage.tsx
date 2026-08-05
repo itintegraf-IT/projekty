@@ -161,43 +161,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // ── Undo effects (reálná implementace injektovaná do command builderů) ──
   const undoEffectsRef = useRef<UndoEffects>(null as unknown as UndoEffects);
   undoEffectsRef.current = {
-    putBlock: async (id, body) => {
-      const r = await fetch(`/api/blocks/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
-      return r.json();
-    },
-    postBlock: async (body) => {
-      const r = await fetch("/api/blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
-      return r.json();
-    },
-    deleteBlock: async (id) => {
-      // Undo/redo maže blok, který uživatel sám před chvílí vytvořil — proto smí
-      // přebít zámek (`force`). NESMÍ ale přebít potvrzený tisk: tiskař ho mohl
-      // odklepnout mezitím a klientská kopie bloku o tom nemusí vědět (SSE update
-      // se pro právě editovaný blok záměrně zahazuje). Rozhoduje proto ČERSTVÝ
-      // stav ze serveru, ne `blocksRef`.
-      const check = await fetch(`/api/blocks/${id}`);
-      if (check.ok) {
-        const aktualni = await check.json().catch(() => null) as { printCompletedAt?: string | null } | null;
-        if (aktualni?.printCompletedAt) {
-          throw new Error("Tisk bloku mezitím potvrdil tiskař — vrácení zpět by smazalo hotovou práci. Smaž blok ručně, pokud to opravdu chceš.");
-        }
-      }
-      const r = await fetch(`/api/blocks/${id}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force: true }),
-      });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
-    },
-    batchUpdate: async (updates) => {
-      // bypassScheduleValidation: true — undo/redo vrací bloky do dříve existujícího
-      // stavu, nesmí selhat na re-validaci pracovní doby (viz putBlock výše).
-      const r = await fetch("/api/blocks/batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ updates, bypassScheduleValidation: true, bypassOverlapCheck: true }) });
-      if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
-      return r.json();
-    },
     applyUndo: async (req) => {
       const r = await fetch("/api/blocks/undo", {
         method: "POST",
@@ -207,10 +170,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (!r.ok) {
         const e = await r.json().catch(() => ({})) as { error?: string; code?: string };
         const err = new Error(e.error ?? "Chyba serveru");
-        // `.code` (např. "CONFLICT" = někdo blok mezitím změnil) se sem přilepí, ale
-        // createUndoCore ho DNES nečte — reaguje jen na `instanceof StaleUndoError`, takže
-        // CONFLICT ze souběhu zatím skončí jako obecné „Vrácení zpět selhalo." Specifičtější
-        // hlášku podle `code` doplní Task 8.
+        // `.code` (např. "CONFLICT" = někdo blok mezitím změnil) se sem přilepí a
+        // useUndoManager.ts ho čte (`isStale`) — CONFLICT dostane stejné zacházení
+        // jako StaleUndoError, hláška z `e.error` doputuje do toastu.
         (err as Error & { code?: string }).code = e.code;
         throw err;
       }

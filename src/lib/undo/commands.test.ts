@@ -21,12 +21,11 @@ function blk(id: number, over: Partial<Block> = {}): Block {
 }
 
 /**
- * Fake effects: applyUndo aplikuje ops na živou mapu a bumpne updatedAt. Od Tasku 7 je to
- * JEDINÁ cesta, kterou zapisuje libovolný builder v tomhle souboru (buildMoveCommand,
+ * Fake effects: applyUndo aplikuje ops na živou mapu a bumpne updatedAt. Je to JEDINÁ
+ * cesta, kterou zapisuje libovolný builder v tomhle souboru (buildMoveCommand,
  * buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand) —
- * putBlock/postBlock/deleteBlock zůstávají jen jako stub "unused", nic je nevolá.
- * batchUpdate zůstává funkční (nad `live` mapou) čistě pro negativní asserce typu
- * "MOVE jde přes applyUndo, NE přes starý batchUpdate" (calls.batch.length === 0).
+ * starší putBlock/postBlock/deleteBlock/batchUpdate z Tasku 7 zmizely z `UndoEffects`
+ * úplně (Task 8).
  *
  * POZOR (review Tasku 7, nález I3): `applyUndo` tady mutuje `live` PŘÍMO, takže asserce
  * typu `live.has(id)` projdou i BEZ volání `addToState`/`removeFromState` — v reálné
@@ -38,7 +37,6 @@ function makeEffects(live: Map<number, Block>) {
     undo: [] as UndoRequest[],
     added: [] as Block[][],
     removed: [] as number[][],
-    batch: [] as unknown[][],
   };
   const effects: UndoEffects = {
     getLiveBlock: (id) => live.get(id),
@@ -58,19 +56,6 @@ function makeEffects(live: Map<number, Block>) {
     },
     addToState: (blocks) => { calls.added.push(blocks); },
     removeFromState: (ids) => { calls.removed.push(ids); },
-    putBlock: async () => { throw new Error("unused"); },
-    postBlock: async () => { throw new Error("unused"); },
-    deleteBlock: async () => { throw new Error("unused"); },
-    batchUpdate: async (updates) => {
-      calls.batch.push(updates);
-      const res = updates.map((u) => {
-        const cur = live.get(u.id)!;
-        const next = { ...cur, startTime: u.startTime, endTime: u.endTime, machine: u.machine, updatedAt: cur.updatedAt + "+" };
-        live.set(u.id, next);
-        return next;
-      });
-      return res;
-    },
   };
   return { effects, calls };
 }
@@ -168,38 +153,9 @@ test("buildMoveCommand: undo obnoví scheduleBypassed=false (blok bypass nebyl, 
   assert.equal(live.get(1)!.scheduleBypassed, false);
 });
 
-/** Rozšíření fake effects o putBlock (osvěží updatedAt a vrátí volitelně shifted). */
-function makeEditEffects(live: Map<number, Block>) {
-  const calls = { put: [] as Array<{ id: number; body: Record<string, unknown> }>, batch: [] as unknown[][], added: [] as Block[][] };
-  const effects: UndoEffects = {
-    getLiveBlock: (id) => live.get(id),
-    putBlock: async (id, body) => {
-      calls.put.push({ id, body });
-      const cur = live.get(id)!;
-      const next = { ...cur, ...body, updatedAt: cur.updatedAt + "+" } as Block;
-      live.set(id, next);
-      return next;
-    },
-    batchUpdate: async (updates) => {
-      calls.batch.push(updates);
-      return updates.map((u) => {
-        const cur = live.get(u.id)!;
-        const n = { ...cur, startTime: u.startTime, endTime: u.endTime, machine: u.machine, updatedAt: cur.updatedAt + "+" };
-        live.set(u.id, n); return n;
-      });
-    },
-    addToState: (blocks) => { calls.added.push(blocks); },
-    removeFromState: () => {},
-    postBlock: async () => { throw new Error("unused"); },
-    deleteBlock: async () => { throw new Error("unused"); },
-    applyUndo: async () => { throw new Error("unused"); },
-  };
-  return { effects, calls };
-}
-
 test("buildEditCommand: guard hodí StaleUndoError při neshodě updatedAt", async () => {
   const live = new Map([[1, blk(1, { updatedAt: "CIZI" })]]);
-  const { effects } = makeEditEffects(live);
+  const { effects } = makeEffects(live);
   const before: EditSnapshot = { id: 1, updatedAt: "v1", fields: { description: "OLD" } };
   const after:  EditSnapshot = { id: 1, updatedAt: "v2", fields: { description: "NEW" } };
   const cmd = buildEditCommand("Editace", before, after);
@@ -400,7 +356,6 @@ test("buildMoveOrResizeCommand: MOVE (start changed) → undo pošle JEDNO volá
   assert.ok(cmd);
   await cmd.undo(effects);
   assert.equal(calls.undo.length, 1);
-  assert.equal(calls.batch.length, 0, "MOVE jde přes applyUndo, ne přes starý batchUpdate");
   const fields = (calls.undo[0].ops[0] as { fields: Record<string, unknown> }).fields;
   assert.equal(fields.startTime, "2026-07-10T08:00:00.000Z");
 });

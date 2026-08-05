@@ -5,6 +5,17 @@ import { StaleUndoError, type HistoryEntry, type UndoEffects } from "@/lib/undo/
 const MAX_HISTORY = 30;
 type Toast = (msg: string, kind: "info" | "error") => void;
 
+/** Server hlásí souběh kódem CONFLICT — na klientovi má stejný osud jako StaleUndoError. */
+function isStale(err: unknown): boolean {
+  return err instanceof StaleUndoError || (err as { code?: string })?.code === "CONFLICT";
+}
+
+/** Hláška serveru je jediná informace, ze které plánovač pozná, co má udělat. */
+function reason(err: unknown): string {
+  const msg = err instanceof Error ? err.message.trim() : "";
+  return msg.length > 0 ? `: ${msg}` : ".";
+}
+
 /** Čisté jádro bez Reactu — testovatelné. */
 export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
   const undoStack: HistoryEntry[] = [];
@@ -26,8 +37,8 @@ export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
       redoStack.push(entry);
       toast("Vráceno zpět", "info");
     } catch (err) {
-      if (err instanceof StaleUndoError) toast("Nelze vrátit: blok byl mezitím změněn", "error");
-      else { undoStack.push(entry); toast("Vrácení zpět selhalo.", "error"); if (typeof console !== "undefined") console.error("Undo failed", err); }
+      if (isStale(err)) toast(`Nelze vrátit${reason(err)}`, "error");
+      else { undoStack.push(entry); toast(`Vrácení zpět selhalo${reason(err)}`, "error"); }
     } finally { notify(); }
   };
   const redo = async () => {
@@ -38,8 +49,8 @@ export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
       undoStack.push(entry);
       toast("Znovu provedeno", "info");
     } catch (err) {
-      if (err instanceof StaleUndoError) toast("Nelze provést: blok byl mezitím změněn", "error");
-      else { redoStack.push(entry); toast("Znovu provedení selhalo.", "error"); if (typeof console !== "undefined") console.error("Redo failed", err); }
+      if (isStale(err)) toast(`Nelze provést${reason(err)}`, "error");
+      else { redoStack.push(entry); toast(`Znovu provedení selhalo${reason(err)}`, "error"); }
     } finally { notify(); }
   };
   return {

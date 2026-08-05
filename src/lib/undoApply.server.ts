@@ -145,8 +145,9 @@ export async function applyUndoOps(
 
   // ── 2. Business pravidlo: vytištěný blok se nemaže ───────────────────────
   // Záměrně NEkontrolujeme `locked` — undo/redo smí zámek přebít (maže typicky
-  // blok, který uživatel sám před chvílí vytvořil nebo sám zamkl), parita
-  // s klientským `deleteBlock({ force: true })` (PlannerPage.tsx, undoEffectsRef).
+  // blok, který uživatel sám před chvílí vytvořil nebo sám zamkl) — stejný záměr,
+  // jaký dřív měl klientský `deleteBlock({ force: true })` efekt (zrušen Taskem 8,
+  // nahrazen tímhle atomickým `applyUndo`).
   // Co undo přebít NESMÍ, je potvrzený tisk — tiskař ho mohl mezitím odklepnout
   // nezávisle na tom, co plánovač zrovna vrací zpět — proto zůstává jen tahle
   // jedna kontrola. Není to mezera, je to záměr.
