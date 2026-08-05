@@ -122,15 +122,37 @@ export function buildSplitEditTargetsWithShifted(
   const { shiftedSplitSiblingsOld, shiftedSplitSiblingsNew, ...rest } = args;
   const shiftedIds = new Set([...shiftedSplitSiblingsOld, ...shiftedSplitSiblingsNew].map((s) => s.id));
 
-  const { beforeTargets, afterTargets } = buildSplitEditTargets({
+  const { beforeTargets: rawBefore, afterTargets: rawAfter } = buildSplitEditTargets({
     ...rest,
     siblingsOld: shiftedIds.size > 0 ? [...rest.siblingsOld, ...shiftedSplitSiblingsOld] : rest.siblingsOld,
     siblingsNew: shiftedIds.size > 0 ? [...rest.siblingsNew, ...shiftedSplitSiblingsNew] : rest.siblingsNew,
   });
 
-  // Jen ids, které buildSplitEditTargets doopravdy zařadil (měly aspoň jedno
-  // reálně změněné sdílené pole) — jinak bychom je zbytečně vyřadili z pozičního
-  // seznamu volajícího a jejich návrat na správné místo by z dávky úplně vypadl.
+  // POJISTKA (kontrola po etapě 5. 8. 2026 — C-1 test procházel ze špatného
+  // důvodu): `shiftedIds.has(t.id)` samo o sobě neznamená, že `pickShared` výš
+  // doopravdy něco našla — když volající pošle ochuzený snapshot (typicky
+  // BlockSnapshot bez business polí, jaký dřív posílal `toSnap` v
+  // PlannerPage.tsx), `fields` vyjde jen s `undefined` hodnotami, které
+  // JSON.stringify na cestě k serveru tiše vynechá (prázdný/poloprázdný patch).
+  // Takového "ducha" nesmíme nechat ve sdílených cílech — byl by tam BEZE
+  // SMYSLU a zároveň by kvůli přítomnosti v `absorbedShiftedIds` zmizel i z
+  // pozičního seznamu volajícího, takže by sourozenec ztratil obě věci najednou.
+  // Degradace: soused BEZ jediného reálně přítomného sdíleného pole (na obou
+  // stranách, before i after) se do sdílených cílů vůbec nezařadí a zůstává
+  // výhradně v pozičním seznamu volajícího (shiftedBefore/After).
+  const hasRealField = (t: EditSnapshot) => Object.values(t.fields).some((v) => v !== undefined);
+  const afterById = new Map(rawAfter.map((t) => [t.id, t]));
+  const ghostIds = new Set(
+    rawBefore
+      .filter((t) => shiftedIds.has(t.id) && !(hasRealField(t) && hasRealField(afterById.get(t.id)!)))
+      .map((t) => t.id),
+  );
+  const beforeTargets = ghostIds.size === 0 ? rawBefore : rawBefore.filter((t) => !ghostIds.has(t.id));
+  const afterTargets = ghostIds.size === 0 ? rawAfter : rawAfter.filter((t) => !ghostIds.has(t.id));
+
+  // Jen ids, které tu OPRAVDU zůstaly (měly aspoň jedno reálně změněné sdílené
+  // pole) — jinak bychom je zbytečně vyřadili z pozičního seznamu volajícího a
+  // jejich návrat na správné místo by z dávky úplně vypadl.
   const absorbedShiftedIds = new Set(
     beforeTargets.filter((t) => shiftedIds.has(t.id)).map((t) => t.id),
   );
@@ -140,25 +162,44 @@ export function buildSplitEditTargetsWithShifted(
 
   const oldById = new Map(shiftedSplitSiblingsOld.map((s) => [s.id, s]));
   const newById = new Map(shiftedSplitSiblingsNew.map((s) => [s.id, s]));
-  const withPosition = (targets: EditSnapshot[], byId: Map<number, BlockSnapshot>): EditSnapshot[] =>
-    targets.map((t) => {
-      const pos = absorbedShiftedIds.has(t.id) ? byId.get(t.id) : undefined;
-      if (!pos) return t;
-      return {
-        ...t,
-        fields: {
-          ...t.fields,
-          startTime: pos.startTime, endTime: pos.endTime, machine: pos.machine,
-          printMinutes: pos.printMinutes, scheduleBypassed: pos.scheduleBypassed,
-        },
-      };
-    });
-
   return {
-    beforeTargets: withPosition(beforeTargets, oldById),
-    afterTargets: withPosition(afterTargets, newById),
+    beforeTargets: mergePositionIntoTargets(beforeTargets, oldById),
+    afterTargets: mergePositionIntoTargets(afterTargets, newById),
     absorbedShiftedIds,
   };
+}
+
+/**
+ * Slije poziční pole (startTime/endTime/machine/printMinutes/scheduleBypassed)
+ * z `byId` PŘÍMO do `fields` cílů se shodným id. Cíl bez odpovídajícího záznamu
+ * v `byId` se vrátí beze změny.
+ *
+ * Sdílený vzor pro kohokoliv, kdo dostane EditSnapshot cíl (jen business pole,
+ * typicky SPLIT_SHARED_FIELDS) A ZÁROVEŇ ho odsunul chain push (jen poziční
+ * BlockSnapshot) — bez sloučení by šlo napsat jen jednu z těch dvou částí,
+ * protože stejné id nesmí být ve DVOU cílech jedné dávky (`sanitizeUndoOps` by
+ * krok odmítl, 400). Používá jak `buildSplitEditTargetsWithShifted` výš (C-1),
+ * tak `PlannerPage.tsx` (`handleFlipReservation` → `recordFlipUndo`, I-1,
+ * kontrola po etapě 5. 8. 2026): pasivní sourozenec, kterého flip zároveň
+ * odsunul chain pushem, by jinak ztratil pozici, protože `buildPassiveSiblingTargets`
+ * nese jen sdílená pole.
+ */
+export function mergePositionIntoTargets(
+  targets: readonly EditSnapshot[],
+  byId: ReadonlyMap<number, BlockSnapshot>,
+): EditSnapshot[] {
+  return targets.map((t) => {
+    const pos = byId.get(t.id);
+    if (!pos) return t;
+    return {
+      ...t,
+      fields: {
+        ...t.fields,
+        startTime: pos.startTime, endTime: pos.endTime, machine: pos.machine,
+        printMinutes: pos.printMinutes, scheduleBypassed: pos.scheduleBypassed,
+      },
+    };
+  });
 }
 
 /**

@@ -604,6 +604,19 @@ kde se split sourozenec do `ops` nedostal, a menší nálezy. Oprava:
   přepsaný, aby doopravdy cross-referencoval `prisma/schema.prisma`, ne ručně
   přepsanou kopii sebe sama.
 
+**Známé omezení — nedořešeno (zapsáno při kontrole go/no-go opravy, 5. 8. 2026):**
+`handleSaveAll` (dialog „Uložit vše"/„Celá série" v `BlockEdit.tsx`, obsluha v
+`PlannerPage.tsx`) nečte `updated.shifted` z odpovědi PUTu VŮBEC — jakýkoli
+chain push, ke kterému dojde během ukládání série, nechá odsunuté navazující
+bloky mimo undo krok. Ctrl+Z pak vrátí uložené bloky na jejich předchozí
+hodnoty, ale odsunuté sousedy nechá na NOVÉ (posunuté) pozici — data se
+nepoškodí (undo tady bloky jen zkracuje/upravuje, nikdy neprodlužuje mimo
+kalendář), ale v plánu zůstane viditelná díra, kterou musí plánovač srovnat
+ručně. Vzor opravy už existuje jinde (`shiftedBefore`/`shiftedAfter` v
+`handleBlockUpdate`, `flipShiftBefore`/`flipShiftAfter` +
+`mergePositionIntoTargets` v `handleFlipReservation`) — `handleSaveAll` ho
+zatím nepoužívá. Čeká na vlastní etapu.
+
 ## Copy/Paste flow
 
 ### Copy/Paste flow (aktualizováno 2. 7. 2026 — etapa 4 tiskových hodin)
@@ -655,7 +668,7 @@ kde se split sourozenec do `ops` nedostal, a menší nálezy. Oprava:
 
 ### Planner — komponenty
 
-- `src/app/_components/PlannerPage.tsx` — hlavní orchestrátor (~2647 řádků po dekompozici fáze E1)
+- `src/app/_components/PlannerPage.tsx` — hlavní orchestrátor (~3109 řádků; ~2647 po dekompozici fáze E1, narostl přírůstky dalších etap vč. atomického undo)
 - `src/hooks/useJobBuilder.ts` — hook vlastnící veškerý stav + logiku Job Builderu (tvorba zakázek/série/fronta): form/series/queue state, opts+presety, badgeColorMap, compatibleBuilderPresets, preset efekty, handleAddToQueue, generateSeriesPreview, handleScheduleSeries (přes `onBlockCreated` callback). Extrakce E1(ii) 14. 7. 2026 (−1201 ř. z PlannerPage; ověřeno 5-lens adversariální review, 0 nálezů)
 - `src/components/planner/JobBuilderPanel.tsx` — JSX Job Builderu; bere `{ jb: UseJobBuilderReturn, isDark }`, destrukturuje `jb` nahoře
 - `src/components/planner/ShutdownManager.tsx` — `ShutdownManager` + `machineBadgeStyle` (+ interní `MachinePicker`); extrakce E1(i)

@@ -1,12 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets } from "./splitSiblingFields";
+import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets } from "./splitSiblingFields";
 import { SPLIT_SHARED_FIELDS } from "../splitSharedFields";
-import type { BlockSnapshot } from "./types";
+import type { BlockSnapshot, EditSnapshot } from "./types";
 
 const SHARED = ["orderNumber", "type"] as const;
 
-function pos(over: Partial<BlockSnapshot> & { id: number; updatedAt: string }): BlockSnapshot {
+// `over` smí nést i business pole (type, orderNumber, ...) BEZ `as never` —
+// reálný call site (`toFullSnap` v PlannerPage.tsx, oprava C-1) posílá plný
+// blok, ne holý BlockSnapshot. `Record<string, unknown>` v průniku dovolí
+// libovolné extra klíče přirozeně typované, takže fixtura odpovídá
+// produkčnímu tvaru dat místo aby ho smluvně předstírala castem.
+function pos(
+  over: Partial<BlockSnapshot> & Record<string, unknown> & { id: number; updatedAt: string },
+): BlockSnapshot {
   return {
     startTime: "2026-09-02T06:00:00.000Z", endTime: "2026-09-02T08:00:00.000Z",
     machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
@@ -152,8 +159,8 @@ test("buildSplitEditTargetsWithShifted: chain-pushnutý sourozenec dostane sdíl
     before: { id: 1, updatedAt: "a1", type: "REZERVACE" },
     after: { id: 1, updatedAt: "a2", type: "ZAKAZKA" },
     siblingsOld: [], siblingsNew: [], // server ho do siblings NEDAL
-    shiftedSplitSiblingsOld: [pos({ id: 9, updatedAt: "s1", type: "REZERVACE", startTime: "2026-09-02T08:00:00.000Z", endTime: "2026-09-02T10:00:00.000Z" } as never)],
-    shiftedSplitSiblingsNew: [pos({ id: 9, updatedAt: "s2", type: "ZAKAZKA", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" } as never)],
+    shiftedSplitSiblingsOld: [pos({ id: 9, updatedAt: "s1", type: "REZERVACE", startTime: "2026-09-02T08:00:00.000Z", endTime: "2026-09-02T10:00:00.000Z" })],
+    shiftedSplitSiblingsNew: [pos({ id: 9, updatedAt: "s2", type: "ZAKAZKA", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" })],
   });
   assert.equal(res.beforeTargets.length, 2, "primár + pohlcený odsunutý soused");
   assert.deepEqual([...res.absorbedShiftedIds], [9]);
@@ -190,6 +197,29 @@ test("buildSplitEditTargetsWithShifted: odsunutý soused BEZ změny sdíleného 
   assert.equal(res.absorbedShiftedIds.size, 0, "MUTAČNÍ POJISTKA: kdyby se pohltil bezdůvodně, volající by ho chybně vyřadil z pozičního seznamu");
 });
 
+test("buildSplitEditTargetsWithShifted: POJISTKA — odsunutý soused s ochuzeným snapshotem (bez business polí) se nepohltí ani nezůstane duchem ve sdílených cílech (C-1, kontrola po etapě 5. 8. 2026)", () => {
+  // Simuluje regresi C-1: `type` na primáru SE MĚNÍ (sdílené pole, sharedChanged
+  // neprázdné), ale shiftedSplitSiblingsOld/New jsou postavené jako holý
+  // BlockSnapshot BEZ business polí — přesně tvar, jaký dřív posílal `toSnap` na
+  // místě, kam patřil `toFullSnap`. pickShared by na sourozenci četla `type` jako
+  // undefined, které JSON.stringify na cestě k serveru tiše vyhodí z payloadu.
+  // Na rozdíl od testu výš ("BEZ změny sdíleného pole") tady sharedChanged
+  // NENÍ prázdné — absorpce se doopravdy spustí a pojistka ji musí zastavit.
+  const res = buildSplitEditTargetsWithShifted({
+    changedFields: ["type"], sharedFields: SHARED,
+    before: { id: 1, updatedAt: "a1", type: "REZERVACE" },
+    after: { id: 1, updatedAt: "a2", type: "ZAKAZKA" },
+    siblingsOld: [], siblingsNew: [],
+    shiftedSplitSiblingsOld: [pos({ id: 9, updatedAt: "s1" })], // BEZ type
+    shiftedSplitSiblingsNew: [pos({ id: 9, updatedAt: "s2", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" })], // BEZ type
+  });
+  assert.equal(res.beforeTargets.length, 1, "jen primár — ochuzený soused se nesmí objevit ani jako prázdný duch");
+  assert.equal(res.afterTargets.length, 1);
+  assert.equal(res.beforeTargets.find((t) => t.id === 9), undefined, "id 9 nesmí být ve sdílených cílech vůbec");
+  assert.equal(res.afterTargets.find((t) => t.id === 9), undefined);
+  assert.equal(res.absorbedShiftedIds.size, 0, "soused NEBYL pohlcen — volající ho MUSÍ nechat v pozičním seznamu, jinak zmizí úplně (duch by ho odtud vyřadil, a přitom by sám nic neuchoval)");
+});
+
 test("buildSplitEditTargetsWithShifted: víc odsunutých sourozenců — jen ti se skutečně změněným sdíleným polem se pohltí", () => {
   const res = buildSplitEditTargetsWithShifted({
     changedFields: ["type"], sharedFields: SHARED,
@@ -197,8 +227,8 @@ test("buildSplitEditTargetsWithShifted: víc odsunutých sourozenců — jen ti 
     after: { id: 1, updatedAt: "a2", type: "ZAKAZKA" },
     siblingsOld: [{ id: 2, updatedAt: "b1", type: "REZERVACE" }],
     siblingsNew: [{ id: 2, updatedAt: "b2", type: "ZAKAZKA" }],
-    shiftedSplitSiblingsOld: [pos({ id: 9, updatedAt: "s1", type: "REZERVACE" } as never)],
-    shiftedSplitSiblingsNew: [pos({ id: 9, updatedAt: "s2", type: "ZAKAZKA" } as never)],
+    shiftedSplitSiblingsOld: [pos({ id: 9, updatedAt: "s1", type: "REZERVACE" })],
+    shiftedSplitSiblingsNew: [pos({ id: 9, updatedAt: "s2", type: "ZAKAZKA" })],
   });
   assert.equal(res.beforeTargets.length, 3, "primár + běžný soused (siblings) + odsunutý soused (shifted)");
   assert.deepEqual([...res.absorbedShiftedIds], [9]);
@@ -240,4 +270,64 @@ test("buildPassiveSiblingTargets: víc párů — jen ty se změnou se zařadí,
   assert.deepEqual(beforeTargets.map((t) => t.id), [9, 11], "blok 10 nemá žádnou změnu — vypadl");
   assert.deepEqual(afterTargets.map((t) => t.id), [9, 11]);
   assert.deepEqual(beforeTargets[1].fields, { orderNumber: "C" }, "blok 11 nese jen orderNumber (type se neměnil), ne cizí pole bloku 9");
+});
+
+// ─── mergePositionIntoTargets (I-1) ──────────────────────────────────────────
+// PlannerPage.tsx (recordFlipUndo) i buildSplitEditTargetsWithShifted (C-1) tuhle
+// funkci volají, když EditSnapshot cíl (jen business pole) a odsunutý blok
+// (jen poziční BlockSnapshot) mají stejné id a MUSÍ skončit v jednom cíli — jinak
+// by stejné id bylo ve DVOU cílech jedné dávky a sanitizeUndoOps by ho odmítl (400).
+
+test("mergePositionIntoTargets: cíl se shodným id dostane pozici PŘÍMO do fields (sdílené pole i pozice v jednom cíli)", () => {
+  const targets: EditSnapshot[] = [{ id: 9, updatedAt: "s2", fields: { type: "ZAKAZKA" } }];
+  const byId = new Map([[9, pos({ id: 9, updatedAt: "s2", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" })]]);
+  const merged = mergePositionIntoTargets(targets, byId);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, 9);
+  assert.equal(merged[0].updatedAt, "s2", "updatedAt cíle se nemění — jen fields");
+  assert.deepEqual(merged[0].fields, {
+    type: "ZAKAZKA",
+    startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  });
+});
+
+test("mergePositionIntoTargets: cíl BEZ odpovídajícího záznamu v byId se vrátí beze změny", () => {
+  // MUTAČNÍ POJISTKA: cíl mimo byId nesmí dostat cizí pozici (blok 9) ani prázdný
+  // objekt — jen cíle, které se REÁLNĚ posunuly (jsou v byId), smí dostat poziční pole.
+  const targets: EditSnapshot[] = [{ id: 5, updatedAt: "a1", fields: { type: "ZAKAZKA" } }];
+  const byId = new Map([[9, pos({ id: 9, updatedAt: "s2" })]]); // jiné id
+  const merged = mergePositionIntoTargets(targets, byId);
+  assert.deepEqual(merged, targets);
+});
+
+test("mergePositionIntoTargets: prázdné targets vrátí prázdné pole", () => {
+  assert.deepEqual(mergePositionIntoTargets([], new Map()), []);
+});
+
+test("mergePositionIntoTargets + buildPassiveSiblingTargets: pasivní soused odsunutý chain pushem nese typ I pozici v jednom cíli (I-1 scénář)", () => {
+  // Reprodukce I-1: „jen tento blok" překlopí kotvu REZERVACE→ZAKAZKA, server
+  // propaguje `type` na pasivního souseda (SPLIT_SHARED_FIELDS) A ZÁROVEŇ ho
+  // chain push odsune (re-expanze kotvy přes tiskové hodiny). Bez sloučení by
+  // pasivní cíl z buildPassiveSiblingTargets nesl JEN type — Ctrl+Z by vrátil typ,
+  // ale nechal blok na odsunuté pozici (díra v plánu).
+  const passive = buildPassiveSiblingTargets(SPLIT_SHARED_FIELDS, [
+    { old: { id: 9, updatedAt: "s1", type: "REZERVACE" }, live: { id: 9, updatedAt: "s3", type: "ZAKAZKA" } },
+  ]);
+  assert.deepEqual(passive.beforeTargets[0].fields, { type: "REZERVACE" }, "bez sloučení nese pasivní cíl jen type, žádnou pozici");
+  const shiftBeforeById = new Map([[9, pos({ id: 9, updatedAt: "s1", startTime: "2026-09-02T06:00:00.000Z", endTime: "2026-09-02T08:00:00.000Z" })]]);
+  const shiftAfterById = new Map([[9, pos({ id: 9, updatedAt: "s3", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" })]]);
+  const before = mergePositionIntoTargets(passive.beforeTargets, shiftBeforeById);
+  const after = mergePositionIntoTargets(passive.afterTargets, shiftAfterById);
+  assert.equal(before.length, 1);
+  assert.deepEqual(before[0].fields, {
+    type: "REZERVACE",
+    startTime: "2026-09-02T06:00:00.000Z", endTime: "2026-09-02T08:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  }, "pasivní cíl po sloučení nese type I pozici v jednom fields objektu");
+  assert.deepEqual(after[0].fields, {
+    type: "ZAKAZKA",
+    startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  });
 });

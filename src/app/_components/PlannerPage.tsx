@@ -23,7 +23,7 @@ import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
 import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
-import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets } from "@/lib/undo/splitSiblingFields";
+import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets } from "@/lib/undo/splitSiblingFields";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
@@ -1067,8 +1067,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const shiftedSplitSiblingIds = new Set(
           shifted.filter((s) => s.splitGroupId != null && s.splitGroupId === cleanUpdated.splitGroupId).map((s) => s.id),
         );
-        const shiftedSplitSiblingsOld = shiftedOld.filter((o) => shiftedSplitSiblingIds.has(o.id)).map(toSnap);
-        const shiftedSplitSiblingsNew = shifted.filter((s) => shiftedSplitSiblingIds.has(s.id)).map(toSnap);
+        // C-1 (kontrola po etapě 5. 8. 2026): NE toSnap — buildSplitEditTargetsWithShifted
+        // uvnitř čte sdílená pole (např. `type`) přímo ze snapshotu (pickShared). BlockSnapshot
+        // má jen 7 pozičních klíčů, takže sourozenec z toSnap by na `src["type"]` vrátil
+        // undefined a JSON.stringify by ho na cestě k serveru tiše vyhodil z payloadu — split
+        // skupina by se tiše rozešla. Plný blok s normalizovanou nullabilitou (stejný vzor jako
+        // toSnap, jen bez ořezání na 7 klíčů).
+        const toFullSnap = (b: Block) => ({
+          ...b,
+          startTime: b.startTime as string, endTime: b.endTime as string,
+          printMinutes: b.printMinutes ?? null, scheduleBypassed: b.scheduleBypassed ?? false,
+        });
+        const shiftedSplitSiblingsOld = shiftedOld.filter((o) => shiftedSplitSiblingIds.has(o.id)).map(toFullSnap);
+        const shiftedSplitSiblingsNew = shifted.filter((s) => shiftedSplitSiblingIds.has(s.id)).map(toFullSnap);
         // Sourozenci jako ADRESNÉ cíle (ne propagace) — atomický endpoint SPLIT_SHARED_FIELDS
         // nepropaguje, takže bez nich by po Ctrl+Z zůstali se změněnou hodnotou (regrese
         // proti staré propagační cestě). buildSplitEditTargets jim ale pošle jen průnik
@@ -1206,8 +1217,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         })
         .filter((p): p is NonNullable<typeof p> => p != null);
       const passive = buildPassiveSiblingTargets(SPLIT_SHARED_FIELDS, passivePairs);
-      changed.push(...passive.beforeTargets);
-      after.push(...passive.afterTargets);
+      // I-1 (kontrola po etapě 5. 8. 2026): pasivní soused, kterého flip ZÁROVEŇ
+      // odsunul chain push (typicky re-expanze kotvy přes tiskové hodiny), by jinak
+      // ztratil pozici — filtr níž vyřadí flipShiftBefore/After položky, které jsou
+      // teď v `changed` (aby stejné id nebylo ve DVOU cílech jedné dávky), ale
+      // buildPassiveSiblingTargets nese jen SPLIT_SHARED_FIELDS (bez startTime/
+      // endTime/machine). Stejný vzor jako C-1: slít pozici PŘÍMO do fields
+      // pasivního cíle (mergePositionIntoTargets), ať cíl nese obojí.
+      const shiftBeforeById = new Map(flipShiftBefore.map((s) => [s.id, s]));
+      const shiftAfterById = new Map(flipShiftAfter.map((s) => [s.id, s]));
+      changed.push(...mergePositionIntoTargets(passive.beforeTargets, shiftBeforeById));
+      after.push(...mergePositionIntoTargets(passive.afterTargets, shiftAfterById));
       if (changed.length === 0) return;
       recordUndo(buildMultiEditCommand(
         changed.length > 1 ? "Překlopení rezervace" : "Překlopení na zakázku",
