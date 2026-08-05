@@ -23,7 +23,7 @@ import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
 import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
-import { buildSplitEditTargets } from "@/lib/undo/splitSiblingFields";
+import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets } from "@/lib/undo/splitSiblingFields";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
@@ -1054,19 +1054,38 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         (f) => JSON.stringify((prev as Record<string, unknown>)[f]) !== JSON.stringify((cleanUpdated as Record<string, unknown>)[f]),
       );
       if (changedFields.length > 0) {
-        const shiftedBefore = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false }));
-        const shiftedAfter = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt, printMinutes: s.printMinutes ?? null, scheduleBypassed: s.scheduleBypassed ?? false }));
+        const toSnap = (b: Block): BlockSnapshot => ({ id: b.id, startTime: b.startTime as string, endTime: b.endTime as string, machine: b.machine, updatedAt: b.updatedAt, printMinutes: b.printMinutes ?? null, scheduleBypassed: b.scheduleBypassed ?? false });
+        const shiftedBefore = shiftedOld.map(toSnap);
+        const shiftedAfter = shifted.map(toSnap);
+        // C1c (go/no-go audit 5. 8. 2026): chain push vyloučí odsunutého split sourozence ze
+        // `siblings` (server, [id]/route.ts — „Vyloučit sourozence, kteří už jsou v shifted",
+        // aby neposlal dvojitou SSE událost pro týž blok). buildSplitEditTargets by ho tak
+        // nikdy neviděl a nedostal by SPLIT_SHARED_FIELDS — hledat ho MUSÍME i mezi `shifted`:
+        // server ho tam pošle už s hodnotami PO propagaci (refetch běží až po ní, v jedné
+        // transakci). Typický spouštěč: editace typu na split hlavě → re-expanze → ocas
+        // odsunut → ocas mimo `siblings` → Ctrl+Z vrátí hlavě typ, ocas zůstane překlopený.
+        const shiftedSplitSiblingIds = new Set(
+          shifted.filter((s) => s.splitGroupId != null && s.splitGroupId === cleanUpdated.splitGroupId).map((s) => s.id),
+        );
+        const shiftedSplitSiblingsOld = shiftedOld.filter((o) => shiftedSplitSiblingIds.has(o.id)).map(toSnap);
+        const shiftedSplitSiblingsNew = shifted.filter((s) => shiftedSplitSiblingIds.has(s.id)).map(toSnap);
         // Sourozenci jako ADRESNÉ cíle (ne propagace) — atomický endpoint SPLIT_SHARED_FIELDS
         // nepropaguje, takže bez nich by po Ctrl+Z zůstali se změněnou hodnotou (regrese
         // proti staré propagační cestě). buildSplitEditTargets jim ale pošle jen průnik
         // changedFields ∩ SPLIT_SHARED_FIELDS — ne celý changedFields (review I1): server
         // na sourozence propaguje jen sdílená pole, zbytek EDIT_TRACKED_FIELDS (locked,
         // materialNote, materialIssued, obalka, vnitrky, tiskoveArchy, serie) se jich netýká.
-        const { beforeTargets, afterTargets } = buildSplitEditTargets(
-          changedFields, SPLIT_SHARED_FIELDS,
-          prev, cleanUpdated, siblingsOld, siblings,
-        );
-        recordUndo(buildMultiEditCommand("Úprava bloku", beforeTargets, afterTargets, shiftedBefore, shiftedAfter));
+        const { beforeTargets, afterTargets, absorbedShiftedIds } = buildSplitEditTargetsWithShifted({
+          changedFields, sharedFields: SPLIT_SHARED_FIELDS,
+          before: prev, after: cleanUpdated, siblingsOld, siblingsNew: siblings,
+          shiftedSplitSiblingsOld, shiftedSplitSiblingsNew,
+        });
+        // Pohlcený soused nese pozici UVNITŘ beforeTargets/afterTargets (sdílené pole i pozice
+        // v jednom cíli) — musí zmizet z prostého pozičního seznamu, jinak by stejné id bloku
+        // bylo ve DVOU cílech JEDNÉ dávky a sanitizeUndoOps by celý krok odmítl (400).
+        const shiftedBeforeFinal = absorbedShiftedIds.size === 0 ? shiftedBefore : shiftedBefore.filter((s) => !absorbedShiftedIds.has(s.id));
+        const shiftedAfterFinal = absorbedShiftedIds.size === 0 ? shiftedAfter : shiftedAfter.filter((s) => !absorbedShiftedIds.has(s.id));
+        recordUndo(buildMultiEditCommand("Úprava bloku", beforeTargets, afterTargets, shiftedBeforeFinal, shiftedAfterFinal));
       }
     }
   }
@@ -1105,6 +1124,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     };
     snapshotBefore(anchorId);
     siblingIds.forEach(snapshotBefore);
+
+    // C1b (go/no-go audit 5. 8. 2026): split sourozenci kotvy (nebo explicitních
+    // sourozenců), o které jsme si NEŘEKLI (typicky volba „jen tento blok" —
+    // siblingIds = []). Server je PŘESTO propaguje přes SPLIT_SHARED_FIELDS
+    // (updateMany nad CELOU splitGroupId, ne jen nad kotvou/explicitními
+    // sourozenci) — bez adresního zápisu do undo kroku by Ctrl+Z vrátil jen
+    // kotvu a tihle by zůstali překlopení. Zachytit jejich PŘEDCHOZÍ stav TEĎ,
+    // než cokoliv začne mutovat (blocksRef se mění uvnitř putFlip).
+    const explicitIds = new Set([anchorId, ...siblingIds]);
+    const watchedGroupIds = new Set(
+      [anchorId, ...siblingIds]
+        .map((id) => blocksRef.current.find((b) => b.id === id)?.splitGroupId)
+        .filter((gid): gid is number => gid != null),
+    );
+    const passiveOldById = new Map(
+      watchedGroupIds.size > 0
+        ? blocksRef.current
+            .filter((b) => b.splitGroupId != null && watchedGroupIds.has(b.splitGroupId) && !explicitIds.has(b.id))
+            .map((b) => [b.id, b] as const)
+        : [],
+    );
 
     const putFlip = async (id: number, body: Record<string, unknown>, lock?: string) => {
       const res = await fetch(`/api/blocks/${id}`, {
@@ -1152,6 +1192,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const a = after.find((x) => x.id === b.id);
         return a && JSON.stringify(a.fields) !== JSON.stringify(b.fields);
       });
+      // C1b (go/no-go audit 5. 8. 2026): sourozenci propagovaní serverem, o které
+      // jsme si NEŘEKLI (nejsou v explicitIds/before) — diff AŽ TEĎ, proti
+      // aktuálnímu (post-propagace) blocksRef.current, protože teprve teď je
+      // vidět, co server doopravdy změnil. buildPassiveSiblingTargets pošle jen
+      // SPLIT_SHARED_FIELDS podmnožinu (ne celý flipFields) — propagace nikdy
+      // nemění endTime, na rozdíl od kotvy/explicitního sourozence, který jde
+      // přes vlastní putFlip.
+      const passivePairs = [...passiveOldById]
+        .map(([id, old]) => {
+          const live = blocksRef.current.find((b) => b.id === id);
+          return live ? { old: old as unknown as Record<string, unknown> & { id: number; updatedAt: string }, live: live as unknown as Record<string, unknown> & { id: number; updatedAt: string } } : null;
+        })
+        .filter((p): p is NonNullable<typeof p> => p != null);
+      const passive = buildPassiveSiblingTargets(SPLIT_SHARED_FIELDS, passivePairs);
+      changed.push(...passive.beforeTargets);
+      after.push(...passive.afterTargets);
       if (changed.length === 0) return;
       recordUndo(buildMultiEditCommand(
         changed.length > 1 ? "Překlopení rezervace" : "Překlopení na zakázku",
@@ -1598,7 +1654,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `Chyba při ukládání bloku ${id}`);
         }
-        const updated: Block = await res.json();
+        const updated = (await res.json()) as Block & { siblings?: Block[] };
         const prev = prevById.get(id);
         if (prev) {
           // endTime schválně lokálně, ne v globálním EDIT_TRACKED_FIELDS —
@@ -1610,14 +1666,24 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 !== JSON.stringify((updated as unknown as Record<string, unknown>)[f]),
           );
           if (changed.length > 0) {
-            const beforeFields: Record<string, unknown> = {};
-            const afterFields: Record<string, unknown> = {};
-            for (const f of changed) {
-              beforeFields[f] = (prev as unknown as Record<string, unknown>)[f];
-              afterFields[f] = (updated as unknown as Record<string, unknown>)[f];
-            }
-            saveBefore.push({ id, updatedAt: prev.updatedAt, fields: beforeFields });
-            saveAfter.push({ id, updatedAt: updated.updatedAt, fields: afterFields });
+            // C1a (go/no-go audit 5. 8. 2026): PUT jednoho bloku série může přes
+            // SPLIT_SHARED_FIELDS propagovat na split sourozence (typicky TAIL —
+            // ten se do `ids` nikdy nedostane, protože split mu nekopíruje
+            // recurrenceParentId, viz split/route.ts). Atomický endpoint nic
+            // nepropaguje, takže sourozenci musí do undo kroku ADRESNĚ ze
+            // `siblings` v odpovědi PUTu — jinak by Ctrl+Z vrátil editovaný blok,
+            // ale sourozenec by si nové sdílené hodnoty nechal (split skupina
+            // se sdílenými poli rozejde beze stopy).
+            const siblings = (updated.siblings ?? []).filter((s) => typeof s.id === "number");
+            const siblingsOld = siblings
+              .map((s) => blocksRef.current.find((b) => b.id === s.id))
+              .filter((b): b is Block => b != null);
+            const { beforeTargets, afterTargets } = buildSplitEditTargets({
+              changedFields: changed, sharedFields: SPLIT_SHARED_FIELDS,
+              before: prev, after: updated, siblingsOld, siblingsNew: siblings,
+            });
+            saveBefore.push(...beforeTargets);
+            saveAfter.push(...afterTargets);
           }
         }
         results.push(updated);

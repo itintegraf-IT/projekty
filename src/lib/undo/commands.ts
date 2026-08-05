@@ -8,20 +8,22 @@ function guard(effects: UndoEffects, expected: BlockSnapshot[]): void {
 }
 
 /**
- * BlockSnapshot → operace obnovy pozice. printMinutes/scheduleBypassed jdou do fields jen
- * když jsou ve snapshotu přítomné — TADY, v posOp (u REZERVACE/UDRZBA se tak neposílá jejich
- * `null`/`false` bez důvodu). Pozor, tahle podmíněnost neplatí univerzálně: větev
- * `endChanged` v `buildMoveOrResizeCommand` staví primární fields přímo, bez posOp, a obě
- * pole tam posílá bezpodmínečně (`?? null` / `?? false`) — neškodí (obě jsou v allowlistu
- * a u ne-ZAKAZKA bloku už beztak null/false), ale je to jiná cesta než tahle funkce.
+ * BlockSnapshot → operace obnovy pozice. `printMinutes`/`scheduleBypassed` jdou do fields
+ * VŽDY, bezpodmínečně — obě pole jsou v `BlockSnapshot` POVINNÁ (byť nullable, viz types.ts),
+ * takže `!== undefined` by bylo vždy pravdivé (mrtvá podmínka, D1 z go/no-go auditu 5. 8. 2026
+ * — dřív tu skutečně podmíněná spread-verze byla, dokud typ nezpřísnil na povinná pole).
+ * Endpoint nic nederivuje, takže bez nich by po undo/redo zůstal blok se spanem
+ * neodpovídajícím tiskovým minutám, nebo s bypass příznakem nesedícím na vrácenou geometrii.
+ * Stejná bezpodmínečnost, jakou pro tahle dvě pole odjakživa používá i větev `endChanged`
+ * v `buildMoveOrResizeCommand` (staví fields přímo, bez posOp, přes `?? null`/`?? false`) —
+ * obě cesty jsou teď v souladu, ne dvě rozdílné.
  */
 function posOp(t: BlockSnapshot, expectedUpdatedAt?: string): UndoOpClient {
   return {
     kind: "upsert", id: t.id, expectedUpdatedAt,
     fields: {
       startTime: t.startTime, endTime: t.endTime, machine: t.machine,
-      ...(t.printMinutes !== undefined ? { printMinutes: t.printMinutes } : {}),
-      ...(t.scheduleBypassed !== undefined ? { scheduleBypassed: t.scheduleBypassed } : {}),
+      printMinutes: t.printMinutes, scheduleBypassed: t.scheduleBypassed,
     },
   };
 }
