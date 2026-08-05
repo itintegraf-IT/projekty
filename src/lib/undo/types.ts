@@ -19,6 +19,18 @@ export type EditSnapshot = {
   fields: Record<string, unknown>;
 };
 
+/**
+ * Klientský tvar operace pro `POST /api/blocks/undo`. Záměrná duplikace `UndoOp`
+ * z `src/lib/undoApply.server.ts` — klientský kód nesmí importovat `.server.ts`
+ * modul, proto je tenhle typ nadeklarovaný samostatně. Tvar musí zůstat shodný.
+ */
+export type UndoOpClient =
+  | { kind: "upsert"; id: number; expectedUpdatedAt?: string; fields: Record<string, unknown> }
+  | { kind: "remove"; id: number; expectedUpdatedAt?: string };
+
+export type UndoRequest = { label: string; direction: "undo" | "redo"; ops: UndoOpClient[] };
+export type UndoResponse = { updated: Block[]; removed: number[] };
+
 /** Injektované vedlejší efekty. Reálná implementace žije v PlannerPage; v testech se podstrčí fake. */
 export interface UndoEffects {
   putBlock(id: number, body: Record<string, unknown>): Promise<Block & { shifted?: Block[]; siblings?: Block[] }>;
@@ -27,6 +39,12 @@ export interface UndoEffects {
   batchUpdate(
     updates: Array<{ id: number; startTime: string; endTime: string; machine: string; expectedUpdatedAt?: string }>,
   ): Promise<Block[]>;
+  /**
+   * Atomické provedení celého kroku historie. Nahrazuje sekvenci
+   * putBlock/batchUpdate/postBlock/deleteBlock — buď projde celá, nebo se
+   * nezmění nic. Chybu ze serveru propaguje jako Error s její hláškou.
+   */
+  applyUndo(req: UndoRequest): Promise<UndoResponse>;
   /** Upsert bloků do stavu (merge podle id). */
   addToState(blocks: Block[]): void;
   /** Odebrat bloky ze stavu. */

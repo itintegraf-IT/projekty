@@ -40,6 +40,7 @@ function makeEffects(live: Map<number, Block>) {
     putBlock: async () => { throw new Error("unused"); },
     postBlock: async () => { throw new Error("unused"); },
     deleteBlock: async () => { throw new Error("unused"); },
+    applyUndo: async () => { throw new Error("unused"); },
   };
   return { effects, calls };
 }
@@ -100,6 +101,7 @@ function makeEditEffects(live: Map<number, Block>) {
     removeFromState: () => {},
     postBlock: async () => { throw new Error("unused"); },
     deleteBlock: async () => { throw new Error("unused"); },
+    applyUndo: async () => { throw new Error("unused"); },
   };
   return { effects, calls };
 }
@@ -153,6 +155,7 @@ test("buildEditCommand: addToState nedostane 'shifted' property z PUT odpovědi"
     removeFromState: () => {},
     postBlock: async () => { throw new Error("unused"); },
     deleteBlock: async () => { throw new Error("unused"); },
+    applyUndo: async () => { throw new Error("unused"); },
   };
   const before: EditSnapshot = { id: 1, updatedAt: "v1", fields: { description: "OLD" } };
   const after:  EditSnapshot = { id: 1, updatedAt: "v2", fields: { description: "NEW" } };
@@ -179,6 +182,7 @@ test("buildEditCommand: aplikuje serverové siblings přes addToState (#9 undo c
     removeFromState: () => {},
     postBlock: async () => { throw new Error("unused"); },
     deleteBlock: async () => { throw new Error("unused"); },
+    applyUndo: async () => { throw new Error("unused"); },
   };
   const before: EditSnapshot = { id: 1, updatedAt: "v1", fields: { description: "OLD" } };
   const after:  EditSnapshot = { id: 1, updatedAt: "v2", fields: { description: "NEW" } };
@@ -224,6 +228,7 @@ function makeCreateEffects(live: Map<number, Block>, nextId = { v: 100 }) {
     removeFromState: (ids) => { calls.removed.push(ids); },
     batchUpdate: async () => { throw new Error("unused"); },
     putBlock: async () => { throw new Error("unused"); },
+    applyUndo: async () => { throw new Error("unused"); },
   };
   return { effects, calls };
 }
@@ -358,6 +363,7 @@ function makeMultiEffects(live: Map<number, Block>) {
     removeFromState: () => {},
     postBlock: async () => { throw new Error("unused"); },
     deleteBlock: async () => { throw new Error("unused"); },
+    applyUndo: async () => { throw new Error("unused"); },
   };
   return { effects, puts };
 }

@@ -195,6 +195,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (!r.ok) { const e = await r.json().catch(() => ({})) as { error?: string }; throw new Error(e.error ?? "Chyba serveru"); }
       return r.json();
     },
+    applyUndo: async (req) => {
+      const r = await fetch("/api/blocks/undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({})) as { error?: string; code?: string };
+        const err = new Error(e.error ?? "Chyba serveru");
+        // CONFLICT = někdo blok mezitím změnil → manager z toho udělá StaleUndoError
+        (err as Error & { code?: string }).code = e.code;
+        throw err;
+      }
+      return r.json();
+    },
     addToState: (list) => setBlocks((prev) => {
       const byId = new Map(list.map((b) => [b.id, b]));
       const merged = prev.map((b) => byId.get(b.id) ?? b);
