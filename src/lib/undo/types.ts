@@ -9,16 +9,21 @@ export type BlockSnapshot = {
   endTime: string;
   machine: string;
   updatedAt: string;
-  /** Jen u ZAKAZKA. Endpoint nederivuje, takže resize musí obnovit i tiskové minuty. */
-  printMinutes?: number | null;
+  /**
+   * Jen u ZAKAZKA. Endpoint nederivuje, takže resize musí obnovit i tiskové minuty.
+   * POVINNÉ (nullable) — dřív volitelné (`?:`) nechávalo volající místa, která pole
+   * vynechala, projít kompilátorem bez varování; chyba se projevila až v prohlížeči
+   * (mutační test, Task 7 Step 0).
+   */
+  printMinutes: number | null;
   /**
    * Platí, že pozice bloku porušuje kalendář (mimo pracovní dobu / v odstávce) a byla
    * tam umístěna s vypnutým zámkem. Staré cesty ho přepočítávaly z nové pozice
    * (`[id]/route.ts`, `batch/route.ts`) — nový endpoint nederivuje nic, takže i tenhle
    * příznak musí jít obnovit doslova ze snapshotu, jinak zůstane nesedět s geometrií,
-   * kterou undo/redo vrátí.
+   * kterou undo/redo vrátí. POVINNÉ ze stejného důvodu jako printMinutes výše.
    */
-  scheduleBypassed?: boolean;
+  scheduleBypassed: boolean;
 };
 
 /** Snapshot editovaných polí bloku pro edit/undo (before i after). */

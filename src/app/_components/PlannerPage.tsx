@@ -21,7 +21,8 @@ import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { serializeProductionTags } from "@/lib/productionTags";
 import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
-import { buildMoveCommand, buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
+import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
+import { blockToRestoreFields } from "@/lib/undo/restoreFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -1029,6 +1030,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const shiftedOld = shifted
       .map((s) => blocksRef.current.find((b) => b.id === s.id))
       .filter((b): b is Block => b != null);
+    // Sourozenci ze split skupiny PŘED aplikací odpovědi — undo je musí vrátit
+    // adresně, protože atomický endpoint SPLIT_SHARED_FIELDS nepropaguje.
+    const siblingsOld = siblings
+      .map((s) => blocksRef.current.find((b) => b.id === s.id))
+      .filter((b): b is Block => b != null);
 
     setBlocks((arr) => arr.map((b) => {
       if (b.id === cleanUpdated.id) return cleanUpdated;
@@ -1080,30 +1086,36 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // buildMoveOrResizeCommand je posílá na server doslova — bez nich by po undo/redo zůstal
       // blok se spanem neodpovídajícím tiskovým minutám, nebo s bypass příznakem nesedícím
       // na vrácenou geometrii (Task 6, Step 3b + fix round 1).
-      const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt, printMinutes: (prev as Block).printMinutes, scheduleBypassed: (prev as Block).scheduleBypassed };
-      const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt, printMinutes: cleanUpdated.printMinutes, scheduleBypassed: cleanUpdated.scheduleBypassed };
-      const shiftedBeforeMove = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt }));
-      const shiftedAfterMove = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt }));
+      const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt, printMinutes: (prev as Block).printMinutes ?? null, scheduleBypassed: (prev as Block).scheduleBypassed ?? false };
+      const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt, printMinutes: cleanUpdated.printMinutes ?? null, scheduleBypassed: cleanUpdated.scheduleBypassed ?? false };
+      const shiftedBeforeMove = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false }));
+      const shiftedAfterMove = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt, printMinutes: s.printMinutes ?? null, scheduleBypassed: s.scheduleBypassed ?? false }));
       const mutationCmd = buildMoveOrResizeCommand(prevSnap, updatedSnap, shiftedBeforeMove, shiftedAfterMove);
       if (mutationCmd) recordUndo(mutationCmd);
       const changedFields = EDIT_TRACKED_FIELDS.filter(
         (f) => JSON.stringify((prev as Record<string, unknown>)[f]) !== JSON.stringify((cleanUpdated as Record<string, unknown>)[f]),
       );
       if (changedFields.length > 0) {
-        const beforeFields: Record<string, unknown> = {};
-        const afterFields: Record<string, unknown> = {};
-        for (const f of changedFields) {
-          beforeFields[f] = (prev as Record<string, unknown>)[f];
-          afterFields[f] = (cleanUpdated as Record<string, unknown>)[f];
-        }
-        const shiftedBefore = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt }));
-        const shiftedAfter = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt }));
-        recordUndo(buildEditCommand(
-          "Úprava bloku",
-          { id: prev.id, updatedAt: (prev as Block).updatedAt, fields: beforeFields },
-          { id: cleanUpdated.id, updatedAt: cleanUpdated.updatedAt, fields: afterFields },
-          shiftedBefore, shiftedAfter,
-        ));
+        const pick = (src: Record<string, unknown>) => {
+          const out: Record<string, unknown> = {};
+          for (const f of changedFields) out[f] = src[f];
+          return out;
+        };
+        const shiftedBefore = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false }));
+        const shiftedAfter = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt, printMinutes: s.printMinutes ?? null, scheduleBypassed: s.scheduleBypassed ?? false }));
+        // Sourozenci jako ADRESNÉ cíle (ne propagace) — atomický endpoint SPLIT_SHARED_FIELDS
+        // nepropaguje, takže bez nich by po Ctrl+Z zůstali se změněnou hodnotou (regrese
+        // proti staré propagační cestě). Jejich `siblingsOld`/`siblings` hodnoty jsou
+        // sebrané výše, PŘED aplikací odpovědi do stavu.
+        const beforeTargets = [
+          { id: prev.id, updatedAt: (prev as Block).updatedAt, fields: pick(prev as Record<string, unknown>) },
+          ...siblingsOld.map((o) => ({ id: o.id, updatedAt: o.updatedAt, fields: pick(o as unknown as Record<string, unknown>) })),
+        ];
+        const afterTargets = [
+          { id: cleanUpdated.id, updatedAt: cleanUpdated.updatedAt, fields: pick(cleanUpdated as unknown as Record<string, unknown>) },
+          ...siblings.map((s) => ({ id: s.id, updatedAt: s.updatedAt, fields: pick(s as unknown as Record<string, unknown>) })),
+        ];
+        recordUndo(buildMultiEditCommand("Úprava bloku", beforeTargets, afterTargets, shiftedBefore, shiftedAfter));
       }
     }
   }
@@ -1283,21 +1295,24 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast(`Posunuto ${shiftedResults.length} navazujících bloků — zkontroluj timeline.`, "info");
       }
 
-      // scheduleBypassed jen u přímo tažených bloků (updates) — server ho pro ně přepočítává
-      // podle nové pozice (batch/route.ts:160), takže endpoint pro undo/redo nic nederivuje
-      // a musí dostat hodnotu doslova. Chain-pushem odsunutí sousedé (shiftedOld/shiftedResults)
-      // ho nepotřebují: chainPushGeometry (overlapResolver.server.ts) jim scheduleBypassed
-      // jen PŘENÁŠÍ ze stávající hodnoty (nepřepočítává) — bypassovaný blok navíc chain push
-      // vůbec neposouvá (je to zeď), takže se u posunutého souseda nemůže změnit.
+      // scheduleBypassed se při MOVE mění jen u přímo tažených bloků (updates) — server ho
+      // pro ně přepočítává podle nové pozice (batch/route.ts:160). Chain-pushem odsunutí
+      // sousedé (shiftedOld/shiftedResults) ho nemění: chainPushGeometry (overlapResolver.server.ts)
+      // jim scheduleBypassed jen PŘENÁŠÍ ze stávající hodnoty (nepřepočítává) — bypassovaný
+      // blok navíc chain push vůbec neposouvá (je to zeď), takže se u posunutého souseda
+      // nemůže změnit. printMinutes je při MOVE invariant u všech bloků v dávce.
+      // BlockSnapshot má obě pole POVINNÁ (Task 7 Step 0) — i sousedé je proto musí nést;
+      // jde ale o no-op zápis skutečné (nezměněné) hodnoty, navíc chráněný expectedUpdatedAt
+      // zámkem proti mezitímní cizí změně, takže to nic neriskuje.
       const prevSnaps = [
         ...(updates
-          .map((u) => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, scheduleBypassed: o.scheduleBypassed } : null; })
-          .filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string; scheduleBypassed?: boolean }[]),
-        ...shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine })),
+          .map((u) => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false } : null; })
+          .filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string; printMinutes: number | null; scheduleBypassed: boolean }[]),
+        ...shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false })),
       ];
       const nextSnaps = [
-        ...updates.map((u) => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine, scheduleBypassed: results.find((r) => r.id === u.id)?.scheduleBypassed })),
-        ...shiftedResults.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
+        ...updates.map((u) => { const res = results.find((r) => r.id === u.id); return { id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine, printMinutes: res?.printMinutes ?? null, scheduleBypassed: res?.scheduleBypassed ?? false }; }),
+        ...shiftedResults.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, printMinutes: s.printMinutes ?? null, scheduleBypassed: s.scheduleBypassed ?? false })),
       ];
       if (prevSnaps.length > 0) {
         const beforeUpd = new Map<number, string>([
@@ -1334,6 +1349,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const snap = (b: Block): BlockSnapshot => ({
       id: b.id, startTime: b.startTime as string, endTime: b.endTime as string,
       machine: b.machine, updatedAt: b.updatedAt,
+      printMinutes: b.printMinutes ?? null, scheduleBypassed: b.scheduleBypassed ?? false,
     });
     const shifted = (resp.shifted ?? []).filter((s) => typeof s.id === "number");
     const before: BlockSnapshot[] = [];
@@ -1443,14 +1459,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // payload nese splitGroupId, takže se blok undo-obnovou vrátí do skupiny (3/3).
     if (block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) return true;
 
-    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2).
-    // B2: splitGroupId je FK na stabilní SplitGroup.id (přežije smazání kteréhokoli člena,
-    // vč. kořene) → undo ho posílá bezpodmínečně, root i leaf se vrátí do skupiny (N/N).
+    // blockToRestoreFields (allowlist 43 sloupců, undo vrací doslova) vč. pantone/
+    // materialInStock/materialIssued/splitGroupId (audit #2). B2: splitGroupId je FK na
+    // stabilní SplitGroup.id (přežije smazání kteréhokoli člena, vč. kořene) → posílá se
+    // bezpodmínečně, root i leaf se vrátí do skupiny (N/N). Endpoint obnoví blok pod
+    // PŮVODNÍM id (žádný remap) — historie v AuditLogu zůstává navázaná.
     // Known-limit (cross-client): pokud jiný klient mezitím smaže zbytek skupiny, obnovený
     // blok je osamocený člen ✂1/1 (neškodné, ne FK crash) — viz CLAUDE.md.
-    const payload = blockToCreatePayload(block, { splitGroupId: block.splitGroupId ?? undefined });
+    const fields = blockToRestoreFields(block);
 
-    recordUndo(buildDeleteCommand("Smazání bloku", [{ payload }]));
+    recordUndo(buildDeleteCommand("Smazání bloku", [{ id: block.id, fields }]));
     return true;
   }
 
@@ -1570,11 +1588,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const deletedStandalone = standalone.filter((b) => deletedIds.includes(b.id));
     if (deletedStandalone.length === 0) return protectedIds.length === 0;
 
-    // Kompletní Block→payload mapa vč. pantone/materialInStock/materialIssued (audit #2).
-    // B2: splitGroupId přežije deleci (FK na stabilní SplitGroup.id) → posílat vždy;
-    // každá smazaná část se vrátí do své skupiny (i když se maže root + listy najednou).
-    const payloads = deletedStandalone.map((b) => blockToCreatePayload(b, { splitGroupId: b.splitGroupId ?? undefined }));
-    recordUndo(buildDeleteCommand("Smazání bloků", payloads.map((payload) => ({ payload }))));
+    // blockToRestoreFields vč. pantone/materialInStock/materialIssued/splitGroupId (audit #2).
+    // B2: splitGroupId přežije deleci (FK na stabilní SplitGroup.id) → posílat vždy; každá
+    // smazaná část se vrátí do své skupiny (i když se maže root + listy najednou). Endpoint
+    // obnoví bloky pod PŮVODNÍMI id (žádný remap).
+    recordUndo(buildDeleteCommand("Smazání bloků", deletedStandalone.map((b) => ({ id: b.id, fields: blockToRestoreFields(b) }))));
     return protectedIds.length === 0;
   }
 
@@ -1904,7 +1922,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       handleBlockCreate(parentBlock);
       if (canUndoCreated(parentBlock)) {
         recordUndo(buildCreateCommand("Umístění z fronty", [
-          { id: parentBlock.id, updatedAt: parentBlock.updatedAt, payload: queueParentBody },
+          { id: parentBlock.id, updatedAt: parentBlock.updatedAt, fields: blockToRestoreFields(parentBlock) },
         ], queueShift.before, queueShift.after));
       }
 
@@ -2088,7 +2106,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       handleBlockCreate(newBlock);
       if (canUndoCreated(newBlock)) {
         recordUndo(buildCreateCommand("Vložení bloku", [
-          { id: newBlock.id, updatedAt: newBlock.updatedAt, payload: pasteBody },
+          { id: newBlock.id, updatedAt: newBlock.updatedAt, fields: blockToRestoreFields(newBlock) },
         ], pasteShift.before, pasteShift.after));
       }
     } catch (error) {
@@ -2176,9 +2194,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     // POST všechny bloky sekvenčně — při prvním selhání se zastaví a žádný lokální stav se nezmění
     const created: Block[] = [];
-    // Páruje se 1:1 se `created` v TÉŽE iteraci (created.push hned po úspěšném POST) — index
-    // nikdy neujede, i kdyby smyčka v budoucnu nějaký blok přeskočila.
-    const createdBodies: Record<string, unknown>[] = [];
     try {
       for (const src of group) {
         const offsetMs = new Date(src.startTime).getTime() - anchorMs;
@@ -2197,7 +2212,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           throw new Error(err.error ?? `HTTP ${res.status}`);
         }
         created.push(await res.json() as Block);
-        createdBodies.push(groupBody);
       }
     } catch (err) {
       console.error("Group paste failed", err);
@@ -2249,12 +2263,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const groupShiftAfter = groupShiftBefore.map((b) => groupAfterById.get(b.id)!);
     created.forEach((b) => handleBlockCreate(b));
 
-    // createdBodies[i] odpovídá created[i] (naplněno ve stejné iteraci výše) — zip podle indexu,
-    // pak filtrovat na undo-schopné (ne-rezervační, ne-sériové).
+    // Filtrovat na undo-schopné (ne-rezervační, ne-sériové), pak blockToRestoreFields
+    // z ODPOVĚDI serveru (ne z POST payloadu) — nese všech 43 sloupců tak, jak je server
+    // reálně uložil, ne jen to, co bylo v request bodě.
     const createdRefs = created
-      .map((b, i) => ({ id: b.id, updatedAt: b.updatedAt, payload: createdBodies[i], block: b }))
-      .filter((r) => canUndoCreated(r.block))
-      .map(({ id, updatedAt, payload }) => ({ id, updatedAt, payload }));
+      .filter((b) => canUndoCreated(b))
+      .map((b) => ({ id: b.id, updatedAt: b.updatedAt, fields: blockToRestoreFields(b) }));
     if (createdRefs.length > 0) {
       recordUndo(buildCreateCommand("Vložení skupiny", createdRefs, groupShiftBefore, groupShiftAfter));
     }

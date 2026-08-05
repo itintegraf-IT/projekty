@@ -103,17 +103,12 @@ export function buildEditCommand(
 
 /**
  * Editace polí NĚKOLIKA bloků jako JEDEN krok historie (překlopení celé
- * rezervace na zakázku, hromadné uložení). Bez tohohle by Ctrl+Z vrátil jen
- * poslední blok a zbytek by zůstal změněný.
+ * rezervace, hromadné uložení) — JEDNO atomické volání.
  *
- * Dvě odchylky od `buildEditCommand`, obě vynucené serverovou propagací
- * sdílených polí do split sourozenců (SPLIT_SHARED_FIELDS):
- *   1. `expectedUpdatedAt` se NEposílá — PUT prvního bloku může bumpnout
- *      `updatedAt` dalších cílů a ty by pak spadly na vlastní 409. Souběh
- *      hlídá guard nad ŽIVÝM stavem, který proběhne celý PŘED prvním zápisem
- *      (částečně provedené undo je horší než žádné).
- *   2. Cíl, který už v požadovaném stavu je (server ho propagoval sám), se
- *      přeskočí místo zbytečného PUT.
+ * `expectedUpdatedAt` se nově posílá u KAŽDÉHO cíle. Dřív se vynechával,
+ * protože sekvenční PUTy si navzájem bumpovaly verze přes serverovou propagaci
+ * do split sourozenců. Endpoint čte stav jednou a zapisuje až po kontrole
+ * všech zámků, takže si cíle nemůžou nic shodit.
  */
 export function buildMultiEditCommand(
   label: string,
@@ -124,10 +119,9 @@ export function buildMultiEditCommand(
 ): HistoryEntry {
   const apply = async (
     effects: UndoEffects,
-    targets: EditSnapshot[],
-    expected: EditSnapshot[],
-    shiftedTarget: BlockSnapshot[],
-    shiftedExpected: BlockSnapshot[],
+    targets: EditSnapshot[], expected: EditSnapshot[],
+    shiftedTarget: BlockSnapshot[], shiftedExpected: BlockSnapshot[],
+    direction: "undo" | "redo",
   ) => {
     const expMap = new Map(expected.map((e) => [e.id, e.updatedAt]));
     for (const t of targets) {
@@ -135,44 +129,34 @@ export function buildMultiEditCommand(
       const exp = expMap.get(t.id);
       if (!live || exp === undefined || live.updatedAt !== exp) throw new StaleUndoError();
     }
-    for (const t of targets) {
-      const live = effects.getLiveBlock(t.id) as unknown as Record<string, unknown> | undefined;
-      const alreadyThere = live !== undefined
-        && Object.entries(t.fields).every(([k, v]) => live[k] === v);
-      if (alreadyThere) {
-        // Server cíl překlopil sám (propagace do split skupiny) a bumpnul mu
-        // verzi. Bez tohohle by opačný směr spadl na guard s předchozí verzí.
-        t.updatedAt = (live as { updatedAt: string }).updatedAt;
-        continue;
-      }
-      const updated = await effects.putBlock(t.id, {
-        ...t.fields,
-        resolveChain: true,
-        bypassScheduleValidation: true,
-      });
-      t.updatedAt = updated.updatedAt;
-      const { shifted: _shifted, siblings, ...cleanUpdated } = updated;
-      effects.addToState([cleanUpdated]);
-      if (siblings && siblings.length > 0) effects.addToState(siblings);
-    }
-    // Změna typu REZERVACE→ZAKAZKA umí blok re-expandovat přes pauzy směn
-    // a odsunout následníky; bez tohohle by je Ctrl+Z nechal přesunuté.
-    await restoreShifted(effects, shiftedTarget, shiftedExpected);
+    const shiftMap = new Map(shiftedExpected.map((e) => [e.id, e.updatedAt]));
+    const res = await effects.applyUndo({
+      label, direction,
+      ops: [
+        ...targets.map((t) => ({ kind: "upsert" as const, id: t.id, expectedUpdatedAt: expMap.get(t.id), fields: t.fields })),
+        ...shiftedTarget.map((t) => posOp(t, shiftMap.get(t.id))),
+      ],
+    });
+    refresh([...targets, ...shiftedTarget], res.updated);
+    effects.addToState(res.updated);
   };
   return {
     label,
-    undo: (effects) => apply(effects, before, after, shiftedBefore, shiftedAfter),
-    redo: (effects) => apply(effects, after, before, shiftedAfter, shiftedBefore),
+    undo: (effects) => apply(effects, before, after, shiftedBefore, shiftedAfter, "undo"),
+    redo: (effects) => apply(effects, after, before, shiftedAfter, shiftedBefore, "redo"),
   };
 }
 
 /**
  * MOVE vs RESIZE dispatcher pro poziční mutace bloku (drag/resize). Obě větve teď
  * jedou přes `applyUndo` (buildMoveCommand/buildEditCommand), liší se jen tvarem polí:
- * - start nebo machine se změnily → MOVE (buildMoveCommand): startTime/endTime/machine přes
- *   `posOp`, který k nim (podmíněně, jen když jsou přítomné) připojí i scheduleBypassed —
- *   ten se při čistém MOVE MĚNÍ (server ho přepočítával podle nové pozice, `batch/route.ts:160`),
- *   na rozdíl od printMinutes, který je při MOVE invariant a proto se v `posOp` neřeší zvlášť.
+ * - start nebo machine se změnily → MOVE (buildMoveCommand): startTime/endTime/machine +
+ *   scheduleBypassed (MĚNÍ se — server ho přepočítává podle nové pozice, `batch/route.ts:160`)
+ *   + printMinutes (při MOVE invariant, ale `BlockSnapshot` ho má povinné, viz níž) jdou
+ *   v primárním snapshotu explicitně; `posOp` je do `fields` propíše bezpodmínečně. Před
+ *   zpřísněním `BlockSnapshot` na povinná pole (Task 7 Step 0) tahle větev scheduleBypassed
+ *   vůbec neposílala — reálná mezera (undo po MOVE nechávalo bypass příznak nesedící na
+ *   vrácenou geometrii), kterou zpřísnění typu odhalilo přes `npx tsc --noEmit`.
  * - jen endTime se změnil → RESIZE (buildEditCommand): endTime + printMinutes + scheduleBypassed
  *   (endpoint nic nederivuje, takže bez explicitních hodnot by po undo zůstal blok se spanem
  *   neodpovídajícím tiskovým minutám, nebo s bypass příznakem nesedícím na geometrii —
@@ -193,11 +177,11 @@ export function buildMoveOrResizeCommand(
     return buildMoveCommand(
       "Přesun bloku",
       [
-        { id: prev.id, startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine, updatedAt: prev.updatedAt },
+        { id: prev.id, startTime: prev.startTime, endTime: prev.endTime, machine: prev.machine, updatedAt: prev.updatedAt, printMinutes: prev.printMinutes ?? null, scheduleBypassed: prev.scheduleBypassed ?? false },
         ...shiftedBefore,
       ],
       [
-        { id: updated.id, startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine, updatedAt: updated.updatedAt },
+        { id: updated.id, startTime: updated.startTime, endTime: updated.endTime, machine: updated.machine, updatedAt: updated.updatedAt, printMinutes: updated.printMinutes ?? null, scheduleBypassed: updated.scheduleBypassed ?? false },
         ...shiftedAfter,
       ],
     );
@@ -221,37 +205,21 @@ export function buildMoveOrResizeCommand(
   return null;
 }
 
-type CreatedRef = { id: number; updatedAt: string; payload: Record<string, unknown> };
-
-/** Přesune odsunuté sousedy na `target` pozice a osvěží jim snapshot verze. */
-async function restoreShifted(
-  effects: UndoEffects,
-  target: BlockSnapshot[],
-  expected: BlockSnapshot[],
-): Promise<void> {
-  if (target.length === 0) return;
-  const expMap = new Map(expected.map((e) => [e.id, e.updatedAt]));
-  const res = await effects.batchUpdate(
-    target.map((t) => ({
-      id: t.id, startTime: t.startTime, endTime: t.endTime, machine: t.machine,
-      expectedUpdatedAt: expMap.get(t.id),
-    })),
-  );
-  const resMap = new Map(res.map((b) => [b.id, b.updatedAt]));
-  for (const t of target) { const u = resMap.get(t.id); if (u) t.updatedAt = u; }
-  effects.addToState(res);
-}
+/** Snapshot vytvořeného bloku — `fields` slouží k obnově při redo. */
+type CreatedRef = { id: number; updatedAt: string; fields: Record<string, unknown> };
 
 /**
- * undo = DELETE vytvořených bloků; redo = re-POST (nová id → remap).
+ * undo = smazat vytvořené bloky A vrátit odsunuté sousedy — v JEDNÉ transakci.
+ * redo = obnovit bloky (pod PŮVODNÍM id) A znovu odsunout sousedy, taktéž
+ * v jedné transakci.
  *
  * `shiftedBefore`/`shiftedAfter` jsou sousedé, které při vytvoření odsunul
  * serverový chain push. Bez nich vrátil Ctrl+Z jen vložený blok a odsunutých
  * dvacet zakázek zůstalo na nových místech (připomínka plánovače, 8/2026).
  *
- * Na pořadí operací záleží — místo se musí uvolnit dřív, než do něj něco jede:
- * undo maže vytvořený blok PŘED návratem sousedů, redo naopak sousedy nejdřív
- * odsune a teprve pak POSTne blok (POST má overlap guard a jinak by spadl).
+ * Dřív na pořadí záleželo (undo muselo mazat před návratem sousedů, redo
+ * naopak), protože každý mezikrok narazil na finální pojistku batche. Uvnitř
+ * transakce mezistavy nikdo nevidí, takže pořadí řeší server.
  */
 export function buildCreateCommand(
   label: string,
@@ -267,45 +235,60 @@ export function buildCreateCommand(
         if (!live || live.updatedAt !== c.updatedAt) throw new StaleUndoError();
       }
       guard(effects, shiftedAfter);
-      for (const c of created) await effects.deleteBlock(c.id);
-      effects.removeFromState(created.map((c) => c.id));
-      await restoreShifted(effects, shiftedBefore, shiftedAfter);
+      const expMap = new Map(shiftedAfter.map((e) => [e.id, e.updatedAt]));
+      const res = await effects.applyUndo({
+        label, direction: "undo",
+        ops: [
+          ...created.map((c) => ({ kind: "remove" as const, id: c.id, expectedUpdatedAt: c.updatedAt })),
+          ...shiftedBefore.map((t) => posOp(t, expMap.get(t.id))),
+        ],
+      });
+      refresh(shiftedBefore, res.updated);
+      effects.removeFromState(res.removed);
+      effects.addToState(res.updated);
     },
     redo: async (effects) => {
       guard(effects, shiftedBefore);
-      await restoreShifted(effects, shiftedAfter, shiftedBefore);
-      const recreated: import("./types").Block[] = [];
-      for (const c of created) {
-        const b = await effects.postBlock(c.payload);
-        c.id = b.id;            // remap pro další undo
-        c.updatedAt = b.updatedAt;
-        recreated.push(b);
-      }
-      effects.addToState(recreated);
+      const expMap = new Map(shiftedBefore.map((e) => [e.id, e.updatedAt]));
+      const res = await effects.applyUndo({
+        label, direction: "redo",
+        ops: [
+          ...created.map((c) => ({ kind: "upsert" as const, id: c.id, fields: c.fields })),
+          ...shiftedAfter.map((t) => posOp(t, expMap.get(t.id))),
+        ],
+      });
+      refresh([...created, ...shiftedAfter], res.updated);
+      effects.addToState(res.updated);
     },
   };
 }
 
-type DeletedRef = { payload: Record<string, unknown>; restoredId?: number };
+/** Snapshot smazaného bloku — `fields` z `blockToRestoreFields`. */
+type DeletedRef = { id: number; fields: Record<string, unknown> };
 
-/** undo = re-POST smazaných (nová id → remap); redo = DELETE obnovených. */
+/**
+ * undo = obnovit smazané bloky pod PŮVODNÍM id; redo = smazat je znovu.
+ *
+ * Původní id znamená, že bloku zůstane navázaná historie v AuditLogu
+ * i notifikace. Zároveň tím mizí remap (`restoredId`) a s ním třída duplicit,
+ * kdy opakované Ctrl+Z vyrábělo další a další kopie.
+ */
 export function buildDeleteCommand(label: string, deleted: DeletedRef[]): HistoryEntry {
   return {
     label,
     undo: async (effects) => {
-      const recreated: import("./types").Block[] = [];
-      for (const d of deleted) {
-        const b = await effects.postBlock(d.payload);
-        d.restoredId = b.id;
-        recreated.push(b);
-      }
-      effects.addToState(recreated);
+      const res = await effects.applyUndo({
+        label, direction: "undo",
+        ops: deleted.map((d) => ({ kind: "upsert" as const, id: d.id, fields: d.fields })),
+      });
+      effects.addToState(res.updated);
     },
     redo: async (effects) => {
-      const ids = deleted.map((d) => d.restoredId).filter((id): id is number => typeof id === "number");
-      for (const id of ids) await effects.deleteBlock(id);
-      effects.removeFromState(ids);
-      for (const d of deleted) d.restoredId = undefined;
+      const res = await effects.applyUndo({
+        label, direction: "redo",
+        ops: deleted.map((d) => ({ kind: "remove" as const, id: d.id })),
+      });
+      effects.removeFromState(res.removed);
     },
   };
 }
