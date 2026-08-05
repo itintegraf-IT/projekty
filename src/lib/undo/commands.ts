@@ -7,15 +7,21 @@ function guard(effects: UndoEffects, expected: BlockSnapshot[]): void {
   }
 }
 
-/** BlockSnapshot → operace obnovy pozice. printMinutes jen když je ve snapshotu přítomné
- * (u REZERVACE/UDRZBA se neposílá `null`, aby undo nepsal nesmyslnou hodnotu do bloku,
- * který tiskové hodiny vůbec nezná). */
+/**
+ * BlockSnapshot → operace obnovy pozice. printMinutes/scheduleBypassed jdou do fields jen
+ * když jsou ve snapshotu přítomné — TADY, v posOp (u REZERVACE/UDRZBA se tak neposílá jejich
+ * `null`/`false` bez důvodu). Pozor, tahle podmíněnost neplatí univerzálně: větev
+ * `endChanged` v `buildMoveOrResizeCommand` staví primární fields přímo, bez posOp, a obě
+ * pole tam posílá bezpodmínečně (`?? null` / `?? false`) — neškodí (obě jsou v allowlistu
+ * a u ne-ZAKAZKA bloku už beztak null/false), ale je to jiná cesta než tahle funkce.
+ */
 function posOp(t: BlockSnapshot, expectedUpdatedAt?: string): UndoOpClient {
   return {
     kind: "upsert", id: t.id, expectedUpdatedAt,
     fields: {
       startTime: t.startTime, endTime: t.endTime, machine: t.machine,
       ...(t.printMinutes !== undefined ? { printMinutes: t.printMinutes } : {}),
+      ...(t.scheduleBypassed !== undefined ? { scheduleBypassed: t.scheduleBypassed } : {}),
     },
   };
 }
@@ -163,10 +169,14 @@ export function buildMultiEditCommand(
 /**
  * MOVE vs RESIZE dispatcher pro poziční mutace bloku (drag/resize). Obě větve teď
  * jedou přes `applyUndo` (buildMoveCommand/buildEditCommand), liší se jen tvarem polí:
- * - start nebo machine se změnily → MOVE (buildMoveCommand): startTime/endTime/machine.
- * - jen endTime se změnil → RESIZE (buildEditCommand): endTime + printMinutes (endpoint
- *   nic nederivuje, takže bez explicitního printMinutes by po undo zůstal blok se
- *   spanem, který neodpovídá tiskovým minutám — viz api/blocks/[id]/route.ts:153).
+ * - start nebo machine se změnily → MOVE (buildMoveCommand): startTime/endTime/machine přes
+ *   `posOp`, který k nim (podmíněně, jen když jsou přítomné) připojí i scheduleBypassed —
+ *   ten se při čistém MOVE MĚNÍ (server ho přepočítával podle nové pozice, `batch/route.ts:160`),
+ *   na rozdíl od printMinutes, který je při MOVE invariant a proto se v `posOp` neřeší zvlášť.
+ * - jen endTime se změnil → RESIZE (buildEditCommand): endTime + printMinutes + scheduleBypassed
+ *   (endpoint nic nederivuje, takže bez explicitních hodnot by po undo zůstal blok se spanem
+ *   neodpovídajícím tiskovým minutám, nebo s bypass příznakem nesedícím na geometrii —
+ *   viz api/blocks/[id]/route.ts:153,265,374).
  * - nic se nezměnilo → null (nezaznamenávat prázdnou undo položku).
  */
 export function buildMoveOrResizeCommand(
@@ -193,14 +203,17 @@ export function buildMoveOrResizeCommand(
     );
   }
   if (endChanged) {
-    // printMinutes musí jít v poli explicitně — endpoint nic nederivuje (na rozdíl
-    // od staré PUT route, která z endTime dopočítala printMinutes sama, viz
-    // api/blocks/[id]/route.ts:153). Bez něj by po undo zůstal blok se spanem,
-    // který neodpovídá tiskovým minutám.
+    // printMinutes i scheduleBypassed musí jít v poli explicitně — endpoint nic nederivuje
+    // (na rozdíl od staré PUT route, která obojí z nové pozice/endTime dopočítala sama, viz
+    // api/blocks/[id]/route.ts:153,265,374). Bez printMinutes by po undo zůstal blok se
+    // spanem, který neodpovídá tiskovým minutám. Bez scheduleBypassed by zůstal nesedět
+    // s geometrií: buď zůstane `true`, i když se blok vrátil do normální pracovní doby,
+    // nebo naopak `false` u bloku, který se vrátil mimo ni — druhý případ je horší, protože
+    // chain push ho pak bude tiše re-expandovat přes pauzy místo aby ho nechal na místě.
     return buildEditCommand(
       "Změna délky",
-      { id: prev.id, updatedAt: prev.updatedAt, fields: { endTime: prev.endTime, printMinutes: prev.printMinutes ?? null } },
-      { id: updated.id, updatedAt: updated.updatedAt, fields: { endTime: updated.endTime, printMinutes: updated.printMinutes ?? null } },
+      { id: prev.id, updatedAt: prev.updatedAt, fields: { endTime: prev.endTime, printMinutes: prev.printMinutes ?? null, scheduleBypassed: prev.scheduleBypassed ?? false } },
+      { id: updated.id, updatedAt: updated.updatedAt, fields: { endTime: updated.endTime, printMinutes: updated.printMinutes ?? null, scheduleBypassed: updated.scheduleBypassed ?? false } },
       shiftedBefore,
       shiftedAfter,
     );

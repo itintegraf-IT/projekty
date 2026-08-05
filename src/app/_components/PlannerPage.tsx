@@ -204,7 +204,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (!r.ok) {
         const e = await r.json().catch(() => ({})) as { error?: string; code?: string };
         const err = new Error(e.error ?? "Chyba serveru");
-        // CONFLICT = někdo blok mezitím změnil → manager z toho udělá StaleUndoError
+        // `.code` (např. "CONFLICT" = někdo blok mezitím změnil) se sem přilepí, ale
+        // createUndoCore ho DNES nečte — reaguje jen na `instanceof StaleUndoError`, takže
+        // CONFLICT ze souběhu zatím skončí jako obecné „Vrácení zpět selhalo." Specifičtější
+        // hlášku podle `code` doplní Task 8.
         (err as Error & { code?: string }).code = e.code;
         throw err;
       }
@@ -1073,11 +1076,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       setSelectedBlock((sel) => (sel ? siblings.find((s) => s.id === sel.id) ?? sel : sel));
     }
     if (prev && addToHistory) {
-      // printMinutes v obou snapshotech: RESIZE větev buildMoveOrResizeCommand ho posílá na
-      // server doslova (endpoint nic nederivuje) — bez něj by po undo/redo zůstal blok se
-      // spanem, který neodpovídá tiskovým minutám (Task 6, Step 3b).
-      const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt, printMinutes: (prev as Block).printMinutes };
-      const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt, printMinutes: cleanUpdated.printMinutes };
+      // printMinutes i scheduleBypassed v obou snapshotech: endpoint nic nederivuje, takže
+      // buildMoveOrResizeCommand je posílá na server doslova — bez nich by po undo/redo zůstal
+      // blok se spanem neodpovídajícím tiskovým minutám, nebo s bypass příznakem nesedícím
+      // na vrácenou geometrii (Task 6, Step 3b + fix round 1).
+      const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt, printMinutes: (prev as Block).printMinutes, scheduleBypassed: (prev as Block).scheduleBypassed };
+      const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt, printMinutes: cleanUpdated.printMinutes, scheduleBypassed: cleanUpdated.scheduleBypassed };
       const shiftedBeforeMove = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt }));
       const shiftedAfterMove = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt }));
       const mutationCmd = buildMoveOrResizeCommand(prevSnap, updatedSnap, shiftedBeforeMove, shiftedAfterMove);
@@ -1279,14 +1283,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast(`Posunuto ${shiftedResults.length} navazujících bloků — zkontroluj timeline.`, "info");
       }
 
+      // scheduleBypassed jen u přímo tažených bloků (updates) — server ho pro ně přepočítává
+      // podle nové pozice (batch/route.ts:160), takže endpoint pro undo/redo nic nederivuje
+      // a musí dostat hodnotu doslova. Chain-pushem odsunutí sousedé (shiftedOld/shiftedResults)
+      // ho nepotřebují: chainPushGeometry (overlapResolver.server.ts) jim scheduleBypassed
+      // jen PŘENÁŠÍ ze stávající hodnoty (nepřepočítává) — bypassovaný blok navíc chain push
+      // vůbec neposouvá (je to zeď), takže se u posunutého souseda nemůže změnit.
       const prevSnaps = [
         ...(updates
-          .map((u) => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine } : null; })
-          .filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string }[]),
+          .map((u) => { const o = originals.get(u.id); return o ? { id: u.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, scheduleBypassed: o.scheduleBypassed } : null; })
+          .filter(Boolean) as { id: number; startTime: string; endTime: string; machine: string; scheduleBypassed?: boolean }[]),
         ...shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine })),
       ];
       const nextSnaps = [
-        ...updates.map((u) => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine })),
+        ...updates.map((u) => ({ id: u.id, startTime: u.startTime.toISOString(), endTime: u.endTime.toISOString(), machine: u.machine, scheduleBypassed: results.find((r) => r.id === u.id)?.scheduleBypassed })),
         ...shiftedResults.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine })),
       ];
       if (prevSnaps.length > 0) {

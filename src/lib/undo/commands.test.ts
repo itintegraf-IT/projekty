@@ -131,6 +131,36 @@ test("buildMoveCommand: undo→redo funguje po osvěžení updatedAt (guard nepa
   assert.equal(live.get(1)!.startTime, "2026-07-10T10:00:00.000Z");
 });
 
+// ─── scheduleBypassed (fix round 1 — stejná past jako printMinutes ve Step 3b, jiný sloupec) ──
+
+test("buildMoveCommand: undo obnoví scheduleBypassed=true (blok byl bypass, po přesunu už není)", async () => {
+  // Zrcadlový/horší případ: bypass blok přesunut do platné pozice (server uložil false).
+  // Bez opravy by po undo zůstala geometrie mimo pracovní dobu s scheduleBypassed=false,
+  // takže by ho chain push tiše re-expandoval přes pauzy místo re-expanze.
+  const live = new Map([[1, blk(1, { startTime: "2026-07-10T10:00:00.000Z", scheduleBypassed: false, updatedAt: "v2" })]]);
+  const { effects, calls } = makeEffects(live);
+  const before = [{ id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1", scheduleBypassed: true }];
+  const after  = [{ id: 1, startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2", scheduleBypassed: false }];
+  await buildMoveCommand("Přesun", before, after).undo(effects);
+  const fields = (calls.undo[0].ops[0] as { fields: Record<string, unknown> }).fields;
+  assert.equal(fields.scheduleBypassed, true, "blok byl bypass před přesunem — undo ho musí vrátit, i když teď bypass není");
+  assert.equal(live.get(1)!.scheduleBypassed, true);
+});
+
+test("buildMoveCommand: undo obnoví scheduleBypassed=false (blok bypass nebyl, po přesunu je)", async () => {
+  // Primární případ ze zadání: zámek pracovní doby vypnutý, blok přetažen mimo provoz
+  // (server uložil true). Bez opravy by po undo zůstal blok v normální pracovní době,
+  // ale trvale označený jako bypass.
+  const live = new Map([[1, blk(1, { startTime: "2026-07-10T10:00:00.000Z", scheduleBypassed: true, updatedAt: "v2" })]]);
+  const { effects, calls } = makeEffects(live);
+  const before = [{ id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1", scheduleBypassed: false }];
+  const after  = [{ id: 1, startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2", scheduleBypassed: true }];
+  await buildMoveCommand("Přesun", before, after).undo(effects);
+  const fields = (calls.undo[0].ops[0] as { fields: Record<string, unknown> }).fields;
+  assert.equal(fields.scheduleBypassed, false, "blok bypass nebyl — undo nesmí nechat viset true ze stavu po přesunu");
+  assert.equal(live.get(1)!.scheduleBypassed, false);
+});
+
 /** Rozšíření fake effects o putBlock (osvěží updatedAt a vrátí volitelně shifted). */
 function makeEditEffects(live: Map<number, Block>) {
   const calls = { put: [] as Array<{ id: number; body: Record<string, unknown> }>, batch: [] as unknown[][], added: [] as Block[][] };
@@ -308,6 +338,19 @@ test("buildMoveOrResizeCommand: resize obnovuje i printMinutes (endpoint nederiv
   const fields = (calls.undo[0].ops[0] as { fields: Record<string, unknown> }).fields;
   assert.equal(fields.endTime, "2026-07-10T09:00:00.000Z");
   assert.equal(fields.printMinutes, 60, "bez printMinutes by blok zůstal se spanem ≠ tiskové minuty");
+});
+
+test("buildMoveOrResizeCommand: resize obnovuje i scheduleBypassed (endpoint nederivuje, fix round 1)", async () => {
+  const live = new Map([[1, blk(1, { endTime: "2026-07-10T11:00:00.000Z", scheduleBypassed: false, updatedAt: "v2" })]]);
+  const { effects, calls } = makeEffects(live);
+  const cmd = buildMoveOrResizeCommand(
+    { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1", scheduleBypassed: true },
+    { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2", scheduleBypassed: false },
+  );
+  assert.ok(cmd, "změna endu musí dát undo záznam");
+  await cmd.undo(effects);
+  const fields = (calls.undo[0].ops[0] as { fields: Record<string, unknown> }).fields;
+  assert.equal(fields.scheduleBypassed, true, "bez scheduleBypassed by resize vrátil délku, ale nechal blok nesedět s geometrií");
 });
 
 test("buildMoveOrResizeCommand: bez změny času/stroje vrátí null", () => {
