@@ -24,6 +24,7 @@ import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types"
 import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
 import { buildSplitEditTargets } from "@/lib/undo/splitSiblingFields";
+import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
 import { Input }     from "@/components/ui/input";
@@ -1006,16 +1007,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   //  1. Překryv dozadu (přesunutý blok narazí na předchozí) → snap dopředu
   //  2. Překryv dopředu → auto-push navazující bloky
   // excludeIds = bloky které mají být při kontrole přeskočeny (přesouvané bloky ve skupině)
-  const SPLIT_SHARED_FIELDS = [
-    "orderNumber", "description", "specifikace", "deadlineExpedice",
-    "jobPresetId", "jobPresetLabel",
-    "type", "blockVariant",
-    "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
-    "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock",
-    "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
-    "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
-  ] as const;
-
   async function handleBlockUpdate(updated: Block, addToHistory = false) {
     if (typeof updated.id !== "number") return; // Guard against API error responses
     // PUT s resolveChain vrací v poli `shifted` navazující bloky odsunuté serverem (chain push).

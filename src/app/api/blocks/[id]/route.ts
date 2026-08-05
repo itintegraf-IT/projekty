@@ -15,6 +15,7 @@ import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { truncateUtf8 } from "@/lib/textTruncate";
+import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -50,22 +51,6 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
   }
 }
-
-// POZOR — NIKDY sem nepřidávat startTime/endTime/machine: split sourozenci se aktualizují
-// přes updateMany, který NEprochází finální pojistkou assertNoOverlapForBlocks (ta kontroluje
-// jen editovaný blok + chain-push posuny). Časové pole tady by otevřelo nehlídaný překryv.
-const SPLIT_SHARED_FIELDS = [
-  "orderNumber", "description", "specifikace", "deadlineExpedice",
-  "expediceNote", "doprava",
-  "expeditionPublishedAt", "expeditionSortOrder",
-  "jobPresetId", "jobPresetLabel",
-  "type", "blockVariant",
-  "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
-  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock", "materialIssued",
-  "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
-  "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
-] as const;
-type SplitSharedField = typeof SPLIT_SHARED_FIELDS[number];
 
 export async function PUT(request: NextRequest, { params }: RouteContext) {
   const session = await getSession();
