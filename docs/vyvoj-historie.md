@@ -604,18 +604,33 @@ kde se split sourozenec do `ops` nedostal, a menší nálezy. Oprava:
   přepsaný, aby doopravdy cross-referencoval `prisma/schema.prisma`, ne ručně
   přepsanou kopii sebe sama.
 
-**Známé omezení — nedořešeno (zapsáno při kontrole go/no-go opravy, 5. 8. 2026):**
-`handleSaveAll` (dialog „Uložit vše"/„Celá série" v `BlockEdit.tsx`, obsluha v
-`PlannerPage.tsx`) nečte `updated.shifted` z odpovědi PUTu VŮBEC — jakýkoli
-chain push, ke kterému dojde během ukládání série, nechá odsunuté navazující
-bloky mimo undo krok. Ctrl+Z pak vrátí uložené bloky na jejich předchozí
-hodnoty, ale odsunuté sousedy nechá na NOVÉ (posunuté) pozici — data se
-nepoškodí (undo tady bloky jen zkracuje/upravuje, nikdy neprodlužuje mimo
-kalendář), ale v plánu zůstane viditelná díra, kterou musí plánovač srovnat
-ručně. Vzor opravy už existuje jinde (`shiftedBefore`/`shiftedAfter` v
-`handleBlockUpdate`, `flipShiftBefore`/`flipShiftAfter` +
-`mergePositionIntoTargets` v `handleFlipReservation`) — `handleSaveAll` ho
-zatím nepoužívá. Čeká na vlastní etapu.
+**Známé omezení — VYŘEŠENO (6. 8. 2026):** `handleSaveAll` (dialog „Uložit
+vše"/„Celá série" v `BlockEdit.tsx`, obsluha v `PlannerPage.tsx`) do 6. 8. 2026
+nečetlo `updated.shifted` z odpovědi PUTu vůbec — chain push během ukládání
+série nechával odsunuté navazující bloky mimo undo krok. Ctrl+Z pak vracel
+uložené bloky na jejich předchozí hodnoty, ale odsunuté sousedy nechal na
+NOVÉ (posunuté) pozici — data se nepoškodila (undo tady bloky jen
+zkracuje/upravuje, nikdy neprodlužuje mimo kalendář), ale v plánu zůstávala
+viditelná díra, kterou musel plánovač srovnat ručně.
+
+Oprava: **`src/lib/undo/shiftedBatch.ts`** — dvě čisté testované funkce.
+`accumulateShifted` řeší dedup, když týž soused dostane víc PUTů jedné dávky
+(typicky druhá editovaná zakázka série odsune chain pushem tu samou první,
+kterou už odsunul PUT předchozí zakázky) — PRVNÍ „před" je předdávková
+pozice, POSLEDNÍ „po" konečná; stejný vzor, jaký uvnitř `putFlip`
+(`handleFlipReservation`) dělá inline pro `flipShiftBefore`/`flipShiftAfter`,
+teď vytažený a znovupoužitelný. `excludeShiftedTargeted` vyřadí z odsunutých
+id, která jsou ZÁROVEŇ mezi cíli TÉŽE dávky (`saveBefore`) — nejošklivější
+past oprav: dvě instance jedné série na STEJNÉM stroji za sebou — PUT první
+odsune chain pushem druhou, ale druhá je TAKÉ členem ukládané série a dostane
+vlastní PUT o pár iterací dál (je tedy zároveň vlastní cíl i odsunutý
+soused). Bez filtru by šla do dávky DVAKRÁT a `sanitizeUndoOps`
+(`src/lib/undoApply.server.ts`) by celý krok odmítla (400 „je v dávce
+vícekrát") — Ctrl+Z by pak selhal úplně, ne jen pro odsunutého souseda.
+`handleSaveAll` snapshotuje odsunuté PŘED `handleBlockUpdate` (stejně jako
+`putFlip`), akumuluje přes celou smyčku a filtr aplikuje až v
+`recordSaveAllUndo` (volá se i z catch větve — co se stihlo uložit, musí jít
+vrátit i s odsunutými sousedy).
 
 ## Copy/Paste flow
 

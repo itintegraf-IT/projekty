@@ -24,6 +24,7 @@ import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types"
 import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
 import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets, mergeAnchorPositionIfChanged } from "@/lib/undo/splitSiblingFields";
+import { accumulateShifted, excludeShiftedTargeted, type ShiftedSnapshots } from "@/lib/undo/shiftedBatch";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
@@ -1692,6 +1693,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   async function handleSaveAll(ids: number[], payload: Record<string, unknown>): Promise<boolean> {
     const saveBefore: EditSnapshot[] = [];
     const saveAfter: EditSnapshot[] = [];
+    // Odsunutí sousedé (chain push) napříč VŠEMI PUTy dávky — accumulateShifted řeší
+    // dedup, když týž soused dostane víc PUTů (viz komentář u snapshotu ve smyčce níž).
+    let saveShifted: ShiftedSnapshots = { before: [], after: [] };
     /**
      * Zapíše historii za bloky, které se reálně uložily. Volá se i z catch —
      * když PUT spadne u třetího z pěti, první dva už v DB změněné jsou
@@ -1699,9 +1703,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
      */
     const recordSaveAllUndo = () => {
       if (saveBefore.length === 0) return;
+      // Odsunutý soused, který je ZÁROVEŇ vlastním cílem dávky (jiný člen téže série
+      // ho odsunul chain pushem — dvě instance série na stejném stroji za sebou),
+      // musí zmizet z odsunutých: sanitizeUndoOps odmítne dávku, kde je stejné id
+      // ve dvou cílech (400), a celý krok historie (ne jen odsunutí) by spadl.
+      const shifted = excludeShiftedTargeted(saveShifted, new Set(saveBefore.map((t) => t.id)));
       recordUndo(buildMultiEditCommand(
         saveBefore.length > 1 ? "Hromadná úprava" : "Úprava bloku",
         saveBefore, saveAfter,
+        shifted.before, shifted.after,
       ));
     };
     try {
@@ -1772,6 +1782,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             saveAfter.push(...afterTargets);
           }
         }
+        // Snapshot odsunutých MUSÍ vzniknout PŘED handleBlockUpdate (staré pozice jsou
+        // jen v blocksRef, odpověď serveru je nemá) — stejný vzor jako putFlip v
+        // handleFlipReservation. accumulateShifted řeší dedup, když PUT tohoto i
+        // předchozího bloku dávky odsune téhož souseda (první „před", poslední „po").
+        saveShifted = accumulateShifted(saveShifted, snapshotShiftedFromResponse(updated));
         results.push(updated);
         handleBlockUpdate(updated);
       }
