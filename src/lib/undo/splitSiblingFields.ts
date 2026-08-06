@@ -202,6 +202,13 @@ export function mergePositionIntoTargets(
   });
 }
 
+export type MergeAnchorPositionIfChangedArgs = {
+  beforeTargets: readonly EditSnapshot[];
+  afterTargets: readonly EditSnapshot[];
+  prev: BlockSnapshot;
+  updated: BlockSnapshot;
+};
+
 /**
  * Slije pozici KOTVY (`prev`/`updated`, stejné id) do jejího cíle v
  * `beforeTargets`/`afterTargets` — ALE JEN POKUD se poziční pětice
@@ -224,13 +231,18 @@ export function mergePositionIntoTargets(
  * — deleguje na `mergePositionIntoTargets`, který taky hledá výhradně podle id,
  * takže funguje, ať je kotva na jakékoli pozici. Cíle bez shodného id
  * (sourozenci) projdou beze změny — o jejich pozici se stará volající zvlášť.
+ *
+ * OBJEKTOVÝ PARAMETR (minor nález review, stejný důvod jako u `buildSplitEditTargets`
+ * výš — D5, go/no-go audit 5. 8. 2026): čtyři poziční argumenty tvoří DVĚ stejně
+ * typované dvojice (`beforeTargets`/`afterTargets` — obě `EditSnapshot[]`;
+ * `prev`/`updated` — obě `BlockSnapshot`). Záměna kterékoli dvojice projde
+ * TypeScriptem beze stopy a tiše obrátí směr undo. Objektový parametr dělá
+ * záměnu nemožnou (klíče se musí trefit jménem).
  */
 export function mergeAnchorPositionIfChanged(
-  beforeTargets: readonly EditSnapshot[],
-  afterTargets: readonly EditSnapshot[],
-  prev: BlockSnapshot,
-  updated: BlockSnapshot,
+  args: MergeAnchorPositionIfChangedArgs,
 ): { beforeTargets: EditSnapshot[]; afterTargets: EditSnapshot[] } {
+  const { beforeTargets, afterTargets, prev, updated } = args;
   const changed =
     new Date(prev.startTime).getTime() !== new Date(updated.startTime).getTime() ||
     new Date(prev.endTime).getTime() !== new Date(updated.endTime).getTime() ||

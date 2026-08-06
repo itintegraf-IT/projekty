@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { type AuditLogEntry } from "@/components/InfoPanel";
 import { TYPE_LABELS, TYPE_BUILDER_CONFIG } from "@/lib/plannerTypes";
-import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
+import { FIELD_LABELS, fmtAuditVal, classifyUndoRedoField } from "@/lib/auditFormatters";
 import { formatCivilDate, formatPragueDateTime, formatPragueDateShort, formatPragueTime } from "@/lib/dateUtils";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { getSplitChipState } from "@/lib/splitHelpers";
@@ -565,7 +565,14 @@ export function BlockDetail({
             Historie změn
           </div>
           <div style={{ display: "flex", flexDirection: "column", maxHeight: 220, overflowY: "auto" }}>
-            {blockHistory.map((log, i) => (
+            {blockHistory.map((log, i) => {
+              // Fix round 1 (review): klasifikace se počítá jednou za řádek, ať ji obě
+              // podmínky níž (span vs. seznam polí) čtou konzistentně ze stejného zdroje.
+              // Konzistentní s InfoPanel.tsx — obě místa musí ukazovat totéž.
+              const undoRedo = log.action === "UNDO" || log.action === "REDO"
+                ? classifyUndoRedoField(log.field, log.newValue)
+                : null;
+              return (
               <div key={log.id} style={{ padding: "5px 10px", borderTop: i > 0 ? "1px solid var(--border)" : undefined, display: "flex", gap: 8, alignItems: "flex-start" }}>
                 <div style={{ fontSize: 9, color: "var(--text-muted)", whiteSpace: "nowrap", paddingTop: 1, minWidth: 70 }}>
                   {formatPragueDateShort(new Date(log.createdAt))} {formatPragueTime(new Date(log.createdAt))}
@@ -591,19 +598,21 @@ export function BlockDetail({
                   {log.action === "AUTO_REFLOW" && log.oldValue && log.newValue && (
                     <span style={{ color: "#f59e0b" }}> · ⟳ přepočet dle kalendáře: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span></span>
                   )}
-                  {(log.action === "UNDO" || log.action === "REDO") && (
+                  {undoRedo && (
                     <span style={{ color: "var(--text-muted)" }}>
                       {" "}· {log.action === "UNDO" ? "↶ vráceno zpět" : "↷ znovu provedeno"}
-                      {/* I2 (go/no-go audit 5. 8. 2026): field === "fields" značí, že se
-                          obnovila obchodní pole beze změny pozice (undoApply.server.ts)
-                          — oldValue/newValue nejsou časový span, ale seznam klíčů, takže
-                          se NESMÍ vykreslit jako šipka mezi časy (falešný dojem přesunu,
-                          který se nekonal). */}
-                      {log.field === "fields" && log.newValue && (
-                        <span style={{ color: "var(--text)" }}>: obnoveno {log.newValue.split(", ").map((k) => FIELD_LABELS[k] ?? k).join(", ")}</span>
-                      )}
-                      {log.field !== "fields" && log.oldValue && log.newValue && (
+                      {/* I2 (go/no-go audit 5. 8. 2026), rozšířeno fix round 1: "fields" značí
+                          čistě obchodní obnovu (oldValue/newValue nejsou span, ale seznam klíčů
+                          — NESMÍ se vykreslit jako šipka mezi časy, falešný dojem přesunu, který
+                          se nekonal). "mixed" (fix round 1) obnovilo POZICI I business pole
+                          zároveň v jednom kroku — ukáže OBOJÍ, jinak by smíšená editace (dnes
+                          nejběžnější případ, viz mergeAnchorPositionIfChanged) o vrácených
+                          polích mlčela stejně, jako to dřív dělala vždy. */}
+                      {undoRedo.kind !== "fields" && log.oldValue && log.newValue && (
                         <span style={{ color: "var(--text)" }}>: {fmtAuditVal(log.oldValue, "startTime")} → {fmtAuditVal(log.newValue, "startTime")}</span>
+                      )}
+                      {undoRedo.kind !== "position" && undoRedo.keys.length > 0 && (
+                        <span style={{ color: "var(--text)" }}>{undoRedo.kind === "mixed" ? " · " : ": "}obnoveno {undoRedo.keys.map((k) => FIELD_LABELS[k] ?? k).join(", ")}</span>
                       )}
                     </span>
                   )}
@@ -618,7 +627,8 @@ export function BlockDetail({
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

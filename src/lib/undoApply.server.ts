@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { SLOT_MS } from "@/lib/timeSlots";
 import { truncateUtf8 } from "@/lib/textTruncate";
 import { loadMachineCalendarRange } from "@/lib/printTime.server";
+import { UNDO_MIXED_FIELD_PREFIX } from "@/lib/auditFormatters";
 
 export type UndoOp =
   | { kind: "upsert"; id: number; expectedUpdatedAt?: string; fields: Record<string, unknown> }
@@ -15,6 +16,28 @@ export type UndoDirection = "undo" | "redo";
 
 /** Sloupce bez defaultu a bez `?` — bez nich Prisma create neprojde. */
 export const REQUIRED_ON_CREATE = ["orderNumber", "machine", "startTime", "endTime"] as const;
+
+/**
+ * Celá poziční pětice, kterou `posOp`/`buildMoveOrResizeCommand`
+ * (`src/lib/undo/commands.ts`) i `mergePositionIntoTargets`
+ * (`src/lib/undo/splitSiblingFields.ts`) VŽDY zapisují pohromadě, nikdy
+ * jednotlivě. Audit řádek níž musí z „business polí navíc" vyřadit VŠECH
+ * pět, ne jen trojici `startTime`/`endTime`/`machine`, kterou testuje
+ * `touchesPosition` — jinak by KAŽDÁ čistě poziční obnova (op.fields vždy
+ * nese i `printMinutes`/`scheduleBypassed`) vypadala jako smíšená, protože
+ * by ve „zbylých" klíčích našla právě tahle dvě doprovodná pole (fix
+ * round 1, review nález o ztrátě seznamu polí u smíšeného řádku).
+ */
+const POSITION_FIELD_KEYS = new Set(["startTime", "endTime", "machine", "printMinutes", "scheduleBypassed"]);
+
+/**
+ * Bezpečná horní mez pro `field` sloupec (`VARCHAR(191)`) se sestaveným
+ * seznamem business polí u smíšeného řádku (fix round 1). Content je vždy
+ * čistě ASCII (technické názvy sloupců Blocku, žádná diakritika), takže
+ * bajty i znaky vycházejí nastejno — 180 nechává komfortní rezervu pod 191
+ * a `truncateUtf8` (bajtový ořez) tak nikdy nepřeteče char limit sloupce.
+ */
+const AUDIT_MIXED_FIELD_MAX_BYTES = 180;
 
 function bad(message: string): never {
   throw new AppError("VALIDATION_ERROR", message);
@@ -253,15 +276,35 @@ export async function applyUndoOps(
       // nezměnil) a BlockDetail/InfoPanel to vykreslily jako „vráceno zpět:
       // 2.9. 06:00 → 2.9. 06:00", falešný dojem přesunu, který nikam nevede,
       // a audit přitom vůbec neobsahoval, co se SKUTEČNĚ vrátilo.
+      //
+      // Fix round 1 (review): mixed zápis (kotva z mergeAnchorPositionIfChanged
+      // nese pozici I business pole v jednom opu) binární klasifikace „buď
+      // span, nebo seznam polí" tiše zahazovala — pozice vyhrála a seznam polí
+      // zmizel, přesně u toho nejběžnějšího případu (kombinovaná editace), který
+      // I2 měl řešit. `otherKeys` teď vyřadí CELOU poziční pětici (ne jen trojici
+      // z touchesPosition), takže smíšený řádek pozná i business pole vedle
+      // pozice; `field` nese oboje najednou (span zůstává v oldValue/newValue,
+      // seznam polí se vejde jen do `field` — VARCHAR(191), proto truncateUtf8).
       const touchesPosition = "startTime" in op.fields || "endTime" in op.fields || "machine" in op.fields;
+      const otherKeys = Object.keys(op.fields).filter((k) => !POSITION_FIELD_KEYS.has(k)).sort();
+      let field: string;
+      let oldValue: string | null;
+      let newValue: string | null;
+      if (touchesPosition) {
+        oldValue = span(row.startTime, row.endTime);
+        newValue = span(saved.startTime, saved.endTime);
+        field = otherKeys.length > 0
+          ? truncateUtf8(UNDO_MIXED_FIELD_PREFIX + otherKeys.join(", "), AUDIT_MIXED_FIELD_MAX_BYTES)
+          : "startTime/endTime/machine";
+      } else {
+        field = "fields";
+        oldValue = null;
+        newValue = otherKeys.length > 0 ? otherKeys.join(", ") : null;
+      }
       auditRows.push({
         blockId: op.id, orderNumber: saved.orderNumber, userId: actor.id, username: actor.username,
         action: direction === "undo" ? "UNDO" : "REDO",
-        field: touchesPosition ? "startTime/endTime/machine" : "fields",
-        oldValue: touchesPosition ? span(row.startTime, row.endTime) : null,
-        newValue: touchesPosition
-          ? span(saved.startTime, saved.endTime)
-          : (Object.keys(op.fields).length > 0 ? Object.keys(op.fields).sort().join(", ") : null),
+        field, oldValue, newValue,
       });
       await warnIfUnusual(tx, op, saved);
     } else {

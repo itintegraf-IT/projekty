@@ -1,6 +1,6 @@
 "use client";
 
-import { FIELD_LABELS, fmtAuditVal, formatPragueMaybeToday } from "@/lib/auditFormatters";
+import { FIELD_LABELS, fmtAuditVal, formatPragueMaybeToday, classifyUndoRedoField } from "@/lib/auditFormatters";
 
 export type AuditLogEntry = {
   id: number;
@@ -34,7 +34,13 @@ export function AuditList({ logs, onJumpToBlock }: {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {logs.map((log) => (
+          {logs.map((log) => {
+            // Fix round 1 (review): klasifikace se počítá jednou za řádek, ať ji obě
+            // podmínky níž (span vs. seznam polí) čtou konzistentně ze stejného zdroje.
+            const undoRedo = log.action === "UNDO" || log.action === "REDO"
+              ? classifyUndoRedoField(log.field, log.newValue)
+              : null;
+            return (
             <div key={log.id} style={{ padding: "8px 10px", borderRadius: 8, background: "var(--surface-2)", border: "1px solid var(--border)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{log.username}</span>
@@ -73,25 +79,28 @@ export function AuditList({ logs, onJumpToBlock }: {
                 {log.action === "AUTO_REFLOW" && log.oldValue && log.newValue && (
                   <span style={{ color: "#f59e0b" }}> · ⟳ přepočet dle kalendáře: <span style={{ color: "var(--text)" }}>{fmtVal(log.oldValue, "startTime")} → {fmtVal(log.newValue, "startTime")}</span></span>
                 )}
-                {(log.action === "UNDO" || log.action === "REDO") && (
+                {undoRedo && (
                   <span style={{ color: "var(--text-muted)" }}>
                     {" "}· {log.action === "UNDO" ? "↶ vráceno zpět" : "↷ znovu provedeno"}
-                    {/* I2 (go/no-go audit 5. 8. 2026): field === "fields" značí, že se
-                        obnovila obchodní pole beze změny pozice (undoApply.server.ts)
-                        — oldValue/newValue nejsou časový span, ale seznam klíčů, takže
-                        se NESMÍ vykreslit jako šipka mezi časy (falešný dojem přesunu,
-                        který se nekonal). */}
-                    {log.field === "fields" && log.newValue && (
-                      <span style={{ color: "var(--text)" }}>: obnoveno {log.newValue.split(", ").map((k) => FIELD_LABELS[k] ?? k).join(", ")}</span>
-                    )}
-                    {log.field !== "fields" && log.oldValue && log.newValue && (
+                    {/* I2 (go/no-go audit 5. 8. 2026), rozšířeno fix round 1: "fields" značí
+                        čistě obchodní obnovu (oldValue/newValue nejsou span, ale seznam klíčů
+                        — NESMÍ se vykreslit jako šipka mezi časy, falešný dojem přesunu, který
+                        se nekonal). "mixed" (fix round 1) obnovilo POZICI I business pole
+                        zároveň v jednom kroku — ukáže OBOJÍ, jinak by smíšená editace (dnes
+                        nejběžnější případ, viz mergeAnchorPositionIfChanged) o vrácených
+                        polích mlčela stejně, jako to dřív dělala vždy. */}
+                    {undoRedo.kind !== "fields" && log.oldValue && log.newValue && (
                       <span style={{ color: "var(--text)" }}>: {fmtVal(log.oldValue, "startTime")} → {fmtVal(log.newValue, "startTime")}</span>
+                    )}
+                    {undoRedo.kind !== "position" && undoRedo.keys.length > 0 && (
+                      <span style={{ color: "var(--text)" }}>{undoRedo.kind === "mixed" ? " · " : ": "}obnoveno {undoRedo.keys.map((k) => FIELD_LABELS[k] ?? k).join(", ")}</span>
                     )}
                   </span>
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

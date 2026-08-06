@@ -4,8 +4,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { sanitizeUndoOps, applyUndoOps, DATE_FIELDS } from "./undoApply.server";
 import { isAppError } from "./errors";
-import { isRestorableField } from "./undo/restoreFields";
+import { isRestorableField, UNDO_RESTORABLE_FIELDS } from "./undo/restoreFields";
 import { logger } from "./logger";
+import { UNDO_MIXED_FIELD_PREFIX } from "./auditFormatters";
 
 function rejects(raw: unknown, fragment: string) {
   try {
@@ -443,18 +444,73 @@ test("applyUndoOps (I2): víc obnovených NE-pozičních polí → seznam klíč
   assert.equal(rows[0].newValue, "dataOk, pantoneOk", "abecedně — pantoneOk bylo v objektu první, ale musí být druhé");
 });
 
-test("applyUndoOps (I2): pozice I obchodní pole v JEDNOM opu → pořád span (gate reaguje na PŘÍTOMNOST pozičního pole)", async () => {
-  // Scénář C1c: chain-pushnutý split sourozenec dostane sdílené pole i pozici
-  // v JEDNOM upsertu (buildSplitEditTargetsWithShifted). Audit musí ukázat,
-  // že se pozice DOOPRAVDY změnila, ne seznam klíčů.
+test("applyUndoOps (I2 + fix round 1): pozice I obchodní pole v JEDNOM opu → SMÍŠENÝ řádek, span I seznam polí zůstanou OBA", async () => {
+  // Scénář C1c: chain-pushnutý split sourozenec (nebo kotva z mergeAnchorPositionIfChanged,
+  // etapa A) dostane business pole i pozici v JEDNOM upsertu. Audit musí ukázat OBOJÍ —
+  // původní I2 (go/no-go audit 5. 8. 2026) tu jen zajistil, že se ukáže SPRÁVNÝ span
+  // místo smyšleného; binární gate ale pořád vybíral BUĎ span, NEBO seznam polí a u
+  // smíšeného zápisu seznam business polí tiše zahazoval (review nález, fix round 1) —
+  // přesně u NEJBĚŽNĚJŠÍHO případu smíšené editace (termín + popis v jednom uložení),
+  // ne okrajového.
   const { tx, auditMock } = mkTx([row()]);
   await applyUndoOps(tx, [{
     kind: "upsert", id: 1,
     fields: { startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105", materialStatusId: 7 },
   }], actor, "undo");
   const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
-  assert.equal(rows[0].field, "startTime/endTime/machine");
-  assert.ok(String(rows[0].oldValue).includes("–"), "oldValue je pořád span 'start–end'");
+  assert.equal(rows[0].field, `${UNDO_MIXED_FIELD_PREFIX}materialStatusId`, "field nese poziční marker I seznam business polí");
+  assert.ok(String(rows[0].oldValue).includes("–"), "oldValue zůstává span 'start–end', ne seznam klíčů");
+  assert.ok(String(rows[0].newValue).includes("2026-09-02T10:00:00.000Z"), "newValue zůstává span, ne seznam klíčů");
+});
+
+test("applyUndoOps (fix round 1): čistě poziční upsert s CELOU pěticí (+printMinutes/scheduleBypassed) NESMÍ vypadat jako smíšený", async () => {
+  // posOp/mergePositionIntoTargets (src/lib/undo/commands.ts, splitSiblingFields.ts) vždy
+  // posílají printMinutes+scheduleBypassed SPOLU se startTime/endTime/machine — i u ryze
+  // pozičního přesunu beze změny jediného business pole. MUTAČNÍ POJISTKA: kdyby "otherKeys"
+  // vyřazovalo z business seznamu jen trojici (startTime/endTime/machine), kterou testuje
+  // touchesPosition, a ne CELOU poziční pětici, KAŽDÝ čistě poziční krok by dostal
+  // "+fields:printMinutes, scheduleBypassed" navíc, i když žádné business pole nešlo.
+  const { tx, auditMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: {
+      startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105",
+      printMinutes: 120, scheduleBypassed: false,
+    },
+  }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  assert.equal(rows[0].field, "startTime/endTime/machine", "žádný '+fields:' sufix — printMinutes/scheduleBypassed nejsou business pole");
+});
+
+test("applyUndoOps (fix round 1): smíšený řádek s VÍC business poli → seznam v field SEŘAZENÝ (parita s I2 seznamem pro čistě polní řádek)", async () => {
+  const { tx, auditMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: { startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105", pantoneOk: true, dataOk: false },
+  }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  assert.equal(rows[0].field, `${UNDO_MIXED_FIELD_PREFIX}dataOk, pantoneOk`, "abecedně — pantoneOk bylo v objektu první, ale musí být druhé");
+});
+
+test("applyUndoOps (fix round 1): smíšený řádek s VŠEMI business poli (celý formulář) se doopravdy ořízne — nesmí spadnout na DB limit VARCHAR(191)", async () => {
+  // Přesně scénář, na který review upozornila: „u editace celého formuláře jich může
+  // být hodně". Použité klíče jsou SKUTEČNÝ UNDO_RESTORABLE_FIELDS (minus poziční
+  // pětice), ne uměle vymyšlený dlouhý string — kdyby formulář v budoucnu přibral další
+  // pole, test roste s ním.
+  const { tx, auditMock } = mkTx([row()]);
+  const businessFields = UNDO_RESTORABLE_FIELDS.filter((f) => !["startTime", "endTime", "machine", "printMinutes", "scheduleBypassed"].includes(f));
+  const fields: Record<string, unknown> = {
+    startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105",
+  };
+  for (const f of businessFields) fields[f] = null; // hodnota nehraje roli, do field se počítá jen klíč
+  await applyUndoOps(tx, [{ kind: "upsert", id: 1, fields }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  const fieldVal = rows[0].field as string;
+  assert.ok(fieldVal.startsWith(UNDO_MIXED_FIELD_PREFIX), "pořád rozpoznatelný jako smíšený i po ořezu");
+  const byteLen = Buffer.byteLength(fieldVal, "utf8");
+  assert.ok(byteLen <= 191, `field musí projít do sloupce VARCHAR(191), má ${byteLen} bajtů: "${fieldVal}"`);
+  const untruncatedList = businessFields.slice().sort().join(", ");
+  assert.ok(fieldVal.length < UNDO_MIXED_FIELD_PREFIX.length + untruncatedList.length, "musí být DOOPRAVDY oříznuté (celý seznam by se do 191 bajtů nevešel), ne jen náhodou pod limitem");
 });
 
 // ── D3 (go/no-go audit 5. 8. 2026): warn při obnově do firemní odstávky ──────

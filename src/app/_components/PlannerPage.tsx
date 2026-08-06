@@ -1100,9 +1100,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         // uvnitř gatuje na skutečný diff prevSnap/updatedSnap, takže čistě polní editace (beze
         // změny pozice) nedostane do fields žádný poziční klíč (jinak by ji undoApply.server.ts,
         // `touchesPosition`, vykreslil jako poziční audit řádek místo výpisu polí).
-        const { beforeTargets, afterTargets } = mergeAnchorPositionIfChanged(
-          rawBeforeTargets, rawAfterTargets, prevSnap, updatedSnap,
-        );
+        const { beforeTargets, afterTargets } = mergeAnchorPositionIfChanged({
+          beforeTargets: rawBeforeTargets, afterTargets: rawAfterTargets, prev: prevSnap, updated: updatedSnap,
+        });
         // Pohlcený soused nese pozici UVNITŘ beforeTargets/afterTargets (sdílené pole i pozice
         // v jednom cíli) — musí zmizet z prostého pozičního seznamu, jinak by stejné id bloku
         // bylo ve DVOU cílech JEDNÉ dávky a sanitizeUndoOps by celý krok odmítl (400).

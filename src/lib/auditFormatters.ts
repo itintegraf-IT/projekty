@@ -81,6 +81,52 @@ export function fmtAuditVal(val: string | null, field: string | null): string {
   return val;
 }
 
+/**
+ * Marker prefix `field` sloupce AuditLog pro UNDO/REDO řádek, který v JEDNOM
+ * kroku obnovil pozici I business pole zároveň (fix round 1, etapa A
+ * atomického undo — review upozornila, že binární klasifikace „buď span,
+ * nebo seznam polí" u smíšeného zápisu seznam vrácených polí tiše ztrácela).
+ *
+ * oldValue/newValue u smíšeného řádku zůstávají ČISTÝ span — stejný tvar
+ * jako u ryze pozičního řádku (undoApply.server.ts), takže žádné volání
+ * `fmtAuditVal`/`span` parsování nepotřebuje zvlášť ošetřovat. Jediné volné
+ * místo pro dynamický seznam navíc vrácených business polí je tak samotné
+ * `field` (`VARCHAR(191)` — proto ořez přes `truncateUtf8` na straně writeru).
+ *
+ * Konstanta i `classifyUndoRedoField` níž jsou sdílené mezi writerem
+ * (`undoApply.server.ts`) a oběma renderery (`InfoPanel.tsx`, `BlockDetail.tsx`),
+ * ať nemůžou rozjet vlastní kopii stringu/parsovací logiky.
+ */
+export const UNDO_MIXED_FIELD_PREFIX = "startTime/endTime/machine+fields:";
+
+export type UndoRedoFieldKind =
+  | { kind: "position" }
+  | { kind: "fields"; keys: string[] }
+  | { kind: "mixed"; keys: string[] };
+
+/**
+ * Rozklíčuje `field`+`newValue` UNDO/REDO auditního řádku (`undoApply.server.ts`)
+ * na to, co se má vykreslit:
+ * - `"position"` — čistě poziční obnova, oldValue/newValue je span (vykresli jako dnes).
+ * - `"fields"` — čistě obchodní obnova, `newValueForFieldsCase` nese seznam klíčů
+ *   (ne span) oddělený ", " — pozice se vůbec neobnovila.
+ * - `"mixed"` — obojí zároveň: oldValue/newValue je span JAKO U `"position"`, `keys`
+ *   navíc nese seznam obnovených business polí (vykresli span I seznam v jednom řádku).
+ *
+ * `newValueForFieldsCase` slouží JEN případu `"fields"` — u `"position"`/`"mixed"`
+ * volající span čte přímo z oldValue/newValue beze změny, tenhle parametr se ignoruje.
+ */
+export function classifyUndoRedoField(field: string | null, newValueForFieldsCase: string | null): UndoRedoFieldKind {
+  if (field === "fields") {
+    return { kind: "fields", keys: newValueForFieldsCase ? newValueForFieldsCase.split(", ") : [] };
+  }
+  if (field != null && field.startsWith(UNDO_MIXED_FIELD_PREFIX)) {
+    const rest = field.slice(UNDO_MIXED_FIELD_PREFIX.length);
+    return { kind: "mixed", keys: rest.length > 0 ? rest.split(", ") : [] };
+  }
+  return { kind: "position" };
+}
+
 export function formatPragueMaybeToday(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
