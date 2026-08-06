@@ -1,10 +1,13 @@
 import { formatCivilDate, formatPragueDateTime, formatPragueDateShort, formatPragueTime, todayPragueDateStr, utcToPragueDateStr } from "./dateUtils";
 
 export const FIELD_LABELS: Record<string, string> = {
+  jobPresetId: "Preset ID",
   jobPresetLabel: "Preset",
+  dataStatusId: "DATA stav ID",
   dataStatusLabel: "DATA stav",
   dataRequiredDate: "DATA datum",
   dataOk: "DATA OK",
+  materialStatusId: "Materiál stav ID",
   materialStatusLabel: "Materiál stav",
   materialRequiredDate: "Materiál datum",
   materialOk: "Materiál OK",
@@ -14,9 +17,20 @@ export const FIELD_LABELS: Record<string, string> = {
   deadlineExpedice: "Expedice termín",
   expediceNote: "Poznámka expedice",
   doprava: "Doprava",
+  // Zařazení/pořadí v Expedici — jako samostatná pole propagovaná do split skupiny
+  // (viz SPLIT_SHARED_FIELDS); běžná UPDATE editace je nemění přímo, ale dedikovaná
+  // akce EXPEDITION_PUBLISH/EXPEDITION_UNPUBLISH ano (má vlastní popisek v UI).
+  expeditionPublishedAt: "Zařazení do expedice",
+  expeditionSortOrder: "Pořadí v expedici",
   pantoneRequiredDate: "Pantone datum",
   pantoneOk: "Pantone OK",
   pantoneRequired: "Pantone potřeba",
+  // Barvy/lak nejsou v AUDITED_FIELDS běžné editace (historický dluh), ale JSOU
+  // v SPLIT_SHARED_FIELDS, takže se mohou objevit v SPLIT_PROPAGATE řádcích.
+  barvyStatusId: "Barvy stav ID",
+  barvyStatusLabel: "Barvy stav",
+  lakStatusId: "Lak stav ID",
+  lakStatusLabel: "Lak stav",
   blockVariant: "Stav zakázky",
   obalka: "Obálka",
   vnitrky: "Vnitřky",
@@ -24,6 +38,8 @@ export const FIELD_LABELS: Record<string, string> = {
   serie: "Série",
   type: "Typ záznamu",
   orderNumber: "Číslo zakázky",
+  description: "Popis",
+  specifikace: "Specifikace",
 };
 
 export function fmtAuditVal(val: string | null, field: string | null): string {

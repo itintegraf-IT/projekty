@@ -575,6 +575,12 @@ export function BlockDetail({
                   {log.action === "UPDATE" && log.field && (
                     <span> · {FIELD_LABELS[log.field] ?? log.field}: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, log.field)} → {fmtAuditVal(log.newValue, log.field)}</span></span>
                   )}
+                  {/* Propagace sdíleného pole ze split skupiny — odlišeno od UPDATE, protože
+                      šlo o jeden zásah na jiném bloku, který se sem jen automaticky promítl
+                      (ne nezávislou editaci tohoto bloku). Konzistentní s InfoPanel.tsx. */}
+                  {log.action === "SPLIT_PROPAGATE" && log.field && (
+                    <span> · <span style={{ color: "var(--info)" }}>↔ Převzato z rozdělené zakázky</span> · {FIELD_LABELS[log.field] ?? log.field}: <span style={{ color: "var(--text)" }}>{fmtAuditVal(log.oldValue, log.field)} → {fmtAuditVal(log.newValue, log.field)}</span></span>
+                  )}
                   {log.action === "CREATE" && <span style={{ color: "#22c55e" }}> · Přidána</span>}
                   {log.action === "DELETE" && <span style={{ color: "#ef4444" }}> · Smazána</span>}
                   {log.action === "EXPEDITION_PUBLISH" && <span style={{ color: "#22c55e" }}> · Zařazena do expedice</span>}

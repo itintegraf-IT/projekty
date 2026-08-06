@@ -16,6 +16,7 @@ import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { truncateUtf8 } from "@/lib/textTruncate";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
+import { buildSplitPropagateAuditRows } from "@/lib/splitPropagateAudit";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -505,6 +506,15 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           if (sharedUpdate.type && sharedUpdate.type !== "ZAKAZKA") {
             sharedUpdate.blockVariant = "STANDARD";
           }
+          // Auditní stopa propagace: sourozenci se MUSÍ načíst PŘED updateMany, jinak
+          // nemáme staré hodnoty pro diff. Akce je záměrně "SPLIT_PROPAGATE", ne "UPDATE"
+          // — jde o jeden zásah, který se automaticky promítl do druhé půlky rozdělené
+          // zakázky, ne o nezávislou editaci sourozence (viz FIELD_LABELS/UI konvence
+          // v InfoPanel.tsx a BlockDetail.tsx).
+          const siblingsBeforeUpdate = await tx.block.findMany({
+            where: { splitGroupId: groupId, id: { not: id } },
+          });
+          const propagateRows = buildSplitPropagateAuditRows({ siblings: siblingsBeforeUpdate, sharedUpdate });
           // B2: groupId = updated.splitGroupId (odkaz na SplitGroup.id). Všichni členové
           // skupiny nesou stejný splitGroupId, takže prostý filtr chytí sourozence bez
           // OR přes id — Block.id a SplitGroup.id jsou nezávislé id-prostory.
@@ -512,6 +522,16 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             where: { splitGroupId: groupId, id: { not: id } },
             data: sharedUpdate,
           });
+          if (propagateRows.length > 0) {
+            await tx.auditLog.createMany({
+              data: propagateRows.map((row) => ({
+                ...row,
+                userId: session.id,
+                username: session.username,
+                action: "SPLIT_PROPAGATE",
+              })),
+            });
+          }
           // Sourozenci dostali nový updatedAt → po tx je refetchnout, broadcastnout a vrátit
           // v odpovědi (jinak klienti drží stale updatedAt a další split sourozence spadne na 409).
           propagatedGroupId = groupId;
