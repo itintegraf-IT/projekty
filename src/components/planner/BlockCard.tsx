@@ -1147,6 +1147,13 @@ export function BlockCard({
           style={{
             position: "absolute", bottom: 0, right: 0,
             width: 20, height: 20,
+            // zIndex 5 = nad VŠEMI karta-interními vrstvami (obsah 2–3, chipy 4).
+            // Bez něj ho překryl amber pás specifikace (SpecBand, zIndex 2), který
+            // jako poslední prvek toku sahá až do pravého dolního rohu — pozicovaný
+            // prvek se z-indexem se kreslí nad prvkem se `zIndex: auto` bez ohledu
+            // na pořadí v DOM, takže pás spolkl mousedown a úchyt přestal fungovat
+            // (regrese ze zvýraznění specifikace, 8/2026).
+            zIndex: 5,
             cursor: "ns-resize",
             display: "flex", alignItems: "flex-end", justifyContent: "flex-end",
             padding: 4,

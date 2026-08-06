@@ -1156,6 +1156,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             .map((b) => [b.id, b] as const)
         : [],
     );
+    /**
+     * Post-propagační stav pasivních sourozenců. MUSÍ pocházet z odpovědi serveru,
+     * NE z `blocksRef.current`: ten se uvnitř téhle funkce neaktualizuje, protože
+     * `handleBlockUpdate` volá jen `setBlocks` a ref se přepisuje až při dalším
+     * renderu (ř. 159). Diff proti němu proto nikdy nic nenašel a Ctrl+Z vracel
+     * jen kotvu — pasivní sourozenec zůstal překlopený (nahlásil Vojta 6. 8. 2026).
+     *
+     * Sbírá se ze DVOU polí odpovědi: `siblings` nese propagované sourozence,
+     * `shifted` ty, které chain push zároveň odsunul — server je ze `siblings`
+     * záměrně vylučuje, aby neposlal dvojitou SSE událost.
+     */
+    const passiveLiveById = new Map<number, Block>();
 
     const putFlip = async (id: number, body: Record<string, unknown>, lock?: string) => {
       const res = await fetch(`/api/blocks/${id}`, {
@@ -1171,6 +1183,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         throw new Error(err.error ?? `Chyba při překlopení bloku ${id}`);
       }
       const updated: Block = await res.json();
+      // Autoritativní post-propagační stav pasivních sourozenců (viz passiveLiveById).
+      // Poslední zápis vyhrává: u dávky víc putFlipů je konečná pravda ta z posledního.
+      for (const p of [
+        ...((updated as Block & { siblings?: Block[] }).siblings ?? []),
+        ...((updated as Block & { shifted?: Block[] }).shifted ?? []),
+      ]) {
+        if (passiveOldById.has(p.id)) passiveLiveById.set(p.id, p);
+      }
       // Snapshot odsunutých MUSÍ vzniknout před handleBlockUpdate (staré pozice
       // jsou jen v blocksRef). Týž soused může figurovat u víc bloků dávky —
       // první „před" je předdávková pozice, poslední „po" ta konečná.
@@ -1212,7 +1232,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // přes vlastní putFlip.
       const passivePairs = [...passiveOldById]
         .map(([id, old]) => {
-          const live = blocksRef.current.find((b) => b.id === id);
+          const live = passiveLiveById.get(id);
           return live ? { old: old as unknown as Record<string, unknown> & { id: number; updatedAt: string }, live: live as unknown as Record<string, unknown> & { id: number; updatedAt: string } } : null;
         })
         .filter((p): p is NonNullable<typeof p> => p != null);
