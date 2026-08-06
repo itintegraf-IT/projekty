@@ -52,12 +52,9 @@ export function fmtAuditVal(val: string | null, field: string | null): string {
     } catch { /* fallthrough */ }
     return val;
   }
-  // Fix round 1 (8/2026): pantoneOk chybělo — sémanticky patří ke dataOk/materialOk
-  // ("X potvrzeno OK"), ne k pantoneRequired ("je Pantone vůbec potřeba" — ano/ne
-  // požadavek, ne potvrzení). Bez téhle větve se řádek vykreslil jako syrové true/false.
-  // Fix round 1 (8/2026): pantoneOk chybělo — sémanticky patří ke dataOk/materialOk
-  // ("X potvrzeno OK"), ne k pantoneRequired ("je Pantone vůbec potřeba" — ano/ne
-  // požadavek, ne potvrzení). Bez téhle větve se řádek vykreslil jako syrové true/false.
+  // pantoneOk sem patří sémanticky ke dataOk/materialOk („X potvrzeno OK"), ne
+  // k pantoneRequired („je Pantone vůbec potřeba"). Bez téhle větve se řádek
+  // v historii vykreslil jako syrové true/false (doplněno 8/2026).
   if (field === "dataOk" || field === "materialOk" || field === "pantoneOk" || field === "pantoneRequired") return val === "true" ? "✓ OK" : "✗ Ne";
   if (field === "materialInStock" || field === "materialIssued") return val === "true" ? "✓ Ano" : "✗ Ne";
   if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
