@@ -10,7 +10,7 @@ import { Lock } from "lucide-react";
 import DatePickerField from "@/app/_components/DatePickerField";
 import { type Block, type CompanyDay } from "@/app/_components/TimelineGrid";
 import { BLOCK_VARIANTS, RESERVATION_FLIP_VARIANT, VARIANT_CONFIG, normalizeBlockVariant, type BlockVariant } from "@/lib/blockVariants";
-import { findReservationSiblings } from "@/lib/reservationSiblings";
+import { findReservationSiblings, splitReservationSiblings } from "@/lib/reservationSiblings";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { formatPragueDateShort, utcToPragueDateStr, utcToPragueHour, pragueToUTC } from "@/lib/dateUtils";
 import { applyJobPresetToDraft, presetSupportsType, type JobPreset, type JobPresetDraftValues } from "@/lib/jobPresets";
@@ -142,6 +142,13 @@ export function BlockEdit({
   const reservationSiblings = useMemo(
     () => (block.type === "REZERVACE" ? findReservationSiblings(block, allBlocks) : []),
     [block, allBlocks],
+  );
+  // Povinní (stejná split skupina jako `block`) se překlopí vždy propagací na
+  // serveru — dialog je musí odlišit od volitelných, jinak by „jen tento
+  // blok" lhalo (nahlásil Vojta z reálného testování, 8/2026).
+  const { required: requiredSiblings, optional: optionalSiblings } = useMemo(
+    () => splitReservationSiblings(block, reservationSiblings),
+    [block, reservationSiblings],
   );
 
   // Délka tisku — pro ZAKAZKA vychází z printMinutes (tiskové hodiny), ne z elapsed
@@ -652,10 +659,17 @@ export function BlockEdit({
     setShowOrderNumberPrompt(false);
     setPromptOrderNumber("");
     // Rezervace bývá rozpuštěná do víc bloků (obálka na jednom stroji, vnitřky
-    // na druhém). Když nějaké najdeme, necháme plánovače rozhodnout — tiché
-    // překlopení všeho by bylo stejně překvapivé jako dnešní překlopení jednoho.
-    if (reservationSiblings.length > 0 && onFlipReservation) {
+    // na druhém). Volitelné sourozence (jiný stroj) necháme plánovače potvrdit —
+    // tiché překlopení všeho by bylo stejně překvapivé jako dnešní překlopení
+    // jednoho. Povinné (split část téže zakázky) server překlopí propagací
+    // vždycky — bez volitelných tedy není o čem rozhodovat a dialog se vůbec
+    // neotevře (nahlásil Vojta z reálného testování, 8/2026).
+    if (optionalSiblings.length > 0 && onFlipReservation) {
       setFlipOrderNumber(num);
+      return;
+    }
+    if (requiredSiblings.length > 0 && onFlipReservation) {
+      runFlip(num, true);
       return;
     }
     doSave(buildFlipPayload(num));
@@ -667,10 +681,13 @@ export function BlockEdit({
     setSaving(true);
     setError(null);
     try {
+      // Povinní (split) se do siblingIds nedávají — server je propaguje přes
+      // SPLIT_SHARED_FIELDS už samotným PUTem na kotvu. siblingIds nese jen
+      // volitelné, o kterých si plánovač řekl.
       const ok = await onFlipReservation(
         block.id,
         buildFlipPayload(num),
-        includeSiblings ? reservationSiblings.map((b) => b.id) : [],
+        includeSiblings ? optionalSiblings.map((b) => b.id) : [],
       );
       // Chybu už ohlásil toast z PlannerPage; tady jen necháme panel otevřený
       // s hláškou, aby plánovač viděl, že se nic neuložilo.
@@ -1417,6 +1434,9 @@ export function BlockEdit({
             <>
               Rezervace <strong>{block.orderNumber}</strong> má {total} {total < 5 ? "bloky" : "bloků"}.
               Překlopit na zakázku <strong>{flipOrderNumber}</strong> všechny, nebo jen tento?
+              {requiredSiblings.length > 0 && (
+                <> Části rozdělené zakázky (<strong>ČÁST SPLITU</strong>) se překlopí vždy — server je propaguje automaticky.</>
+              )}
             </>
           );
         })()}
@@ -1426,34 +1446,42 @@ export function BlockEdit({
         {/* Výpis toho, co se reálně překlopí. Bez něj plánovač nepozná, že se
             mezi sourozence připletla jiná rezervace se stejným číslem. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 3, margin: "10px 0 4px", maxHeight: 160, overflowY: "auto" }}>
-          {[block, ...reservationSiblings].map((b) => (
-            <div
-              key={b.id}
-              style={{
-                display: "flex", alignItems: "baseline", gap: 6, fontSize: 11,
-                padding: "4px 8px", borderRadius: 6,
-                background: b.id === block.id ? "var(--surface-2)" : "transparent",
-                border: `1px solid ${b.id === block.id ? "var(--border)" : "transparent"}`,
-              }}
-            >
-              <span style={{ fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap" }}>
-                {b.machine === "XL_105" ? "XL 105" : b.machine === "XL_106" ? "XL 106" : b.machine}
-              </span>
-              <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
-                {formatPragueDateShort(new Date(b.startTime))}
-              </span>
-              {b.description && (
-                <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {b.description}
+          {[block, ...reservationSiblings].map((b) => {
+            const isRequired = b.id !== block.id && requiredSiblings.some((r) => r.id === b.id);
+            return (
+              <div
+                key={b.id}
+                style={{
+                  display: "flex", alignItems: "baseline", gap: 6, fontSize: 11,
+                  padding: "4px 8px", borderRadius: 6,
+                  background: b.id === block.id ? "var(--surface-2)" : "transparent",
+                  border: `1px solid ${b.id === block.id ? "var(--border)" : "transparent"}`,
+                }}
+              >
+                <span style={{ fontWeight: 700, color: "var(--text)", whiteSpace: "nowrap" }}>
+                  {b.machine === "XL_105" ? "XL 105" : b.machine === "XL_106" ? "XL 106" : b.machine}
                 </span>
-              )}
-              {b.id === block.id && (
-                <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                  TENTO
+                <span style={{ color: "var(--text-muted)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                  {formatPragueDateShort(new Date(b.startTime))}
                 </span>
-              )}
-            </div>
-          ))}
+                {b.description && (
+                  <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {b.description}
+                  </span>
+                )}
+                {b.id === block.id && (
+                  <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                    TENTO
+                  </span>
+                )}
+                {isRequired && (
+                  <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--accent)", whiteSpace: "nowrap" }}>
+                    ČÁST SPLITU
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
         <button
           type="button"
@@ -1461,7 +1489,9 @@ export function BlockEdit({
           onClick={() => { if (flipOrderNumber) runFlip(flipOrderNumber, false); }}
           style={{ width: "100%", marginTop: 4, padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
         >
-          Jen tento blok
+          {requiredSiblings.length > 0
+            ? `Jen rozdělenou zakázku (${1 + requiredSiblings.length})`
+            : "Jen tento blok (1)"}
         </button>
       </ConfirmDialog>
     </div>

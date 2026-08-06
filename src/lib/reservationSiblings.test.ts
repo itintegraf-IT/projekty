@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findReservationSiblings } from "./reservationSiblings";
+import { findReservationSiblings, splitReservationSiblings } from "./reservationSiblings";
 
-type B = { id: number; type: string; orderNumber: string; machine: string; reservationId?: number | null };
+type B = {
+  id: number; type: string; orderNumber: string; machine: string;
+  reservationId?: number | null; splitGroupId?: number | null;
+};
 
 const mk = (id: number, over: Partial<B> = {}): B => ({
-  id, type: "REZERVACE", orderNumber: "R123", machine: "XL_105", reservationId: null, ...over,
+  id, type: "REZERVACE", orderNumber: "R123", machine: "XL_105",
+  reservationId: null, splitGroupId: null, ...over,
 });
 
 test("kopie na jiném stroji: sourozence spojuje jen shodné číslo rezervace", () => {
@@ -63,4 +67,60 @@ test("najde víc sourozenců naráz a zachová pořadí vstupu", () => {
 
 test("prázdný seznam bloků nevrací nic", () => {
   assert.deepEqual(findReservationSiblings(mk(1), []), []);
+});
+
+// ─── splitReservationSiblings ──────────────────────────────────────────────
+
+test("stejná splitGroupId jako blok → povinný", () => {
+  const anchor = mk(1, { splitGroupId: 10 });
+  const tail = mk(2, { splitGroupId: 10 });
+  const { required, optional } = splitReservationSiblings(anchor, [tail]);
+  assert.deepEqual(required.map((b) => b.id), [2]);
+  assert.deepEqual(optional, []);
+});
+
+test("sourozenec bez splitGroupId (kopie na jiném stroji) → volitelný", () => {
+  const anchor = mk(1, { splitGroupId: 10 });
+  const copy = mk(2, { machine: "XL_106", splitGroupId: null });
+  const { required, optional } = splitReservationSiblings(anchor, [copy]);
+  assert.deepEqual(required, []);
+  assert.deepEqual(optional.map((b) => b.id), [2]);
+});
+
+test("sourozenec s JINOU nenulovou splitGroupId → volitelný, ne povinný", () => {
+  // Vlastní (cizí) split skupina souseda na jiném stroji — nepatří do skupiny bloku.
+  const anchor = mk(1, { splitGroupId: 10 });
+  const other = mk(2, { machine: "XL_106", splitGroupId: 20 });
+  const { required, optional } = splitReservationSiblings(anchor, [other]);
+  assert.deepEqual(required, []);
+  assert.deepEqual(optional.map((b) => b.id), [2]);
+});
+
+test("blok bez vlastní split skupiny → sourozenec s splitGroupId null NENÍ povinný", () => {
+  // KRITICKÉ: „null == null" nesmí spárovat dva bloky, které nejsou split —
+  // jinak by každá obyčejná kopie rezervace na druhém stroji vyšla jako
+  // „ČÁST SPLITU", i když blok sám žádnou split skupinu nemá.
+  const anchor = mk(1, { splitGroupId: null });
+  const copy = mk(2, { machine: "XL_106", splitGroupId: null });
+  const { required, optional } = splitReservationSiblings(anchor, [copy]);
+  assert.deepEqual(required, []);
+  assert.deepEqual(optional.map((b) => b.id), [2]);
+});
+
+test("prázdný seznam sourozenců → obě skupiny prázdné", () => {
+  const anchor = mk(1, { splitGroupId: 10 });
+  const { required, optional } = splitReservationSiblings(anchor, []);
+  assert.deepEqual(required, []);
+  assert.deepEqual(optional, []);
+});
+
+test("rozliší povinné od volitelných v kombinaci a zachová pořadí uvnitř obou skupin", () => {
+  const anchor = mk(1, { splitGroupId: 10 });
+  const optionalA = mk(2, { machine: "XL_106", splitGroupId: null });
+  const requiredA = mk(3, { splitGroupId: 10 });
+  const optionalB = mk(4, { machine: "XL_107", splitGroupId: null });
+  const requiredB = mk(5, { splitGroupId: 10 });
+  const { required, optional } = splitReservationSiblings(anchor, [optionalA, requiredA, optionalB, requiredB]);
+  assert.deepEqual(required.map((b) => b.id), [3, 5]);
+  assert.deepEqual(optional.map((b) => b.id), [2, 4]);
 });

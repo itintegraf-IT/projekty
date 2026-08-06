@@ -1168,6 +1168,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
      * záměrně vylučuje, aby neposlal dvojitou SSE událost.
      */
     const passiveLiveById = new Map<number, Block>();
+    /**
+     * VŠICHNI split sourozenci nahlášení KTERÝMKOLI putFlipem (`siblings`/
+     * `shifted` z odpovědi) — na rozdíl od `passiveLiveById` bez ohledu na to,
+     * jestli jsou v `explicitIds`. Slouží k detekci „tenhle explicitní
+     * sourozenec (siblingIds) byl už propagací překlopený" v cyklu níž (bug B,
+     * review 6. 8. 2026): cyklus dřív četl `blocksRef.current`, který se uvnitř
+     * téhle funkce nikdy needatuje (`handleBlockUpdate` volá jen setBlocks, ref
+     * se přepíše až při dalším renderu) — podmínka proto nikdy neplatila a na
+     * už propagovaného sourozence se posílal zbytečný PUT navíc.
+     */
+    const reportedSiblingById = new Map<number, Block>();
 
     const putFlip = async (id: number, body: Record<string, unknown>, lock?: string) => {
       const res = await fetch(`/api/blocks/${id}`, {
@@ -1190,6 +1201,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         ...((updated as Block & { shifted?: Block[] }).shifted ?? []),
       ]) {
         if (passiveOldById.has(p.id)) passiveLiveById.set(p.id, p);
+        reportedSiblingById.set(p.id, p);
       }
       // Snapshot odsunutých MUSÍ vzniknout před handleBlockUpdate (staré pozice
       // jsou jen v blocksRef). Týž soused může figurovat u víc bloků dávky —
@@ -1217,8 +1229,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
      * Zapíše historii za to, co se REÁLNĚ změnilo. Volá se i po chybě uprostřed
      * dávky — bez toho by po částečném selhání zůstaly už překlopené bloky
      * v plánu bez možnosti vrátit je Ctrl+Z.
+     *
+     * Vrací počet PASIVNÍCH sourozenců, které propagace opravdu změnila —
+     * toast po úspěchu z něj (spolu s kotvou a explicitními sourozenci) skládá
+     * SKUTEČNÝ počet překlopených bloků (bug A, review 6. 8. 2026).
      */
-    const recordFlipUndo = () => {
+    const recordFlipUndo = (): number => {
       const changed = before.filter((b) => {
         const a = after.find((x) => x.id === b.id);
         return a && JSON.stringify(a.fields) !== JSON.stringify(b.fields);
@@ -1248,7 +1264,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const shiftAfterById = new Map(flipShiftAfter.map((s) => [s.id, s]));
       changed.push(...mergePositionIntoTargets(passive.beforeTargets, shiftBeforeById));
       after.push(...mergePositionIntoTargets(passive.afterTargets, shiftAfterById));
-      if (changed.length === 0) return;
+      const passiveChangedCount = passive.afterTargets.length;
+      if (changed.length === 0) return passiveChangedCount;
       recordUndo(buildMultiEditCommand(
         changed.length > 1 ? "Překlopení rezervace" : "Překlopení na zakázku",
         changed,
@@ -1256,6 +1273,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         flipShiftBefore.filter((x) => !changed.some((c) => c.id === x.id)),
         flipShiftAfter.filter((_, i) => !changed.some((c) => c.id === flipShiftBefore[i].id)),
       ));
+      return passiveChangedCount;
     };
 
     try {
@@ -1266,9 +1284,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       for (const id of siblingIds) {
         const live = blocksRef.current.find((b) => b.id === id);
         if (!live) continue;
-        // Split sourozenec už překlopený serverovou propagací → další PUT je zbytečný.
-        if (live.type === "ZAKAZKA" && live.orderNumber === targetOrderNumber) {
-          after.push({ id, updatedAt: live.updatedAt, fields: flipFields(live) });
+        // Split sourozenec už překlopený serverovou propagací (SPLIT_SHARED_FIELDS
+        // z putFlipu kotvy nebo předchozího sourozence v týhle dávce) → další PUT
+        // je zbytečný. Čte se z odpovědi serveru (reportedSiblingById), NE z
+        // `blocksRef.current` (bug B, viz komentář u deklarace výš) — ten by tuhle
+        // podmínku nikdy nesplnil.
+        const already = reportedSiblingById.get(id);
+        if (already && already.type === "ZAKAZKA" && already.orderNumber === targetOrderNumber) {
+          after.push({ id, updatedAt: already.updatedAt, fields: flipFields(already) });
           continue;
         }
         await putFlip(id, {
@@ -1278,11 +1301,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         });
       }
 
-      recordFlipUndo();
+      const passiveChangedCount = recordFlipUndo();
       setEditingBlock(null); // parita s onSave — po úspěšném uložení panel zavíráme
-      const flipped = 1 + siblingIds.length;
+      // Skutečný počet = kotva + explicitní sourozenci (siblingIds) + pasivní
+      // sourozenci, které server stejně propagoval (split partneři, o které
+      // jsme si neřekli). Bez posledního členu by toast u „jen tento blok"
+      // nad rozdělenou zakázkou lhal stejně jako dřív ten dialog — nahlásil
+      // Vojta z reálného testování, 8/2026 (bug A, review 6. 8. 2026).
+      const flipped = 1 + siblingIds.length + passiveChangedCount;
       showToast(
-        siblingIds.length > 0
+        flipped > 1
           ? `Rezervace překlopena na zakázku (${flipped} ${flipped < 5 ? "bloky" : "bloků"}).`
           : "Rezervace překlopena na zakázku.",
         "success",
