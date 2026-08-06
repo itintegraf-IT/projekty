@@ -780,8 +780,11 @@ export function BlockEdit({
           <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--text-muted)" }}>Upravit záznam</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text)", marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
             {block.orderNumber}
+            {/* Text nese --accent-foreground, ne --accent: ten je podkladový tón a jako
+                barva písma dává kontrast ~1,2:1 (prakticky neviditelné v obou motivech).
+                14% tónovaný podklad to nezachraňoval — tónuje se týmž odstínem. */}
             {isInSeries && (
-              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--accent)", background: "color-mix(in oklab, var(--accent) 14%, transparent)", borderRadius: 4, padding: "1px 5px" }}>↻ Série</span>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--accent-foreground)", background: "var(--accent)", borderRadius: 4, padding: "1px 5px" }}>↻ Série</span>
             )}
             {isInSplit && (
               <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", background: "color-mix(in oklab, var(--text-muted) 12%, transparent)", borderRadius: 4, padding: "1px 5px" }}>
