@@ -1474,8 +1474,16 @@ export function BlockEdit({
                     TENTO
                   </span>
                 )}
+                {/* Plný --accent podklad s --accent-foreground textem, ne --accent jako
+                    barva písma: --accent je v tomhle designu podkladový tón (proto k němu
+                    existuje párový foreground). Jako `color` na pozadí dialogu dává kontrast
+                    ~1,2:1, tedy prakticky neviditelný text v obou motivech. */}
                 {isRequired && (
-                  <span style={{ marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: "var(--accent)", whiteSpace: "nowrap" }}>
+                  <span style={{
+                    marginLeft: "auto", fontSize: 9, fontWeight: 700, letterSpacing: "0.06em",
+                    whiteSpace: "nowrap", background: "var(--accent)", color: "var(--accent-foreground)",
+                    padding: "1px 5px", borderRadius: 4,
+                  }}>
                     ČÁST SPLITU
                   </span>
                 )}
