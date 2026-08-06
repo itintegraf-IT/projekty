@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { findSplitPartner, getSplitChipState } from "./splitHelpers";
+import { findSplitPartner, getSplitChipState, hasUnconfirmedReservation } from "./splitHelpers";
 import type { Block } from "@/app/_components/TimelineGrid";
 
 function mkBlock(overrides: Partial<Block> = {}): Block {
@@ -99,4 +99,30 @@ test("getSplitChipState returns done when printCompletedAt is set", () => {
   const result = getSplitChipState(partner);
   assert.equal(result.state, "done");
   assert.equal(result.time.toISOString(), "2026-05-23T15:45:00.000Z");
+});
+
+// ─── hasUnconfirmedReservation ────────────────────────────────────────────────
+// Split ocas nedědí reservationId, takže bez odvození ze skupiny přišel o
+// přesýpací hodiny i fialový rámeček a vypadal jako potvrzená rezervace.
+
+test("hasUnconfirmedReservation: skupina s nepotvrzenou rezervací → true i pro ocas bez vazby", () => {
+  const head = mkBlock({ id: 1, type: "REZERVACE", splitGroupId: 7, reservationId: 22, reservationConfirmedAt: null });
+  const tail = mkBlock({ id: 2, type: "REZERVACE", splitGroupId: 7, reservationId: null, reservationConfirmedAt: null });
+  assert.equal(hasUnconfirmedReservation([head, tail]), true);
+});
+
+test("hasUnconfirmedReservation: POTVRZENÁ rezervace skupinu neoznačí", () => {
+  const head = mkBlock({ id: 1, type: "REZERVACE", splitGroupId: 7, reservationId: 22, reservationConfirmedAt: "2026-09-01T10:00:00.000Z" });
+  const tail = mkBlock({ id: 2, type: "REZERVACE", splitGroupId: 7, reservationId: null, reservationConfirmedAt: null });
+  assert.equal(hasUnconfirmedReservation([head, tail]), false);
+});
+
+test("hasUnconfirmedReservation: split zakázky bez rezervace → false", () => {
+  const a = mkBlock({ id: 1, type: "ZAKAZKA", splitGroupId: 7 });
+  const b = mkBlock({ id: 2, type: "ZAKAZKA", splitGroupId: 7 });
+  assert.equal(hasUnconfirmedReservation([a, b]), false);
+});
+
+test("hasUnconfirmedReservation: prázdná skupina (blok bez splitu) → false", () => {
+  assert.equal(hasUnconfirmedReservation([]), false);
 });

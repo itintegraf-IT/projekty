@@ -27,7 +27,7 @@ import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { resolveScheduleRows, resolveDayIntervals } from "@/lib/scheduleValidation";
 import { SHIFT_HOURS } from "@/lib/shifts";
 import { ShiftEdgeHandles } from "@/components/planner/ShiftEdgeHandles";
-import { findSplitPartner } from "@/lib/splitHelpers";
+import { findSplitPartner, hasUnconfirmedReservation } from "@/lib/splitHelpers";
 import { BlockCard } from "@/components/planner/BlockCard";
 import {
   ContextMenu,
@@ -2032,6 +2032,9 @@ export default function TimelineGrid({
                   const splitPart  = splitTotal > 0 ? splitSiblings.findIndex(b => b.id === block.id) + 1 : 0;
                   // Σ tiskových minut celé skupiny — pro chip „✂2/5 · 27h" a tooltip (bod 18 auditu)
                   const splitTotalMinutes = splitTotal > 0 ? splitGroupTotalPrintMinutes(splitSiblings) : 0;
+                  // Nepotvrzená rezervace je vlastnost REZERVACE, ne jednotlivého bloku —
+                  // ocas splitu nedědí reservationId, takže se musí odvodit ze skupiny.
+                  const groupUnconfirmedReservation = hasUnconfirmedReservation(splitSiblings);
                   // Split partner pro TISKAR — najde sourozenecký blok na druhém stroji
                   const splitPartner = isTiskar
                     ? findSplitPartner(block, blocks, assignedMachine ?? "")
@@ -2107,6 +2110,7 @@ export default function TimelineGrid({
                       onExpeditionUnpublish={onExpeditionUnpublish}
                       onOpenNotes={onOpenNotes}
                       splitPartner={splitPartner}
+                      groupUnconfirmedReservation={groupUnconfirmedReservation}
                       onSplitChipClick={onSplitChipClick}
                       calendarDrift={driftMap.get(block.id)}
                       shadeParity={shadeParityByBlockId.get(block.id)}

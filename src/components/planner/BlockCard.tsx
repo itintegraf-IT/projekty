@@ -289,7 +289,7 @@ function MaterialNoteAffordance({
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 export function BlockCard({
   block, top, height, maxRenderHeight, dimmed, selected, isDragging, isCopied, multiSelected, now,
-  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, onBlockUpdate, onError,
+  onClick, onDoubleClick, onMouseDown, onResizeMouseDown, groupUnconfirmedReservation = false, onBlockUpdate, onError,
   canEdit, canEditData, canEditDataDate, canEditMat, onInlineDatePick, badgeColorMap,
   onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
   onExpeditionPublish, onExpeditionUnpublish,
@@ -333,6 +333,8 @@ export function BlockCard({
   onDoubleClick: () => void;
   onMouseDown?: (e: React.MouseEvent) => void;
   onResizeMouseDown?: (e: React.MouseEvent) => void;
+  /** Některý člen split skupiny nese nepotvrzenou rezervaci (ocas nedědí `reservationId`). */
+  groupUnconfirmedReservation?: boolean;
   onBlockUpdate: (b: Block, addToHistory?: boolean) => void;
   onError?: (msg: string) => void;
   canEdit?: boolean;
@@ -378,7 +380,11 @@ export function BlockCard({
     && block.type === "ZAKAZKA"
     && isBlockRunningNow(block.startTime, block.endTime, now, isPrintDone);
   const isPozastaveno = block.type === "ZAKAZKA" && block.blockVariant === "POZASTAVENO";
-  const isUnconfirmedReservation = block.type === "REZERVACE" && block.reservationId != null && !block.reservationConfirmedAt;
+  // Vazba na rezervaci (`reservationId`) sedí jen na jednom bloku skupiny — split
+  // ocas ji nedědí. Bez `groupUnconfirmedReservation` by tak přišel o hodiny
+  // i fialový rámeček a vypadal jako potvrzený (viz hasUnconfirmedReservation).
+  const isUnconfirmedReservation = block.type === "REZERVACE"
+    && ((block.reservationId != null && !block.reservationConfirmedAt) || groupUnconfirmedReservation);
   const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
   // Deadline štítek — nezávislé na isOverdue (to je „konec bloku je v minulosti").
   // Termín expedice je okamžik 14:00 pražského času, ne celý den (viz deadlineState.ts);
