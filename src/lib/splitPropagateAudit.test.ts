@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSplitPropagateAuditRows, type SplitPropagateSibling } from "@/lib/splitPropagateAudit";
+import {
+  buildSplitPropagateAuditRows,
+  SPLIT_PROPAGATE_AUDITED_FIELDS,
+  type SplitPropagateSibling,
+} from "@/lib/splitPropagateAudit";
+import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
+import { AUDITED_FIELDS } from "@/lib/auditedFields";
 
 function sibling(over: Partial<SplitPropagateSibling> = {}): SplitPropagateSibling {
   return { id: 101, orderNumber: "5000", ...over };
@@ -36,12 +42,56 @@ test("sourozenec, který cílovou hodnotu už má, řádek nedostane (idempotenc
 
 test("z více polí ve sharedUpdate se zapíší jen ta, co se sourozenci reálně změnila", () => {
   const rows = buildSplitPropagateAuditRows({
-    siblings: [sibling({ id: 404, orderNumber: "5000", description: "Stará zakázka", specifikace: "Lesk" })],
-    sharedUpdate: { orderNumber: "5000", description: "Nová zakázka", specifikace: "Lesk" },
+    siblings: [sibling({ id: 404, orderNumber: "5000", doprava: "PPL", expediceNote: "Křehké" })],
+    sharedUpdate: { orderNumber: "5000", doprava: "Vlastní odvoz", expediceNote: "Křehké" },
   });
-  // orderNumber a specifikace beze změny → nepatří; description se změnilo → jediný řádek
+  // orderNumber a expediceNote beze změny → nepatří; doprava se změnilo → jediný řádek
   assert.deepEqual(rows, [
-    { blockId: 404, orderNumber: "5000", field: "description", oldValue: "Stará zakázka", newValue: "Nová zakázka" },
+    { blockId: 404, orderNumber: "5000", field: "doprava", oldValue: "PPL", newValue: "Vlastní odvoz" },
+  ]);
+});
+
+test("Fix round 1: pole mimo AUDITED_FIELDS (description, dataStatusId, barvyStatusLabel) se NEZAPÍŠE, i když se hodnota reálně změnila", () => {
+  const rows = buildSplitPropagateAuditRows({
+    siblings: [
+      sibling({
+        id: 88,
+        orderNumber: "5000", // v průniku, ale beze změny (kontrola, že se filtr netýká TOHOTO důvodu)
+        description: "Stará zakázka", // v SPLIT_SHARED_FIELDS, MIMO AUDITED_FIELDS
+        dataStatusId: 3, // v SPLIT_SHARED_FIELDS, MIMO AUDITED_FIELDS (jen *Label se audituje)
+        barvyStatusLabel: "Modrá", // v SPLIT_SHARED_FIELDS, ale barvy/lak nejsou v AUDITED_FIELDS vůbec
+      }),
+    ],
+    sharedUpdate: {
+      orderNumber: "5000",
+      description: "Nová zakázka",
+      dataStatusId: 9,
+      barvyStatusLabel: "Červená",
+    },
+  });
+  assert.deepEqual(rows, []);
+});
+
+test("Fix round 1: SPLIT_PROPAGATE_AUDITED_FIELDS je přesně průnik SPLIT_SHARED_FIELDS a AUDITED_FIELDS, spočítaný programově", () => {
+  const auditedSet = new Set<string>(AUDITED_FIELDS);
+  const expected = (SPLIT_SHARED_FIELDS as readonly string[]).filter((f) => auditedSet.has(f));
+  // Přepočet ze dvou SKUTEČNÝCH zdrojů pravdy — chrání proti driftu, kdyby export
+  // v splitPropagateAudit.ts sklouzl na ruční (a časem neaktuální) výčet.
+  assert.deepEqual([...SPLIT_PROPAGATE_AUDITED_FIELDS], expected);
+  assert.ok(SPLIT_PROPAGATE_AUDITED_FIELDS.length > 0, "průnik nesmí vyjít prázdný — jinak by SPLIT_PROPAGATE nikdy nic nezapsal");
+  for (const field of SPLIT_PROPAGATE_AUDITED_FIELDS) {
+    assert.ok((SPLIT_SHARED_FIELDS as readonly string[]).includes(field), `${field} musí být v SPLIT_SHARED_FIELDS`);
+    assert.ok((AUDITED_FIELDS as readonly string[]).includes(field), `${field} musí být v AUDITED_FIELDS`);
+  }
+});
+
+test("Fix round 1 tripwire: konkrétní obsah průniku (nové pole se sem přidává vědomě)", () => {
+  assert.deepEqual([...SPLIT_PROPAGATE_AUDITED_FIELDS], [
+    "orderNumber", "deadlineExpedice", "expediceNote", "doprava",
+    "jobPresetLabel", "type", "blockVariant",
+    "dataStatusLabel", "dataRequiredDate", "dataOk",
+    "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock", "materialIssued",
+    "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
   ]);
 });
 

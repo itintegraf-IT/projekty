@@ -17,6 +17,7 @@ import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/bl
 import { truncateUtf8 } from "@/lib/textTruncate";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { buildSplitPropagateAuditRows } from "@/lib/splitPropagateAudit";
+import { AUDITED_FIELDS, type AuditedField } from "@/lib/auditedFields";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -145,21 +146,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const needsScheduleComputation =
       timingChanged || typeChangesToZakazka || allowed.type !== undefined || typeof allowedPrintMinutes === "number";
 
-    const AUDITED_FIELDS = [
-      "dataStatusLabel", "dataRequiredDate", "dataOk",
-      "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
-      "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "materialInStock", "materialIssued",
-      "deadlineExpedice",
-      "expediceNote", "doprava",
-      "blockVariant",
-      "jobPresetLabel",
-      "obalka", "vnitrky", "tiskoveArchy", "serie",
-      // Podstata překlopení rezervace na zakázku (REZERVACE→ZAKAZKA, R123→5000).
-      // Do 8/2026 tu chyběly, takže v historii bloku byla po překlopení vidět
-      // jen změna varianty a dohledat vznik zakázky nešlo.
-      "type", "orderNumber",
-    ] as const;
-    type AuditedField = typeof AUDITED_FIELDS[number];
+    // AUDITED_FIELDS/AuditedField žijí v @/lib/auditedFields (sdílené se
+    // splitPropagateAudit.ts — viz komentář tam k průniku se SPLIT_SHARED_FIELDS).
 
     const { block, shifted, propagatedGroupId } = await prisma.$transaction(async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });

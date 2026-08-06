@@ -1,4 +1,28 @@
 import { serializeAuditValue } from "@/lib/blockSerialization";
+import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
+import { AUDITED_FIELDS } from "@/lib/auditedFields";
+
+/**
+ * Pole, která smí vytvořit `SPLIT_PROPAGATE` řádek — průnik toho, co se vůbec
+ * propaguje do split sourozenců (`SPLIT_SHARED_FIELDS`) a toho, co běžná
+ * editace bloku audituje (`AUDITED_FIELDS`, `UPDATE` větev v `route.ts`).
+ *
+ * Počítáno PROGRAMOVĚ z obou zdrojů pravdy, ne ručním výčtem — ruční kopie by
+ * se rozešla při první změně jednoho z obou seznamů (tenhle projekt si přesně
+ * tohle už jednou vybral: klientská kopie `SPLIT_SHARED_FIELDS` se rozešla se
+ * serverovou a způsobila regresi, viz komentář v `splitSharedFields.ts`).
+ *
+ * Bez tohoto zúžení by propagace auditovala VÍC než přímá editace (např.
+ * `dataStatusId`, `description`, `barvyStatusLabel` — pole, která `UPDATE`
+ * audit záměrně nesleduje, protože do historie má jít čitelný popisek/hodnota,
+ * ne vnitřní identifikátor nebo pole bez auditní historie vůbec) — sourozenec
+ * by tak měl v historii jiný obrázek než blok editovaný přímo.
+ */
+const AUDITED_FIELD_SET: ReadonlySet<string> = new Set(AUDITED_FIELDS);
+export const SPLIT_PROPAGATE_AUDITED_FIELDS: readonly string[] = SPLIT_SHARED_FIELDS.filter((field) =>
+  AUDITED_FIELD_SET.has(field)
+);
+const PROPAGATE_FIELD_SET: ReadonlySet<string> = new Set(SPLIT_PROPAGATE_AUDITED_FIELDS);
 
 /**
  * Minimální tvar sourozence potřebný k porovnání starých hodnot. Index signature
@@ -36,13 +60,18 @@ export type SplitPropagateAuditRow = {
  * nastavenou už z dřívějška), žádný řádek nedostane. Bez tohoto filtru by jedna
  * editace formuláře se spoustou polí ve `sharedUpdate` vyrobila desítky prázdných
  * řádků v historii každého sourozence.
+ *
+ * `sharedUpdate` může nést i pole mimo `SPLIT_PROPAGATE_AUDITED_FIELDS` (propagace
+ * sama je širší množina — `SPLIT_SHARED_FIELDS` — protože se dál zapisuje vždy
+ * celá, i pole bez auditní historie). Do řádků se z nich ale dostane jen průnik
+ * s `AUDITED_FIELDS`, aby historie sourozence vypadala stejně jako u přímé editace.
  */
 export function buildSplitPropagateAuditRows(params: {
   siblings: SplitPropagateSibling[];
   sharedUpdate: Record<string, unknown>;
 }): SplitPropagateAuditRow[] {
   const { siblings, sharedUpdate } = params;
-  const fields = Object.keys(sharedUpdate);
+  const fields = Object.keys(sharedUpdate).filter((field) => PROPAGATE_FIELD_SET.has(field));
   const rows: SplitPropagateAuditRow[] = [];
 
   for (const sibling of siblings) {
