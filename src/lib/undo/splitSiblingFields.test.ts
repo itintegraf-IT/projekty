@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets } from "./splitSiblingFields";
+import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets, mergeAnchorPositionIfChanged } from "./splitSiblingFields";
 import { SPLIT_SHARED_FIELDS } from "../splitSharedFields";
 import type { BlockSnapshot, EditSnapshot } from "./types";
 
@@ -330,4 +330,118 @@ test("mergePositionIntoTargets + buildPassiveSiblingTargets: pasivní soused ods
     startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z",
     machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
   });
+});
+
+// ─── mergeAnchorPositionIfChanged (etapa A, jeden krok historie) ────────────
+// handleBlockUpdate (PlannerPage.tsx) dřív zapisoval poziční mutaci
+// (buildMoveOrResizeCommand) VEDLE kroku s business poli (buildMultiEditCommand)
+// — oba nesly TYTÉŽ odsunuté sousedy, takže první Ctrl+Z jim zvedl updatedAt
+// a druhý na ně narazil se zastaralým snapshotem (StaleUndoError). Tahle
+// funkce slije pozici kotvy PŘÍMO do jejího cíle, takže zbyde jeden krok.
+
+test("mergeAnchorPositionIfChanged: změnila se pole I pozice — kotva nese OBOJÍ v jednom cíli", () => {
+  const beforeTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a1", fields: { description: "stará" } }];
+  const afterTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a2", fields: { description: "nová" } }];
+  const prev = pos({ id: 1, updatedAt: "a1" });
+  const updated = pos({ id: 1, updatedAt: "a2", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" });
+  const res = mergeAnchorPositionIfChanged(beforeTargets, afterTargets, prev, updated);
+  assert.equal(res.beforeTargets.length, 1);
+  assert.deepEqual(res.beforeTargets[0].fields, {
+    description: "stará",
+    startTime: "2026-09-02T06:00:00.000Z", endTime: "2026-09-02T08:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  });
+  assert.deepEqual(res.afterTargets[0].fields, {
+    description: "nová",
+    startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  });
+});
+
+test("mergeAnchorPositionIfChanged: změnila se JEN pole (pozice identická) — cíl NENESE žádný poziční klíč", () => {
+  // Kdyby se poziční pětice slévala vždycky, undoApply.server.ts (touchesPosition)
+  // by čistě polní editaci vykreslil jako poziční audit řádek ("18:00 → 18:00"
+  // místo výpisu polí) — přesně bug popsaný v zadání.
+  const beforeTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a1", fields: { description: "stará" } }];
+  const afterTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a2", fields: { description: "nová" } }];
+  const prev = pos({ id: 1, updatedAt: "a1" });
+  const updated = pos({ id: 1, updatedAt: "a2" }); // identická pozice
+  const res = mergeAnchorPositionIfChanged(beforeTargets, afterTargets, prev, updated);
+  assert.deepEqual(res.beforeTargets[0].fields, { description: "stará" });
+  assert.deepEqual(res.afterTargets[0].fields, { description: "nová" });
+  for (const key of ["startTime", "endTime", "machine", "printMinutes", "scheduleBypassed"]) {
+    assert.equal(key in res.beforeTargets[0].fields, false, `${key} nesmí být v cíli (before)`);
+    assert.equal(key in res.afterTargets[0].fields, false, `${key} nesmí být v cíli (after)`);
+  }
+});
+
+test("mergeAnchorPositionIfChanged: changedFields prázdné (cíl bez business polí) + pozice se změnila — fields ponese jen pozici, stejný tvar jako dnešní mutationCmd", () => {
+  const beforeTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a1", fields: {} }];
+  const afterTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a2", fields: {} }];
+  const prev = pos({ id: 1, updatedAt: "a1" });
+  const updated = pos({ id: 1, updatedAt: "a2", startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z" });
+  const res = mergeAnchorPositionIfChanged(beforeTargets, afterTargets, prev, updated);
+  assert.deepEqual(res.beforeTargets[0].fields, {
+    startTime: "2026-09-02T06:00:00.000Z", endTime: "2026-09-02T08:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  });
+  assert.deepEqual(res.afterTargets[0].fields, {
+    startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  });
+});
+
+test("mergeAnchorPositionIfChanged: kotva NENÍ první v poli cílů — sloučí se přesto, hledá se podle id", () => {
+  const beforeTargets: EditSnapshot[] = [
+    { id: 2, updatedAt: "b1", fields: { orderNumber: "SIB" } }, // sourozenec první
+    { id: 1, updatedAt: "a1", fields: { description: "stará" } }, // kotva druhá
+  ];
+  const afterTargets: EditSnapshot[] = [
+    { id: 2, updatedAt: "b1", fields: { orderNumber: "SIB" } },
+    { id: 1, updatedAt: "a2", fields: { description: "nová" } },
+  ];
+  const prev = pos({ id: 1, updatedAt: "a1" });
+  const updated = pos({ id: 1, updatedAt: "a2", machine: "XL_106" });
+  const res = mergeAnchorPositionIfChanged(beforeTargets, afterTargets, prev, updated);
+  assert.deepEqual(res.beforeTargets[0].fields, { orderNumber: "SIB" }, "sourozenec beze změny");
+  assert.deepEqual(res.beforeTargets[1].fields, {
+    description: "stará",
+    startTime: "2026-09-02T06:00:00.000Z", endTime: "2026-09-02T08:00:00.000Z",
+    machine: "XL_105", printMinutes: 120, scheduleBypassed: false,
+  }, "kotva na DRUHÉ pozici v poli přesto dostane pozici");
+  assert.deepEqual(res.afterTargets[1].fields, {
+    description: "nová",
+    startTime: "2026-09-02T06:00:00.000Z", endTime: "2026-09-02T08:00:00.000Z",
+    machine: "XL_106", printMinutes: 120, scheduleBypassed: false,
+  });
+});
+
+test("mergeAnchorPositionIfChanged: jen scheduleBypassed se liší — MUTAČNÍ POJISTKA, pořád se to počítá jako poziční změna", () => {
+  const beforeTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a1", fields: {} }];
+  const afterTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a2", fields: {} }];
+  const prev = pos({ id: 1, updatedAt: "a1", scheduleBypassed: false });
+  const updated = pos({ id: 1, updatedAt: "a2", scheduleBypassed: true });
+  const res = mergeAnchorPositionIfChanged(beforeTargets, afterTargets, prev, updated);
+  assert.equal("scheduleBypassed" in res.beforeTargets[0].fields, true, "scheduleBypassed musí být součástí diffu, ne jen startTime/endTime/machine");
+  assert.equal(res.afterTargets[0].fields.scheduleBypassed, true);
+});
+
+test("mergeAnchorPositionIfChanged: jen printMinutes se liší — MUTAČNÍ POJISTKA, pořád se to počítá jako poziční změna", () => {
+  const beforeTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a1", fields: {} }];
+  const afterTargets: EditSnapshot[] = [{ id: 1, updatedAt: "a2", fields: {} }];
+  const prev = pos({ id: 1, updatedAt: "a1", printMinutes: 100 });
+  const updated = pos({ id: 1, updatedAt: "a2", printMinutes: 150 });
+  const res = mergeAnchorPositionIfChanged(beforeTargets, afterTargets, prev, updated);
+  assert.equal("printMinutes" in res.beforeTargets[0].fields, true, "printMinutes musí být součástí diffu");
+  assert.equal(res.afterTargets[0].fields.printMinutes, 150);
+});
+
+test("mergeAnchorPositionIfChanged: cíl s id mimo kotvu se vrátí beze změny (žádná cizí pozice, žádný duch)", () => {
+  const beforeTargets: EditSnapshot[] = [{ id: 5, updatedAt: "x1", fields: { description: "x" } }];
+  const afterTargets: EditSnapshot[] = [{ id: 5, updatedAt: "x2", fields: { description: "y" } }];
+  const prev = pos({ id: 1, updatedAt: "a1" }); // jiné id než v targets
+  const updated = pos({ id: 1, updatedAt: "a2", machine: "XL_106" });
+  const res = mergeAnchorPositionIfChanged(beforeTargets, afterTargets, prev, updated);
+  assert.deepEqual(res.beforeTargets, beforeTargets);
+  assert.deepEqual(res.afterTargets, afterTargets);
 });

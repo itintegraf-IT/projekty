@@ -203,6 +203,50 @@ export function mergePositionIntoTargets(
 }
 
 /**
+ * Slije pozici KOTVY (`prev`/`updated`, stejné id) do jejího cíle v
+ * `beforeTargets`/`afterTargets` — ALE JEN POKUD se poziční pětice
+ * (startTime/endTime/machine/printMinutes/scheduleBypassed) mezi snapshoty
+ * reálně liší. Bez tyhle podmínky by poziční klíče skončily ve `fields` i
+ * u čistě polní editace (beze změny pozice) a `undoApply.server.ts`
+ * (`touchesPosition`) by takový krok vykreslil jako „poziční" audit řádek
+ * („18:00 → 18:00") místo výpisu skutečně změněných polí.
+ *
+ * Vzniklo pro `handleBlockUpdate` (PlannerPage.tsx, etapa A atomického undo)
+ * — oprava dvojího zápisu do historie za JEDNU akci uživatele. Dřív se
+ * poziční mutace zapisovala jako samostatný krok (`buildMoveOrResizeCommand`)
+ * VEDLE kroku s business poli (`buildMultiEditCommand`), a OBA nesly TYTÉŽ
+ * odsunuté sousedy (chain push) — první Ctrl+Z jim zvedl `updatedAt`, druhý
+ * na ně narazil se zastaralým snapshotem a shodil `StaleUndoError`, i když
+ * je ve skutečnosti rozbil vlastní první krok undo. Teď kotva nese business
+ * pole i pozici v jednom cíli, takže vznikne (a vrací se) jeden krok historie.
+ *
+ * Hledá kotvu podle `id`, ne podle pořadí v poli `beforeTargets`/`afterTargets`
+ * — deleguje na `mergePositionIntoTargets`, který taky hledá výhradně podle id,
+ * takže funguje, ať je kotva na jakékoli pozici. Cíle bez shodného id
+ * (sourozenci) projdou beze změny — o jejich pozici se stará volající zvlášť.
+ */
+export function mergeAnchorPositionIfChanged(
+  beforeTargets: readonly EditSnapshot[],
+  afterTargets: readonly EditSnapshot[],
+  prev: BlockSnapshot,
+  updated: BlockSnapshot,
+): { beforeTargets: EditSnapshot[]; afterTargets: EditSnapshot[] } {
+  const changed =
+    new Date(prev.startTime).getTime() !== new Date(updated.startTime).getTime() ||
+    new Date(prev.endTime).getTime() !== new Date(updated.endTime).getTime() ||
+    prev.machine !== updated.machine ||
+    prev.printMinutes !== updated.printMinutes ||
+    prev.scheduleBypassed !== updated.scheduleBypassed;
+  if (!changed) {
+    return { beforeTargets: [...beforeTargets], afterTargets: [...afterTargets] };
+  }
+  return {
+    beforeTargets: mergePositionIntoTargets(beforeTargets, new Map([[prev.id, prev]])),
+    afterTargets: mergePositionIntoTargets(afterTargets, new Map([[updated.id, updated]])),
+  };
+}
+
+/**
  * Diff `sharedFields` pro páry (starý stav, aktuální stav) STEJNÉHO bloku, kde
  * volající nemá žádný "primární" blok — jen bloky, o které si NEŘEKL, ale server
  * je stejně propagoval (C1b, go/no-go audit 5. 8. 2026: `handleFlipReservation`

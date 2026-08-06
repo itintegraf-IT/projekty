@@ -23,7 +23,7 @@ import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
 import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
-import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets } from "@/lib/undo/splitSiblingFields";
+import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets, mergeAnchorPositionIfChanged } from "@/lib/undo/splitSiblingFields";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
@@ -1041,15 +1041,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
     if (prev && addToHistory) {
       // printMinutes i scheduleBypassed v obou snapshotech: endpoint nic nederivuje, takže
-      // buildMoveOrResizeCommand je posílá na server doslova — bez nich by po undo/redo zůstal
-      // blok se spanem neodpovídajícím tiskovým minutám, nebo s bypass příznakem nesedícím
-      // na vrácenou geometrii (Task 6, Step 3b + fix round 1).
+      // poziční zápis (mutationCmd, nebo sloučená kotva u polní editace níž) je posílá na
+      // server doslova — bez nich by po undo/redo zůstal blok se spanem neodpovídajícím
+      // tiskovým minutám, nebo s bypass příznakem nesedícím na vrácenou geometrii
+      // (Task 6, Step 3b + fix round 1).
       const prevSnap = { id: prev.id, startTime: prev.startTime as string, endTime: prev.endTime as string, machine: prev.machine, updatedAt: (prev as Block).updatedAt, printMinutes: (prev as Block).printMinutes ?? null, scheduleBypassed: (prev as Block).scheduleBypassed ?? false };
       const updatedSnap = { id: cleanUpdated.id, startTime: cleanUpdated.startTime as string, endTime: cleanUpdated.endTime as string, machine: cleanUpdated.machine, updatedAt: cleanUpdated.updatedAt, printMinutes: cleanUpdated.printMinutes ?? null, scheduleBypassed: cleanUpdated.scheduleBypassed ?? false };
-      const shiftedBeforeMove = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false }));
-      const shiftedAfterMove = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt, printMinutes: s.printMinutes ?? null, scheduleBypassed: s.scheduleBypassed ?? false }));
-      const mutationCmd = buildMoveOrResizeCommand(prevSnap, updatedSnap, shiftedBeforeMove, shiftedAfterMove);
-      if (mutationCmd) recordUndo(mutationCmd);
+      // JEDNA uživatelova akce = JEDEN krok historie (etapa A, atomické undo — oprava dvojího
+      // zápisu). Dřív se sem zapisovaly DVA nezávislé kroky (mutationCmd + buildMultiEditCommand
+      // níž), oba nesoucí TYTÉŽ odsunuté sousedy (chain push) — první Ctrl+Z jim zvedl
+      // updatedAt, druhý na ně narazil se zastaralým snapshotem a shodil StaleUndoError, i když
+      // ve skutečnosti krok historie rozbil náš vlastní první Ctrl+Z. changedFields se proto
+      // počítá PŘED mutationCmd: když se změnila i business pole, mutationCmd se vůbec
+      // nezapisuje — pozice kotvy se slije přímo do jejího cíle (mergeAnchorPositionIfChanged
+      // níž), takže zbyde jediný krok historie.
       const changedFields = EDIT_TRACKED_FIELDS.filter(
         (f) => JSON.stringify((prev as Record<string, unknown>)[f]) !== JSON.stringify((cleanUpdated as Record<string, unknown>)[f]),
       );
@@ -1086,17 +1091,30 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         // changedFields ∩ SPLIT_SHARED_FIELDS — ne celý changedFields (review I1): server
         // na sourozence propaguje jen sdílená pole, zbytek EDIT_TRACKED_FIELDS (locked,
         // materialNote, materialIssued, obalka, vnitrky, tiskoveArchy, serie) se jich netýká.
-        const { beforeTargets, afterTargets, absorbedShiftedIds } = buildSplitEditTargetsWithShifted({
+        const { beforeTargets: rawBeforeTargets, afterTargets: rawAfterTargets, absorbedShiftedIds } = buildSplitEditTargetsWithShifted({
           changedFields, sharedFields: SPLIT_SHARED_FIELDS,
           before: prev, after: cleanUpdated, siblingsOld, siblingsNew: siblings,
           shiftedSplitSiblingsOld, shiftedSplitSiblingsNew,
         });
+        // Kotva nese pozici PŘÍMO ve svém cíli, pokud se reálně změnila — mergeAnchorPositionIfChanged
+        // uvnitř gatuje na skutečný diff prevSnap/updatedSnap, takže čistě polní editace (beze
+        // změny pozice) nedostane do fields žádný poziční klíč (jinak by ji undoApply.server.ts,
+        // `touchesPosition`, vykreslil jako poziční audit řádek místo výpisu polí).
+        const { beforeTargets, afterTargets } = mergeAnchorPositionIfChanged(
+          rawBeforeTargets, rawAfterTargets, prevSnap, updatedSnap,
+        );
         // Pohlcený soused nese pozici UVNITŘ beforeTargets/afterTargets (sdílené pole i pozice
         // v jednom cíli) — musí zmizet z prostého pozičního seznamu, jinak by stejné id bloku
         // bylo ve DVOU cílech JEDNÉ dávky a sanitizeUndoOps by celý krok odmítl (400).
         const shiftedBeforeFinal = absorbedShiftedIds.size === 0 ? shiftedBefore : shiftedBefore.filter((s) => !absorbedShiftedIds.has(s.id));
         const shiftedAfterFinal = absorbedShiftedIds.size === 0 ? shiftedAfter : shiftedAfter.filter((s) => !absorbedShiftedIds.has(s.id));
         recordUndo(buildMultiEditCommand("Úprava bloku", beforeTargets, afterTargets, shiftedBeforeFinal, shiftedAfterFinal));
+      } else {
+        // Beze změny business polí — chování beze změny (poziční krok samostatně).
+        const shiftedBeforeMove = shiftedOld.map((o) => ({ id: o.id, startTime: o.startTime as string, endTime: o.endTime as string, machine: o.machine, updatedAt: o.updatedAt, printMinutes: o.printMinutes ?? null, scheduleBypassed: o.scheduleBypassed ?? false }));
+        const shiftedAfterMove = shifted.map((s) => ({ id: s.id, startTime: s.startTime as string, endTime: s.endTime as string, machine: s.machine, updatedAt: s.updatedAt, printMinutes: s.printMinutes ?? null, scheduleBypassed: s.scheduleBypassed ?? false }));
+        const mutationCmd = buildMoveOrResizeCommand(prevSnap, updatedSnap, shiftedBeforeMove, shiftedAfterMove);
+        if (mutationCmd) recordUndo(mutationCmd);
       }
     }
   }
