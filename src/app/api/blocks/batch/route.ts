@@ -9,6 +9,7 @@ import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.
 import { AppError, isAppError } from "@/lib/errors";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { buildBatchAuditRows } from "@/lib/batchAuditRows";
 
 type BatchUpdate = {
   id: number;
@@ -236,17 +237,17 @@ export async function POST(request: NextRequest) {
         const updatedBlock = updated.find((b) => b.id === u.id);
         const orderNumber = updatedBlock?.orderNumber ?? old?.orderNumber ?? null;
         const effectiveEnd = computedEnds.get(u.id)?.end ?? new Date(u.endTime);
+        if (!old) continue;
 
-        auditRows.push({
+        const rows = buildBatchAuditRows({
           blockId: u.id,
           orderNumber,
-          userId: session.id,
-          username: session.username,
-          action: "UPDATE",
-          field: "startTime/endTime/machine",
-          oldValue: undefined,
-          newValue: `${u.machine} ${u.startTime}–${effectiveEnd.toISOString()}`,
+          old: { machine: old.machine, startTime: old.startTime, endTime: old.endTime },
+          next: { machine: u.machine, startTime: new Date(u.startTime), endTime: effectiveEnd },
         });
+        for (const r of rows) {
+          auditRows.push({ ...r, userId: session.id, username: session.username, action: "UPDATE" });
+        }
       }
 
       await tx.auditLog.createMany({ data: auditRows });
