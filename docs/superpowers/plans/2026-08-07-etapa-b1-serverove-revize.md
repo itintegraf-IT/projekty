@@ -59,7 +59,7 @@
 
 ## Task 1: Sdílený typ transakčního klienta
 
-Typ `PrismaTransactionClient` je dnes doslova zkopírovaný v pěti souborech. Task 5 na něm staví, takže sjednocení musí být první.
+Typ `PrismaTransactionClient` je dnes doslova zkopírovaný ve čtyřech souborech. Task 5 na něm staví, takže sjednocení musí být první.
 
 **Files:**
 - Create: `src/lib/prismaTx.ts`
