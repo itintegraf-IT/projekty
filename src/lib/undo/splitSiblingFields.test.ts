@@ -447,7 +447,7 @@ test("mergeAnchorPositionIfChanged: cíl s id mimo kotvu se vrátí beze změny 
   assert.deepEqual(res.afterTargets, afterTargets);
 });
 
-// ─── pickShiftedSplitSiblings (etapa A pokračování, handleSaveAll, 6. 8. 2026) ──
+// ─── pickShiftedSplitSiblings (etapa A pokračování, handleSaveAll, 7. 8. 2026) ──
 // handleBlockUpdate řeší shifted split sourozence pro JEDEN PUT inline (viz
 // PlannerPage.tsx, C-1). handleSaveAll potřebuje totéž přes VÍC PUTů jedné dávky —
 // tahle funkce je jeho čistá, testovatelná verze (PlannerPage.tsx testy mít nemůže,
@@ -558,7 +558,7 @@ test("pickShiftedSplitSiblings: MUTAČNÍ POJISTKA — blok BEZ split skupiny (s
 
 // ─── Integrace: handleSaveAll — HEAD editovaný přes „Celou sérii", TAIL odsunutý
 // chain pushem a vyloučený ze `siblings` (přesný scénář ze zadání, atomické undo
-// etapa A, 6. 8. 2026) ──────────────────────────────────────────────────────────
+// etapa A, 7. 8. 2026) ──────────────────────────────────────────────────────────
 // HEAD (id 1) nese recurrenceParentId → je v `ids`, které handleSaveAll ukládá.
 // TAIL (id 2) je jeho split sourozenec, ale recurrenceParentId nekopíruje (split
 // route.ts) → do `ids` se NIKDY nedostane. Editace HEADu přes „Celou sérii" mění
@@ -631,7 +631,7 @@ test("handleSaveAll scénář: TAIL dostane sdílené pole I pozici v JEDNOM cí
   assert.equal(finalShifted.after.length, 0);
 });
 
-test("REGRESE (dokumentační): stejný scénář přes holé buildSplitEditTargets (jen siblings, bez shifted-vědomí) TAIL úplně vynechá — tohle byl bug před opravou 6. 8. 2026", () => {
+test("REGRESE (dokumentační): stejný scénář přes holé buildSplitEditTargets (jen siblings, bez shifted-vědomí) TAIL úplně vynechá — tohle byl bug před opravou 7. 8. 2026", () => {
   // Server pošle TAIL jen v `shifted` (viz test výš) — buildSplitEditTargets zná
   // jen `siblingsOld`/`siblingsNew`, které jsou prázdné (TAIL byl ze siblings
   // vyloučen). Bez buildSplitEditTargetsWithShifted/pickShiftedSplitSiblings se

@@ -1798,7 +1798,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             const siblingsOld = siblings
               .map((s) => prevById.get(s.id))
               .filter((b): b is Block => b != null);
-            // Etapa A pokračování (6. 8. 2026): split sourozenec, kterého TENTÝŽ PUT
+            // Etapa A pokračování (7. 8. 2026): split sourozenec, kterého TENTÝŽ PUT
             // odsunul chain pushem — server ho schválně vyloučí ze `siblings`
             // (api/blocks/[id]/route.ts, „Vyloučit sourozence, kteří už jsou v shifted"),
             // aby neposlal dvojitou SSE událost pro týž blok. Bez tohohle by ho `siblings`
