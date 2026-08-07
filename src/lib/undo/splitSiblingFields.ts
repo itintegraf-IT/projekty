@@ -170,6 +170,48 @@ export function buildSplitEditTargetsWithShifted(
 }
 
 /**
+ * Vybere ze `shifted` (bloky odsunuté JEDNÍM PUTem — `updated.shifted` z odpovědi
+ * serveru) ty, které patří do STEJNÉ split skupiny jako právě editovaný blok
+ * (`primarySplitGroupId`), a spáruje je s jejich stavem PŘED touhle PUT odpovědí
+ * podle `prevById`. Výstup jde přímo do `buildSplitEditTargetsWithShifted` jako
+ * `shiftedSplitSiblingsOld`/`shiftedSplitSiblingsNew` (po `toFullSnap` normalizaci
+ * volajícím — tahle funkce se business poli nezabývá, jen filtruje a páruje).
+ *
+ * Určeno pro `handleSaveAll` (PlannerPage.tsx) — smyčka přes VÍC PUTů jedné dávky.
+ * `prevById` MUSÍ být snapshot pořízený PŘED celou smyčkou (`blocksRef.current`
+ * se v `handleSaveAll` přiřazuje přímo v render těle komponenty, ne v efektu —
+ * React re-render se tak může stihnout mezi dvěma `await fetch` KDYKOLI, takže
+ * čtení „živého" `blocksRef.current` uprostřed smyčky je nedeterministické: může,
+ * ale nemusí odrážet zápis předchozí iterace. Na tuhle past se v této větvi
+ * naletělo dvakrát). `handleBlockUpdate` řeší stejnou potřebu, ale jen pro JEDEN
+ * PUT — tahle funkce je jeho analogie pro dávku.
+ *
+ * Soused, kterého `prevById` nezná (klient ho vůbec nemá načtený), se tiše
+ * přeskočí — undo by ho stejně neuměl vrátit (stejný vzor jako
+ * `snapshotShiftedFromResponse`). `primarySplitGroupId == null` → prázdný výsledek
+ * (editovaný blok není ve split skupině, nemá tedy sourozence k hledání).
+ *
+ * Čistá — nemutuje `shifted` ani `prevById`.
+ */
+export function pickShiftedSplitSiblings<T extends { id: number; splitGroupId: number | null }>(
+  shifted: ReadonlyArray<T>,
+  primarySplitGroupId: number | null | undefined,
+  prevById: ReadonlyMap<number, T>,
+): { shiftedSplitSiblingsOld: T[]; shiftedSplitSiblingsNew: T[] } {
+  if (primarySplitGroupId == null) return { shiftedSplitSiblingsOld: [], shiftedSplitSiblingsNew: [] };
+  const shiftedSplitSiblingsOld: T[] = [];
+  const shiftedSplitSiblingsNew: T[] = [];
+  for (const s of shifted) {
+    if (s.splitGroupId !== primarySplitGroupId) continue;
+    const before = prevById.get(s.id);
+    if (!before) continue;
+    shiftedSplitSiblingsOld.push(before);
+    shiftedSplitSiblingsNew.push(s);
+  }
+  return { shiftedSplitSiblingsOld, shiftedSplitSiblingsNew };
+}
+
+/**
  * Slije poziční pole (startTime/endTime/machine/printMinutes/scheduleBypassed)
  * z `byId` PŘÍMO do `fields` cílů se shodným id. Cíl bez odpovídajícího záznamu
  * v `byId` se vrátí beze změny.

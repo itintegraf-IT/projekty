@@ -23,7 +23,7 @@ import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
 import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
-import { buildSplitEditTargets, buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets, mergeAnchorPositionIfChanged } from "@/lib/undo/splitSiblingFields";
+import { buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets, mergeAnchorPositionIfChanged, pickShiftedSplitSiblings } from "@/lib/undo/splitSiblingFields";
 import { accumulateShifted, excludeShiftedTargeted, type ShiftedSnapshots } from "@/lib/undo/shiftedBatch";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
@@ -1696,6 +1696,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // Odsunutí sousedé (chain push) napříč VŠEMI PUTy dávky — accumulateShifted řeší
     // dedup, když týž soused dostane víc PUTů (viz komentář u snapshotu ve smyčce níž).
     let saveShifted: ShiftedSnapshots = { before: [], after: [] };
+    // Split sourozenci pohlcení do saveBefore/saveAfter (sdílené pole + pozice v jednom
+    // cíli přes buildSplitEditTargetsWithShifted, C-1 vzor) napříč CELOU dávkou — musí
+    // zmizet z pozičního seznamu odsunutých, jinak by stejné id bylo ve DVOU cílech
+    // (sanitizeUndoOps 400). Deklarace TADY (ne uvnitř try/smyčky), protože ji čte
+    // recordSaveAllUndo, definovaná níž ve stejném scope.
+    const absorbedShiftedIdsAll = new Set<number>();
     /**
      * Zapíše historii za bloky, které se reálně uložily. Volá se i z catch —
      * když PUT spadne u třetího z pěti, první dva už v DB změněné jsou
@@ -1704,10 +1710,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const recordSaveAllUndo = () => {
       if (saveBefore.length === 0) return;
       // Odsunutý soused, který je ZÁROVEŇ vlastním cílem dávky (jiný člen téže série
-      // ho odsunul chain pushem — dvě instance série na stejném stroji za sebou),
+      // ho odsunul chain pushem, NEBO split sourozenec pohlcený sdíleným cílem výš),
       // musí zmizet z odsunutých: sanitizeUndoOps odmítne dávku, kde je stejné id
       // ve dvou cílech (400), a celý krok historie (ne jen odsunutí) by spadl.
-      const shifted = excludeShiftedTargeted(saveShifted, new Set(saveBefore.map((t) => t.id)));
+      const shifted = excludeShiftedTargeted(
+        saveShifted,
+        new Set([...saveBefore.map((t) => t.id), ...absorbedShiftedIdsAll]),
+      );
       recordUndo(buildMultiEditCommand(
         saveBefore.length > 1 ? "Hromadná úprava" : "Úprava bloku",
         saveBefore, saveAfter,
@@ -1726,12 +1735,27 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // Undo hromadného uložení (série / split skupina). Do 8/2026 tahle cesta
       // nezapisovala do historie vůbec — Ctrl+Z po „Uložit vše" nevrátil nic.
       // Sleduje se týž seznam polí jako u editace jednoho bloku.
-      // Snapshot PŘED smyčkou: PUT jednoho bloku může přes SPLIT_SHARED_FIELDS
-      // propagovat změnu na sourozence, takže po prvním kole už `blocksRef`
-      // nedrží původní hodnoty a undo by je vzalo jako „před".
-      const prevById = new Map(
-        ids.map((id) => [id, blocksRef.current.find((b) => b.id === id)] as const),
-      );
+      //
+      // Snapshot PŘED smyčkou, VŠECH bloků (ne jen `ids`): PUT jednoho bloku může přes
+      // SPLIT_SHARED_FIELDS propagovat změnu na sourozence a chain pushem odsunout split
+      // sourozence MIMO `ids` (typicky TAIL — split mu nekopíruje recurrenceParentId,
+      // takže se do `ids` „Celou sérii" nikdy nedostane, viz split/route.ts). Po prvním
+      // kole už `blocksRef.current` nedrží spolehlivě PŮVODNÍ hodnoty ŽÁDNÉHO bloku:
+      // `blocksRef.current = blocks` běží přímo v render těle komponenty (ne v efektu),
+      // takže React re-render se může stihnout mezi dvěma `await fetch` KDYKOLI — čtení
+      // „živého" blocksRef.current uprostřed smyčky je nedeterministické. Na tuhle past
+      // se v této větvi naletělo dvakrát — všechny „staré" hodnoty ve smyčce níž se proto
+      // čtou VÝHRADNĚ odsud, nikdy přímo z blocksRef.current.
+      const prevById = new Map(blocksRef.current.map((b) => [b.id, b] as const));
+      // toFullSnap je definovaný TADY (ne uvnitř smyčky) — stejný jednorázový normalizér
+      // jako v handleBlockUpdate: plný blok s normalizovanou nullabilitou, NE BlockSnapshot
+      // (ten má jen 7 pozičních klíčů — sdílené pole jako `type` by na sourozenci vyšlo
+      // jako undefined a JSON.stringify by ho na cestě k serveru tiše vyhodilo z payloadu).
+      const toFullSnap = (b: Block) => ({
+        ...b,
+        startTime: b.startTime as string, endTime: b.endTime as string,
+        printMinutes: b.printMinutes ?? null, scheduleBypassed: b.scheduleBypassed ?? false,
+      });
       for (const id of ids) {
         let blockPayload = payload;
         if (hasEndTime) {
@@ -1750,7 +1774,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `Chyba při ukládání bloku ${id}`);
         }
-        const updated = (await res.json()) as Block & { siblings?: Block[] };
+        const updated = (await res.json()) as Block & { siblings?: Block[]; shifted?: Block[] };
         const prev = prevById.get(id);
         if (prev) {
           // endTime schválně lokálně, ne v globálním EDIT_TRACKED_FIELDS —
@@ -1772,14 +1796,30 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             // se sdílenými poli rozejde beze stopy).
             const siblings = (updated.siblings ?? []).filter((s) => typeof s.id === "number");
             const siblingsOld = siblings
-              .map((s) => blocksRef.current.find((b) => b.id === s.id))
+              .map((s) => prevById.get(s.id))
               .filter((b): b is Block => b != null);
-            const { beforeTargets, afterTargets } = buildSplitEditTargets({
+            // Etapa A pokračování (6. 8. 2026): split sourozenec, kterého TENTÝŽ PUT
+            // odsunul chain pushem — server ho schválně vyloučí ze `siblings`
+            // (api/blocks/[id]/route.ts, „Vyloučit sourozence, kteří už jsou v shifted"),
+            // aby neposlal dvojitou SSE událost pro týž blok. Bez tohohle by ho `siblings`
+            // (a tedy ani buildSplitEditTargets) nikdy neviděly a nedostal by
+            // SPLIT_SHARED_FIELDS — Ctrl+Z by vrátil editovaný blok, ale sourozenec
+            // (typicky TAIL) by zůstal s hodnotami po propagaci. Stejný root cause jako
+            // C-1 u handleBlockUpdate, tady navíc přes prevById (viz komentář u snapshotu
+            // před smyčkou — blocksRef.current je ve smyčce nespolehlivý).
+            const shiftedThisIter = (updated.shifted ?? []).filter((s) => typeof s.id === "number");
+            const { shiftedSplitSiblingsOld: shiftedSibOldRaw, shiftedSplitSiblingsNew: shiftedSibNewRaw } =
+              pickShiftedSplitSiblings(shiftedThisIter, updated.splitGroupId, prevById);
+            const shiftedSplitSiblingsOld = shiftedSibOldRaw.map(toFullSnap);
+            const shiftedSplitSiblingsNew = shiftedSibNewRaw.map(toFullSnap);
+            const { beforeTargets, afterTargets, absorbedShiftedIds } = buildSplitEditTargetsWithShifted({
               changedFields: changed, sharedFields: SPLIT_SHARED_FIELDS,
               before: prev, after: updated, siblingsOld, siblingsNew: siblings,
+              shiftedSplitSiblingsOld, shiftedSplitSiblingsNew,
             });
             saveBefore.push(...beforeTargets);
             saveAfter.push(...afterTargets);
+            absorbedShiftedIds.forEach((aid) => absorbedShiftedIdsAll.add(aid));
           }
         }
         // Snapshot odsunutých MUSÍ vzniknout PŘED handleBlockUpdate (staré pozice jsou
