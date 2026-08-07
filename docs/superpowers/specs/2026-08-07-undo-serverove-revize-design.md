@@ -1,14 +1,14 @@
-# Serverové revize bloků — etapa B atomického undo
+# Serverové revize bloků — etapa B1 (černá skříňka)
 
 > Navazuje na `2026-08-04-atomicke-undo-design.md` (etapa A, hotová a ověřená
-> 7. 8. 2026). Etapa A tam byla popsaná jako mezikrok: endpoint provede celý krok
-> historie v jedné transakci, ale snapshot pořád posílá klient. Tenhle spec ten
-> snapshot přesouvá na server.
+> 7. 8. 2026). Etapa A byla popsaná jako mezikrok: endpoint provede celý krok
+> historie v jedné transakci, ale snapshot pořád posílá klient.
 >
-> **Revize 2 (7. 8. 2026)** — přepracováno po adversariální multi-agent recenzi
-> (6 optik + skeptici, 38 nálezů, 30 přežilo vyvracení, po sloučení 14 věcných vad).
-> Recenze vyvrátila nosný mechanismus revize 1 („region" = stroj + časové okno);
-> co se změnilo a proč, je v § 12.
+> **Revize 3 (7. 8. 2026).** Dvě kola adversariální multi-agent recenze.
+> První kolo vyvrátilo nosný mechanismus revize 1 („region"), druhé kolo ověřilo
+> náhradu jako správnou a našlo 27 vad v tom, co jsem kolem ní napsal. Čtrnáct
+> z nich bylo v sekci popisující etapu B2 — **ta je z tohohle specu vyříznutá**
+> a dostane vlastní spec, až tabulka pojede. Co se měnilo a proč, je v § 11.
 
 ## 1. Problém
 
@@ -16,50 +16,45 @@ Endpoint `POST /api/blocks/undo` **zapisuje doslova a nic nederivuje**. To je
 záměr — undo vrací stav, který v databázi prokazatelně existoval, takže měřit ho
 dnešní mřížkovou validací je kategorická chyba (viz výjimka v `CLAUDE.md`).
 
-Důsledek té vlastnosti ale je, že **každé pole, které server jinak dopočítá, musí
-být ve snapshotu**. Snapshot skládá klient. A klient si musí pamatovat, co všechno
+Důsledek té vlastnosti je, že **každé pole, které server jinak dopočítá, musí být
+ve snapshotu**. Snapshot skládá klient. A klient si musí pamatovat, co všechno
 server dopočítává.
 
-Během etapy A se tahle vada projevila **třikrát nezávisle**:
+Během etapy A se ta vada projevila **třikrát nezávisle**:
 
 | # | Kde | Co chybělo | Jak se to projevilo |
 | --- | --- | --- | --- |
 | 1 | změna délky tažením | `printMinutes` | blok se po Ctrl+Z vrátil na starou délku, ale s novým počtem tiskových minut |
 | 2 | přesun bloku | `scheduleBypassed` | příznak zůstal nesedět s geometrií, kterou undo vrátilo |
-| 3 | „Uložit vše → Celou sérii" | `printMinutes` + `scheduleBypassed` | undo proběhlo správně, ale vzniklý rozpor `span ≠ printMinutes` spustil výkřičník „přeplánovat" a reflow blok zase natáhl — navenek to vypadalo, že undo nefunguje vůbec |
+| 3 | „Uložit vše → Celou sérii" | `printMinutes` + `scheduleBypassed` | undo proběhlo správně, ale rozpor `span ≠ printMinutes` spustil výkřičník „přeplánovat" a reflow blok zase natáhl — navenek to vypadalo, že undo nefunguje |
 
-Kořen je strukturální: **tři cesty si vedou tři vlastní seznamy sledovaných polí**
-(`EDIT_TRACKED_FIELDS`, lokální `trackedHere` v `handleSaveAll`, poziční
-snapshoty v `commands.ts`). Dokud je udržuje klient ručně, čtvrtý výskyt je
-otázka času, ne pravděpodobnosti.
+Kořen je strukturální: **tři cesty si vedou tři vlastní seznamy sledovaných polí**.
+Dokud je udržuje klient ručně, čtvrtý výskyt je otázka času.
 
 Zhoršující okolnost: **`PlannerPage.tsx` nehlídá žádný test.** Repo nemá
-RTL/jsdom/vitest, takže zapojení v něm neověřuje nic. Mutační testování to během
-etapy A opakovaně prokázalo — šlo odebrat celou opravu a 600+ testů zůstalo
-zelených. Čtyřikrát se stalo, že oprava vypadala hotová, protože testy pokrývaly
-čistou funkci a ne její volání.
+RTL/jsdom/vitest. Mutační testování to během etapy A opakovaně prokázalo — šlo
+odebrat celou opravu a 600+ testů zůstalo zelených.
 
 ### Druhý problém, který se řeší týmž tahem
 
 `AUDITED_FIELDS` (`src/lib/auditedFields.ts:15–28`) **neobsahuje `startTime`,
-`endTime`, `machine` ani `printMinutes`**. Auditní řádky pro běžnou editaci se
-staví výhradně z něj (`src/app/api/blocks/[id]/route.ts:443–454`), takže:
+`endTime`, `machine`, `printMinutes`, `locked`, `description` ani `specifikace`**.
+Auditní řádky běžné editace se staví výhradně z něj
+(`src/app/api/blocks/[id]/route.ts:443–454`), takže:
 
 > **Jednoblokové přetažení bloku na jiný stroj a jiný den nezapíše do historie
 > vůbec nic.**
 
-Slovo *jednoblokové* je podstatné a v revizi 1 chybělo. Poziční změny se do
-`AuditLog` zapisují na pěti dalších místech mimo ten filtr: chain push v PUT
-(`[id]/route.ts:550–563`, `AUTO_SHIFT`), v batchi (`batch/route.ts:209`), v POST
-(`blocks/route.ts:322, 377`), ve splitu (`split/route.ts:174–186`) a reflow
-(`reflow.server.ts:151–177`, `AUTO_SHIFT` + `AUTO_REFLOW`), plus lasso přesun
-(`src/lib/batchAuditRows.ts:39–51`). Díra je tedy užší, než revize 1 tvrdila —
-ale je to zároveň ta nejčastější operace plánovače a **je to přesně ten případ,
-který znemožnil hladkou rekonstrukci havárií plánu z 5. a 6. 8. 2026**
-(paměť `incident_2026_08_05_auto_shift`).
+Slovo *jednoblokové* je podstatné. Poziční změny se do `AuditLog` zapisují na
+šesti dalších místech mimo ten filtr: chain push v PUT (`[id]/route.ts:551`),
+v batchi (`batch/route.ts:203`), v POST (`blocks/route.ts:322, 377`), ve splitu
+(`split/route.ts:174`), reflow (`reflow.server.ts:152, 166`) a lasso přesun
+(`src/lib/batchAuditRows.ts:39–51`). Díra je tedy užší, než tvrdily starší verze
+tohohle specu — ale týká se nejčastější operace plánovače a **znemožnila hladkou
+rekonstrukci havárií plánu z 5. a 6. 8. 2026** (paměť `incident_2026_08_05_auto_shift`).
 
 Revize drží celý řádek před změnou i po ní, takže černá skříňka vzniká jako
-vedlejší produkt, ne jako další projekt.
+vedlejší produkt.
 
 ## 2. Rozhodnutí zadavatele
 
@@ -67,87 +62,235 @@ Rozhodl Vojta 7. 8. 2026:
 
 | Otázka | Rozhodnutí |
 | --- | --- |
-| Rozsah | výměna motoru **+ undo pro rozdělení a přeplánování** (dnes undo nemají vůbec) |
-| Retence | **90 dní**, revize slouží zároveň jako černá skříňka pro rekonstrukci havárií |
-| Přístup k datům | **v panelu historie bloku** — ne pouze v databázi |
+| Rozsah | výměna motoru + undo pro rozdělení a přeplánování (obojí je **B2**) |
+| Retence | **90 dní**, revize slouží zároveň jako černá skříňka |
+| Přístup k datům | **v panelu historie bloku** |
 | Zápis revize | pomocník obalí transakci a rozdíl si spočítá sám |
-| Členění | dvě etapy **B1** a **B2** s vlastním nasazením |
+| Členění | **B1** (tenhle spec) a **B2** (vlastní spec, až tabulka pojede) |
 
 ### Co zůstává mimo rozsah
 
-- **Historie nepřežije reload.** Zásobník kroků zpět dál žije v paměti prohlížeče
-  (`useUndoManager.ts`, `MAX_HISTORY = 30`). Revize by to technicky umožnily, ale
-  otevírá to otázku „čí historii vidím a smím vracet" — vlastní rozhodnutí, vlastní etapa.
-- **Undo pro drop rezervace z fronty** — vyžaduje rozhodnout, co s `Reservation`
-  stavem a notifikací obchodníkovi (backlog, nezměněno od etapy A).
-- **Samostatná stránka rekonstrukce** („co se dělo se strojem XL105 dne 5. 8.").
-  Vojta zvažoval, odložil. Data pro ni ale po B1 existují (§ 4 to zajišťuje
-  denormalizací `machine`).
-- **Poznámky k bloku** (`BlockNote`) — jiná tabulka, revize se jich netýkají.
-- **Změny, které vyvolá referenční integrita databáze.** `Block.recurrenceParentId`
-  má `ON DELETE SET NULL` (`prisma/migrations/20260311000000_init_mysql/migration.sql:71`),
-  takže smazání kořene opakované série vynuluje odkaz u potomků **přímo v MySQL**.
-  Prisma o tom neví, pomocník to nemůže zachytit a undo to nevrátí. Je to jediná
-  známá díra v úplnosti a je vědomá.
-- **Jakákoliv změna chování chain pushe.**
+- **Celá mechanika undo/redo nad revizemi** — etapa B2, vlastní spec. Sem patří
+  tvar požadavku endpointu, řetězení kroků, slučování dávek přes víc transakcí,
+  chování při promazané revizi. Druhé kolo recenze v té oblasti našlo 14 vad
+  a všechny mají společnou příčinu: navrhovat mechaniku undo nad tabulkou, která
+  ještě neexistuje a jejíž skutečná data nikdo neviděl.
+- **Historie nepřežije reload.** Zásobník kroků zpět dál žije v paměti prohlížeče.
+- **Undo pro drop rezervace z fronty** — backlog, nezměněno od etapy A.
+- **Samostatná stránka rekonstrukce.** Data pro ni ale po B1 existují (§ 3
+  to zajišťuje denormalizací `machine`).
+- **Poznámky k bloku** (`BlockNote`) — jiná tabulka.
+- **Změny, které nejdou přes runtime Prismu.** Dvě známé a vědomé:
+  1. `Block.recurrenceParentId` má `ON DELETE SET NULL`
+     (`prisma/migrations/20260311000000_init_mysql/migration.sql:71`), takže smazání
+     kořene série vynuluje odkaz u potomků přímo v MySQL;
+  2. DML uvnitř migrací (precedens: `20260702093854_add_print_minutes_and_bypass/migration.sql:6`
+     dělá `UPDATE Block SET printMinutes = …`).
 
-## 3. Členění na B1 a B2
+  Ani jedno pomocník nezachytí. Černá skříňka o těchhle zásazích nikdy nebude vědět.
 
-| | **B1 — Černá skříňka** | **B2 — Undo přepnuté na revize** |
-| --- | --- | --- |
-| Obsah | migrace + model, zapisovací pomocník, zapojení do všech mutačních cest, úklid po 90 dnech, vykreslení v historii bloku | endpoint bere `groupIds` místo `ops`, klientské buildery se zjednoduší, undo pro rozdělení a přeplánování |
-| Riziko | nulové pro undo — přidává se jen zápis navíc | mění se běžící mechanismus |
-| Přínos pro plánovače | historie bloku konečně ukáže jednoblokové přesuny a natažení | Ctrl+Z u rozdělení a u tlačítka Přeplánovat |
-| Nasaditelné samostatně | ano | ano (staví nad B1) |
+## 3. Rozsah B1
 
-**Proč ten řez:** B2 startuje nad tabulkou, která už je několik týdnů plná ostrých
-produkčních dat. Přepnutí undo se pak dá postavit proti reálným revizím, ne proti
-fixturám. To je přímé poučení z etapy A, kde jedna oprava prošla testem jen proto,
-že fixtura měla tvar, jaký produkce nikdy nevyrobí (`pos({...} as never)`).
-Když se B2 zdrží nebo odloží, B1 stojí a funguje sám o sobě.
+1. Migrace + model `BlockRevision`; sloupec `AuditLog.groupId` + složený index.
+2. Pomocník `withRevision` (§ 4) — **otevírá transakci sám**.
+3. Zapojení do všech mutačních cest, které mění `Block`.
+4. **Přepis `POST /api/blocks/[id]/complete`** z polní na interaktivní transakci —
+   dnes `prisma.$transaction([...])` s polem operací (`complete/route.ts:47`),
+   na kterou pomocníka napojit nejde.
+5. Normalizátor raw řádku (§ 4, „Zachycení") + jeho testy.
+6. Panel historie: nový typ `BlockHistoryEntry`, mapa pokrytí sloupců, render (§ 6).
+7. Nová funkce `formatPragueDateTimeWithWeekday` v `dateUtils.ts` (§ 6).
+8. Úklid po 90 dnech (§ 7).
 
-### Položky B1, které nejsou zřejmé z popisu
+**Co se NEmění:** typ `AuditLogEntry`. Existují jeho **dvě nezávislé definice** —
+`src/components/InfoPanel.tsx:5–16` (konzumuje `/api/audit/today` přes
+`useNotifications.ts` a `NotificationsPanel.tsx`) a
+`src/components/admin/AuditLogPanel.tsx:31` (konzumuje `/api/audit`). Ani jedna
+s revizemi nesouvisí a sáhnutí na ně by tiše vyprázdnilo panel notifikací.
 
-- **Přepsat `POST /api/blocks/[id]/complete` z polní na interaktivní transakci.**
-  Dnes používá `prisma.$transaction([...])` s polem operací (`complete/route.ts:47`),
-  která interaktivní `tx` klient neposkytuje — pomocníka na ni nejde napojit.
-  Cíl: `{ timeout: 15000, maxWait: 5000 }` jako ostatní cesty.
-- **Rozšířit `AuditLogEntry` a render v `BlockDetail.tsx`** o zdroj `revision`
-  (§ 7 mění tvar odpovědi `GET /api/blocks/[id]/audit`).
-- **Nová funkce `formatPragueDateTimeWithWeekday`** v `dateUtils.ts` (§ 7).
-- **Sloupec `AuditLog.groupId`** — korelace auditu a revize (§ 7).
+## 4. Zápis revize — jádro návrhu
 
-### Položky B2, které nejsou zřejmé z popisu
+### Uvažované varianty
 
-- **Sběr `groupId` z vícepožadavkových dávek na klientovi** — čtyři místa
-  v `PlannerPage.tsx` a jedno v `BlockEdit.tsx` (§ 6, tabulka).
-- **Obsluha `P2028`/`P2034`** (timeout/zablokování transakce) v PUT, batch, split
-  a undo. Dnes ji mají jen obě reflow routes.
+**(a) Každá cesta si revizi zapíše sama.** Deset volání, deset příležitostí
+zapomenout — dnešní vada přesunutá o patro níž. Zamítnuto.
 
-## 4. Datový model
+**(b) Prisma zachytí každý zápis globálně.** Rozbije vlastnost *jedna akce
+uživatele = jeden krok zpět*: odsunutí pěti sousedů je pět zápisů a jedno Ctrl+Z.
+Zamítnuto.
+
+**(c) Region (stroj + časové okno).** Návrh revize 1. Vyvrácen (§ 11). Zamítnuto.
+
+**(d) Pomocník otevře transakci a předá tělu jediný klient s nahrazenými
+delegáty. — ZVOLENO**
+
+### Proč to jde
+
+Dvě zjištění z recenze, obě ověřená proti kódu:
+
+1. **V repu není zápis do `Block` mimo Prismu.** `$executeRaw`/`$executeRawUnsafe`
+   = 0 výskytů; všech 7 výskytů `$queryRaw` jsou `SELECT`y.
+2. **Nejsou ani vnořené zápisy** přes jiný model. Jediný výskyt `blocks: {`
+   v mutačním kontextu je čtení (`reservations/[id]/route.ts:36`, `include`).
+
+Typová stránka je ověřená kompilací sondy proti generovanému klientovi
+(Prisma 5.22, `strict: true`): obal jde napsat **bez `any` a bez ztráty typové
+kontroly** —
+`update<T extends Prisma.BlockUpdateArgs>(args: Prisma.SelectSubset<T, Prisma.BlockUpdateArgs>): Promise<Prisma.BlockGetPayload<T>>`
+prošel na všech reálných voláních v repu.
+
+### Kontrakt
+
+```typescript
+// src/lib/revision.server.ts
+export async function withRevision<T>(
+  meta: {
+    action: RevisionAction;
+    label: string;                    // "Přesun bloku"
+    user: { id: number; username: string };
+    txOptions?: { timeout?: number; maxWait?: number };
+  },
+  body: (rtx: RevisionClient) => Promise<T>,
+): Promise<{ result: T; groupId: string }>;
+
+/**
+ * PLNÝ transakční klient s nahrazenými delegáty `block` a `auditLog`.
+ * Strukturálně zaměnitelný za `PrismaTransactionClient`, takže se dá bez úprav
+ * předat do `resolveChainPushFromDb`, `reflowBlockInTx`, `reflowMachineInTx`,
+ * `assertNoOverlapForBlocks`, `loadMachineCalendarRange` i `applyUndoOps`.
+ */
+export type RevisionClient = PrismaTransactionClient;
+
+export type RevisionAction =
+  | "CREATE" | "UPDATE" | "DELETE" | "BATCH"
+  | "SPLIT" | "REFLOW" | "UNDO"
+  | "PRINT_COMPLETE" | "EXPEDITION";
+```
+
+**Pomocník otevírá transakci sám.** To je proti revizi 2 zásadní změna a řeší
+tři věci najednou:
+
+- **`AuditLog.groupId` má kdo naplnit.** `groupId` vzniká *před* spuštěním těla
+  a nahrazený `auditLog` delegát ho vstřikuje do každého zapsaného řádku. V revizi 2
+  to nešlo — pomocník obaloval jen `block`, kdežto všechny auditní zápisy jdou
+  přes `tx.auditLog` (13 míst v repu), takže korelace z § 6 stála na mechanismu,
+  který v návrhu neexistoval.
+- **Signatury sdílených funkcí se nemění.** Kdyby pomocník předával druhý klient
+  vedle `tx`, musely by `resolveChainPushFromDb`, `reflowBlockInTx`,
+  `reflowMachineInTx` a `applyUndoOps` přijímat dva klienty — a s nimi by se
+  přepisovaly jejich transakční mocky (`reflow.server.test.ts:48–74`,
+  `undoApply.server.test.ts:147`, `overlapCheck.test.ts:77–145`).
+- **„Jinudy zapsat nejde" je strukturální, ne deklarované.** Syrový `tx` se do
+  uzávěru těla vůbec nedostane. V revizi 2 byl `tx` prvním parametrem
+  `withRevision`, takže v uzávěru lexikálně zůstával a `tx.block.update(...)` by se
+  bez chyby přeložil.
+
+Uvnitř mutace se **nemění nic** — tělo je dnešní kód, jen dostane `rtx` místo `tx`.
+
+### Zachycení „před" obrazu
+
+Při každém volání `rtx.block.*` pomocník zjistí dotčená id a načte jejich celé
+řádky. Množina se řídí `where` samotného zápisu:
+
+- `update`/`delete` — id je ve `where`;
+- `updateMany`/`deleteMany` — pomocník spustí `findMany({ where, select: { id: true } })`
+  nad **týmž `where`**. Tohle je místo, kde padá nález o split sourozencích:
+  `updateMany({ where: { splitGroupId, id: { not: id } } })` (`[id]/route.ts:509`)
+  zachytí sourozence **bez ohledu na stroj i čas**, protože se řídí `where`, ne geometrií;
+- `create`/`createMany` — nic k zachycení, řádek dostane `kind: "CREATE"`.
+
+Řádek už jednou zachycený se podruhé nenačítá.
+
+**Čtení je jedno raw `SELECT <sloupce> … FOR UPDATE` s explicitní normalizací.**
+Ne dvojice „zamykající raw SELECT + typovaný `findMany`", jakou dnes používá
+`undoApply.server.ts:141–155`. Důvod je věcný, ne výkonový: pod MySQL REPEATABLE
+READ vidí nezamykající `findMany` data z **read view** transakce, které se
+zakládá při prvním konzistentním čtení. Zachycení uprostřed transakce (v PUT je
+první dotaz `findUnique` na `:153`, první zápis až `:340`) by tedy zamklo aktuální
+verzi, ale přečetlo starou.
+
+Následek by nebyl teoretický: při 30sekundovém přepočtu stroje, do kterého jiný
+plánovač commitne editaci, by revize dostala `before` bez cizí změny a `after`
+s ní — tedy **připsala by cizí změnu přepočtu**. Po B2 by ji Ctrl+Z tiše přepsal.
+
+Cenou je ruční normalizace, kterou repo už zná: raw `SELECT` vrací MySQL
+`BOOLEAN` sloupce jako 0/1 (`Block` jich má deset: `locked`, `dataOk`, `materialOk`,
+`obalka`, `vnitrky`, `materialInStock`, `materialIssued`, `pantoneRequired`,
+`pantoneOk`, `scheduleBypassed`) a `DATETIME` jako řetězce. Normalizátor je čistá
+funkce s vlastním testem (§ 9).
+
+### Výpočet rozdílu
+
+Po skončení těla pomocník načte aktuální řádky dotčených id a porovná je se
+zachycenými.
+
+**Rozdíl se počítá BEZ `updatedAt`.** Prisma ho mění při každém zápisu
+(`@updatedAt`), takže kdyby byl součástí rozdílu, „řádky beze změny zahodíme"
+by nikdy nenastalo. Split propagace přitom běží při **každém** uložení
+z BlockEditu, i když jsou hodnoty sourozenců totožné (`[id]/route.ts:492`) —
+každý sourozenec by tak dostal revizi s jediným změněným sloupcem `updatedAt`,
+který se v historii „tiše přeskočí", tedy prázdný řádek v panelu při každém uložení.
+
+Auditní vrstva tenhle šum vědomě filtruje už dnes (`splitPropagateAudit.ts:81`,
+`if (oldValue === newValue) continue;`). Revizní vrstva musí taky.
+
+`updatedAt` se ukládá zvlášť do sloupce `rowVersion` — B2 z něj bude brát verzi
+pro kontrolu souběhu.
+
+**Prázdný rozdíl → žádná revize.** Jediná výjimka jsou řádky `partial: true`.
+
+### Zápis
+
+Jedno `createMany` v téže transakci jako mutace i audit. Když transakce spadne,
+nezůstane ani revize.
+
+### Pojistka proti neúplnosti
+
+Revize 2 tu měla **tautologickou kontrolu**: ověřovala, že každé dotčené id má
+zachycený „před" obraz — jenže množinu dotčených id sestavuje pomocník sám ze
+svých volání, takže porovnávala množinu se sebou a nemohla selhat. § 9 ji přitom
+uváděla jako ošetření vysokého rizika.
+
+Skutečné pojistky jsou dvě, obě opřené o nezávislý zdroj:
+
+- **`count` u hromadných zápisů.** `updateMany`/`deleteMany` vrací počet
+  zasažených řádků; když nesedí s velikostí zachycené množiny, mezi snapshotem
+  a zápisem se objevil fantom. Vývoj `throw`, produkce `logger.error` + `partial: true`.
+- **Strukturální uzavření zápisové cesty** — syrový `tx` v uzávěru těla není
+  (viz kontrakt výš). Tohle je hlavní obrana; běhová kontrola je doplněk.
+
+Zbytkové riziko: **nová mutační cesta, která `withRevision` nepoužije vůbec.**
+To pomocník zachytit nemůže — hlídá to code review a `CLAUDE.md`.
+
+Řádky `partial: true` jsou **výhradně pro forenziku**. B2 z nich nesmí sestavit
+žádnou operaci undo; patří to do jeho specu jako vstupní podmínka.
+
+## 5. Datový model
 
 ```prisma
 model BlockRevision {
   id        Int      @id @default(autoincrement())
   /** Jedna serverová transakce = jeden groupId napříč všemi dotčenými bloky. */
   groupId   String   @db.VarChar(32)
-  /** Vyplněno, když tuhle revizi vyrobilo undo/redo jiné revize. Viz § 6. */
-  undoOfGroupId String? @db.VarChar(32)
-  /** ZÁMĚRNĚ BEZ cizího klíče — revize musí přežít smazání bloku (undo mazání). */
+  /** ZÁMĚRNĚ BEZ cizího klíče — revize musí přežít smazání bloku. */
   blockId   Int
-  /** Denormalizováno, aby řádek dával smysl i po smazání bloku. Viz níž. */
+  /** Denormalizováno, aby řádek dával smysl i po smazání bloku. */
   machine     String  @db.VarChar(191)
   orderNumber String? @db.VarChar(191)
+  /** Operace uživatele (UPDATE, SPLIT, REFLOW, …). */
   action    String   @db.VarChar(32)
-  /** Popis kroku pro toast i historii, např. „Přesun bloku". */
+  /** Typ změny TOHOTO řádku. NIKDY se neodvozuje z přítomnosti before/after. */
+  kind      String   @db.VarChar(8)   // "CREATE" | "UPDATE" | "DELETE"
   label     String   @db.VarChar(191)
   userId    Int
   username  String   @db.VarChar(191)
-  /** Stav před změnou. Chybí (`DbNull`) = blok tímto krokem vznikl. */
+  /** Stav před změnou. U kind=CREATE chybí. Bez `updatedAt`. */
   before    Json?
-  /** Stav po změně. Chybí (`DbNull`) = blok byl tímto krokem smazán. */
+  /** Stav po změně. U kind=DELETE chybí. Bez `updatedAt`. */
   after     Json?
-  /** Degradační příznak: „before" se nepodařilo zachytit úplně. Viz § 5. */
+  /** Hodnota `Block.updatedAt` po zápisu — verze pro kontrolu souběhu v B2. */
+  rowVersion DateTime?
+  /** Forenzní příznak: zachycení „před" nebylo úplné. NIKDY nesmí vyrobit undo operaci. */
   partial   Boolean  @default(false)
   createdAt DateTime @default(now())
 
@@ -158,394 +301,124 @@ model BlockRevision {
 }
 ```
 
-Tvar záměrně kopíruje `AuditLog` (denormalizovaný `userId` + `username`, indexy
-`[blockId, createdAt]` a `[createdAt]`) — stejný přístup, stejné dotazy, stejný
-úklid. Hlavičková tabulka není potřeba: `groupId` seskupuje, `label` a autor se
-opakují na každém řádku a při pár set řádcích denně to nic nestojí.
+### Proč `kind` a ne odvození z `before`/`after`
 
-### Proč `machine` a `orderNumber` denormalizovaně
+Revize 2 rozeznávala vznik bloku podle chybějícího `before`. Jenže degradační
+větev zapisuje `partial: true` **taky** s chybějícím `before` — obojí je tedy
+k nerozeznání. B2 by z takového řádku sestavil operaci `remove` a **smazal
+existující, dávno naplánovaný blok**. Záchranná brzda by se změnila v nástroj
+ztráty dat.
 
-`AuditLog` má `orderNumber` (`prisma/schema.prisma:20`) přesně proto, aby řádek
-dával smysl i po smazání bloku. U revize je to naléhavější: u běžného přesunu
-v rámci stroje se `machine` nezmění, takže **v rozdílovém `before`/`after` vůbec
-není**. Bez denormalizace by dotaz „co se dělo se strojem XL105 dne 5. 8." vyžadoval
-join na `Block` — a u smazaných bloků, kde je revize nejcennější, by nevrátil nic.
-Cena je ~30 B na řádek, tedy uvnitř odhadu níž.
+`kind` je explicitní a tenhle omyl vylučuje konstrukčně.
 
-### Bez cizího klíče — a je to dvojnásob správně
+### Bez cizího klíče — dvojnásob správně
 
-1. **Věcně:** undo mazání musí umět blok vzkřísit. FK s `onDelete: Cascade` by
-   revizi smazal spolu s blokem; FK bez kaskády by naopak smazání bloku zablokoval.
+1. **Věcně:** undo mazání musí umět blok vzkřísit. FK s kaskádou by revizi smazal
+   spolu s blokem; FK bez kaskády by smazání bloku zablokoval.
 2. **Technicky:** produkční `Block.id` je `INT UNSIGNED` (paměť
-   `project_db_unsigned_fk_gotcha`), takže FK na něj z `INT` sloupce stejně selže
-   na `errno 150`.
+   `project_db_unsigned_fk_gotcha`), takže FK z `INT` sloupce selže na `errno 150`.
 
-### Co přesně je v `before` / `after`
+### Co je v `before` / `after`
 
-| Akce | `before` | `after` |
+| `kind` | `before` | `after` |
 | --- | --- | --- |
-| vznik bloku | chybí | **celý řádek** |
-| smazání bloku | **celý řádek** | chybí |
-| změna bloku | **jen sloupce, které se liší** | **jen sloupce, které se liší** |
+| `CREATE` | chybí | **celý řádek** |
+| `DELETE` | **celý řádek** | chybí |
+| `UPDATE` | **jen sloupce, které se liší** | **jen sloupce, které se liší** |
 
-Ukládat u změny celý 56sloupcový řádek by tabulku nafouklo zhruba desetkrát bez
-jakéhokoliv užitku. Rozdíl počítá **server** z řádků, které sám přečetl, takže se
-tím nevrací klientské vyjmenovávání polí zadními vrátky.
-
-**Invariant:** `updatedAt` je v rozdílu vždy. Prisma ho mění při každém zápisu
-(`@updatedAt`), takže tam padne přirozeně; závisí na něm kontrola souběhu (§ 6).
-
-**Zápis prázdného stavu:** Prisma 5 nedovolí do `Json?` sloupce zapsat holé `null`
+Prisma 5 nedovolí do `Json?` zapsat holé `null`
 (`Type 'null' is not assignable to type 'NullableJsonNullValueInput | InputJsonValue'`,
-ověřeno kompilací proti `strict: true`). Prázdný stav se zapisuje **vynecháním
-klíče** nebo `Prisma.DbNull` — nikdy `null`. V repu pro to zatím není precedens,
-takže to patří do code review nové migrace.
+ověřeno kompilací). Prázdný stav se zapisuje **vynecháním klíče** nebo
+`Prisma.DbNull`. V repu pro to není precedens — patří do review migrace.
 
 ### Generátor `groupId`
 
-Repo **nemá** `cuid` ani `@paralleldrive/cuid2` mezi závislostmi a `@default(cuid())`
-by stejně nešlo použít — `createMany` by vyrobilo jiné id pro každý řádek, kdežto
-`groupId` musí být pro celou dávku společný. Použije se
-`randomBytes(16).toString("base64url")` (22 znaků, žádná nová závislost, existující
-precedens `prisma/bootstrap-prod.ts:140`). `crypto.randomUUID()` má 36 znaků a do
-sloupce by se nevešel.
+Repo nemá `cuid` ani `@paralleldrive/cuid2` a `@default(cuid())` by stejně nešlo:
+`createMany` by vyrobilo jiné id pro každý řádek, kdežto `groupId` musí být pro
+dávku společný. Použije se `randomBytes(16).toString("base64url")` (22 znaků,
+precedens `prisma/bootstrap-prod.ts:140`). `crypto.randomUUID()` má 36 znaků
+a do sloupce se nevejde.
+
+### `AuditLog`
+
+```prisma
+groupId String? @db.VarChar(32)   // nullable — historické řádky ho nemají
+@@index([groupId, blockId])       // složený, viz § 6
+```
 
 ### Odhad velikosti
 
 Běžná změna se dotkne 3–5 sloupců, s chain pushem tři bloky → řádově 700 B na
-akci včetně denormalizovaných sloupců. Při 300 akcích denně to je 210 kB/den, tedy
-**pod 25 MB za 90 dní**. Vznik a smazání ukládají celý řádek (1,3 kB), ale je jich
-zlomek. I s velkou rezervou zůstává tabulka v desítkách MB.
-
-## 5. Zápis revize — jádro návrhu
-
-### Uvažované varianty
-
-**(a) Každá cesta si revizi zapíše sama.** Deset volání, deset příležitostí
-zapomenout. Je to dnešní vada přesunutá o patro níž — zamítnuto.
-
-**(b) Prisma zachytí každý zápis globálně** (middleware / `$extends` nad klientem).
-Rozbije nejdůležitější vlastnost etapy A: *jedna akce uživatele = jeden krok zpět*.
-Odsunutí pěti sousedů chain pushem je pět zápisů a **jedno** stisknutí Ctrl+Z.
-Navíc rozšíření nezná `label` ani autora záměru — zamítnuto.
-
-**(c) Region (stroj + časové okno) se načte před mutací a po ní se porovná.**
-Návrh revize 1 tohoto specu. **Recenze ho vyvrátila třemi nezávislými důkazy**
-(§ 12) — zamítnuto.
-
-**(d) Pomocník podstrčí tělu obalený transakční klient. — ZVOLENO**
-
-### Proč zrovna tohle
-
-Klíčové zjištění, které variantu určilo: **v celém repu není jediný zápis do
-`Block` mimo Prismu.** `grep '\$executeRaw'` přes `src/` i `scripts/` vrací nulu.
-Každá změna bloku tedy prochází `tx.block.{create,update,updateMany,delete,deleteMany}`.
-
-Když tělu podstrčíme klienta, jehož tyhle metody si před zápisem zachytí „před"
-stav, **volající nemá jak zapomenout** — ne proto, že by si dal pozor, ale proto,
-že jinudy zapsat nejde.
-
-### Kontrakt
-
-```typescript
-// src/lib/revision.server.ts
-export async function withRevision<T>(
-  tx: PrismaTransactionClient,
-  meta: {
-    action: RevisionAction;
-    label: string;                       // "Přesun bloku"
-    user: { id: number; username: string };
-    groupId?: string;                    // pro dávky přes N requestů (§ 6)
-    undoOfGroupId?: string;              // vyplňuje undo endpoint (§ 6)
-  },
-  body: (rtx: RevisionTx) => Promise<T>,
-): Promise<{ result: T; groupId: string }>;
-
-/**
- * Obalený zápisový klient. Podmnožina `tx.block` — čtení, ostatní modely
- * a `$queryRaw` volající dál používá přímo na `tx`.
- */
-export type RevisionTx = {
-  block: {
-    create(args): Promise<Block>;
-    update(args): Promise<Block>;
-    updateMany(args): Promise<{ count: number }>;
-    delete(args): Promise<Block>;
-    deleteMany(args): Promise<{ count: number }>;
-  };
-};
-
-/** Jedna hodnota na mutační cestu — sjednoceno s dnešními `AuditLog.action`. */
-export type RevisionAction =
-  | "CREATE" | "UPDATE" | "DELETE" | "BATCH"
-  | "SPLIT" | "REFLOW" | "UNDO"
-  | "PRINT_COMPLETE" | "EXPEDITION";
-```
-
-Uvnitř mutace se mění **jediná věc**: `tx.block.update(...)` → `rtx.block.update(...)`.
-Veškerá logika, validace, chain push i audit zůstávají beze změny.
-
-### Průběh
-
-1. **Zachycení „před" — líné a přesné.** Při každém volání `rtx.block.*` si
-   pomocník nejdřív zjistí dotčená id a načte jejich **celé řádky**:
-   - `update`/`delete` — id je v `where`;
-   - `updateMany`/`deleteMany` — pomocník sám spustí `findMany({ where, select: { id: true } })`
-     nad **týmž `where`**, takže dostane přesně tu množinu, kterou zápis zasáhne
-     (tohle je místo, kde padá C1 — split sourozenci na jiném stroji projdou stejně
-     jako všichni ostatní, protože se řídí `where`, ne geometrií);
-   - `create` — nic k zachycení, id se označí jako **nově vzniklé**.
-
-   Čtení běží `SELECT … FOR UPDATE` **jen nad těmi id**, nikdy nad rozsahem.
-   Řádek, který už je zachycený z dřívějšího volání, se podruhé nenačítá.
-
-2. **Zápis** — pomocník předá volání beze změny na `tx`.
-
-3. **Po skončení těla** — pomocník načte aktuální řádky všech dotčených id
-   a **porovná** je se zachycenými. Řádky beze změny zahodí. Ze zbytku poskládá
-   řádky `BlockRevision` se společným `groupId`.
-
-4. **Uložení** — jedno `createMany` v téže transakci jako mutace i audit. Když
-   transakce spadne, nezůstane ani revize. Zároveň se `groupId` zapíše do
-   `AuditLog.groupId` u řádků vzniklých v této transakci (§ 7).
-
-### Proč to ruší celou třídu vad
-
-Volající **nikde nevyjmenovává pole ani bloky**. Zachycení řídí `where` samotného
-zápisu, takže množina „co se zachytí" a množina „co se zapíše" jsou z definice
-totožné. Nejde je rozpojit zapomenutím.
-
-### Zámky
-
-Zamyká se **výhradně to, do čeho se zapisuje**, po jednotlivých id. To je stejná
-množina, jakou transakce zamkne tak jako tak samotným zápisem — pomocník zámek jen
-o pár mikrosekund předsune, aby se „před" obraz a zápis kryly. Žádné rozsahové
-zamykání, žádné rozšíření oproti dnešku.
-
-> **Poznámka k pravidlu z `CLAUDE.md`** („`SELECT … FOR UPDATE` musí být PRVNÍ
-> dotaz v transakci"). To pravidlo míří na TOCTOU u optimistic locku: přečti verzi
-> → zkontroluj → zapiš. Tady se žádná verze nekontroluje; jde o pořízení „před"
-> obrazu bezprostředně před zápisem pod zámkem, který si transakce vzápětí drží.
-> Jsou to různé případy a pomocník to první pravidlo neruší ani neobchází — cesty,
-> které optimistic lock používají (undo), si své zamykající čtení dělají dál jako první.
-
-### Pojistka proti neúplnosti
-
-Obalený klient uzavírá zápisovou cestu, ale ne cestu kolem Prismy. Pojistka proto
-zůstává, jen se opírá o něco jiného než v revizi 1:
-
-- **Statická:** revize obsahuje **jen** `rtx`, ne `tx`. Použití `tx.block.update`
-  uvnitř těla je proto viditelné už v code review; ESLint pravidlo na to je
-  volitelné rozšíření, ne podmínka.
-- **Běhová:** po kroku 3 pomocník ověří, že každé dotčené id má buď zachycený
-  „před" obraz, nebo je označené jako nově vzniklé. Když ne — **vývoj a testy**
-  `throw new Error(...)` (pomocník žije v `src/lib/`, ne v API route, takže
-  povinnost „chyby v API routes → vždy `AppError`" tam nepůsobí; `AppErrorCode`
-  navíc hodnotu `"INTERNAL"` nemá); **produkce** `logger.error` s `groupId` a id
-  plus zápis revize s `before: DbNull` a `partial: true`.
-
-  Řádky s `partial: true` **se ve fázi 3 nezahazují**, i když vyjde prázdný rozdíl —
-  jinak by degradační větev tiše nezapsala nic (byla by to vada, protože „aktuální
-  řádek" je stav *po* mutaci, tedy identický s `after`).
-- **Známá a vědomá výjimka:** kaskáda `ON DELETE SET NULL` nad `recurrenceParentId`
-  (§ 2). Prisma o ní neví, obalený klient ji nevidí, běhová pojistka ji nezachytí.
-
-## 6. Jak revize pohání undo (etapa B2)
-
-### Kontrakt endpointu
-
-```typescript
-// Dnes (etapa A):
-POST /api/blocks/undo { label, direction, ops: UndoOp[] }
-// Po B2:
-POST /api/blocks/undo { groupIds: string[], direction: "undo" | "redo" }
-```
-
-**Množné číslo je nutné.** Několik uživatelských akcí posílá N samostatných
-požadavků, tedy N transakcí, tedy N `groupId` — a Ctrl+Z je musí vrátit všechny
-najednou:
-
-| Akce | Kód | Kolik requestů |
-| --- | --- | --- |
-| „Uložit vše / Celou sérii" | `PlannerPage.tsx:1759, 1768–1772` | N × PUT v cyklu |
-| Překlopení rezervace | `PlannerPage.tsx:1300–1321` | kotva + sourozenci |
-| Lasso mazání | `PlannerPage.tsx:1637–1652` | N × DELETE paralelně |
-| Skupinový paste | `PlannerPage.tsx:~2370–2381` | N × POST |
-| Série z BlockEditu | `BlockEdit.tsx:355–374` | N × PUT |
-
-Server `ops` posbírá ze **všech** `groupIds` a aplikuje je v **jedné** transakci,
-v obráceném pořadí vzniku. Klientská `HistoryEntry` je `{ label, groupIds: string[] }`.
-
-Alternativu „sloučit těch pět míst do jednoho dávkového endpointu" **zamítáme** —
-je to větší zásah do zápisových cest než celá etapa B2 a `CLAUDE.md` drží počet
-zápisových cest jako vědomou hodnotu.
-
-### Sestavení operací
-
-| Směr | `before` | `after` | Operace |
-| --- | --- | --- | --- |
-| undo | chybí | řádek | `remove` (blok vznikl → zrušit) |
-| undo | řádek | cokoliv | `upsert` hodnotami z `before` |
-| redo | cokoliv | chybí | `remove` |
-| redo | cokoliv | řádek | `upsert` hodnotami z `after` |
-
-Uložený stav se **před** sestavením `ops` prožene funkcí `blockToRestoreFields`
-(`src/lib/undo/restoreFields.ts:53`), která nepovolené klíče **tiše zahodí**.
-Bez toho by 100 % undo mazání skončilo chybou 400: `before` u smazání je celý
-řádek, tedy obsahuje všech osm sloupců, které `UNDO_RESTORABLE_FIELDS` vědomě
-vynechává (`id`, `createdAt`, `updatedAt`, `reservationId`, `recurrenceParentId`,
-trojice `printCompleted*`), a `sanitizeUndoOps` na nepovolený klíč **hází**, nefiltruje
-(`undoApply.server.ts:85`).
-
-`updatedAt` se z uloženého stavu vytáhne **zvlášť** jako `expectedUpdatedAt` —
-nikdy jako položka `fields`.
-
-Když po filtru nezbude ani jedno pole, operace se **vynechá** — `tx.block.update({data:{}})`
-by jinak jen posunul `updatedAt` a rozbil verze ostatním klientům.
-
-**Jádro `applyUndoOps` se nemění.** Optimistic lock, zamykající čtení jako první
-dotaz, idempotentní `remove`, vzkříšení s původním `id`, auditní řádek i finální
-overlap pojistka zůstávají přesně jak jsou — mění se výhradně **zdroj** `ops`.
-
-### Kontrola souběhu — a proč naivní řešení nefunguje
-
-Revize 1 tvrdila, že `expectedUpdatedAt` se vezme z `after.updatedAt` a „politika
-se nemění". **To je nepravda a redo by po B2 selhalo pokaždé.** Důvod: `updatedAt`
-je mimo `UNDO_RESTORABLE_FIELDS` (`restoreFields.ts:9–11`), takže undo zapíše
-zcela novou hodnotu, kterou neměnná revize nezná. Druhý průchod pak narazí na
-`AppError("CONFLICT")` (`undoApply.server.ts:164–167`) a `useUndoManager`
-CONFLICT vyhodnotí jako stale → krok zmizí z obou zásobníků
-(`useUndoManager.ts:9–11, 51–53`). Dnes to drží pohromadě `refresh()`
-v `commands.ts:31–35`, který § 6 ruší.
-
-**Řešení: undo si zapíše vlastní revizi a redo je undo té revize.**
-
-```
-Akce A          → revize G   (before = B0, after = B1)     živý řádek = B1
-Ctrl+Z nad G    → zapíše B0, vznikne revize G'
-                  (undoOfGroupId = G, before = B1, after = B0)   živý řádek = B0
-Ctrl+Shift+Z    → najde G' podle undoOfGroupId = G
-                  a provede „undo G'", tedy zapíše B1
-                  expectedUpdatedAt = G'.after.updatedAt ✔ sedí na živý řádek
-```
-
-Redo tedy není zvláštní režim, je to **undo revize, která undo vyrobilo**.
-Verze vždycky pochází z posledního skutečného zápisu, takže sedí. Funguje i pro
-mazání (`after` chybí → undo vzkřísí → `G'.after` je celý řádek → redo smaže znovu)
-a klient si nemusí pamatovat žádné verze.
-
-Sloupec `undoOfGroupId` (§ 4) je tím pádem nosný, ne kosmetický.
-
-### Zápis a restaurování jsou dvě různé množiny
-
-Revize zaznamenává **všechno**, co se v řádku změnilo. Co smí undo zapsat zpátky,
-dál hlídá `UNDO_RESTORABLE_FIELDS`. Potvrzení tisku (`printCompletedAt`,
-`printCompletedByUserId`, `printCompletedByUsername`) se do revize **zapíše** —
-pro černou skříňku je to cenná informace — ale `blockToRestoreFields` ho z `ops`
-odstraní. Potvrzení tisku má vlastní endpoint a vlastní pravidla.
-
-### Strop 200 operací
-
-`sanitizeUndoOps` odmítá dávky nad 200 operací (`undoApply.server.ts:51–52`).
-Přeplánování celého stroje pracuje s oknem 365 dní (`reflow.server.ts:24`) a
-prochází **všechny** driftnuté bloky bez `take` (`reflow.server.ts:262–272`) plus
-jejich chain-push sousedy — dvě stě bloků tedy překročit může. Bez zásahu by
-slíbené „undo pro Přeplánování" u velkých dávek vracelo 400.
-
-Řešení vychází z toho, co `sanitizeUndoOps` o sobě sama říká: je to *„jediná brána
-mezi **tělem requestu** a transakcí"* (`undoApply.server.ts:46–49`). Serverem
-sestavené `ops` z vlastních revizí tělem requestu nejsou.
-
-- **Allowlist polí platí dál i pro serverovou cestu** — `CLAUDE.md` to vyžaduje
-  a `blockToRestoreFields` ho zajistí.
-- **Strop 200 se vztahuje jen na `ops` z těla requestu.** Serverová cesta dostane
-  vlastní, vyšší strop **1000** jako pojistku proti runaway dávce.
-- **Timeout undo transakce se zvedá z 15 s na 30 s** (`undo/route.ts:42`), na
-  paritu s reflow. Důvod: `assertNoOverlapForBlocks` dělá **jeden `FOR UPDATE`
-  dotaz na blok** (`overlapCheck.ts:88–100`), takže 500 bloků = 500 dotazů.
-- **Ověřit měřením** (§ 11) na hustém plánu nad 200 driftnutých bloků. Když se
-  do 30 s nevejde, platí ústup: undo přeplánování omezit a v UI to říct
-  srozumitelně, ne chybou 400.
-
-### Klientská strana
-
-`HistoryEntry` se scvrkne na `{ label, groupIds }`. Buildery `buildMoveCommand`,
-`buildEditCommand`, `buildMultiEditCommand`, `buildMoveOrResizeCommand`,
-`buildCreateCommand`, `buildDeleteCommand` (`src/lib/undo/commands.ts`, 306 řádků)
-**zanikají**. S nimi mizí `EDIT_TRACKED_FIELDS`, `trackedHere` i
-`BlockSnapshot`/`EditSnapshot`.
-
-Mizí i modul `src/lib/undo/splitSiblingFields.ts` (336 řádků + 648 řádků testů),
-který existuje výhradně proto, aby klient adresně dopočítal split sourozence.
-**Ruší se ale až po zeleném testu** „editace sdíleného pole na hlavě splitu, jejíž
-sourozenec leží na druhém stroji, vytvoří revizi i pro sourozence" (§ 10) — právě
-tenhle případ vyvrátil návrh revize 1 a nesmí se smazat pojistka dřív, než je
-prokázané, že ji něco nahradilo.
-
-Revize s vyplněným `undoOfGroupId` se **na klientský zásobník nezaznamenává** —
-`createUndoCore.record()` maže redo zásobník při každém zápisu
-(`useUndoManager.ts:29`), takže plošné zaznamenávání by po prvním Ctrl+Z zabilo
-Ctrl+Shift+Z.
-
-### Undo pro rozdělení a přeplánování
-
-Vypadne z toho zadarmo, protože obojí je pro revizi jen „N změněných řádků":
-
-- **Rozdělení** — revize drží `before` kořene (celý řádek) a nové části s chybějícím
-  `before`. Undo tedy kořen vrátí a části smaže.
-- **Přeplánování** — revize drží původní pozice všech přeskládaných bloků. Undo
-  je vrátí všechny naráz, v jedné transakci (s výhradou stropu výš).
-
-### Kdo smí co vrátit
-
-Role gate zůstává `requireRole(["ADMIN", "PLANOVAT"])` (`undo/route.ts:20`).
-Endpoint **nekontroluje autorství ani stáří `groupId`** — kterýkoli z těch dvou
-rolí může poslat `groupId` staré až 90 dní od kohokoli jiného; jedinou zábranou
-je optimistic lock. **Je to vědomé rozhodnutí**, ne přehlédnutí: undo je nástroj
-plánovače nad společným plánem, ne osobní historie. Dnešní faktické omezení
-(zásobník v paměti, `MAX_HISTORY = 30`, ztrácí se reloadem) po B2 zeslábne, ale
-politika se tím nemění — jen se poprvé vyslovuje nahlas.
-
-## 7. Vykreslení v historii bloku (etapa B1)
-
-### Problém, který revize 1 podcenila
-
-Panel historie (`BlockDetail.tsx`, endpoint `GET /api/blocks/[id]/audit`) čte
-`AuditLog`. Revize 1 navrhovala vyloučit z revizí sloupce, které pokrývá
-`AUDITED_FIELDS`. **Nefunguje to:** `AUDITED_FIELDS` je seznam *názvů sloupců*,
-kdežto kolidující zápisy jsou *per akce* — `AUTO_SHIFT`, `AUTO_REFLOW`, `CREATE`,
-`DELETE` i lasso poziční řádky vznikají zcela mimo ten filtr (§ 1). Vyloučení po
-sloupcích by je nezachytilo a historie by se zdvojila právě u přesunů, kvůli kterým
-revize vznikají.
-
-### Řešení: korelace přes `groupId`
-
-Pomocník v kroku 4 (§ 5) zapíše `groupId` i do `AuditLog` řádků vzniklých v téže
-transakci. Do `AuditLog` proto přibývá `groupId String? @db.VarChar(32)`
-(nullable — historické řádky ho nemají) s indexem `@@index([groupId])`.
-
-Panel pak sloučí obě tabulky a **potlačí revizní řádek, pro který ve stejné
-`groupId` existuje auditní řádek téhož `blockId`**. Pravidlo je exaktní, ne
-heuristické, a nevyžaduje udržovat žádný seznam.
-
-Vedlejší přínos pro černou skříňku je značný: „co uživatel udělal" (`AuditLog`)
-a „co se skutečně změnilo" (`BlockRevision`) jde poprvé spojit jedním dotazem.
-
-### Čtení a limit
+akci včetně denormalizovaných sloupců. Při 300 akcích denně 210 kB/den, tedy
+**pod 25 MB za 90 dní**. Vznik a smazání ukládají celý řádek (1,3 kB), ale je
+jich zlomek.
+
+## 6. Historie bloku
+
+### Korelace a její granularita
+
+Pomocník zapíše `groupId` do `AuditLog` řádků téže transakce (nahrazený delegát,
+§ 4). Panel pak sloučí obě tabulky.
+
+**Potlačuje se po SLOUPCÍCH, ne po řádcích.** Revize 2 měla pravidlo „potlač
+revizní řádek, pro který ve stejné `groupId` existuje auditní řádek téhož
+`blockId`" a označovala ho za exaktní. Není:
+
+`BlockEdit.buildPayload()` (`BlockEdit.tsx:603–641`) posílá v **jednom** PUT
+zároveň `deadlineExpedice`, `locked`, `description`, `specifikace`, všechny
+DATA/MATERIÁL/PANTONE chipy **i `printMinutes`** — délka i zámek jsou v témž
+formuláři. Server z `printMinutes` dopočítá nový `endTime` (`[id]/route.ts:346–348`).
+Vznikne tedy auditní řádek pro `deadlineExpedice` **a** revizní řádek pro
+`endTime`/`printMinutes` se stejným `groupId` i `blockId`.
+
+Potlačení po řádcích by revizi zahodilo celou → plánovač by v historii viděl jen
+změnu termínu a o prodloužení bloku o čtyři hodiny **ani řádku**. Doslova ten
+problém z § 1, jen posunutý na kombinovanou editaci, která je v BlockEditu běžná.
+
+Správné pravidlo: **z revizního rozdílu odečíst klíče, které v téže `groupId`
+a `blockId` pokrývá auditní řádek.** Zbude-li prázdno, revizní řádek zahodit.
+
+### Mapa pokrytí
+
+`AuditLog.field` nese buď název sloupce, nebo složenou hodnotu. Mapa
+„akce/field → pokryté sloupce" žije **vedle `AUDITED_FIELDS`** jako jediný zdroj
+pravdy a má vlastní test:
+
+| `AuditLog` | Pokrývá sloupce |
+| --- | --- |
+| `field` = název sloupce (`UPDATE`, `SPLIT_PROPAGATE`) | ten sloupec |
+| `field` = `"startTime/endTime"` (`AUTO_SHIFT`, lasso) | `startTime`, `endTime` |
+| `field` = `"machine"` (lasso) | `machine` |
+| `field` = `"startTime/endTime/machine"` | všechny tři |
+| `action` = `CREATE` / `DELETE` | celý řádek |
+| `action` = `EXPEDITION_*` | `expeditionPublishedAt`, `expeditionSortOrder` |
+| `action` = `PRINT_*` | trojice `printCompleted*` |
+| `action` = `AUTO_REFLOW` | `startTime`, `endTime`, `printMinutes` |
+
+### Predikát se vyhodnocuje v databázi
 
 `GET /api/blocks/[id]/audit` má dnes natvrdo `take: 10` bez cursoru
-(`audit/route.ts:22–26`). Po sloučení se `take: 10` použije **na každé straně**,
-výsledek se seřadí a ořízne na 10 — u merge-sortu top-K je to matematicky správné.
+(`audit/route.ts:22–26`). Merge top-K s `take: 10` na každé straně je **správný
+pro pořadí** — potlačená revize má v téže `groupId` auditní řádek s prakticky
+totožným `createdAt`.
 
-Tvar odpovědi se mění: místo syrového `AuditLog[]` vrací diskriminovanou unii
-s polem `source: "audit" | "revision"`. Typ `AuditLogEntry` (`InfoPanel.tsx`)
-a render v `BlockDetail.tsx:582–600` se rozšíří o revizní větev.
+Ale **predikát potlačení se z načtené desítky vyhodnotit nedá.** Jedno uložení
+z BlockEditu běžně vyrobí přes deset auditních řádků jedním `createMany`
+(`AUDITED_FIELDS` má 24 položek), takže starší skupina se do okna nevejde
+a její revize by se zobrazila, přestože potlačena být má — výsledek by závisel
+na tom, kolik řádků má nejnovější editace.
 
-### Formátování
+Řešení: k načteným revizím jeden dotaz
+`SELECT groupId, field, action FROM AuditLog WHERE blockId = ? AND groupId IN (…)`.
+Proto složený index `[groupId, blockId]`, ne jednosloupcový.
+
+### Typ a render
+
+Sloučená osa dostane **samostatný typ `BlockHistoryEntry`** (`src/lib/blockHistory.ts`),
+používaný výhradně pro `/api/blocks/[id]/audit`. `AuditLogEntry` se nemění (§ 3).
 
 Čistá funkce `formatRevisionLines(before, after): string[]` v
-`src/lib/revisionFormat.ts` + vlastní testy. Sloupec bez popisku se **tiše
-přeskočí** (interní příznaky jako `splitGroupId` v historii nemají co dělat).
+`src/lib/revisionFormat.ts` + testy. Sloupec bez popisku se tiše přeskočí.
 
 | Co se změnilo | Řádek v historii |
 | --- | --- |
@@ -555,139 +428,163 @@ přeskočí** (interní příznaky jako `splitGroupId` v historii nemají co dě
 | `endTime` dozadu | „Zkráceno do pá 8. 8. 15:00 (z 16:00)" |
 | `locked` | „Zamčeno" / „Odemčeno" |
 
-Sázka rizika je tu nízká: chybějící popisek znamená **chybějící řádek v historii**,
-ne rozbité undo. Proto je tenhle seznam přijatelný tam, kde seznam sledovaných
-polí přijatelný nebyl.
+**Formát data vyžaduje novou funkci.** `formatPragueDateTime` (`dateUtils.ts:217–219`)
+vypisuje „08.08.2026 14:00", ne „pá 8. 8. 14:00" — jediné `weekday: "short"`
+v souboru běží pod locale `"en"` a slouží k výpočtu `dayOfWeek`. Přibude
+`formatPragueDateTimeWithWeekday` nad
+`Intl.DateTimeFormat("cs-CZ", { weekday: "short", day: "numeric", month: "numeric",
+hour: "2-digit", minute: "2-digit", timeZone: BUSINESS_TIME_ZONE })`.
 
-**Formát data vyžaduje novou funkci.** Citovaný `formatPragueDateTime`
-(`dateUtils.ts:217–219`) vypisuje „08.08.2026 14:00", ne „pá 8. 8. 14:00" —
-jediné `weekday: "short"` v souboru běží pod locale `"en"` a slouží k výpočtu
-`dayOfWeek`. Přibude tedy exportovaná `formatPragueDateTimeWithWeekday` postavená
-na `Intl.DateTimeFormat("cs-CZ", { weekday: "short", day: "numeric",
-month: "numeric", hour: "2-digit", minute: "2-digit", timeZone: BUSINESS_TIME_ZONE })`.
-Nikdy `getFullYear`/`getMonth`/`getDate`.
+### Role
 
-## 8. Úklid po 90 dnech
+Endpoint historie zůstává na dnešním role gate. Revize neodhalují nic, co dnes
+`AuditLog` neukazuje — jde o tytéž sloupce téhož bloku. Ověřit při implementaci,
+že filtr rolí na endpointu platí beze změny i pro revizní větev.
 
-Skript `scripts/prune-revisions.ts`, pouštěný denním cronem vedle stávající zálohy
-(`docs/OPS_ZALOHY.md`). Maže po dávkách, ne jedním příkazem:
+## 7. Úklid po 90 dnech
+
+Skript `scripts/prune-revisions.ts` pouštěný denním cronem vedle stávající zálohy
+(`docs/OPS_ZALOHY.md`). Maže po dávkách:
 
 ```sql
 DELETE FROM BlockRevision WHERE createdAt < ? ORDER BY id LIMIT 1000
 ```
 
-ve smyčce, dokud se něco maže. Jednorázový `deleteMany` nad desetitisíci řádky by
-držel dlouhý zámek a mohl by zablokovat plánovače uprostřed práce.
+ve smyčce. Jednorázový `deleteMany` nad desetitisíci řádky by držel dlouhý zámek.
 
-Retenci drží konstanta `REVISION_RETENTION_DAYS = 90` na jednom místě. Skript
-loguje počet smazaných řádků a výslednou velikost tabulky.
+**Maže se po celých `groupId`**, ne po jednotlivých řádcích — půlka dávky
+v tabulce je horší než žádná. Retenci drží konstanta `REVISION_RETENTION_DAYS = 90`.
+Skript loguje počet smazaných řádků a velikost tabulky.
 
-## 9. Rizika
+## 8. Rizika
 
 | Riziko | Závažnost | Ošetření |
 | --- | --- | --- |
-| **Zapomenuté `rtx`** — tělo použije `tx.block.update` a zápis se nezachytí | vysoká | revize `withRevision` tělu `tx` vůbec nepředá (jen `rtx`); běhová pojistka (§ 5) to při neúplnosti zachytí; volitelně ESLint pravidlo |
-| Kaskáda `ON DELETE SET NULL` nad `recurrenceParentId` | střední | **vědomě neřešeno**, uvedeno v § 2 mimo rozsah |
-| Strop 200 operací / délka undo transakce u velkých reflow dávek | střední | oddělený strop pro serverovou cestu, timeout 30 s, **povinné měření** nad 200 driftnutých bloků (§ 11) |
-| Zdvojené řádky v historii bloku | střední | exaktní korelace přes `groupId` (§ 7), ne vyloučení po sloupcích |
-| `P2028`/`P2034` (timeout, zablokování transakce) neošetřený mimo reflow | střední | doplnit obsluhu v PUT/batch/split/undo — dnes ji má jen reflow (`reflow/route.ts:96–102`) |
-| Růst tabulky | střední | rozdílové ukládání, retence 90 dní, skript loguje velikost |
-| `migrate dev` je v tomhle repu rozbité (shadow-replay padá na historické migraci `20260326204352`, P3006) | střední | migraci **napsat ručně** + `migrate deploy`; potvrzený postup z 20. 7. 2026 (`LoginLog`) |
-| B2 rozsáhle mění `PlannerPage.tsx`, který nehlídá žádný test | vysoká | logiku držet v čistých funkcích v `src/lib/`; **mutační test u každé opravy**; u B2 povinná multi-agent review před commitem |
-| Holé `null` do `Json?` sloupce se nezkompiluje | nízká | `Prisma.DbNull` nebo vynechání klíče (§ 4) |
+| **Nová mutační cesta nepoužije `withRevision` vůbec** | vysoká | code review + pravidlo v `CLAUDE.md`; pomocník to zachytit **nemůže** a netvrdí to |
+| Vnořený zápis do `Block` přes jiný model — dnes v repu není, ale nic nebrání ho přidat | střední | pravidlo v `CLAUDE.md`; obal nad `block` by ho neviděl |
+| Kaskáda `ON DELETE SET NULL` a DML v migracích | střední | **vědomě neřešeno**, § 2 |
+| Zdvojené / chybějící řádky v historii | střední | potlačení po sloupcích + mapa pokrytí s vlastním testem (§ 6) |
+| Zpomalení zápisových cest zachycením | střední | jedno raw zamykající čtení na dávku id; **změřit** (§ 10) |
+| `CREATE INDEX` nad produkčním `AuditLog` není okamžitý | střední | předměřit velikost tabulky, rozhodnout o zastavení aplikace (§ 10) |
+| `migrate dev` je v repu rozbité (shadow-replay, P3006) | střední | migraci **napsat ručně** + `migrate deploy` |
+| Holé `null` do `Json?` se nezkompiluje | nízká | `Prisma.DbNull` nebo vynechání klíče (§ 5) |
 
-## 10. Testy
+## 9. Testy
 
-**Čisté funkce** (`node:test` + `tsx`, dnešní vzor):
+**Čisté funkce** (`node:test` + `tsx`):
 
-- `revisionDiff.test.ts` — rozdíl dvou řádků: beze změny → prázdno; změna tří
-  sloupců → tři sloupce; chybějící `before`; chybějící `after`; `updatedAt` vždy přítomen.
-- `revisionFormat.test.ts` — každý řádek z tabulky v § 7 + sloupec bez popisku se
-  přeskočí + přechod letního času.
-- `revisionOps.test.ts` (B2) — sestavení `ops` z revize pro oba směry; `remove`
-  u chybějícího `before`; `blockToRestoreFields` odstraní `printCompleted*`
-  a `updatedAt`; operace, ze které po filtru nezbude pole, se vynechá.
-- `revisionRedo.test.ts` (B2) — řetěz `G → G' → redo`: `expectedUpdatedAt` sedí
-  na živý řádek ve všech čtyřech kombinacích (změna, vznik, smazání, smíšená dávka).
+- `revisionDiff.test.ts` — rozdíl bez `updatedAt`; **`updateMany` se stejnými
+  hodnotami nevyrobí žádnou revizi**; změna tří sloupců → tři sloupce;
+  `kind` se nikdy neodvozuje z přítomnosti `before`.
+- `revisionRowNormalize.test.ts` — raw řádek → typovaný: všech deset `BOOLEAN`
+  sloupců z 0/1 na `true`/`false`, `DATETIME` na `Date`, `NULL` zůstane `null`.
+- `revisionFormat.test.ts` — každý řádek z tabulky v § 6 + sloupec bez popisku
+  se přeskočí + přechod letního času.
+- `auditCoverage.test.ts` — mapa pokrytí: každá hodnota `AuditLog.field`
+  i `action` z repa mapuje na správné sloupce; **kombinovaná editace (audited
+  pole + změna délky v jednom requestu) nechá revizní řádek zobrazený**.
 
 **Serverové s transakcí** (vzor `undoApply.server.test.ts`):
 
-- revize vznikne v téže transakci jako mutace; rollback mutace nezanechá revizi;
+- revize vznikne v téže transakci jako mutace; rollback nezanechá revizi;
+- `AuditLog.groupId` se naplní u všech řádků transakce;
 - chain push zachytí i odsunuté sousedy;
-- **split sourozenec na DRUHÉM stroji dostane revizi** (případ, který vyvrátil
-  revizi 1 — bez zeleného testu se `splitSiblingFields.ts` nesmí smazat);
+- **split sourozenec na DRUHÉM stroji dostane revizi** — případ, který vyvrátil
+  návrh revize 1;
 - `updateMany` nad celou split skupinou zachytí všechny členy;
-- neúplné zachycení → `throw` ve vývojovém režimu, `partial: true` v produkčním;
-- rozdělení: `before` kořene + chybějící `before` u nových částí;
-- undo rozdělení vrátí kořen a smaže části (B2);
-- undo přeplánování nad 200 bloky proběhne (B2).
+- nesouhlas `count` u `updateMany` → `throw` ve vývoji, `partial: true` v produkci;
+- rozdělení: `kind: "UPDATE"` u kořene, `kind: "CREATE"` u nových částí.
 
 **Ruční ověření na dev databázi** (fixtura `scripts/seed-test-pripominky-dev.ts`,
-vlastní 2.–4. 9. 2026): přetáhnout blok na jiný stroj → historie ukáže řádek
-s oběma stroji a časy, **a jen jednou**; natáhnout blok → „Prodlouženo"; rozdělit
-→ Ctrl+Z (B2); Přeplánovat → Ctrl+Z (B2); Ctrl+Z a hned Ctrl+Shift+Z → obojí projde.
-Světlý i tmavý motiv.
+2.–4. 9. 2026): přetáhnout blok na jiný stroj → historie ukáže řádek s oběma
+stroji a časy, **a jen jednou**; v BlockEditu změnit zároveň délku a termín
+expedice → historie ukáže **obojí**; uložit popis u hlavy rozdělené zakázky →
+u sourozenců **nepřibude prázdný řádek**. Světlý i tmavý motiv.
 
-## 11. Ověření před nasazením
+## 10. Ověření před nasazením
 
 1. `npm run build` zelený, `npm run lint` 0 chyb.
 2. Celá suita zelená:
    `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/app/_components/*.test.ts`
-3. **Měření souběhu** — dva prohlížeče, dva různí uživatelé, tentýž stroj: jeden
-   spustí „Přepočítat celý stroj" (transakce 30 s), druhý ve stejnou chvíli
-   přetahuje blok na témže stroji a zakládá nový. Sledovat prodlevy a `Lock wait
-   timeout` (`innodb_lock_wait_timeout` = 50 s). Kontrolní otázka: chová se to
-   stejně jako dnes? Pomocník nemá zámky rozšířit.
-4. **Měření velké undo dávky** — přeplánování nad 200 driftnutých bloků, pak Ctrl+Z.
-   Vejde se do 30 s?
-5. Migrace ručně napsaná, ověřená na dev databázi, teprve pak `migrate deploy`.
-   Pozor na dva `ALTER TABLE` — `BlockRevision` (nová) a `AuditLog.groupId`
-   (přidání nullable sloupce, na MySQL 8 algoritmem `INSTANT`).
+3. **Měření souběhu** — dva prohlížeče, dva uživatelé, tentýž stroj: jeden spustí
+   „Přepočítat celý stroj", druhý přetahuje blok a zakládá nový. Kontrolní otázka:
+   chová se to jako dnes? Pomocník nemá zámky rozšířit — zamyká jen to, do čeho
+   se stejně zapisuje.
+4. **Měření počtu dotazů** na celostrojovém přepočtu před a po. Očekávaný nárůst
+   je jednotky procent (jedno raw čtení na dávku id, jedno `createMany` na konci);
+   kdyby vyšel řádově víc, zachycení se nedávkuje správně.
+5. **Migrace — tři operace, ne dvě.** `CREATE TABLE BlockRevision` (rychlé);
+   `ALTER TABLE AuditLog ADD COLUMN groupId VARCHAR(32) NULL` (na MySQL 8.0
+   `INSTANT`); `CREATE INDEX … ON AuditLog(groupId, blockId)` (**`INPLACE`, čas
+   úměrný velikosti tabulky, na začátku i konci bere exkluzivní metadata lock**).
+
+   Před migrací povinně změřit na produkci:
+   ```sql
+   SELECT COUNT(*) FROM AuditLog;
+   SELECT DATA_LENGTH, INDEX_LENGTH, ROW_FORMAT FROM information_schema.TABLES
+     WHERE TABLE_NAME = 'AuditLog';
+   ```
+   `ROW_FORMAT` musí být `DYNAMIC`; na starším `COMPACT` z doby ručních zásahů
+   (paměť o `action varchar(16)`) se `INSTANT ADD COLUMN` tiše přepne na `INPLACE`
+   s rebuildem celé tabulky. Podle výsledku rozhodnout, jestli index vytvořit
+   při zastavené aplikaci.
 6. **Před zásahem na produkci `mysqldump` záloha** — bez výjimky.
-7. Po týdnu provozu B1: zkontrolovat skutečnou velikost `BlockRevision` proti
-   odhadu z § 4 a případně upravit retenci dřív, než se pustí B2.
+7. Po týdnu provozu: porovnat skutečnou velikost `BlockRevision` s odhadem z § 5
+   a teprve pak psát spec etapy B2.
 
-## 12. Co změnila recenze
+## 11. Co změnily obě recenze
 
-Revize 1 tohoto specu prošla adversariální multi-agent recenzí (6 nezávislých
-optik, ke každé skeptik pověřený nálezy vyvrátit). Z 38 nálezů 30 vyvracení
-přežilo; po sloučení 14 věcných vad, z toho 4 kritické.
+### První kolo — padl „region"
 
-**Vyvrácen byl nosný mechanismus.** Revize 1 stavěla na „regionu" — stroji
-a časovém okně, které se před mutací načtou a po ní porovnají. Padlo to na třech
-nezávislých důkazech:
+Revize 1 stavěla na regionu: stroji a časovém okně, které se před mutací načtou
+a po ní porovnají. Vyvráceno třemi nezávislými důkazy:
 
 1. **Split sourozenci region opouštějí.** `updateMany` je hledá výhradně podle
-   `splitGroupId`, bez filtru na stroj i čas (`[id]/route.ts:509–512`) a sourozenec
-   může ležet na druhém stroji. Vestavěná pojistka se opírala o seznam předávaný
-   `assertNoOverlapForBlocks`, kde sourozenci nikdy nejsou (`:566`) — a u čistě
-   obchodní editace se ta pojistka nevolá vůbec (`:538–540`). Bylo by to
-   znovuotevření kritického nálezu go/no-go auditu z 5. 8. 2026.
-2. **Region není před tělem transakce znám.** U PUT vzniká `computedEnd` až
-   uvnitř transakce z `validateAndComputeEnd(tx, …)` (`:231, 235`); u celostrojového
-   reflow běží `detectCalendarDrift` rovněž uvnitř a dolní kotva sahá až rok zpět
-   (`reflow.server.ts:239–249`).
+   `splitGroupId`, bez filtru na stroj i čas (`[id]/route.ts:509–512`).
+   Vestavěná pojistka se opírala o seznam předávaný `assertNoOverlapForBlocks`,
+   kde sourozenci nikdy nejsou (`:566`) — a u čistě obchodní editace se ta
+   pojistka nevolá vůbec (`:538–540`).
+2. **Region není před tělem transakce znám.** `computedEnd` vzniká uvnitř
+   z `validateAndComputeEnd(tx, …)` (`:231, 235`); `detectCalendarDrift` běží
+   rovněž uvnitř a dolní kotva sahá až rok zpět (`reflow.server.ts:239–249`).
 3. **„Nadsadit region je zdarma" neplatilo.** Pod `FOR UPDATE` stojí zámek každý
-   naskenovaný řádek, a predikát okna `endTime > from` rozsah v indexu
-   `[machine, startTime, endTime]` zdola neomezuje — sken tedy zamyká i řádky
-   hluboko pod nominální dolní mezí. Recenze to ověřila `EXPLAIN`em i živým testem
-   dvou souběžných transakcí (`Lock wait timeout` po 3 s).
+   naskenovaný řádek, a predikát `endTime > from` rozsah v indexu
+   `[machine, startTime, endTime]` zdola neomezuje. Ověřeno `EXPLAIN`em i živým
+   testem dvou souběžných transakcí (`Lock wait timeout` po 3 s).
 
-**Nahrazeno obaleným transakčním klientem** (§ 5, varianta d). Rozhodující
-zjištění, které tuhle variantu umožnilo: v celém repu není jediný zápis do `Block`
-mimo Prismu (`$executeRaw` = 0 výskytů). Nový mechanismus ruší všechny tři důvody
-najednou — zachycení se řídí `where` samotného zápisu, takže žádnou geometrii
-neodhaduje, nic nemusí vědět předem a zamyká jen to, do čeho se stejně zapisuje.
+### Druhé kolo — jádro obstálo, obal ne
 
-**Další vady, které recenze našla a spec je teď řeší:** redo by po B2 selhalo
-deterministicky (§ 6, „Kontrola souběhu"); jedna uživatelská akce znamená až N
-požadavků, takže `groupId` musí být množné (§ 6); `ops` sestavené z revize by
-u každého undo mazání skončily chybou 400 (§ 6, `blockToRestoreFields`); strop
-200 operací by zabil undo přeplánování (§ 6); vyloučení po sloupcích by historii
-zdvojilo (§ 7, korelace přes `groupId`); `partial: true` neměl v modelu sloupec
-a degradační větev by nezapsala nic (§ 4, § 5); `BlockRevision` bez `machine`
-by neunesl slíbenou rekonstrukci (§ 4); `complete` route má transakci v poli
-a pomocníka na ni nejde napojit (§ 3); `AppError("INTERNAL")` neexistuje (§ 5);
-holé `null` do `Json?` se nezkompiluje (§ 4); pro `cuid` není v repu generátor
-(§ 4); citovaný formátovač data vypisuje jiný tvar, než spec sliboval (§ 7);
-`take: 10` v historii by po sloučení dvou zdrojů dával nesmysl (§ 7).
+Nový mechanismus prošel: **žádný zápis mimo Prismu, žádné vnořené zápisy, typový
+obal jde napsat bez `any`** (ověřeno zkompilovanou sondou). Recenze ale našla
+27 vad v tom, co jsem kolem něj napsal:
+
+- **`AuditLog.groupId` nemělo jak vzniknout** — pomocník obaloval jen `block`,
+  auditní zápisy jdou přes `tx.auditLog` (13 míst). → pomocník otevírá transakci
+  sám a nahrazuje oba delegáty (§ 4).
+- **`rtx` nešlo protáhnout sdílenými funkcemi** bez změny jejich signatur
+  a přepisu mocků. → týž zásah to řeší.
+- **„Volající nemá jak zapomenout" neplatilo** — `tx` zůstával v uzávěru. → týž zásah.
+- **Běhová pojistka byla tautologická.** → nahrazena kontrolou `count` a přiznáním,
+  že zbytkové riziko hlídá code review (§ 4, § 8).
+- **Potlačení v historii bylo na špatné granularitě** — po řádcích místo po
+  sloupcích, takže kombinovaná editace v BlockEditu by pozici zahodila (§ 6).
+- **Predikát potlačení nešel vyhodnotit z okna `take: 10`** (§ 6).
+- **`updatedAt` v rozdílu** znamenal, že se nikdy nic nezahodí → prázdné řádky
+  historie u každého split sourozence (§ 4).
+- **`partial: true` bylo k nerozeznání od „blok vznikl"** → undo by smazalo
+  existující blok. → explicitní sloupec `kind` (§ 5).
+- **Změna `AuditLogEntry`** by rozbila panel notifikací přes druhý, neuvedený
+  endpoint. → samostatný typ `BlockHistoryEntry` (§ 3, § 6).
+- **Zachycení nebylo current-read** → přepočet by si připsal cizí změnu (§ 4).
+- **`CREATE INDEX` nad produkčním `AuditLog`** není okamžitý (§ 10).
+
+### Co se z tohohle specu vyříznulo
+
+Čtrnáct z 27 nálezů druhého kola bylo v sekci o etapě B2 — řetězení undo/redo,
+slučování dávek přes víc transakcí, chování při promazané revizi. Všechny mají
+společnou příčinu: **navrhoval jsem mechaniku undo nad tabulkou, která ještě
+neexistuje a jejíž skutečná data nikdo neviděl.**
+
+B2 dostane vlastní spec, až `BlockRevision` pár týdnů poběží na produkci. Tehdy
+půjde stavět proti reálným revizím, ne proti domněnkám — přesně kvůli tomu bylo
+členění na B1/B2 od začátku zvolené.
