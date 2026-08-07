@@ -18,8 +18,44 @@ model AuditLog {
   newValue    String?  @db.Text
   createdAt   DateTime @default(now())
   orderNumber String?
+  /// Korelace s BlockRevision. Nullable — historické řádky ho nemají.
+  groupId     String?  @db.VarChar(32)
 
   @@index([blockId, createdAt])
+  @@index([createdAt])
+  @@index([groupId, blockId])
+}
+
+model BlockRevision {
+  id          Int      @id @default(autoincrement())
+  /// Jedna serverová transakce = jeden groupId napříč všemi dotčenými bloky.
+  groupId     String   @db.VarChar(32)
+  /// ZÁMĚRNĚ BEZ cizího klíče — revize musí přežít smazání bloku.
+  /// Navíc: produkční Block.id je INT UNSIGNED, FK z INT by selhal na errno 150.
+  blockId     Int
+  /// Denormalizováno, aby řádek dával smysl i po smazání bloku.
+  machine     String   @db.VarChar(191)
+  orderNumber String?  @db.VarChar(191)
+  /// Operace uživatele: CREATE|UPDATE|DELETE|BATCH|SPLIT|REFLOW|UNDO|PRINT_COMPLETE|EXPEDITION
+  action      String   @db.VarChar(32)
+  /// Typ změny TOHOTO řádku. NIKDY se neodvozuje z přítomnosti before/after.
+  kind        String   @db.VarChar(8)
+  label       String   @db.VarChar(191)
+  userId      Int
+  username    String   @db.VarChar(191)
+  /// Stav před změnou. U kind=CREATE chybí. BEZ updatedAt.
+  before      Json?
+  /// Stav po změně. U kind=DELETE chybí. BEZ updatedAt.
+  after       Json?
+  /// Block.updatedAt po zápisu — verze pro kontrolu souběhu v etapě B2.
+  rowVersion  DateTime?
+  /// Forenzní příznak: zachycení „před" nebylo úplné. NIKDY nesmí vyrobit undo operaci.
+  partial     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([groupId])
+  @@index([blockId, createdAt])
+  @@index([machine, createdAt])
   @@index([createdAt])
 }
 
