@@ -160,7 +160,11 @@ body {
   --text-muted: oklch(0.48 0.02 250);
   --bg: var(--background);
   --text: var(--foreground);
-  --info: var(--accent);
+  /* --info MUSÍ být čitelný jako barva písma, ne jen jako okraj: dřív to byl
+     alias --accent, což je podkladový tón (kontrast ~1,2:1 → text prakticky
+     neviditelný v obou motivech). Sourozenci --danger/--success/--warning mají
+     vlastní hodnotu ze stejného důvodu. */
+  --info: oklch(0.55 0.15 250);
   --danger: oklch(0.62 0.23 25);
   --success: oklch(0.62 0.18 152);
   --success-contrast: oklch(0.18 0.04 152);
@@ -218,7 +222,7 @@ body {
   --text-muted: oklch(0.72 0 0);
   --bg: var(--background);
   --text: var(--foreground);
-  --info: var(--accent);
+  --info: oklch(0.72 0.14 250);
   --danger: oklch(0.66 0.21 25);
   --success: oklch(0.72 0.18 152);
   --success-contrast: oklch(0.18 0.04 152);
