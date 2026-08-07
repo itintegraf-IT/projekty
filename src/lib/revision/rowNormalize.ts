@@ -7,6 +7,15 @@ const DATE = new Set<string>(BLOCK_DATE_COLUMNS);
  * Raw řádek z `SELECT * FROM Block … FOR UPDATE` na tvar, jaký vrací Prisma klient.
  * `null` zůstává `null` u obou skupin — rozlišení „není vyplněno" vs. „false"
  * je u nullable sloupců (např. deadlineExpedice) nosné.
+ *
+ * Ověřená realita (Prisma 5 + MySQL, `$queryRaw` proti dev DB, 7. 8. 2026):
+ * BOOLEAN (MySQL `TINYINT(1)`) přichází jako `number` 0/1, DATETIME přichází
+ * ROVNOU jako `Date` — driver ho parsuje sám, ne jako řetězec. Větev, která
+ * níž parsuje `string` na `Date`, tedy v dnešním provozu NEBĚŽÍ (reálný
+ * průchod jde vždy přes `value instanceof Date ? value : …`) — je to obranná
+ * síť pro případ, že se chování driveru/verze v budoucnu změní. Parsování
+ * bere naivní MySQL DATETIME jako UTC, což sedí s konvencí appky (`new
+ * Date(datePart + "T00:00:00.000Z")`, viz CLAUDE.md).
  */
 export function normalizeBlockRow(raw: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
