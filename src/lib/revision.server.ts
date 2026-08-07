@@ -48,6 +48,11 @@ const READ_ONLY_METHODS = new Set([
 const PASSTHROUGH_MODELS = new Set([
   "notification", "companyDay", "machineWeekShifts", "user",
   "shiftAssignment", "expeditionManualItem", "blockRevision",
+  // JobPreset je číselník bez JAKÉKOLIV relace na Block (`Block.jobPresetId` je
+  // holý Int, ne cizí klíč) — vnořeným zápisem přes něj blok změnit nejde.
+  // Doplněno v Tasku 6: PUT bloku ověřuje preset uvnitř transakce a bez tohohle
+  // řádku by musel sáhnout na globální `prisma`, tedy mimo revizi i mimo rollback.
+  "jobPreset",
 ]);
 
 /**
@@ -340,7 +345,19 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
       if (BLOCK_LINKED_MODELS.has(prop)) {
         return makeLinkedDelegate(prop, Reflect.get(target, prop, receiver));
       }
-      if (PASSTHROUGH_MODELS.has(prop) || PASSTHROUGH_TX_PROPS.has(prop)) {
+      if (PASSTHROUGH_TX_PROPS.has(prop)) {
+        // SVÁZAT se syrovým `tx`, ne jen propustit. `$queryRaw` je metoda KLIENTA
+        // (ne delegáta modelu) a uvnitř sahá na `this._createPrismaPromise`.
+        // Bez `bind` se `this` nastaví na tuhle Proxy, interní vlastnost spadne
+        // do allow-listu a celá mutace umře na „rtx._createPrismaPromise není
+        // povolené". Objevilo se to až při zapojení PUT (Task 6): `$queryRaw`
+        // volá `assertNoOverlapForBlocks`, tedy finální pojistka na KAŽDÉ
+        // zápisové cestě — jednotkové testy jádra ho volaly nad syrovým `tx`,
+        // takže na tohle nedosáhly.
+        const value = Reflect.get(target, prop, target);
+        return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      }
+      if (PASSTHROUGH_MODELS.has(prop)) {
         return Reflect.get(target, prop, receiver);
       }
       // Allow-list i na tomhle patře — jinak tudy projde `$executeRaw`,

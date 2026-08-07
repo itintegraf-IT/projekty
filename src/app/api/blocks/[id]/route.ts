@@ -18,6 +18,7 @@ import { truncateUtf8 } from "@/lib/textTruncate";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { buildSplitPropagateAuditRows } from "@/lib/splitPropagateAudit";
 import { AUDITED_FIELDS, type AuditedField } from "@/lib/auditedFields";
+import { withRevision } from "@/lib/revision.server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -149,7 +150,15 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     // AUDITED_FIELDS/AuditedField žijí v @/lib/auditedFields (sdílené se
     // splitPropagateAudit.ts — viz komentář tam k průniku se SPLIT_SHARED_FIELDS).
 
-    const { block, shifted, propagatedGroupId } = await prisma.$transaction(async (tx) => {
+    // Transakci otevírá `withRevision` — podstrčí `tx` s obalenými delegáty
+    // `block` a `auditLog`, takže každý zápis do bloku (i chain push a propagace
+    // na split sourozence) zanechá řádek v `BlockRevision` a auditní řádky téže
+    // transakce dostanou shodné `groupId`. UVNITŘ tohoto těla se proto nesmí
+    // sáhnout na modulový `prisma` ani pro čtení: běželo by mimo transakci,
+    // přežilo by její rollback a revizi by obešlo (viz docblock withRevision).
+    const { result: { block, shifted, propagatedGroupId } } = await withRevision(
+      { action: "UPDATE", label: "Editace bloku", user: { id: session.id, username: session.username } },
+      async (tx) => {
       const oldBlock = await tx.block.findUnique({ where: { id } });
       if (!oldBlock) {
         throw new AppError("NOT_FOUND", "Blok nenalezen");
@@ -311,13 +320,17 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       if (resultingType === "UDRZBA") {
         presetUpdate = { jobPresetId: null, jobPresetLabel: null };
       } else if (presetExplicitlyChanged) {
-        const presetResult = await resolvePresetForBlock(allowed.jobPresetId, resultingType);
+        // `tx` třetím parametrem POVINNĚ: bez něj by helper četl přes modulový
+        // `prisma`, tedy mimo tuhle transakci (jiné spojení, jiný snapshot).
+        const presetResult = await resolvePresetForBlock(allowed.jobPresetId, resultingType, tx);
         if ("error" in presetResult) {
           throw new AppError("PRESET_INVALID", presetResult.error);
         }
         presetUpdate = presetResult;
       } else if (allowed.type !== undefined && oldBlock.jobPresetId) {
-        const existingPreset = await prisma.jobPreset.findUnique({
+        // `tx`, ne `prisma`: uvnitř withRevision je globální klient zakázaný
+        // i pro čtení (běžel by mimo transakci a mimo její rollback).
+        const existingPreset = await tx.jobPreset.findUnique({
           where: { id: oldBlock.jobPresetId },
           select: { appliesToZakazka: true, appliesToRezervace: true },
         });
@@ -567,7 +580,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       }
 
       return { block: updated, shifted: shiftedMoves, propagatedGroupId };
-    }, { timeout: 15000, maxWait: 5000 });
+      // Tělo výše si drží PŮVODNÍ odsazení: přeformátovat 400 řádků kvůli
+      // jednomu zanoření navíc by zahltilo diff i recenzi. Timeout 15 s /
+      // maxWait 5 s má `withRevision` jako výchozí, takže se nepředává.
+      },
+    );
 
     // Refetch VŽDY s notes include — SSE broadcast nese poznámky a per-connection strip v
     // /api/events je zahodí rolím bez práva (D2b). Do PŘÍMÉ odpovědi mutujícímu se ale poznámky
@@ -675,7 +692,13 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
 
   try {
     let deletedMachine = "";
-    await prisma.$transaction(async (tx) => {
+    // Revize s `kind: "DELETE"` nese CELÝ smazaný řádek v `before` — je to
+    // jediný strojově čitelný podklad pro budoucí vzkříšení bloku (etapa B2).
+    // JSON snapshot v `AuditLog` níž zůstává: je určený člověku a přežije
+    // i mazání revizí.
+    await withRevision(
+      { action: "DELETE", label: "Smazání bloku", user: { id: session.id, username: session.username } },
+      async (tx) => {
       // Celý blok (bez selectu): (a) guard čte locked/printCompletedAt,
       // (b) JSON snapshot do auditu je jediná cesta k ruční rekonstrukci
       // omylem smazaného bloku (audit DATA-03) — mazání je jinak nenávratné.
@@ -742,7 +765,9 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
           });
         }
       }
-    });
+      // Tělo výše si drží PŮVODNÍ odsazení — viz komentář u PUT.
+      },
+    );
     emitSSE("block:deleted", { blockId: id, machine: deletedMachine, sourceUserId: session.id });
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

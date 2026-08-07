@@ -1,8 +1,20 @@
 import { prisma } from "@/lib/prisma";
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
 
+/**
+ * Ověří preset a vrátí dvojici, kterou write cesty ukládají do bloku.
+ *
+ * `client` je nepovinný: volání MIMO transakci ho vynechá a dostane modulový
+ * singleton. Volání UVNITŘ `withRevision` (src/lib/revision.server.ts) ho ale
+ * MUSÍ předat — helper, který si klienta bere z importu místo z parametru, je
+ * přesně ten nepřímý nosič, kvůli kterému by se v routě čtení přes globální
+ * `prisma` vůbec nevidělo: běželo by mimo transakci, mimo její snapshot i mimo
+ * její rollback (viz docblock `withRevision`).
+ */
 export async function resolvePresetForBlock(
   presetId: unknown,
-  type: string
+  type: string,
+  client: PrismaTransactionClient = prisma
 ): Promise<{ jobPresetId: number | null; jobPresetLabel: string | null } | { error: string }> {
   if (type === "UDRZBA") {
     return { jobPresetId: null, jobPresetLabel: null };
@@ -16,7 +28,7 @@ export async function resolvePresetForBlock(
     return { error: "Neplatné ID presetu." };
   }
 
-  const preset = await prisma.jobPreset.findUnique({
+  const preset = await client.jobPreset.findUnique({
     where: { id: numId },
     select: {
       id: true,

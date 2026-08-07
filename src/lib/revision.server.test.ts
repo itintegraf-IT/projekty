@@ -900,3 +900,67 @@ test("blok, který vypadl z `where` mezi snímkem a zápisem, nedostane kind DEL
   await prisma.blockRevision.deleteMany({ where: { groupId } });
   await prisma.block.deleteMany({ where: { orderNumber: { startsWith: "REV-ESCAPE" } } });
 });
+
+test("rtx.$queryRaw funguje — je to metoda klienta, ne delegáta", async () => {
+  // Regrese ze zapojení PUT (Task 6): `$queryRaw` byl sice v PASSTHROUGH_TX_PROPS,
+  // ale propouštěl se NESVÁZANÝ. Volání `rtx.$queryRaw` proto uvnitř Prismy sáhlo
+  // na `this._createPrismaPromise`, `this` byla naše Proxy a allow-list to shodil
+  // hláškou „rtx._createPrismaPromise není povolené". Padala na to KAŽDÁ mutace,
+  // protože `assertNoOverlapForBlocks` (finální pojistka všech zápisových cest)
+  // stojí právě na `tx.$queryRaw`. Jednotkové testy jádra to minuly, protože samy
+  // volaly raw dotaz nad syrovým `tx`.
+  const block = await seedBlock();
+  const { result } = await withRevision(
+    { action: "UPDATE", label: "Raw čtení", user: USER },
+    async (rtx) => {
+      await rtx.block.update({ where: { id: block.id }, data: { machine: "XL_106" } });
+      // Přesně tvar z assertNoOverlapForBlocks: tagged template + FOR UPDATE.
+      return rtx.$queryRaw<{ id: number; machine: string }[]>`
+        SELECT id, machine FROM Block WHERE id = ${block.id} FOR UPDATE
+      `;
+    },
+  );
+  assert.equal(result[0]?.machine, "XL_106", "raw čtení vidí zápis téže transakce");
+
+  await prisma.blockRevision.deleteMany({ where: { blockId: block.id } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("PUT propagace sdíleného pole vyrobí revizi kořeni i sourozenci", async () => {
+  // Přesně tvar, jakým propaguje PUT /api/blocks/[id]: adresný `update` na
+  // editovaný blok + `updateMany` na zbytek skupiny. Sourozenec je ZÁMĚRNĚ na
+  // DRUHÉM stroji — tenhle případ v návrhu jednou vyvrátil celý původní
+  // mechanismus (revize vázaná na stroj by ho minula) a je jediný, kde se
+  // pozná, že se dotčené řádky berou z `where`, ne z anchoru.
+  const group = await seedSplitGroup();
+  const head = await seedBlock("XL_105");
+  const tail = await seedBlock("XL_106");
+  await prisma.block.updateMany({
+    where: { id: { in: [head.id, tail.id] } },
+    data: { splitGroupId: group.id },
+  });
+
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "Editace bloku", user: USER },
+    async (rtx) => {
+      await rtx.block.update({
+        where: { id: head.id },
+        data: { specifikace: "REV-SDILENE" },
+      });
+      await rtx.block.updateMany({
+        where: { splitGroupId: group.id, id: { not: head.id } },
+        data: { specifikace: "REV-SDILENE" },
+      });
+    },
+  );
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId }, orderBy: { blockId: "asc" } });
+  assert.equal(revs.length, 2, "kořen i sourozenec na druhém stroji");
+  const revTail = revs.find((r) => r.blockId === tail.id);
+  assert.ok(revTail, "sourozenec z updateMany má vlastní revizi");
+  assert.equal(revTail!.machine, "XL_106", "revize nese stroj sourozence, ne editovaného bloku");
+  assert.equal((revTail!.after as Record<string, unknown>).specifikace, "REV-SDILENE");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.deleteMany({ where: { id: { in: [head.id, tail.id] } } });
+});
