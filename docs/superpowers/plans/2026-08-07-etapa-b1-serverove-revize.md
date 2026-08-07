@@ -49,9 +49,9 @@
 | `src/lib/revisionFormat.ts` | **nový** — české řádky historie z rozdílu | 11 |
 | `src/lib/blockHistory.ts` | **nový** — typ `BlockHistoryEntry` + slučování | 12 |
 | `src/app/api/blocks/[id]/audit/route.ts` | sloučená osa + predikát potlačení | 12 |
-| `src/components/BlockDetail.tsx` | render revizní větve | 13 |
-| `scripts/prune-revisions.ts` | **nový** — úklid po 90 dnech | 14 |
-| `CLAUDE.md`, `docs/vyvoj-historie.md`, `docs/OPS_ZALOHY.md` | pravidla a provoz | 15 |
+| `src/components/BlockDetail.tsx` | render revizní větve | 12 |
+| `scripts/prune-revisions.ts` | **nový** — úklid po 90 dnech | 13 |
+| `CLAUDE.md`, `docs/vyvoj-historie.md`, `docs/OPS_ZALOHY.md` | pravidla a provoz | 13–14 |
 
 **Co se NEmění:** typ `AuditLogEntry`. Má **dvě nezávislé definice** — `src/components/InfoPanel.tsx:5-16` (konzumuje `/api/audit/today`) a `src/components/admin/AuditLogPanel.tsx:31` (konzumuje `/api/audit`). Sáhnutí na kteroukoliv tiše vyprázdní panel notifikací.
 
@@ -1474,7 +1474,7 @@ git commit -m "feat(historie): mapa pokrytí auditních řádků po sloupcích"
 - Test: `src/lib/revisionFormat.test.ts`
 
 **Interfaces:**
-- Produces: `formatPragueDateTimeWithWeekday(d: Date): string`, `formatRevisionLines(before, after): string[]` — používá Task 13.
+- Produces: `formatPragueDateTimeWithWeekday(d: Date): string`, `formatRevisionLines(before, after): string[]` — používá Task 12.
 
 - [ ] **Step 1: Přidat formátovač data**
 
@@ -1644,7 +1644,11 @@ git commit -m "feat(historie): české řádky z revizního rozdílu + formátov
 
 ---
 
-## Task 12: Sloučená osa v endpointu historie
+## Task 12: Sloučená osa historie — endpoint i vykreslení
+
+> **Endpoint a render jsou JEDEN task schválně.** Změna tvaru odpovědi rozbije
+> `BlockDetail.tsx`, který ji konzumuje — kdyby to byly dva tasky, ten první by
+> musel commitnout s červeným buildem, což zakazuje globální pravidlo.
 
 Predikát potlačení **nejde vyhodnotit z okna `take: 10`** — jedno uložení z BlockEditu běžně vyrobí přes deset auditních řádků, takže starší skupina by z okna vypadla a její revize by se zobrazila, přestože potlačena být má. Řeší to samostatný dotaz.
 
@@ -1652,10 +1656,11 @@ Predikát potlačení **nejde vyhodnotit z okna `take: 10`** — jedno uložení
 - Create: `src/lib/blockHistory.ts`
 - Test: `src/lib/blockHistory.test.ts`
 - Modify: `src/app/api/blocks/[id]/audit/route.ts`
+- Modify: `src/components/BlockDetail.tsx` — stav historie (kolem `:105`), fetch (`:126-131`), render (`:568`)
 
 **Interfaces:**
 - Consumes: `coveredColumns` (Task 10), `formatRevisionLines` (Task 11).
-- Produces: `type BlockHistoryEntry`, `suppressCoveredColumns(diffBefore, diffAfter, auditRows): { before: Row; after: Row } | null` — používá Task 13.
+- Produces: `type BlockHistoryEntry`, `suppressCoveredColumns(diffBefore, diffAfter, auditRows): { before: Row; after: Row } | null`.
 
 - [ ] **Step 1: Napsat padající test**
 
@@ -1865,32 +1870,7 @@ import { suppressCoveredColumns, type BlockHistoryEntry } from "@/lib/blockHisto
 import { formatRevisionLines } from "@/lib/revisionFormat";
 ```
 
-- [ ] **Step 6: Build a testy**
-
-```bash
-npm run build
-node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
-```
-Expected: build spadne v `BlockDetail.tsx` (konzumuje starý tvar) — to řeší Task 13. Testy zelené.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add src/lib/blockHistory.ts src/lib/blockHistory.test.ts "src/app/api/blocks/[id]/audit/route.ts"
-git commit -m "feat(historie): sloučená osa AuditLog + BlockRevision s potlačením po sloupcích"
-```
-
----
-
-## Task 13: Render v panelu historie
-
-**Files:**
-- Modify: `src/components/BlockDetail.tsx` — stav historie (kolem `:105`), fetch (`:126-131`), render (`:568`)
-
-**Interfaces:**
-- Consumes: `BlockHistoryEntry` (Task 12).
-
-- [ ] **Step 1: Přepnout typ stavu**
+- [ ] **Step 6: Přepnout typ stavu v BlockDetail**
 
 V `src/components/BlockDetail.tsx` přidat import:
 ```typescript
@@ -1902,7 +1882,7 @@ const [blockHistory, setBlockHistory] = useState<BlockHistoryEntry[]>([]);
 ```
 Import `AuditLogEntry` z `InfoPanel.tsx` z tohohle souboru odstranit, pokud už není potřeba jinde. **Samotný `AuditLogEntry` v `InfoPanel.tsx` neměnit** — obsluhuje `/api/audit/today` a jeho úprava by vyprázdnila panel notifikací.
 
-- [ ] **Step 2: Přidat revizní větev na začátek mapy**
+- [ ] **Step 7: Přidat revizní větev na začátek mapy**
 
 V `src/components/BlockDetail.tsx:568` je `{blockHistory.map((log, i) => {`. Hned za tuhle řádku vložit early-return větev — **stávající kód od `const undoRedo = …` (dnešní `:572`) dál zůstává beze změny**:
 
@@ -1930,14 +1910,15 @@ Rozvržení (odsazení, `borderTop`, velikosti písma) je **schválně totožné
 
 TypeScript narrowing přes `log.source` funguje, protože `BlockHistoryEntry` je diskriminovaná unie — ve větvi pod `if` je `log` zúžený na auditní variantu a přístup na `log.field`/`log.oldValue` se přeloží.
 
-- [ ] **Step 3: Build**
+- [ ] **Step 8: Build a celá suita**
 
 ```bash
 npm run build
+node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
 ```
-Expected: zelený.
+Expected: build zelený (endpoint i konzument se změnily v jednom tasku), testy zelené.
 
-- [ ] **Step 4: Ruční ověření na dev databázi**
+- [ ] **Step 9: Ruční ověření na dev databázi**
 
 Spustit dev server a fixturu:
 ```bash
@@ -1950,16 +1931,16 @@ Pak v prohlížeči ověřit **tři scénáře ze specu**:
 
 Vše ve světlém i tmavém motivu.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add src/components/BlockDetail.tsx
-git commit -m "feat(historie): vykreslit revizní řádky v panelu historie bloku"
+git add src/lib/blockHistory.ts src/lib/blockHistory.test.ts "src/app/api/blocks/[id]/audit/route.ts" src/components/BlockDetail.tsx
+git commit -m "feat(historie): sloučená osa AuditLog + BlockRevision s potlačením po sloupcích"
 ```
 
 ---
 
-## Task 14: Úklid po 90 dnech
+## Task 13: Úklid po 90 dnech
 
 **Files:**
 - Create: `scripts/prune-revisions.ts`
@@ -2065,7 +2046,7 @@ git commit -m "feat(ops): denní úklid revizí po 90 dnech"
 
 ---
 
-## Task 15: Dokumentace a pravidla
+## Task 14: Dokumentace a pravidla
 
 **Files:**
 - Modify: `CLAUDE.md`, `docs/vyvoj-historie.md`
