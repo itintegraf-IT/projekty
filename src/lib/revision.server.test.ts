@@ -1,9 +1,26 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { withRevision } from "./revision.server";
 
 const USER = { id: 1, username: "test" };
+
+/**
+ * Druhé nezávislé spojení. Souběh (cizí commit mezi snapshotem a naším zápisem)
+ * NEJDE nasimulovat jedním klientem — a právě proti němu stojí `FOR UPDATE`
+ * i pojistka `count`/`partial`. Bez druhého spojení by ty testy měřily mock.
+ */
+const other = new PrismaClient();
+
+/**
+ * `process.env.NODE_ENV` je v typech Next.js jen pro čtení. Testy na degradaci
+ * v produkci ho ale přepnout musí — pomocník to dělá přes indexový zápis,
+ * aby se kvůli tomu nemusel vypínat typecheck v celém souboru.
+ */
+function setNodeEnv(value: string | undefined) {
+  (process.env as Record<string, string | undefined>).NODE_ENV = value;
+}
 
 /**
  * Split-skupiny, které testy založily. Uklízí se JEN tyhle.
@@ -35,11 +52,17 @@ async function seedSplitGroup() {
  */
 after(async () => {
   await prisma.blockRevision.deleteMany({ where: { orderNumber: { startsWith: "REV-" } } });
+  // Marker řádky (blockId 0) nemají orderNumber, mažou se přes groupId testů.
+  await prisma.blockRevision.deleteMany({ where: { blockId: 0, username: USER.username } });
   await prisma.block.deleteMany({ where: { orderNumber: { startsWith: "REV-" } } });
+  // AuditLog: inline úklid uvnitř testu je AŽ ZA assertion, takže po červeném
+  // běhu zůstával trvalý řádek (naměřeno 1357 → 1358). Sem patří taky.
+  await prisma.auditLog.deleteMany({ where: { username: USER.username } });
   if (createdSplitGroupIds.length > 0) {
     await prisma.splitGroup.deleteMany({ where: { id: { in: createdSplitGroupIds } } });
   }
   await prisma.$disconnect();
+  await other.$disconnect();
 });
 
 /** Založí blok mimo withRevision, aby se dal změnit a revize se dala zkoumat. */
@@ -270,6 +293,566 @@ test("block.createMany uvnitř withRevision je zakázané", async () => {
     withRevision({ action: "CREATE", label: "Dávka", user: USER }, async (rtx) =>
       rtx.block.createMany({ data: [] }),
     ),
-    /createMany/,
+    // Konkrétní hláška, ne jen slovo "createMany": vývojáři musí říct, CO má
+    // udělat místo toho. Obecný pád z allow-listu by test taky prošel.
+    /MySQL nevrací id.*Použij create ve smyčce/s,
   );
+});
+
+// ---------------------------------------------------------------------------
+// Pojistky proti souběhu. Bez druhého spojení by tyhle dva testy neměřily nic:
+// fantom mezi snapshotem a zápisem jinak nevznikne.
+// ---------------------------------------------------------------------------
+
+test("cizí commit mezi snapshotem a zápisem: updateMany hlásí neúplné zachycení", async () => {
+  const a = await seedBlock("XL_105");
+  const b = await seedBlock("XL_106");
+  await prisma.block.updateMany({ where: { id: { in: [a.id, b.id] } }, data: { orderNumber: "REV-FANTOM" } });
+
+  await assert.rejects(
+    withRevision({ action: "BATCH", label: "Dávka s fantomem", user: USER }, async (rtx) => {
+      // Založí read view transakce (REPEATABLE READ) — od téhle chvíle vidí dva řádky.
+      await rtx.block.findMany({ where: { orderNumber: "REV-FANTOM" }, select: { id: true } });
+      // Cizí spojení jeden z nich smaže a commitne.
+      await other.block.delete({ where: { id: b.id } });
+      // Náš zápis už trefí jen jeden, ale `resolveIds` jich ze snapshotu vidí dva.
+      return rtx.block.updateMany({ where: { orderNumber: "REV-FANTOM" }, data: { machine: "XL_107" } });
+    }),
+    /zasáhl 1 řádků, ale zachytilo se 2/,
+  );
+
+  await prisma.block.deleteMany({ where: { orderNumber: "REV-FANTOM" } });
+});
+
+test("v produkci se neúplné zachycení nehází, ale zapíše se partial", async () => {
+  const a = await seedBlock("XL_105");
+  const b = await seedBlock("XL_106");
+  await prisma.block.updateMany({ where: { id: { in: [a.id, b.id] } }, data: { orderNumber: "REV-FANTOM-PROD" } });
+
+  const orig = process.env.NODE_ENV;
+  let groupId: string;
+  try {
+    // Spadnout uživateli uprostřed plánování je horší než neúplná revize.
+    setNodeEnv("production");
+    ({ groupId } = await withRevision(
+      { action: "BATCH", label: "Dávka s fantomem", user: USER },
+      async (rtx) => {
+        await rtx.block.findMany({ where: { orderNumber: "REV-FANTOM-PROD" }, select: { id: true } });
+        await other.block.delete({ where: { id: b.id } });
+        return rtx.block.updateMany({ where: { orderNumber: "REV-FANTOM-PROD" }, data: { machine: "XL_107" } });
+      },
+    ));
+  } finally {
+    setNodeEnv(orig);
+  }
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId } });
+  assert.equal(revs.length, 1, "přeživší řádek dostane revizi, fantom ne");
+  assert.equal(revs[0].blockId, a.id);
+  assert.equal(revs[0].partial, true, "příznak neúplného zachycení");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.deleteMany({ where: { orderNumber: "REV-FANTOM-PROD" } });
+});
+
+test("zamykající čtení: cizí změna jiného sloupce se nepřipíše naší transakci", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "REFLOW", label: "Přepočet stroje", user: USER },
+    async (rtx) => {
+      // Read view vzniká tady; cizí commit přijde až po něm.
+      await rtx.block.findMany({ where: { id: block.id }, select: { id: true } });
+      await other.block.update({ where: { id: block.id }, data: { printMinutes: 600 } });
+      return rtx.block.update({ where: { id: block.id }, data: { machine: "XL_106" } });
+    },
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  assert.deepEqual(
+    Object.keys(rev.after as Record<string, unknown>),
+    ["machine"],
+    "printMinutes změnil někdo jiný — do našeho rozdílu nepatří",
+  );
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+// ---------------------------------------------------------------------------
+// Obcházení revize
+// ---------------------------------------------------------------------------
+
+test("vnořený relační zápis přes rtx.block.update je odmítnutý", async () => {
+  const parent = await seedBlock();
+  const child = await prisma.block.create({
+    data: {
+      orderNumber: "REV-CHILD", machine: "XL_106",
+      startTime: new Date("2027-01-05T06:00:00.000Z"),
+      endTime: new Date("2027-01-05T14:00:00.000Z"),
+      type: "ZAKAZKA", printMinutes: 480, recurrenceParentId: parent.id,
+    },
+  });
+
+  await assert.rejects(
+    withRevision({ action: "UPDATE", label: "Vnořený zápis", user: USER }, async (rtx) =>
+      rtx.block.update({
+        where: { id: child.id },
+        data: {
+          description: "x",
+          // Typově validní a mění RODIČE — capture čte jen `where`, takže by
+          // se rodičovský blok změnil bez jediného řádku historie.
+          Block_Block_recurrenceParentIdToBlock: { update: { description: "RODIC-ZMENEN" } },
+        },
+      }),
+    ),
+    /vnořený zápis přes relaci "Block_Block_recurrenceParentIdToBlock"/,
+  );
+
+  const freshParent = await prisma.block.findUniqueOrThrow({ where: { id: parent.id } });
+  assert.notEqual(freshParent.description, "RODIC-ZMENEN", "rodič se nesmí změnit");
+
+  await prisma.block.deleteMany({ where: { id: { in: [child.id, parent.id] } } });
+});
+
+test("vnořený zápis do bloků přes cizí model (splitGroup) je odmítnutý", async () => {
+  const a = await seedBlock();
+  const group = await seedSplitGroup();
+  await prisma.block.update({ where: { id: a.id }, data: { splitGroupId: group.id } });
+
+  await assert.rejects(
+    withRevision({ action: "UPDATE", label: "Vnořený přes splitGroup", user: USER }, async (rtx) =>
+      rtx.splitGroup.update({
+        where: { id: group.id },
+        data: { blocks: { updateMany: { where: {}, data: { machine: "XL_107" } } } },
+      }),
+    ),
+    /vnořený zápis přes relaci "blocks"/,
+  );
+
+  const fresh = await prisma.block.findUniqueOrThrow({ where: { id: a.id } });
+  assert.equal(fresh.machine, "XL_105");
+
+  await prisma.block.delete({ where: { id: a.id } });
+});
+
+test("raw zápis a PascalCase alias delegátu jsou odmítnuté", async () => {
+  const block = await seedBlock();
+
+  await assert.rejects(
+    withRevision({ action: "UPDATE", label: "Raw zápis", user: USER }, async (rtx) =>
+      (rtx as unknown as { $executeRawUnsafe: (q: string) => Promise<number> })
+        .$executeRawUnsafe(`UPDATE Block SET machine = 'XL_107' WHERE id = ${block.id}`),
+    ),
+    /rtx\.\$executeRawUnsafe není uvnitř withRevision povolené/,
+  );
+
+  // Prisma registruje každý model dvakrát (block i Block); PascalCase alias
+  // vracel syrový delegát, tedy zápis bez revize.
+  await assert.rejects(
+    withRevision({ action: "UPDATE", label: "PascalCase alias", user: USER }, async (rtx) =>
+      (rtx as unknown as { Block: { update: (a: unknown) => Promise<unknown> } })
+        .Block.update({ where: { id: block.id }, data: { machine: "XL_107" } }),
+    ),
+    /rtx\.Block není uvnitř withRevision povolené/,
+  );
+
+  const fresh = await prisma.block.findUniqueOrThrow({ where: { id: block.id } });
+  assert.equal(fresh.machine, "XL_105", "ani jedna cesta nesmí blok změnit");
+
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("withRevision nejde vnořit", async () => {
+  await assert.rejects(
+    withRevision({ action: "UPDATE", label: "Vnější", user: USER }, async () =>
+      withRevision({ action: "UPDATE", label: "Vnitřní", user: USER }, async () => undefined),
+    ),
+    /withRevision nelze vnořit/,
+  );
+});
+
+test("zápis bez vráceného id je odmítnutý, ne tiše bez revize", async () => {
+  await assert.rejects(
+    withRevision({ action: "CREATE", label: "create se selectem", user: USER }, async (rtx) =>
+      rtx.block.create({
+        data: {
+          orderNumber: "REV-NOID", machine: "XL_105",
+          startTime: new Date("2027-01-06T06:00:00.000Z"),
+          endTime: new Date("2027-01-06T14:00:00.000Z"),
+          type: "ZAKAZKA", printMinutes: 480,
+        },
+        // Bez `id` by revizi nebylo k čemu připnout a blok by vznikl bez historie.
+        select: { machine: true },
+      }),
+    ),
+    /musí vracet id/,
+  );
+  assert.equal(await prisma.block.count({ where: { orderNumber: "REV-NOID" } }), 0, "transakce se odrolovala");
+});
+
+// ---------------------------------------------------------------------------
+// kind nesmí lhát
+// ---------------------------------------------------------------------------
+
+test("spolknutá chyba mazání nevyrobí revizi o smazání", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "DELETE", label: "Mazání, které selže", user: USER },
+    async (rtx) => {
+      try {
+        // Rozšířený `where` nesedí → P2025. Blok přitom dál žije.
+        await rtx.block.delete({ where: { id: block.id, machine: "NEEXISTUJICI" } as { id: number } });
+      } catch {
+        /* tělo chybu spolkne — vzorec „smaž, pokud tam ještě je" */
+      }
+      return null;
+    },
+  );
+
+  assert.equal(await prisma.blockRevision.count({ where: { groupId } }), 0, "žádná revize o smazání");
+  const fresh = await prisma.block.findUnique({ where: { id: block.id } });
+  assert.ok(fresh, "blok v DB dál existuje");
+
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("blok, který v jedné transakci vznikne a hned se smaže, revizi nemá", async () => {
+  const { groupId } = await withRevision(
+    { action: "SPLIT", label: "Vznik a zánik", user: USER },
+    async (rtx) => {
+      const b = await rtx.block.create({
+        data: {
+          orderNumber: "REV-TRANSIENT", machine: "XL_105",
+          startTime: new Date("2027-01-07T06:00:00.000Z"),
+          endTime: new Date("2027-01-07T14:00:00.000Z"),
+          type: "ZAKAZKA", printMinutes: 480,
+        },
+      });
+      await rtx.block.delete({ where: { id: b.id } });
+      return b.id;
+    },
+  );
+  // V databázi po něm nic nezůstalo, není co zaznamenávat.
+  assert.equal(await prisma.blockRevision.count({ where: { groupId } }), 0);
+});
+
+test("create + update téhož bloku dá kind CREATE s celým řádkem a novou hodnotou", async () => {
+  const { result, groupId } = await withRevision(
+    { action: "CREATE", label: "Vznik a posun", user: USER },
+    async (rtx) => {
+      const b = await rtx.block.create({
+        data: {
+          orderNumber: "REV-CREUPD", machine: "XL_105",
+          startTime: new Date("2027-01-08T06:00:00.000Z"),
+          endTime: new Date("2027-01-08T14:00:00.000Z"),
+          type: "ZAKAZKA", printMinutes: 480,
+        },
+      });
+      await rtx.block.update({ where: { id: b.id }, data: { machine: "XL_106" } });
+      return b;
+    },
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  assert.equal(rev.kind, "CREATE", "nově vzniklý blok zůstává CREATE i po posunu");
+  assert.equal(rev.before, null);
+  const after = rev.after as Record<string, unknown>;
+  assert.equal(after.machine, "XL_106", "konečný stav, ne mezistav");
+  assert.ok(Object.keys(after).length > 40, "u CREATE se ukládá celý řádek, ne jen rozdíl");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: result.id } });
+});
+
+test("dva zápisy téhož bloku: rozdíl nese obě změny a PŮVODNÍ hodnoty", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "Dvojí zápis", user: USER },
+    async (rtx) => {
+      await rtx.block.update({ where: { id: block.id }, data: { machine: "XL_106" } });
+      await rtx.block.update({ where: { id: block.id }, data: { printMinutes: 600 } });
+    },
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  const before = rev.before as Record<string, unknown>;
+  const after = rev.after as Record<string, unknown>;
+  assert.deepEqual(Object.keys(after).sort(), ["machine", "printMinutes"], "obě změny, ne jen ta druhá");
+  assert.equal(before.machine, "XL_105", "stav před CELOU transakcí, ne mezistav");
+  assert.equal(before.printMinutes, 480);
+  assert.equal(after.machine, "XL_106");
+  assert.equal(after.printMinutes, 600);
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+// ---------------------------------------------------------------------------
+// Obsah zapsaného řádku
+// ---------------------------------------------------------------------------
+
+test("JSON drží typy z Prismy, ne syrové z MySQL, a u CREATE celý řádek", async () => {
+  const { result, groupId } = await withRevision(
+    { action: "CREATE", label: "Typy v JSONu", user: USER },
+    async (rtx) => rtx.block.create({
+      data: {
+        orderNumber: "REV-TYPY", machine: "XL_105",
+        startTime: new Date("2027-01-09T06:00:00.000Z"),
+        endTime: new Date("2027-01-09T14:00:00.000Z"),
+        type: "ZAKAZKA", printMinutes: 480,
+      },
+    }),
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  const after = rev.after as Record<string, unknown>;
+  // MySQL vrací BOOLEAN jako 0/1; bez normalizace by tu byla nula a etapa B2
+  // by ji nacpala do Boolean sloupce.
+  assert.equal(after.locked, false, "boolean, ne 0");
+  assert.equal(after.dataOk, false);
+  assert.equal(after.scheduleBypassed, false);
+  assert.ok(after.startTime, "datum je součástí snímku");
+  assert.equal(after.deadlineExpedice, null, "nevyplněné zůstává null, ne false");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: result.id } });
+});
+
+test("u DELETE nese before kompletní řádek, ne jen identitu", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "DELETE", label: "Smazání bloku", user: USER },
+    async (rtx) => rtx.block.delete({ where: { id: block.id } }),
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  const before = rev.before as Record<string, unknown>;
+  for (const col of ["startTime", "endTime", "printMinutes", "locked", "updatedAt", "type"]) {
+    assert.ok(col in before, `u smazaného bloku chybí ${col} — nebylo by z čeho ho vzkřísit`);
+  }
+  assert.equal(rev.rowVersion, null, "u DELETE je verze jedině v before.updatedAt");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+});
+
+test("rowVersion je SKUTEČNÝ updatedAt bloku, ne jiné datum", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "Verze řádku", user: USER },
+    async (rtx) => rtx.block.update({ where: { id: block.id }, data: { machine: "XL_106" } }),
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  const fresh = await prisma.block.findUniqueOrThrow({ where: { id: block.id } });
+  assert.equal(rev.rowVersion?.getTime(), fresh.updatedAt.getTime(), "na milisekundu");
+  assert.notEqual(rev.rowVersion?.getTime(), fresh.createdAt.getTime());
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("kdo a čím změnu udělal se zapisuje z meta, ne z konstanty", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "PRINT_COMPLETE", label: "Potvrzení tisku", user: { id: 42, username: "tiskar-pepa" } },
+    async (rtx) => rtx.block.update({ where: { id: block.id }, data: { machine: "XL_106" } }),
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  assert.equal(rev.action, "PRINT_COMPLETE");
+  assert.equal(rev.label, "Potvrzení tisku");
+  assert.equal(rev.userId, 42);
+  assert.equal(rev.username, "tiskar-pepa");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("příliš dlouhý label mutaci neshodí, jen se ořízne", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "L".repeat(400), user: USER },
+    async (rtx) => rtx.block.update({ where: { id: block.id }, data: { machine: "XL_106" } }),
+  );
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  assert.equal(rev.label.length, 191, "sloupec je VARCHAR(191)");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+// ---------------------------------------------------------------------------
+// Auditní delegát a allow-list
+// ---------------------------------------------------------------------------
+
+test("groupId dostanou auditní řádky z create, z createMany i z jediného objektu", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "Editace", user: USER },
+    async (rtx) => {
+      await rtx.block.update({ where: { id: block.id }, data: { machine: "XL_106" } });
+      await rtx.auditLog.create({
+        data: { blockId: block.id, userId: USER.id, username: USER.username, action: "UPDATE", field: "machine" },
+      });
+      // Dominantní cesta počtem řádků: jedno uložení z BlockEditu jich vyrobí přes deset.
+      await rtx.auditLog.createMany({
+        data: [
+          { blockId: block.id, userId: USER.id, username: USER.username, action: "UPDATE", field: "deadlineExpedice" },
+          { blockId: block.id, userId: USER.id, username: USER.username, action: "UPDATE", field: "printMinutes" },
+        ],
+      });
+      // Typově legální varianta s jediným objektem — dřív padala na TypeError.
+      await rtx.auditLog.createMany({
+        data: { blockId: block.id, userId: USER.id, username: USER.username, action: "UPDATE", field: "locked" },
+      } as unknown as { data: [] });
+    },
+  );
+
+  const logs = await prisma.auditLog.findMany({ where: { groupId } });
+  assert.equal(logs.length, 4, "všechny čtyři řádky mají groupId");
+  assert.deepEqual(
+    logs.map((l) => l.field).sort(),
+    ["deadlineExpedice", "locked", "machine", "printMinutes"],
+  );
+  assert.equal(
+    await prisma.auditLog.count({ where: { blockId: block.id, groupId: null } }),
+    0,
+    "žádný auditní řádek transakce nesmí zůstat bez groupId",
+  );
+
+  await prisma.auditLog.deleteMany({ where: { groupId } });
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("všech devět povolených čtecích metod projde", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "Jen čtení", user: USER },
+    async (rtx) => {
+      // findFirst je v seznamu kvůli overlapCheck.ts — povinné pojistce na
+      // všech zápisových cestách. Osekaný allow-list by shodil první uložení
+      // bloku na produkci, přestože testy i build by byly zelené.
+      await rtx.block.findUnique({ where: { id: block.id } });
+      await rtx.block.findUniqueOrThrow({ where: { id: block.id } });
+      await rtx.block.findFirst({ where: { id: block.id } });
+      await rtx.block.findFirstOrThrow({ where: { id: block.id } });
+      await rtx.block.findMany({ where: { id: block.id } });
+      await rtx.block.count({ where: { id: block.id } });
+      await rtx.block.aggregate({ where: { id: block.id }, _count: { _all: true } });
+      await rtx.block.groupBy({ by: ["machine"], where: { id: block.id }, _count: { _all: true } });
+      return rtx.block.fields.id;
+    },
+  );
+  assert.equal(await prisma.blockRevision.count({ where: { groupId } }), 0, "čtení nevyrobí revizi");
+
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("cizí commit mezi snapshotem a zápisem: deleteMany hlásí neúplné zachycení", async () => {
+  const a = await seedBlock("XL_105");
+  const b = await seedBlock("XL_106");
+  await prisma.block.updateMany({ where: { id: { in: [a.id, b.id] } }, data: { orderNumber: "REV-FANTOM-DEL" } });
+
+  await assert.rejects(
+    withRevision({ action: "BATCH", label: "Mazání s fantomem", user: USER }, async (rtx) => {
+      await rtx.block.findMany({ where: { orderNumber: "REV-FANTOM-DEL" }, select: { id: true } });
+      await other.block.delete({ where: { id: b.id } });
+      return rtx.block.deleteMany({ where: { orderNumber: "REV-FANTOM-DEL" } });
+    }),
+    /zasáhl 1 řádků, ale zachytilo se 2/,
+  );
+
+  await prisma.block.deleteMany({ where: { orderNumber: "REV-FANTOM-DEL" } });
+});
+
+test("zamykající čtení v epilogu: stav PO se nečte ze zastaralého snapshotu", async () => {
+  // Řádek, který transakce označí, ale sama do něj NEZAPÍŠE (cizí commit ho
+  // vystrnadil z `where`). Bez FOR UPDATE v epilogu vyjde „před" z current readu
+  // a „po" ze snapshotu, takže revize popíše změnu OBRÁCENÝM směrem — záznam
+  // o změně, která se nikdy nestala, připsaný uživateli, který na řádek nesáhl.
+  const a = await seedBlock("XL_105");
+  const b = await seedBlock("XL_105");
+  await prisma.block.updateMany({ where: { id: { in: [a.id, b.id] } }, data: { orderNumber: "REV-EPILOG" } });
+
+  const orig = process.env.NODE_ENV;
+  let groupId: string;
+  try {
+    setNodeEnv("production");
+    ({ groupId } = await withRevision(
+      { action: "BATCH", label: "Dávka", user: USER },
+      async (rtx) => {
+        await rtx.block.findMany({ where: { orderNumber: "REV-EPILOG" }, select: { id: true } });
+        // Cizí spojení změní popis a vystrnadí řádek z našeho `where`.
+        await other.block.update({
+          where: { id: b.id },
+          data: { orderNumber: "REV-EPILOG-PRYC", description: "CIZI-ZMENA" },
+        });
+        return rtx.block.updateMany({ where: { orderNumber: "REV-EPILOG" }, data: { machine: "XL_106" } });
+      },
+    ));
+  } finally {
+    setNodeEnv(orig);
+  }
+
+  const bRev = await prisma.blockRevision.findFirst({ where: { groupId, blockId: b.id } });
+  if (bRev) {
+    const after = bRev.after as Record<string, unknown> | null;
+    assert.notEqual(
+      after?.description, null,
+      "revize tvrdí, že popis zmizel — to je obrácený směr cizí změny",
+    );
+    assert.notEqual(
+      (bRev.before as Record<string, unknown> | null)?.description, "CIZI-ZMENA",
+      "cizí změna se nesmí zapsat jako NÁŠ výchozí stav",
+    );
+  }
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.deleteMany({ where: { orderNumber: { startsWith: "REV-EPILOG" } } });
+});
+
+test("když zachycení mine všechny řádky, zůstane aspoň forenzní marker", async () => {
+  const a = await seedBlock();
+  await prisma.block.update({ where: { id: a.id }, data: { orderNumber: "REV-MARKER" } });
+
+  const orig = process.env.NODE_ENV;
+  let groupId: string;
+  try {
+    setNodeEnv("production");
+    ({ groupId } = await withRevision(
+      { action: "BATCH", label: "Vše fantom", user: USER },
+      async (rtx) => {
+        await rtx.block.findMany({ where: { orderNumber: "REV-MARKER" }, select: { id: true } });
+        await other.block.delete({ where: { id: a.id } });
+        return rtx.block.updateMany({ where: { orderNumber: "REV-MARKER" }, data: { machine: "XL_106" } });
+      },
+    ));
+  } finally {
+    setNodeEnv(orig);
+  }
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId } });
+  assert.equal(revs.length, 1, "bez markeru by po fantomové dávce nezbyla ani stopa");
+  assert.equal(revs[0].blockId, 0, "marker nemá konkrétní blok");
+  assert.equal(revs[0].partial, true);
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+});
+
+test("zápisová metoda auditního delegátu mimo create/createMany je odmítnutá", async () => {
+  const block = await seedBlock();
+  await assert.rejects(
+    withRevision({ action: "UPDATE", label: "Audit upsertem", user: USER }, async (rtx) =>
+      // Fail-open by tu znamenal auditní řádek bez groupId, tedy rozpad
+      // korelace revize ↔ audit v panelu historie.
+      (rtx.auditLog as unknown as { upsert: (a: unknown) => Promise<unknown> }).upsert({
+        where: { id: 1 },
+        create: { blockId: block.id, userId: USER.id, username: USER.username, action: "UPDATE" },
+        update: {},
+      }),
+    ),
+    /auditLog\.upsert není uvnitř withRevision podporované/,
+  );
+  await prisma.block.delete({ where: { id: block.id } });
 });

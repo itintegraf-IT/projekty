@@ -26,6 +26,12 @@ export function normalizeBlockRow(raw: Record<string, unknown>): Record<string, 
       out[key] = value === 1 || value === true || value === "1";
     } else if (DATE.has(key)) {
       out[key] = value instanceof Date ? value : new Date(String(value).replace(" ", "T") + "Z");
+    } else if (typeof value === "bigint") {
+      // UNSIGNED INT sloupce (`splitGroupId`, a na PRODUKCI i `Block.id`) přijdou
+      // z raw SELECTu jako BigInt. Bez převodu je Prisma uloží do Json sloupce
+      // jako ŘETĚZEC, takže by se rozdíl hlásil i tam, kde se nic nezměnilo,
+      // a etapa B2 by z revize dostala "364" místo 364.
+      out[key] = Number(value);
     } else {
       out[key] = value;
     }
