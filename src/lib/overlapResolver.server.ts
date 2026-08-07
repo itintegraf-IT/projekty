@@ -1,3 +1,4 @@
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
 import { computeChainPush, type ChainMove, type BlockInterval } from "@/lib/overlapResolver";
 import { serializeWeekShifts } from "@/lib/scheduleValidation";
 import { weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
@@ -6,8 +7,6 @@ import { pragueOf } from "@/lib/dateUtils";
 import { expandPrintTime, MAX_SPAN_DAYS, type CompanyDayInterval } from "@/lib/printTime";
 import { blockOverlapsBlockedTimeWithTemplates } from "@/lib/workingTime";
 import { AppError } from "@/lib/errors";
-
-type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

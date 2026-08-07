@@ -1,3 +1,4 @@
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
 import { loadMachineCalendarRange, type MachineCalendar } from "@/lib/printTime.server";
 import {
   expandPrintTime,
@@ -9,8 +10,6 @@ import {
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { detectCalendarDrift } from "@/lib/calendarDrift.server";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
-
-type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
 
 /** Strukturální podmnožina tx potřebná pro reflow — findUnique/update na Block + auditLog.create. */
 export type TxLike = PrismaTransactionClient;

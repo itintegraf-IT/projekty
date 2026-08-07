@@ -1,6 +1,5 @@
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
 import { AppError } from "@/lib/errors";
-
-type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
 
 /** Span bloku v batch dávce po serverovém přepočtu endů. */
 export type BatchSpan = {

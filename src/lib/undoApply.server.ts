@@ -1,3 +1,4 @@
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
 import { Prisma } from "@prisma/client";
 import { AppError } from "@/lib/errors";
 import { isRestorableField } from "@/lib/undo/restoreFields";
@@ -94,8 +95,6 @@ export function sanitizeUndoOps(raw: unknown): UndoOp[] {
   }
   return ops;
 }
-
-type PrismaTransactionClient = Parameters<Parameters<typeof import("@/lib/prisma").prisma.$transaction>[0]>[0];
 
 export type UndoActor = { id: number; username: string };
 /**
