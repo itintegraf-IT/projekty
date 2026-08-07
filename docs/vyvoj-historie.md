@@ -632,6 +632,32 @@ vícekrát") — Ctrl+Z by pak selhal úplně, ne jen pro odsunutého souseda.
 `recordSaveAllUndo` (volá se i z catch větve — co se stihlo uložit, musí jít
 vrátit i s odsunutými sousedy).
 
+**Poslední zbytek — VYŘEŠENO (7. 8. 2026):** oprava výš vracela POZICI
+odsunutého souseda, ale ne jeho SDÍLENÁ POLE, pokud byl zároveň split
+sourozencem editovaného bloku. Konkrétní scénář: instance opakované série je
+zároveň rozdělená (split) — HEAD nese `recurrenceParentId`, TAIL ho split
+nekopíruje (`split/route.ts`), takže TAIL se do `ids` „Celou sérii" nikdy
+nedostane. Editace HEADu měnící sdílené pole a zároveň ho chain pushem
+protahující do prostoru TAILu způsobila, že server TAIL vyloučil i ze
+`siblings` (stejná pojistka proti dvojité SSE jako u `handleBlockUpdate`,
+viz „Vyloučit sourozence, kteří už jsou v shifted" v `[id]/route.ts`) —
+`buildSplitEditTargets` ho tak neviděl v žádném z obou zdrojů. Ctrl+Z vrátil
+TAILu pozici (díky opravě výš), ale sdílené pole zůstalo na nové hodnotě —
+split skupina se tiše rozešla.
+
+Oprava: `handleSaveAll` přepnut z `buildSplitEditTargets` na
+`buildSplitEditTargetsWithShifted` (stejný nástroj, jaký `handleBlockUpdate`
+používá už od go/no-go auditu 5. 8.), doplněný o novou čistou funkci
+`pickShiftedSplitSiblings` (`splitSiblingFields.ts`) — najde split sourozence
+mezi odsunutými podle shody `splitGroupId` a spáruje je s jejich stavem PŘED
+dávkou. Snapshot „před" (`prevById`) se rozšířil na VŠECHNY bloky, ne jen
+`ids` (TAIL v `ids` není), a čte se výhradně z něj, nikdy z
+`blocksRef.current` uvnitř smyčky — ten se v `handleSaveAll` přiřazuje přímo
+v render těle komponenty, takže je mezi dvěma `await fetch` jedné dávky
+nedeterministický (na tuhle past se v téhle větvi naletělo dvakrát). 11 nových
+testů v `splitSiblingFields.test.ts` (687 → 698), včetně integračního
+scénáře skládajícího přesně tenhle případ ze skutečných čistých funkcí.
+
 ## Copy/Paste flow
 
 ### Copy/Paste flow (aktualizováno 2. 7. 2026 — etapa 4 tiskových hodin)
