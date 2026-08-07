@@ -426,14 +426,29 @@ export async function withRevision<T>(
       }
 
       for (const id of ids) {
-        const kind = cap.kinds.get(id)!;
+        const before = cap.before.get(id) ?? null;
+        const after = afterRows.get(id) ?? null;
+
+        // `markKind` u `deleteMany` označí DELETE VŠECHNA id z `where`, ne jen
+        // ta, která příkaz skutečně zasáhl — a rozdíl mezi tím pozná jedině
+        // tenhle epilog, protože je jediný, kdo čte aktuální stav. Řádek
+        // označený DELETE, který se v aktuálním čtení POŘÁD NAJDE, smazaný
+        // nebyl: mezi snímkem a zápisem vypadl z podmínky `where` (cizí commit
+        // mu změnil sloupec, na který se `where` ptá). Živý blok proto nesmí
+        // dostat kind=DELETE — etapa B2 by z takového řádku sestavila příkaz
+        // k jeho smazání a záchranná brzda by se změnila v nástroj ztráty dat.
+        let kind = cap.kinds.get(id)!;
+        if (kind === "DELETE" && after) {
+          // Pokud řádek v téhle transakci teprve vznikl, je to pořád CREATE;
+          // jinak UPDATE s normálním rozdílem (prázdný rozdíl se zahodí sám).
+          kind = cap.existedBefore.get(id) === false ? "CREATE" : "UPDATE";
+        }
+
         // Blok, který v téže transakci vznikl A byl smazán, nezapisujeme vůbec:
         // v databázi po něm nic nezůstalo, není co zaznamenávat. Není to
         // opomenutí — zvláštní značka („TRANSIENT") by se do sloupce `kind`
         // typu VARCHAR(8) ani nevešla.
         if (kind === "DELETE" && cap.existedBefore.get(id) === false) continue;
-        const before = cap.before.get(id) ?? null;
-        const after = afterRows.get(id) ?? null;
         // Identita řádku se bere z toho stavu, který existuje — u DELETE z „před".
         const identity = (before ?? after) as Row | null;
         if (!identity) continue;

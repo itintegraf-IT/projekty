@@ -856,3 +856,47 @@ test("zápisová metoda auditního delegátu mimo create/createMany je odmítnut
   );
   await prisma.block.delete({ where: { id: block.id } });
 });
+
+test("blok, který vypadl z `where` mezi snímkem a zápisem, nedostane kind DELETE", async () => {
+  // `markKind` u deleteMany označí DELETE všechna id z `where`, ne jen skutečně
+  // zasažená. Když cizí commit blok jen PŘEJMENUJE, blok v DB dál žije — a bez
+  // korekce v epilogu by dostal revizi o svém smazání. Etapa B2 by z ní
+  // sestavila příkaz, který ten živý, naplánovaný blok skutečně smaže.
+  const a = await seedBlock();
+  const b = await seedBlock();
+  await prisma.block.updateMany({
+    where: { id: { in: [a.id, b.id] } },
+    data: { orderNumber: "REV-ESCAPE" },
+  });
+
+  const orig = process.env.NODE_ENV;
+  let groupId: string;
+  try {
+    setNodeEnv("production");
+    ({ groupId } = await withRevision(
+      { action: "BATCH", label: "Hromadné mazání", user: USER },
+      async (rtx) => {
+        await rtx.block.findMany({ where: { orderNumber: "REV-ESCAPE" }, select: { id: true } });
+        // Cizí spojení blok B jen přejmenuje — nemaže ho, jen ho vystrnadí z `where`.
+        await other.block.update({ where: { id: b.id }, data: { orderNumber: "REV-ESCAPE-PRYC" } });
+        return rtx.block.deleteMany({ where: { orderNumber: "REV-ESCAPE" } });
+      },
+    ));
+  } finally {
+    setNodeEnv(orig);
+  }
+
+  const bZije = await prisma.block.findUnique({ where: { id: b.id } });
+  assert.ok(bZije, "blok B smazaný nebyl, jen vypadl z podmínky");
+
+  const revB = await prisma.blockRevision.findFirst({ where: { groupId, blockId: b.id } });
+  assert.notEqual(revB?.kind, "DELETE", "živý blok nesmí mít revizi o smazání");
+
+  // Blok A smazaný BYL — ten DELETE dostat má, jinak by korekce shodila i pravdu.
+  const revA = await prisma.blockRevision.findFirstOrThrow({ where: { groupId, blockId: a.id } });
+  assert.equal(revA.kind, "DELETE");
+  assert.equal(await prisma.block.count({ where: { id: a.id } }), 0);
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.deleteMany({ where: { orderNumber: { startsWith: "REV-ESCAPE" } } });
+});
