@@ -47,10 +47,17 @@ const PREFIX = "TEST-P8";
 const REZ_CODE = `${PREFIX}-REZ`;
 
 /** Fixture den (Praha). Skript ho vlastní — viz hlavička. */
-const DAY = "2026-09-02"; // středa
-const NEXT_DAY = "2026-09-03";
+const DAY = "2026-09-02"; // středa — hlavní fixture den
+/**
+ * Opakovaná zakázka pro test „Uložit vše → Celou sérii". Tlačítko se nabízí
+ * VÝHRADNĚ u série (klíčuje na `recurrenceParentId`), ne u split skupiny —
+ * bez série tedy nejde otestovat, že Ctrl+Z po hromadném uložení vrátí i bloky
+ * odsunuté chain pushem. Instance leží mimo hlavní den, aby nerozbily jeho rozpis.
+ */
+const SERIES_DAY_1 = "2026-09-03"; // čtvrtek — root + soused k odsunutí
+const SERIES_DAY_2 = "2026-09-04"; // pátek — druhá instance
 const DAY_FROM = pragueToUTC(DAY, 0);
-const DAY_TO = pragueToUTC(NEXT_DAY, 0);
+const DAY_TO = pragueToUTC("2026-09-05", 0);
 
 /** Dnešek a včerejšek v pražském čase (ne UTC — mezi 22:00 a půlnocí se liší). */
 const TODAY = todayPragueDateStr();
@@ -69,6 +76,8 @@ const SPEC_DLOUHA =
 type Job = {
   order: string;
   machine: string;
+  /** Pražské datum; bez něj hlavní fixture den. */
+  day?: string;
   from: [number, number]; // hodina, minuta — pražský čas
   minutes: number;
   spec: string | null;
@@ -120,6 +129,10 @@ const JOBS: Job[] = [
   { order: `${PREFIX}-RETEZ-2`, machine: "XL_106", from: [15, 0], minutes: 60, spec: null, desc: "řetěz 2/4" },
   { order: `${PREFIX}-RETEZ-3`, machine: "XL_106", from: [16, 0], minutes: 60, spec: null, desc: "řetěz 3/4" },
   { order: `${PREFIX}-RETEZ-4`, machine: "XL_106", from: [17, 0], minutes: 60, spec: null, desc: "řetěz 4/4 — za ním 2 h volno na odsun" },
+
+  // ── Soused, kterého odsune prodloužení série (3. 9., mimo hlavní den) ─────
+  { order: `${PREFIX}-SERIE-SOUSED`, machine: "XL_105", day: SERIES_DAY_1, from: [9, 0], minutes: 60, spec: null,
+    desc: "soused série — prodluž sérii na 2 h a odsune se; Ctrl+Z ho musí vrátit" },
   // mezera 18:00–20:00 → prostor pro chain push
   // 20:00–22:00 → REZERVACE (zakládá se níž)
 ];
@@ -217,7 +230,7 @@ async function main() {
   const planned: Planned[] = [];
 
   for (const j of JOBS) {
-    const start = pragueToUTC(DAY, j.from[0], j.from[1]);
+    const start = pragueToUTC(j.day ?? DAY, j.from[0], j.from[1]);
     if (start.getTime() % SLOT_MS !== 0) die(`${j.order}: start ${hhmm(...j.from)} neleží na 30minutové mřížce.`);
     if (j.minutes % 30 !== 0) die(`${j.order}: délka ${j.minutes} min není násobek 30.`);
 
@@ -278,6 +291,36 @@ async function main() {
     });
     console.log(`✅ ${p.order.padEnd(22)} ${p.machine}  ${hhmm(...p.from)}–${clock(p.end)}  ${p.desc}`);
   }
+
+  // ── Opakovaná zakázka (série) → test „Uložit vše → Celou sérii" ───────────
+  // Root nese recurrenceType, instance recurrenceParentId — přesně jak to dělá
+  // POST /api/blocks. getSeriesIds() v BlockEdit klíčuje na rodiče, takže bez
+  // téhle vazby se tlačítko „Celou sérii" vůbec nenabídne.
+  const serieStart1 = pragueToUTC(SERIES_DAY_1, 8, 0);
+  const serieStart2 = pragueToUTC(SERIES_DAY_2, 8, 0);
+  for (const [i, s] of [serieStart1, serieStart2].entries()) {
+    const v = await validateAndComputeEnd(prisma, "XL_105", s, 60, new Date(s.getTime() + 3_600_000), "ZAKAZKA", false);
+    if (!v.ok) die(`Série instance ${i + 1}: ${v.error}`);
+    if (v.end.getTime() !== s.getTime() + 3_600_000) die(`Série instance ${i + 1}: server roztáhl konec — zvol jiný čas.`);
+  }
+  const serieRoot = await prisma.block.create({
+    data: {
+      orderNumber: `${PREFIX}-SERIE`, machine: "XL_105", type: "ZAKAZKA",
+      startTime: serieStart1, endTime: new Date(serieStart1.getTime() + 3_600_000),
+      printMinutes: 60, scheduleBypassed: false, recurrenceType: "DAILY",
+      description: "série 1/2 — otevři, prodluž na 2 h, zvol „Celou sérii“, pak Ctrl+Z",
+    },
+  });
+  await prisma.block.create({
+    data: {
+      orderNumber: `${PREFIX}-SERIE`, machine: "XL_105", type: "ZAKAZKA",
+      startTime: serieStart2, endTime: new Date(serieStart2.getTime() + 3_600_000),
+      printMinutes: 60, scheduleBypassed: false, recurrenceType: "DAILY",
+      recurrenceParentId: serieRoot.id,
+      description: "série 2/2",
+    },
+  });
+  console.log(`✅ ${`${PREFIX}-SERIE`.padEnd(22)} XL_105  ${SERIES_DAY_1} + ${SERIES_DAY_2} 08:00–09:00  série o 2 instancích`);
 
   // ── Rezervace rozdělená na dva stroje → dialog překlopení ─────────────────
   // Sourozenec ZÁMĚRNĚ bez reservationId: přesně tak vzniká kopií (Ctrl+C/V),
