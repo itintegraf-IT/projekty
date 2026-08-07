@@ -19,11 +19,21 @@ function sameValue(a: unknown, b: unknown): boolean {
  * s ním by se prázdný rozdíl nikdy nekonal a split propagace by u každého
  * sourozence vyrobila prázdný řádek historie při každém uložení z BlockEditu.
  * Verze se ukládá zvlášť do `BlockRevision.rowVersion`.
+ *
+ * `before`/`after` smí přijít `null`/`undefined`. Dnešní jediný volající
+ * (Task 5, `withRevision`) si `before && after` hlídá sám, ale tahle funkce
+ * je sdílená utilita a nemá na to spoléhat navždy. Vracíme `null` (= žádná
+ * revize), NIKDY nehážeme: běží to uvnitř `$transaction` volajícího, takže
+ * nechytaná výjimka by shodila celou mutaci bloku nesrozumitelnou hláškou.
+ * Degradovaný zápis „bez revize" je bezpečnější než rozbít zápis, který by
+ * jinak proběhl v pořádku.
  */
 export function computeRevisionDiff(
-  before: Record<string, unknown>,
-  after: Record<string, unknown>,
+  before: Record<string, unknown> | null | undefined,
+  after: Record<string, unknown> | null | undefined,
 ): RevisionDiff | null {
+  if (before == null || after == null) return null;
+
   const outBefore: Record<string, unknown> = {};
   const outAfter: Record<string, unknown> = {};
   const keys = new Set([...Object.keys(before), ...Object.keys(after)]);

@@ -43,7 +43,30 @@ test("hodnota → null se počítá jako změna", () => {
   assert.equal(d.after.materialNote, null);
 });
 
-test("pole (tiskoveArchy) se porovnává podle obsahu", () => {
+test("pole (tiskoveArchy) se porovnává jako serializovaný řetězec, ne jako množina", () => {
   assert.equal(computeRevisionDiff({ tiskoveArchy: "[\"A\",\"B\"]" }, { tiskoveArchy: "[\"A\",\"B\"]" }), null);
   assert.ok(computeRevisionDiff({ tiskoveArchy: "[\"A\"]" }, { tiskoveArchy: "[\"A\",\"B\"]" }));
+});
+
+test("tiskoveArchy: přeuspořádání stejné množiny (\"A\",\"B\" → \"B\",\"A\") se počítá jako změna", () => {
+  // Záměrně NE sémantické porovnání množiny: serializeProductionTags (productionTags.ts)
+  // pole netřídí a UI (compactTagChip/formatProductionTags) ho vykresluje přesně v tomhle
+  // pořadí — pořadí archů je tedy pro plánovače viditelný stav na kartě, ne šum. Kdyby se
+  // tahle změna do historie nezapsala, historie by zamlčela to, co uživatel vidí na bloku.
+  const d = computeRevisionDiff({ tiskoveArchy: "[\"A\",\"B\"]" }, { tiskoveArchy: "[\"B\",\"A\"]" });
+  assert.ok(d);
+  assert.equal(d.before.tiskoveArchy, "[\"A\",\"B\"]");
+  assert.equal(d.after.tiskoveArchy, "[\"B\",\"A\"]");
+});
+
+test("before je null → null (nespadne)", () => {
+  assert.equal(computeRevisionDiff(null, { machine: "XL_105" }), null);
+});
+
+test("after je undefined → null (nespadne)", () => {
+  assert.equal(computeRevisionDiff({ machine: "XL_105" }, undefined), null);
+});
+
+test("before i after null/undefined zároveň → null (nespadne)", () => {
+  assert.equal(computeRevisionDiff(null, undefined), null);
 });
