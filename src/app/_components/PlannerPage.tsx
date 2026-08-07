@@ -1777,10 +1777,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const updated = (await res.json()) as Block & { siblings?: Block[]; shifted?: Block[] };
         const prev = prevById.get(id);
         if (prev) {
-          // endTime schválně lokálně, ne v globálním EDIT_TRACKED_FIELDS —
-          // ten používá i handleBlockUpdate, kde délku řeší
+          // endTime/printMinutes/scheduleBypassed schválně lokálně, ne v globálním
+          // EDIT_TRACKED_FIELDS — ten používá i handleBlockUpdate, kde délku řeší
           // buildMoveOrResizeCommand, a vznikl by dvojí zápis do historie.
-          const trackedHere = [...EDIT_TRACKED_FIELDS, "endTime" as const];
+          //
+          // printMinutes MUSÍ být mezi nimi: BlockEdit u ZAKAZKY posílá délku jako
+          // `printMinutes` (ne endTime) a server z ní end dopočítá. Atomický endpoint
+          // ale nederivuje nic — bez printMinutes ve snapshotu vrátil Ctrl+Z jen
+          // endTime a v bloku zůstala nová tisková délka. Vznikl tím rozpor
+          // span ≠ printMinutes, plánovač dostal výkřičník „přeplánovat" a reflow
+          // blok podle uložených printMinutes zase natáhl — undo vypadalo, že
+          // nefunguje (nahlásil Vojta 7. 8. 2026).
+          const trackedHere = [...EDIT_TRACKED_FIELDS, "endTime", "printMinutes", "scheduleBypassed"] as const;
           const changed = trackedHere.filter(
             (f) => JSON.stringify((prev as unknown as Record<string, unknown>)[f])
                 !== JSON.stringify((updated as unknown as Record<string, unknown>)[f]),
