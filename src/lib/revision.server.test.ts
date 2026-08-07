@@ -1,9 +1,46 @@
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { prisma } from "@/lib/prisma";
 import { withRevision } from "./revision.server";
 
 const USER = { id: 1, username: "test" };
+
+/**
+ * Split-skupiny, které testy založily. Uklízí se JEN tyhle.
+ *
+ * Plošné mazání „osiřelých" skupin (bez bloků) by bylo nebezpečné: v dev DB je
+ * osiřelých všech 8 existujících skupin, takže by úklid smazal cizí data
+ * (ověřeno 7. 8. 2026).
+ */
+const createdSplitGroupIds: number[] = [];
+
+async function seedSplitGroup() {
+  const group = await prisma.splitGroup.create({ data: {} });
+  createdSplitGroupIds.push(group.id);
+  return group;
+}
+
+/**
+ * Úklid, který proběhne i po ČERVENÉM běhu. Bez něj zůstávají v dev DB zbytky:
+ * assertion vyhodí výjimku dřív, než v těle testu doběhne jeho vlastní `delete`
+ * (reálně se to stalo při mutačním testování — tři padlé běhy nechaly 5 bloků,
+ * 1 revizi a 2 skupiny). V téže databázi je ruční testovací fixtura, se kterou
+ * pracuje člověk, takže se maže VÝHRADNĚ podle bezpečného rozlišovacího znaku:
+ * prefix `REV-` v `orderNumber` (ověřeno, že s ničím v DB nekoliduje) a vlastní
+ * evidence založených skupin. Nikdy podle času a nikdy plošně.
+ *
+ * Revize se mažou taky přes `orderNumber` — je v `BlockRevision` denormalizovaný
+ * právě proto, aby řádek dával smysl i po smazání bloku, takže vazba přes
+ * `blockId` by u testu na DELETE nic nenašla.
+ */
+after(async () => {
+  await prisma.blockRevision.deleteMany({ where: { orderNumber: { startsWith: "REV-" } } });
+  await prisma.block.deleteMany({ where: { orderNumber: { startsWith: "REV-" } } });
+  if (createdSplitGroupIds.length > 0) {
+    await prisma.splitGroup.deleteMany({ where: { id: { in: createdSplitGroupIds } } });
+  }
+  await prisma.$disconnect();
+});
 
 /** Založí blok mimo withRevision, aby se dal změnit a revize se dala zkoumat. */
 async function seedBlock(machine = "XL_105") {
@@ -54,7 +91,7 @@ test("zápis bez věcné změny nevyrobí žádnou revizi", async () => {
 test("updateMany zachytí i řádek na jiném stroji (split sourozenec)", async () => {
   const a = await seedBlock("XL_105");
   const b = await seedBlock("XL_106");
-  const group = await prisma.splitGroup.create({ data: {} });
+  const group = await seedSplitGroup();
   await prisma.block.updateMany({ where: { id: { in: [a.id, b.id] } }, data: { splitGroupId: group.id } });
 
   const { groupId } = await withRevision(
@@ -141,6 +178,90 @@ test("rollback těla nezanechá revizi ani auditní řádek", async () => {
   assert.equal(await prisma.blockRevision.count(), before);
   const fresh = await prisma.block.findUniqueOrThrow({ where: { id: block.id } });
   assert.equal(fresh.machine, "XL_105", "mutace se taky vrátila");
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("upsert nad existujícím řádkem vyrobí revizi kind UPDATE", async () => {
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "Upsert existujícího", user: USER },
+    async (rtx) => rtx.block.upsert({
+      where: { id: block.id },
+      update: { machine: "XL_106" },
+      create: {
+        orderNumber: "REV-UPSERT", machine: "XL_106",
+        startTime: new Date("2026-12-03T06:00:00.000Z"),
+        endTime: new Date("2026-12-03T14:00:00.000Z"),
+        type: "ZAKAZKA", printMinutes: 480,
+      },
+    }),
+  );
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId } });
+  assert.equal(revs.length, 1, "upsert NESMÍ obejít revizi");
+  assert.equal(revs[0].kind, "UPDATE");
+  assert.equal(revs[0].blockId, block.id);
+  assert.equal(revs[0].machine, "XL_105", "machine je stav PŘED změnou");
+  assert.deepEqual((revs[0].before as Record<string, unknown>).machine, "XL_105");
+  assert.deepEqual((revs[0].after as Record<string, unknown>).machine, "XL_106");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("upsert nad neexistujícím řádkem vyrobí revizi kind CREATE", async () => {
+  const { result, groupId } = await withRevision(
+    { action: "CREATE", label: "Upsert nového", user: USER },
+    async (rtx) => rtx.block.upsert({
+      where: { id: 2_000_000_001 },
+      update: { machine: "XL_106" },
+      create: {
+        orderNumber: "REV-UPSERT-NEW", machine: "XL_105",
+        startTime: new Date("2026-12-04T06:00:00.000Z"),
+        endTime: new Date("2026-12-04T14:00:00.000Z"),
+        type: "ZAKAZKA", printMinutes: 480,
+      },
+    }),
+  );
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId } });
+  assert.equal(revs.length, 1);
+  assert.equal(revs[0].kind, "CREATE");
+  assert.equal(revs[0].blockId, result.id);
+  assert.equal(revs[0].before, null);
+  assert.equal((revs[0].after as Record<string, unknown>).orderNumber, "REV-UPSERT-NEW");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: result.id } });
+});
+
+test("neznámá zápisová metoda delegáta je odmítnutá, ne tiše propuštěná", async () => {
+  await assert.rejects(
+    withRevision({ action: "UPDATE", label: "Budoucí metoda Prismy", user: USER }, async (rtx) =>
+      // Zástupce za „Prisma přidala novou zápisovou metodu". Nesmí propadnout
+      // na syrový delegát — přesně tak obcházel revize upsert.
+      (rtx.block as unknown as { updateManyAndReturn: (a: unknown) => Promise<unknown> })
+        .updateManyAndReturn({ where: {}, data: {} }),
+    ),
+    /updateManyAndReturn není uvnitř withRevision podporované/,
+  );
+});
+
+test("čtecí metody delegáta procházejí beze změny", async () => {
+  const block = await seedBlock();
+  const { result, groupId } = await withRevision(
+    { action: "UPDATE", label: "Jen čtení", user: USER },
+    async (rtx) => ({
+      unique: await rtx.block.findUnique({ where: { id: block.id }, select: { machine: true } }),
+      many: (await rtx.block.findMany({ where: { orderNumber: "REV-TEST" }, select: { id: true } })).length,
+      count: await rtx.block.count({ where: { id: block.id } }),
+    }),
+  );
+  assert.equal(result.unique?.machine, "XL_105");
+  assert.ok(result.many >= 1);
+  assert.equal(result.count, 1);
+  assert.equal(await prisma.blockRevision.count({ where: { groupId } }), 0, "čtení nevyrobí revizi");
+
   await prisma.block.delete({ where: { id: block.id } });
 });
 

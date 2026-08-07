@@ -14,6 +14,21 @@ type Row = Record<string, unknown>;
 type Kind = "CREATE" | "UPDATE" | "DELETE";
 
 /**
+ * Čtecí metody delegáta `block`, které Proxy pouští beze změny.
+ *
+ * Seznam je ALLOW-LIST, ne deny-list, a to záměrně: „co není výslovně povoleno,
+ * je zakázáno". Deny-list zápisových metod zastará ve chvíli, kdy Prisma přidá
+ * novou zápisovou metodu — ta by tiše propadla na syrový delegát a revize by se
+ * nezapsala. Přesně tohle se stalo s `upsert`: propadl větví `default:`, blok se
+ * změnil a historie o tom nevěděla (ověřeno sondou proti dev DB 7. 8. 2026).
+ * Nová verze Prismy s novou zápisovou metodou má proto spadnout, ne obejít revize.
+ */
+const READ_ONLY_METHODS = new Set([
+  "findUnique", "findUniqueOrThrow", "findFirst", "findFirstOrThrow",
+  "findMany", "count", "aggregate", "groupBy", "fields",
+]);
+
+/**
  * Neúplné zachycení: mezi snapshotem a zápisem se objevil fantom.
  * Ve vývoji a testech se hází, na produkci se degraduje na `partial: true` —
  * spadnout uživateli uprostřed plánování je horší než neúplná revize.
@@ -110,6 +125,22 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             cap.markKind(created.id, "CREATE");
             return created;
           };
+        case "upsert":
+          return async (args: { where: unknown }) => {
+            // Existenci řádku je nutné zjistit PŘED zápisem — potom už nejde poznat,
+            // jestli upsert aktualizoval, nebo založil. `true` vynutí dohledání
+            // přes findMany (ne zkratku na `where.id`), protože u `where: { id }`
+            // zkratka vrací id i pro řádek, který vůbec neexistuje.
+            const existing = await resolveIds(tx, args.where, true);
+            await captureBefore(tx, cap, existing);
+            const res = await (target as any).upsert(args);
+            if (existing.length > 0) {
+              existing.forEach((id) => cap.markKind(id, "UPDATE"));
+            } else {
+              cap.markKind(res.id, "CREATE");
+            }
+            return res;
+          };
         case "createMany":
           // MySQL nevrací id z createMany, takže revizi k nim nejde přiřadit.
           return () => {
@@ -119,7 +150,16 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             );
           };
         default:
-          return Reflect.get(target, prop, receiver);
+          // Symboly a `then` musí projít beze změny, jinak se rozbije interní
+          // chování Prismy a thenable-check při `await` (ověřeno sondou: runtime
+          // na `then` delegáta skutečně sahá).
+          if (typeof prop === "symbol" || prop === "then") return Reflect.get(target, prop, receiver);
+          if (READ_ONLY_METHODS.has(prop)) return Reflect.get(target, prop, receiver);
+          throw new Error(
+            `block.${String(prop)} není uvnitř withRevision podporované, revize by se nezapsala. ` +
+            "Delegát pouští jen výslovně povolené čtecí metody; zápisové cesty musí mít " +
+            "v makeClient vlastní obsluhu, která zachytí stav před změnou.",
+          );
       }
     },
   });

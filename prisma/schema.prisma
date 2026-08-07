@@ -43,9 +43,14 @@ model BlockRevision {
   label       String   @db.VarChar(191)
   userId      Int
   username    String   @db.VarChar(191)
-  /// Stav před změnou. U kind=CREATE chybí. BEZ updatedAt.
+  /// Stav před změnou. U kind=CREATE chybí.
+  /// kind=UPDATE: jen rozdílové sloupce, BEZ updatedAt (verze je v rowVersion).
+  /// kind=DELETE: celý řádek VČETNĚ updatedAt — u smazaného bloku je `after`
+  /// prázdné a rowVersion null, takže tohle je jediný záznam o jeho verzi.
   before      Json?
-  /// Stav po změně. U kind=DELETE chybí. BEZ updatedAt.
+  /// Stav po změně. U kind=DELETE chybí.
+  /// kind=UPDATE: jen rozdílové sloupce, BEZ updatedAt (verze je v rowVersion).
+  /// kind=CREATE: celý řádek VČETNĚ updatedAt.
   after       Json?
   /// Block.updatedAt po zápisu — verze pro kontrolu souběhu v etapě B2.
   rowVersion  DateTime?
