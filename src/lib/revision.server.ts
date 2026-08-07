@@ -439,8 +439,24 @@ export async function withRevision<T>(
         // k jeho smazání a záchranná brzda by se změnila v nástroj ztráty dat.
         let kind = cap.kinds.get(id)!;
         if (kind === "DELETE" && after) {
-          // Pokud řádek v téhle transakci teprve vznikl, je to pořád CREATE;
-          // jinak UPDATE s normálním rozdílem (prázdný rozdíl se zahodí sám).
+          // Běžná cesta je UPDATE s normálním rozdílem (prázdný rozdíl se zahodí sám).
+          //
+          // Větev `existedBefore === false` (tedy CREATE) je ČISTĚ OBRANNÁ a dnes
+          // NEDOSAŽITELNÁ — nepiš na ni test, měřil by fikci. Musel by nastat blok,
+          // který vznikl uvnitř TÉHLE transakce a pak vypadl z `where` mezi
+          // `resolveIds` a samotným `deleteMany`. Vypadnout může jedině tak, že mu
+          // někdo změní sloupec, na který se `where` ptá — jenže mezi těmi dvěma
+          // příkazy neběží nic jiného z téhle transakce a cizí transakce ten řádek
+          // nevidí ani změnit nemůže, protože je necommitnutý. Ověřeno sondou proti
+          // dev DB (8. 8. 2026): cizí spojení blok `count`em NEVIDÍ a `updateMany`
+          // na něm umře na lock wait timeout. Totéž chrání i exotičtější variantu
+          // (cizí smazání a vložení řádku se stejným id): `FOR UPDATE` v
+          // `captureBefore` drží nad neexistujícím id gap lock, který cizí INSERT
+          // do té mezery zablokuje.
+          //
+          // Kdyby ta situace přesto někdy nastala, CREATE je správná odpověď:
+          // převod na UPDATE by řádek poslal rovnou do následující větve
+          // „vznikl a byl smazán → nezapisovat" a revize o VZNIKU bloku by zmizela.
           kind = cap.existedBefore.get(id) === false ? "CREATE" : "UPDATE";
         }
 
