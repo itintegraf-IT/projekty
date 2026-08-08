@@ -581,6 +581,13 @@ export function BlockDetail({
                     </div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", flex: 1 }}>
                       <span style={{ color: "var(--text)", fontWeight: 600 }}>{log.username}</span>
+                      {/* Změna, která se sem jen promítla z jiného bloku (dnes výhradně
+                          sdílené pole rozdělené zakázky). Text i barva jsou schválně
+                          TOTOŽNÉ s auditním řádkem SPLIT_PROPAGATE o kus níž — jinak by
+                          táž věc měla v jednom panelu dvě různé podoby. */}
+                      {log.propagated && (
+                        <span style={{ color: "var(--info)" }}> · ↔ Převzato z rozdělené zakázky</span>
+                      )}
                       {log.lines.map((line, j) => (
                         <span key={j} style={{ color: "var(--text)" }}> · {line}</span>
                       ))}

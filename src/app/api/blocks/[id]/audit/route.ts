@@ -2,14 +2,22 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { suppressCoveredColumns, type BlockHistoryEntry } from "@/lib/blockHistory";
+import { suppressCoveredColumns, groupsWithAddressedTarget, type BlockHistoryEntry } from "@/lib/blockHistory";
 import { formatRevisionLines } from "@/lib/revisionFormat";
 import type { AuditCoverageRow } from "@/lib/auditCoverage";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-/** Kolik položek panel historie zobrazí (a kolik se jich načte z každého zdroje). */
-const HISTORY_LIMIT = 10;
+/**
+ * Kolik položek panel historie zobrazí (a kolik se jich načte z každého zdroje).
+ *
+ * 20, ne 10: jedno uložení z BlockEditu s mnoha vyplněnými poli vyrobí až deset
+ * auditních řádků NAJEDNOU (změřeno: 13 změněných auditovaných polí = 10 řádků),
+ * takže při stropu 10 vyplnily celé okno a revize o PŘESUNU z panelu vypadla —
+ * přitom přesun je jediná věc, kterou jinde dohledat nejde. Panel má
+ * `maxHeight: 220` + `overflowY: auto`, takže se vizuálně nic nerozjede.
+ */
+const HISTORY_LIMIT = 20;
 
 export async function GET(_: NextRequest, { params }: RouteContext) {
   const session = await getSession();
@@ -44,12 +52,24 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     // být má. Výsledek by tak závisel na tom, kolik řádků má nejnovější editace.
     // Ptáme se proto cíleně na dotčené groupId, nezávisle na okně.
     const groupIds = revisionRows.map((r) => r.groupId);
-    const coveringRows = groupIds.length
-      ? await prisma.auditLog.findMany({
-          where: { blockId: id, groupId: { in: groupIds } },
-          select: { groupId: true, action: true, field: true, newValue: true },
-        })
-      : [];
+    // Druhý dotaz ze stejného důvodu: jestli byl v téže transakci NĚKDO jmenován
+    // adresně, se z revizí tohohle bloku poznat nedá — adresný cíl je typicky
+    // JINÝ blok (hlava rozdělené zakázky). Dotaz jde přes `BlockRevision_groupId_idx`.
+    const [coveringRows, groupRows] = await Promise.all([
+      groupIds.length
+        ? prisma.auditLog.findMany({
+            where: { blockId: id, groupId: { in: groupIds } },
+            select: { groupId: true, action: true, field: true, newValue: true },
+          })
+        : Promise.resolve([]),
+      groupIds.length
+        ? prisma.blockRevision.findMany({
+            where: { groupId: { in: groupIds } },
+            select: { groupId: true, viaMany: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const addressedGroups = groupsWithAddressedTarget(groupRows);
 
     const byGroup = new Map<string, AuditCoverageRow[]>();
     for (const row of coveringRows) {
@@ -99,6 +119,10 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
         username: rev.username,
         action: rev.action,
         label: rev.label,
+        // Propagace jen tehdy, když cílem byl PROKAZATELNĚ někdo jiný. Samotné
+        // `viaMany` nestačí — u expedičních cest ho mají všichni včetně
+        // primárního bloku (viz `groupsWithAddressedTarget`).
+        propagated: rev.viaMany && addressedGroups.has(rev.groupId),
         lines,
       });
     }

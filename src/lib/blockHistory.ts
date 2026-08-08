@@ -40,9 +40,43 @@ export type BlockHistoryEntry =
        * se dal popisek odvodit.
        */
       label: string;
+      /**
+       * Změna se do tohohle bloku jen PROMÍTLA — cílem operace byl někdo jiný.
+       * Panel to označí stejně jako auditní řádek `SPLIT_PROPAGATE`, aby
+       * propagovaná změna nevypadala jako samostatná editace sourozence.
+       * Počítá se z `viaMany` + existence adresného cíle ve skupině, viz
+       * `groupsWithAddressedTarget`.
+       */
+      propagated: boolean;
       /** České věty z `formatRevisionLines`. Prázdné pole se do osy nedostane. */
       lines: string[];
     };
+
+/**
+ * Skupiny (`groupId`), ve kterých byl aspoň jeden blok jmenován ADRESNĚ
+ * (`viaMany === false`), tedy byl přímým cílem operace.
+ *
+ * Slouží k rozhodnutí, co je propagace: `viaMany` sám o sobě NESTAČÍ.
+ * U expedičního zařazení, vyřazení i přeřazení staví routa `targetIds` z celé
+ * skupiny, takže přes `updateMany` projde i primární blok a **viaMany=true mají
+ * úplně všichni**. Skupina samých `true` znamená „nikdo nebyl jmenován adresně" —
+ * je to pravda, ne chyba, ale propagace to není a označit se tak nesmí.
+ * Naproti tomu u uložení sdíleného pole na hlavě rozdělené zakázky je hlava
+ * adresná (`update`) a sourozenci hromadní (`updateMany`), takže adresný cíl
+ * ve skupině existuje a sourozenci propagaci dostanou právem.
+ *
+ * Predikát je ZÁMĚRNĚ počítaný z dat, ne z výčtu hodnot `action`. Výčet by
+ * zastaral ve chvíli, kdy přibude další hromadná cesta — a tahle třída selhání
+ * (seznam, na který se zapomnělo) stojí za incidentem `AUDITED_FIELDS`
+ * z 5.–6. 8. 2026, kvůli kterému celá etapa B1 vzniká.
+ */
+export function groupsWithAddressedTarget(
+  rows: { groupId: string; viaMany: boolean }[],
+): Set<string> {
+  const addressed = new Set<string>();
+  for (const row of rows) if (!row.viaMany) addressed.add(row.groupId);
+  return addressed;
+}
 
 /**
  * Z revizního rozdílu odečte sloupce, které v téže transakci pokrývá auditní

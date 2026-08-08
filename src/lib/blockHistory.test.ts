@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { suppressCoveredColumns } from "./blockHistory";
+import { suppressCoveredColumns, groupsWithAddressedTarget } from "./blockHistory";
 
 test("sloupec pokrytý auditem se z revize odečte", () => {
   const out = suppressCoveredColumns(
@@ -79,4 +79,47 @@ test("chybějící hodnota v před se doplní na null", () => {
   assert.ok(out);
   assert.equal(out.before.description, null);
   assert.equal(out.after.description, "Katalog léto");
+});
+
+// ─── groupsWithAddressedTarget ────────────────────────────────────────────────
+
+/**
+ * Propagace = „cílem byl NĚKDO JINÝ, mě to zasáhlo jako člena množiny".
+ * Uložení sdíleného pole na hlavě splitu: hlava adresně (`update`, viaMany=false),
+ * sourozenci hromadně (`updateMany`, viaMany=true).
+ */
+test("skupina s adresným cílem: sourozenec splitu je propagace", () => {
+  const addressed = groupsWithAddressedTarget([
+    { groupId: "g1", viaMany: false }, // hlava
+    { groupId: "g1", viaMany: true },  // sourozenec
+  ]);
+  assert.ok(addressed.has("g1"));
+});
+
+/**
+ * Expediční přeřazení: routa staví `targetIds` z CELÉ skupiny, takže přes
+ * `updateMany` projde i primární blok a všichni mají viaMany=true. Skupina
+ * samých `true` znamená „nikdo nebyl jmenován adresně" — je to pravda, ne chyba,
+ * ale propagace to NENÍ a panel to tak nesmí označit.
+ */
+test("skupina samých viaMany (expediční přeřazení) není propagace", () => {
+  const addressed = groupsWithAddressedTarget([
+    { groupId: "g2", viaMany: true },
+    { groupId: "g2", viaMany: true },
+    { groupId: "g2", viaMany: true },
+  ]);
+  assert.equal(addressed.has("g2"), false);
+});
+
+test("skupiny se vyhodnocují nezávisle", () => {
+  const addressed = groupsWithAddressedTarget([
+    { groupId: "g1", viaMany: true },
+    { groupId: "g1", viaMany: false },
+    { groupId: "g2", viaMany: true },
+  ]);
+  assert.deepEqual([...addressed], ["g1"]);
+});
+
+test("prázdný vstup nedá žádnou skupinu", () => {
+  assert.equal(groupsWithAddressedTarget([]).size, 0);
 });
