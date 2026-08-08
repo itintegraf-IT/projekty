@@ -115,8 +115,20 @@ by rostla donekonečna.
 Přidat pátý řádek do téhož crontabu:
 
 ```
-50 3 * * *   cd /cesta/k/aplikaci && npx tsx scripts/prune-revisions.ts >> /var/log/planovani-backup.log 2>&1
+50 3 * * *   cd /var/www/planovanivyroby && /usr/bin/env npx tsx scripts/prune-revisions.ts >> /var/log/planovani-backup.log 2>&1
 ```
+
+**Před vložením do crontabu spusť skript jednou ručně** (stejně jako u ostatních
+čtyř úloh — ověří cestu, práva i připojení k DB):
+
+```bash
+cd /var/www/planovanivyroby && npx tsx scripts/prune-revisions.ts
+```
+
+Po instalaci téhle páté úlohy vrací kontrola `sudo crontab -l | grep -c planovani`
+hodnotu **5**, ne 4. Řádek s úklidem revizí jako jediný nespouští skript
+z `/usr/local/bin` — jede přímo z pracovní kopie aplikace, protože potřebuje
+`node_modules` a Prisma klienta.
 
 Čas 3:50 je **po** noční záloze (1:45) a CSV exportu (2:20) — smazané revize
 tak vždycky ještě jednou odejdou do zálohy, než z databáze zmizí. A je mimo
@@ -129,7 +141,10 @@ změnila jen část bloků. Retence se nastavuje jedinou konstantou
 
 Do logu píše jeden řádek s počtem smazaných řádků, počtem dávek, zbytkem
 v tabulce a velikostí v MB — **velikost sleduj**: první měsíc provozu ověř,
-že sedí odhad z návrhu (pod 25 MB za 90 dní při ~300 změnách denně).
+že sedí odhad: **~470 bajtů na řádek** včetně čtyř indexů (ty tvoří asi třetinu
+objemu), tedy řádově **15–40 MB za 90 dní** podle intenzity provozu. Starší
+odhad „pod 25 MB" počítal jen s daty bez indexů a je podstřelený zhruba
+dvojnásobně — když uvidíš víc, není to porucha.
 
 **Fáze 6 — kontrola D+1 ráno:** `sudo tail -20 /var/log/planovani-backup.log`
 (noční záloha OK + CSV OK), banner zelený, `sudo tail /var/log/planovani-health.log`

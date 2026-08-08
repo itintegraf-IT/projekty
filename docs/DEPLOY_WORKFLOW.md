@@ -524,3 +524,41 @@ Co bych zatím nedělal:
 - Nepřepínal bych serverový deploy script na větev `Vojta`.
 - Nedával bych automatický merge z `Vojta` do `michal` přímo na server.
 - Neautomatizoval bych opravy produkční DB bez ručního potvrzení.
+
+## Migrace etapy B1 (serverové revize) — jednorázový postup navíc
+
+Platí **jen pro první deploy s tabulkou `BlockRevision`**. Pak už se řídí běžným postupem.
+
+Migrace přidává tabulku `BlockRevision`, sloupec `AuditLog.groupId` a index
+`AuditLog(groupId, blockId)`. Samotné operace jsou levné — na tabulce se 347 000
+řádky trvalo přidání sloupce 28 ms a vytvoření indexu 266 ms.
+
+**Riziko není v délce migrace, ale v čekání na zámek.** Když v tu chvíli běží
+dlouhá transakce (celostrojový přepočet trvá 7,6–8,2 s), migrace na ni počká —
+a zápisy plánovačů, které mezitím přijdou, se zařadí ZA čekající migraci.
+Naměřeno: běžný zápis čekal 6 s. Data se nepoškodí, ale firma na pár desítek
+sekund zamrzne u ukládání.
+
+**Proto: pouštět mimo pracovní dobu, nebo aplikaci na dobu migrace krátce zastavit.**
+
+Před migrací změřit (rozhodne, jestli stačí mimo špičku, nebo zastavit aplikaci):
+
+```bash
+sudo mysql igvyroba -e "SELECT COUNT(*) FROM AuditLog"
+sudo mysql igvyroba -e "SELECT DATA_LENGTH, INDEX_LENGTH, ROW_FORMAT FROM information_schema.TABLES WHERE TABLE_NAME='AuditLog'"
+```
+
+`ROW_FORMAT` musí být `DYNAMIC`. Na starším `COMPACT` (z doby ručních zásahů do
+prod schématu) se `ADD COLUMN` tiše přepne z okamžité operace na přestavbu celé
+tabulky — pak migraci pouštět VÝHRADNĚ se zastavenou aplikací.
+
+Po migraci ověřit, že obojí skutečně vzniklo:
+
+```bash
+sudo mysql igvyroba -e "SHOW COLUMNS FROM AuditLog LIKE 'groupId'"        # musí vrátit řádek
+sudo mysql igvyroba -e "SHOW INDEX FROM AuditLog WHERE Key_name LIKE '%groupId%'"
+sudo mysql igvyroba -e "SHOW COLUMNS FROM BlockRevision" | wc -l          # 16 řádků + hlavička
+```
+
+Nakonec nainstalovat noční úklid revizí podle `docs/OPS_ZALOHY.md` (sekce
+„Úklid revizí bloků") — bez něj tabulka roste donekonečna.
