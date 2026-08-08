@@ -146,6 +146,19 @@ class Capture {
    * zachycený obraz „před".
    */
   readonly existedBefore = new Map<number, boolean>();
+  /**
+   * Id dotčená HROMADNÝM zápisem (`updateMany`/`deleteMany`), tedy vybraná
+   * podmínkou jako člen množiny.
+   */
+  readonly viaMany = new Set<number>();
+  /**
+   * Id, která volající jmenoval ADRESNĚ (`update`/`delete`/`create`/`upsert`).
+   * Drží se zvlášť, protože adresné jmenování vyhrává: blok dotčený obojím je
+   * přímý cíl operace, ne přívažek. (Nastává reálně — PUT edituje hlavu splitu
+   * adresně a sourozence hromadně, takže bez tohohle rozlišení by hlava, kterou
+   * by nějaká budoucí cesta zapsala i přes `updateMany`, spadla mezi propagaci.)
+   */
+  readonly addressed = new Set<number>();
   partial = false;
 
   noteExistence(id: number, existed: boolean) {
@@ -280,7 +293,7 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             const res = await (target as any).update(args);
             // Značka až PO úspěšném zápisu: spolknutá chyba by jinak vyrobila
             // revizi o změně, ke které nedošlo.
-            ids.forEach((id) => cap.markKind(id, "UPDATE"));
+            ids.forEach((id) => { cap.markKind(id, "UPDATE"); cap.addressed.add(id); });
             return res;
           };
         case "updateMany":
@@ -289,7 +302,7 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             const ids = await resolveIds(tx, args.where, true);
             await captureBefore(tx, cap, ids);
             const res = await (target as any).updateMany(args);
-            ids.forEach((id) => cap.markKind(id, "UPDATE"));
+            ids.forEach((id) => { cap.markKind(id, "UPDATE"); cap.viaMany.add(id); });
             if (res.count !== ids.length) await reconcileCountMismatch(tx, cap, groupId, ids, res.count, "updateMany");
             return res;
           };
@@ -298,7 +311,7 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             const ids = await resolveIds(tx, args.where, false);
             await captureBefore(tx, cap, ids);
             const res = await (target as any).delete(args);
-            ids.forEach((id) => cap.markKind(id, "DELETE"));
+            ids.forEach((id) => { cap.markKind(id, "DELETE"); cap.addressed.add(id); });
             return res;
           };
         case "deleteMany":
@@ -306,7 +319,7 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             const ids = await resolveIds(tx, args.where, true);
             await captureBefore(tx, cap, ids);
             const res = await (target as any).deleteMany(args);
-            ids.forEach((id) => cap.markKind(id, "DELETE"));
+            ids.forEach((id) => { cap.markKind(id, "DELETE"); cap.viaMany.add(id); });
             if (res.count !== ids.length) await reconcileCountMismatch(tx, cap, groupId, ids, res.count, "deleteMany");
             return res;
           };
@@ -317,6 +330,7 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             assertReturnedId("block.create", created);
             cap.noteExistence(created.id, false);
             cap.markKind(created.id, "CREATE");
+            cap.addressed.add(created.id);
             return created;
           };
         case "upsert":
@@ -332,10 +346,11 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             const res = await (target as any).upsert(args);
             assertReturnedId("block.upsert", res);
             if (existing.length > 0) {
-              existing.forEach((id) => cap.markKind(id, "UPDATE"));
+              existing.forEach((id) => { cap.markKind(id, "UPDATE"); cap.addressed.add(id); });
             } else {
               cap.noteExistence(res.id, false);
               cap.markKind(res.id, "CREATE");
+              cap.addressed.add(res.id);
             }
             return res;
           };
@@ -586,6 +601,10 @@ export async function withRevision<T>(
           after: afterJson,
           rowVersion: (after?.updatedAt as Date | undefined) ?? null,
           partial: cap.partial,
+          // Adresné jmenování VYHRÁVÁ: blok, který volající kdykoli během
+          // transakce zapsal jmenovitě, je přímý cíl operace i tehdy, když ho
+          // vedle toho zasáhl i hromadný zápis.
+          viaMany: cap.viaMany.has(id) && !cap.addressed.has(id),
         });
       }
     }
@@ -609,6 +628,8 @@ export async function withRevision<T>(
         after: Prisma.DbNull,
         rowVersion: null,
         partial: true,
+        // Marker není řádek žádného bloku, takže „člen množiny" u něj nedává smysl.
+        viaMany: false,
       });
     }
 

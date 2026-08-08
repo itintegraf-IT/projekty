@@ -74,6 +74,8 @@ test("sanitizeUndoOps odmítne ID větší než 2147483647", () => {
 type Row = {
   id: number; orderNumber: string | null; machine: string;
   startTime: Date; endTime: Date; updatedAt: Date; printCompletedAt: Date | null;
+  /** Série — mazání kořene ji musí rozvázat adresně, ne kaskádou v MySQL. */
+  recurrenceParentId?: number | null;
 };
 
 const T = (iso: string) => new Date(iso);
@@ -83,7 +85,7 @@ function row(over: Partial<Row> = {}): Row {
   return {
     id: 1, orderNumber: "17300", machine: "XL_105",
     startTime: T("2026-09-02T14:00:00.000Z"), endTime: T("2026-09-02T16:00:00.000Z"),
-    updatedAt: T("2026-08-01T10:00:00.000Z"), printCompletedAt: null, ...over,
+    updatedAt: T("2026-08-01T10:00:00.000Z"), printCompletedAt: null, recurrenceParentId: null, ...over,
   };
 }
 
@@ -120,6 +122,18 @@ function mkTx(
     store.delete(a.where.id);
     return cur ?? null;
   });
+  // Rozvázání série před smazáním kořene. Bez něj by odkaz potomkům vynulovala
+  // kaskáda `ON DELETE SET NULL` uvnitř MySQL, tedy mimo Prismu i mimo revizi.
+  const updateManyMock = mock.fn(async (a: { where: { recurrenceParentId: number }; data: Record<string, unknown> }) => {
+    callOrder.push("updateMany");
+    let count = 0;
+    for (const [id, r] of store) {
+      if (r.recurrenceParentId !== a.where.recurrenceParentId) continue;
+      store.set(id, { ...r, ...a.data } as Row);
+      count++;
+    }
+    return { count };
+  });
   const auditMock = mock.fn(async (a: { data: unknown[] }) => ({ count: a.data.length }));
   const findManyMock = mock.fn(async (a: { where: { id: { in: number[] } } }) => {
     callOrder.push("findMany");
@@ -139,14 +153,14 @@ function mkTx(
   const tx = {
     block: {
       findMany: findManyMock,
-      update: updateMock, create: createMock, delete: deleteMock,
+      update: updateMock, create: createMock, delete: deleteMock, updateMany: updateManyMock,
     },
     auditLog: { createMany: auditMock },
     companyDay: { findMany: companyDayMock },
     machineWeekShifts: { findMany: weekShiftsMock },
     $queryRaw: queryRawMock,
   } as never;
-  return { tx, store, updateMock, createMock, deleteMock, auditMock, findManyMock, queryRawMock, companyDayMock, weekShiftsMock, callOrder };
+  return { tx, store, updateMock, createMock, deleteMock, updateManyMock, auditMock, findManyMock, queryRawMock, companyDayMock, weekShiftsMock, callOrder };
 }
 
 test("applyUndoOps: upsert zapíše off-grid start doslova (opravený incident 4. 8.)", async () => {
@@ -383,6 +397,38 @@ test("applyUndoOps: remove zapíše CELÝ blok jako JSON do oldValue (I3 — obn
   // `removed` musí nést i machine ze smazaného bloku (Task 4 endpoint z něj skládá
   // block:deleted SSE payload — TISKAR filtr v events/route.ts je bez něj fail-closed).
   assert.deepEqual(res.removed, [{ id: 5, machine: "XL_106" }]);
+});
+
+test("applyUndoOps: remove kořene série rozváže potomky ADRESNĚ, ne kaskádou", async () => {
+  // `Block.recurrenceParentId` má `ON DELETE SET NULL`, takže po smazání kořene
+  // vynuluje odkaz potomkům sama MySQL — mimo Prismu, tedy mimo revizní obal:
+  // série se rozpadne a v černé skříňce po tom nezůstane ani řádek. Adresný
+  // `updateMany` obal vidí a potomci dostanou vlastní revizi.
+  const { tx, store, updateManyMock, callOrder } = mkTx([
+    row({ id: 5 }),
+    row({ id: 6, recurrenceParentId: 5 }),
+    row({ id: 7, recurrenceParentId: 5 }),
+    row({ id: 8, recurrenceParentId: 99 }),
+  ]);
+  await applyUndoOps(tx, [{ kind: "remove", id: 5 }], actor, "undo");
+
+  assert.equal(updateManyMock.mock.callCount(), 1, "rozvázání série musí proběhnout adresně");
+  assert.deepEqual(updateManyMock.mock.calls[0].arguments[0], {
+    where: { recurrenceParentId: 5 },
+    data: { recurrenceParentId: null },
+  });
+  assert.equal(store.get(6)!.recurrenceParentId, null);
+  assert.equal(store.get(7)!.recurrenceParentId, null);
+  assert.equal(store.get(8)!.recurrenceParentId, 99, "cizí série se nesmí rozvázat");
+
+  // Pořadí je součást opravy: zápis smí přijít až ZA zamykajícím čtením
+  // (`$queryRaw ... FOR UPDATE` musí zůstat prvním dotazem transakce) a rozvázání
+  // musí předcházet smazání, jinak kaskáda stihne udeřit dřív.
+  assert.equal(callOrder[0], "queryRaw", "zamykající čtení zůstává první dotaz transakce");
+  assert.ok(
+    callOrder.indexOf("updateMany") < callOrder.indexOf("delete"),
+    "rozvázání série musí být PŘED smazáním kořene",
+  );
 });
 
 test("DATE_FIELDS: odvozeno ze SKUTEČNÉHO schema.prisma — pokrývá každý DateTime sloupec Blocku z UNDO_RESTORABLE_FIELDS (D2, go/no-go audit 5. 8. 2026)", () => {

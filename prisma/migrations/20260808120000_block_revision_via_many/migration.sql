@@ -1,0 +1,12 @@
+-- AlterTable: rozlišení „adresně jmenovaný cíl" vs. „člen množiny" (recenze 8. 8. 2026, K7).
+--
+-- Uvnitř jedné groupId nešlo poznat blok, který uživatel skutečně editoval, od bloků,
+-- kterým se změna jen propsala — u propagace sdíleného pole na split sourozence
+-- a u expedičního reorderu byly všechny řádky v action/kind/label IDENTICKÉ a ani
+-- v AuditLog k nim nic nebylo. Příznak plní revizní obal SÁM podle toho, kterou
+-- metodu volající použil (updateMany/deleteMany = množina), takže nepotřebuje
+-- spolupráci ani úpravu jediné routy.
+--
+-- Na MySQL 8.0 je ADD COLUMN s DEFAULT instantní operace (ALGORITHM=INSTANT).
+-- Bez indexu: příznak se čte až u vybrané groupId, ne jako filtr velkého skenu.
+ALTER TABLE `BlockRevision` ADD COLUMN `viaMany` BOOLEAN NOT NULL DEFAULT false;

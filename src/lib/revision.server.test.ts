@@ -1039,8 +1039,66 @@ test("PUT propagace sdíleného pole vyrobí revizi kořeni i sourozenci", async
   assert.equal(revTail!.machine, "XL_106", "revize nese stroj sourozence, ne editovaného bloku");
   assert.equal((revTail!.after as Record<string, unknown>).specifikace, "REV-SDILENE");
 
+  // Jediné, čím se ty dva řádky liší: kdo je přímý cíl a komu se to jen propsalo.
+  // Bez `viaMany` mají v action, kind i label IDENTICKÉ hodnoty a v AuditLogu k nim
+  // u NEauditovaného sdíleného pole (jako `specifikace`) není vůbec nic.
+  const revHead = revs.find((r) => r.blockId === head.id);
+  assert.equal(revHead!.viaMany, false, "editovaný blok volající jmenoval adresně");
+  assert.equal(revTail!.viaMany, true, "sourozenci se to jen propsalo přes updateMany");
+
   await prisma.blockRevision.deleteMany({ where: { groupId } });
   await prisma.block.deleteMany({ where: { id: { in: [head.id, tail.id] } } });
+});
+
+test("adresné jmenování vyhrává nad hromadným zápisem téhož bloku", async () => {
+  // Blok zapsaný obojím je přímý cíl operace, ne přívažek. Kdyby vyhrával
+  // `updateMany`, spadl by editovaný blok mezi propagaci a rekonstrukce by
+  // tvrdila, že ho nikdo nechytil.
+  const block = await seedBlock("XL_105");
+  const { groupId } = await withRevision(
+    { action: "UPDATE", label: "Editace bloku", user: USER },
+    async (rtx) => {
+      await rtx.block.updateMany({ where: { id: block.id }, data: { specifikace: "REV-MNOZINA" } });
+      await rtx.block.update({ where: { id: block.id }, data: { description: "REV-ADRESNE" } });
+    },
+  );
+
+  const rev = await prisma.blockRevision.findFirstOrThrow({ where: { groupId } });
+  assert.equal(rev.viaMany, false);
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.delete({ where: { id: block.id } });
+});
+
+test("kaskáda série: potomci rozvázaní před smazáním kořene dostanou revizi", async () => {
+  // Tvar, jakým sérii rozvazuje DELETE /api/blocks/[id] i `applyUndoOps`.
+  // Bez toho `updateMany` by odkaz vynulovala kaskáda `ON DELETE SET NULL`
+  // uvnitř MySQL — mimo Prismu, tedy úplně mimo revizi.
+  const root = await seedBlock("XL_105");
+  const child = await seedBlock("XL_106");
+  await prisma.block.update({ where: { id: child.id }, data: { recurrenceParentId: root.id } });
+
+  const { groupId } = await withRevision(
+    { action: "DELETE", label: "Smazání bloku", user: USER },
+    async (rtx) => {
+      await rtx.block.updateMany({ where: { recurrenceParentId: root.id }, data: { recurrenceParentId: null } });
+      await rtx.block.delete({ where: { id: root.id } });
+    },
+  );
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId }, orderBy: { blockId: "asc" } });
+  assert.equal(revs.length, 2, "kořen i osiřelý potomek");
+  const revRoot = revs.find((r) => r.blockId === root.id)!;
+  const revChild = revs.find((r) => r.blockId === child.id)!;
+  assert.equal(revRoot.kind, "DELETE");
+  assert.equal(revRoot.viaMany, false, "kořen uživatel smazal adresně");
+  assert.equal(revChild.kind, "UPDATE");
+  assert.equal(revChild.viaMany, true, "potomek je následek, ne cíl");
+  assert.equal((revChild.before as Record<string, unknown>).recurrenceParentId, root.id);
+  assert.equal((revChild.after as Record<string, unknown>).recurrenceParentId, null);
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.deleteMany({ where: { id: { in: [root.id, child.id] } } });
 });
 
 test("rozdělení: kořen dostane UPDATE, nová část CREATE", async () => {

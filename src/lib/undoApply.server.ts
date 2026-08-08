@@ -246,6 +246,20 @@ export async function applyUndoOps(
     if (op.kind !== "remove") continue;
     const row = byId.get(op.id);
     if (!row) continue; // idempotence: co neexistuje, je už smazané
+    // Rozvázat sérii ADRESNĚ, ne kaskádou. `Block.recurrenceParentId` má
+    // `ON DELETE SET NULL`, takže odkaz potomkům vynuluje sama MySQL — mimo
+    // Prismu, tedy mimo revizní obal: série by se rozpadla a v černé skříňce
+    // by po tom nezůstal ani řádek (`updatedAt` se u potomků nezvedne, FK
+    // kaskáda neaktivuje `ON UPDATE CURRENT_TIMESTAMP`). Tohle NIC NEODVOZUJE —
+    // dělá jen viditelným, co databáze provede tak jako tak; invariant „undo
+    // zapisuje doslova ze snapshotu" se týká NOVÉHO stavu, ne zachycení
+    // následků. Vazbu zpátky undo nevrací: `recurrenceParentId` v
+    // `UNDO_RESTORABLE_FIELDS` záměrně není. Je to ZÁPIS, takže stojí až za
+    // zamykajícím čtením na začátku funkce — pořadí neměnit.
+    await tx.block.updateMany({
+      where: { recurrenceParentId: op.id },
+      data: { recurrenceParentId: null },
+    });
     await tx.block.delete({ where: { id: op.id } });
     result.removed.push({ id: op.id, machine: row.machine });
     auditRows.push({

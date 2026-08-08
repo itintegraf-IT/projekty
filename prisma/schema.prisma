@@ -60,6 +60,11 @@ model BlockRevision {
   rowVersion  DateTime?
   /// Forenzní příznak: zachycení „před" nebylo úplné. NIKDY nesmí vyrobit undo operaci.
   partial     Boolean  @default(false)
+  /// Řádek přišel přes hromadný zápis (`updateMany`/`deleteMany`), tedy jako ČLEN
+  /// MNOŽINY vybrané podmínkou — ne jako adresně jmenovaný cíl. Odlišuje propagaci
+  /// od přímé editace: u sdíleného pole na split skupině má editovaná hlava false
+  /// a sourozenci true. Plní ho obal sám podle použité metody, volající nic nepředává.
+  viaMany     Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   @@index([groupId])
