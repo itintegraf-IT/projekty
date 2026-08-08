@@ -106,6 +106,31 @@ Report je v 7:05 a CSV ve 2:20 **záměrně mimo mřížku */15** — čas děli
 15 by kolidoval s pravidelnou kontrolou (flock, resp. freshness race).
 Ověření: `sudo crontab -l | grep -c planovani` → 4 (žádný nesmí začínat `#`).
 
+### Úklid revizí bloků (od etapy B1)
+
+Tabulka `BlockRevision` je „černá skříňka" změn plánu — ke každé změně bloku
+drží, jak řádek vypadal předtím a potom. Retence je **90 dní**; bez úklidu
+by rostla donekonečna.
+
+Přidat pátý řádek do téhož crontabu:
+
+```
+50 3 * * *   cd /cesta/k/aplikaci && npx tsx scripts/prune-revisions.ts >> /var/log/planovani-backup.log 2>&1
+```
+
+Čas 3:50 je **po** noční záloze (1:45) a CSV exportu (2:20) — smazané revize
+tak vždycky ještě jednou odejdou do zálohy, než z databáze zmizí. A je mimo
+mřížku */15 ze stejného důvodu jako ostatní.
+
+Skript maže **výhradně** z `BlockRevision` a **po celých skupinách** — půlka
+kroku v tabulce je horší než žádná, protože rekonstrukce by pak tvrdila, že se
+změnila jen část bloků. Retence se nastavuje jedinou konstantou
+`REVISION_RETENTION_DAYS` ve skriptu.
+
+Do logu píše jeden řádek s počtem smazaných řádků, počtem dávek, zbytkem
+v tabulce a velikostí v MB — **velikost sleduj**: první měsíc provozu ověř,
+že sedí odhad z návrhu (pod 25 MB za 90 dní při ~300 změnách denně).
+
 **Fáze 6 — kontrola D+1 ráno:** `sudo tail -20 /var/log/planovani-backup.log`
 (noční záloha OK + CSV OK), banner zelený, `sudo tail /var/log/planovani-health.log`
 bez PROBLEM.
