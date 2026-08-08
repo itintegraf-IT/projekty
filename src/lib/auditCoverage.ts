@@ -45,19 +45,44 @@ export type AuditCoverageRow = {
 };
 
 /**
- * Trojice, kterou jmenuje poziční undo/redo řádek. `printMinutes`/`scheduleBypassed`
- * tu ZÁMĚRNĚ nejsou: `op.fields` je sice nese vždy (viz `POSITION_FIELD_KEYS`
- * v `undoApply.server.ts`), auditní řádek o nich ale nic netvrdí — v hodnotách je
- * jen span start–end. Zrovna ztracená informace o délce tisku je důvod, proč
- * revize vznikají, takže ji tahle mapa nesmí prohlásit za pokrytou.
+ * Co pokrývá poziční undo/redo řádek. Jen ČASY — `machine` tu ZÁMĚRNĚ NENÍ,
+ * stejně jako `printMinutes`/`scheduleBypassed`.
+ *
+ * Rozhoduje o tom, co psavec doopravdy zapsal do hodnot, ne co slibuje jméno
+ * v `field`. `undoApply.server.ts:307-308` plní `oldValue`/`newValue` VÝHRADNĚ
+ * spanem časů (`span(row.startTime, row.endTime)`); starou ani novou hodnotu
+ * stroje nikam nezapisuje a tabulka `AuditLog` sloupec `machine` ani nemá.
+ * Oba renderery proto u undo řádku vykreslí jen časy. Doloženo živými řádky
+ * v dev DB (`AuditLog#1538-1540`): `field: "startTime/endTime/machine"`,
+ * hodnoty `2026-09-03T08:00…–09:00 → …07:00–08:00`, o stroji ani slovo.
+ *
+ * Kdyby mapa `machine` za pokrytý prohlásila, panel by ho odečetl z revizního
+ * rozdílu a ZMĚNA STROJE BY Z HISTORIE ZMIZELA ÚPLNĚ — přitom revize je jediné
+ * místo, kde ji vidět jde. Není to okrajový případ: přetažení bloku na jiný
+ * stroj jde vždy přes `posOp()` (`src/lib/undo/commands.ts:21-29`), takže po
+ * Ctrl+Z vzniká přesně tenhle tvar. A je to doslova ta díra, kvůli které celá
+ * etapa B1 vzniká (incident 5.–6. 8. 2026: „AUDITED_FIELDS neaudituje
+ * startTime/endTime/machine/printMinutes — drag jednoho bloku nejde dohledat").
+ *
+ * POZOR na asymetrii, která vypadá jako nedůslednost, ale není: legacy dávkový
+ * řádek `UPDATE` se STEJNÝM `field` (viz `COMPOSITE_FIELDS`) stroj pokrývá,
+ * protože ho jeho psavec do hodnoty skutečně vepsal (`new=XL_105 2026-10-13T14:00…`,
+ * dev DB `AuditLog#1266,1267,1330,1331`). Liší se psavci, ne pravidlo.
  */
-const UNDO_POSITION_COLUMNS = ["startTime", "endTime", "machine"] as const;
+const UNDO_POSITION_COLUMNS = ["startTime", "endTime"] as const;
 
 /** Složené hodnoty `field`, které v jednom řádku jmenují víc sloupců. */
 const COMPOSITE_FIELDS: Record<string, readonly string[]> = {
   "startTime/endTime": ["startTime", "endTime"],
   // Legacy dávkový formát (198 řádků v dev DB), než ho `batchAuditRows.ts` rozdělil
   // na `startTime/endTime` + samostatné `machine`. Panel ty řádky čte dál.
+  //
+  // `machine` tu POKRYTÝ JE (na rozdíl od stejnojmenného undo tvaru výš): starý
+  // psavec stroj do hodnoty skutečně vepsal — `new=XL_105 2026-10-13T14:00:00.000Z–…`
+  // (dev DB `AuditLog#1266,1267,1330,1331`), takže ho čtenář na řádku vidí.
+  // `oldValue` je u těch řádků `null` (známý defekt, kvůli kterému `batchAuditRows.ts`
+  // vznikl), ale revizi nemají žádnou — všechny předcházejí zavedení `BlockRevision` —
+  // takže tady mapa nemá co schovat. Dnešní kód tenhle tvar už nepíše.
   "startTime/endTime/machine": ["startTime", "endTime", "machine"],
 };
 
@@ -139,10 +164,18 @@ export const REVISION_ONLY_ACTIONS = ["BATCH", "SPLIT", "REFLOW", "EXPEDITION_RE
  *
  * Filtr přes `isRestorableField` řeší ORŘEZ: `field` smíšeného tvaru se u writeru
  * ořezává na 180 bajtů (`undoApply.server.ts`), takže poslední jméno sloupce může
- * skončit uprostřed („…, materialStatusLab"). Rozseknutý zbytek se pozná spolehlivě
- * podle toho, že NENÍ v `UNDO_RESTORABLE_FIELDS` — a to je přesná kontrola, ne odhad:
- * `sanitizeUndoOps` každý klíč, který se do seznamu může dostat, proti témuž
- * allow-listu ověřuje ještě před zápisem.
+ * skončit uprostřed („…, materialStatusLab"). Rozseknutý zbytek se pozná podle toho,
+ * že NENÍ v `UNDO_RESTORABLE_FIELDS` — a psavec tenhle allow-list dodržuje prokazatelně:
+ * `sanitizeUndoOps` proti němu ověřuje každý klíč ještě před zápisem.
+ *
+ * NENÍ to ale kontrola bezezbytku přesná. V allow-listu jsou dvě dvojice, kde je
+ * kratší název PŘESNÝM prefixem delšího — `materialNote`/`materialNoteByUsername`
+ * a `pantoneRequired`/`pantoneRequiredDate`. Když ořez utne ten delší přesně na
+ * hranici, zbyde platný kratší klíč a filtr ho propustí. Nic to neschová: klíče se
+ * do `field` zapisují SEŘAZENÉ, takže kratší z dvojice by při své vlastní změně stál
+ * v seznamu dřív a celý; a sloupec, který v `op.fields` nebyl, nemůže být ani
+ * v revizním rozdílu (undo zapisuje doslova to, co v opu je). Falešný nález se tedy
+ * nemá do čeho trefit — a skutečně uťatý klíč zůstane nepokrytý, tedy viditelný.
  *
  * Následek: klíč, který ořez uťal, zůstane nepokrytý a panel u něj ukáže revizní
  * řádek navíc. To je zvolený směr chyby — duplicita je vidět, schovaná změna ne.

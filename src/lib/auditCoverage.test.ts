@@ -131,14 +131,34 @@ test("UNDO/REDO: field=restore pokrývá celý řádek", () => {
   assert.equal(coveredColumns(row("REDO", "restore", span)), "ALL");
 });
 
-test("UNDO/REDO: čistě poziční obnova pokrývá trojici, NE printMinutes/scheduleBypassed", () => {
-  // `op.fields` u poziční obnovy nese VŽDY celou pětici (POSITION_FIELD_KEYS
-  // v undoApply.server.ts), auditní řádek ale jmenuje jen tři sloupce a v hodnotách
-  // ukazuje pouhý span. printMinutes/scheduleBypassed se tedy musí ukázat z revize —
-  // právě ta ztracená informace o délce je důvod, proč B1 vzniká.
+test("UNDO/REDO: poziční obnova pokrývá JEN časy — ne machine, printMinutes ani scheduleBypassed", () => {
+  // NEŘIĎ SE JMÉNEM V `field`. Jmenuje tři sloupce, ale undoApply.server.ts:307-308
+  // plní oldValue/newValue VÝHRADNĚ spanem časů — hodnotu stroje nikam nezapisuje
+  // (a AuditLog sloupec `machine` ani nemá). Doloženo živými řádky v dev DB
+  // AuditLog#1538-1540: field="startTime/endTime/machine", hodnoty jen časy.
+  //
+  // Kdyby mapa `machine` vrátila, panel by ho odečetl z revizního rozdílu a ZMĚNA
+  // STROJE BY Z HISTORIE ZMIZELA — revize je jediné místo, kde ji vidět jde.
+  // Přetažení bloku na jiný stroj přitom vždycky projde přes posOp()
+  // (src/lib/undo/commands.ts:21-29), takže tenhle tvar vzniká běžně.
+  // `op.fields` nese celou pětici (POSITION_FIELD_KEYS), auditní řádek z ní ukáže
+  // pouhé dva časy — zbytek musí dodat revize. Nález go/no-go recenze Tasku 10.
   const span = "2026-09-02T04:00:00.000Z–2026-09-02T12:00:00.000Z";
   const result = coveredColumns(row("UNDO", "startTime/endTime/machine", span));
-  assert.deepEqual(sorted(result), ["endTime", "machine", "startTime"]);
+  assert.deepEqual(sorted(result), ["endTime", "startTime"]);
+  assert.ok(!(result as string[]).includes("machine"), "machine NESMÍ být pokrytý — hodnota stroje se nikam nezapisuje");
+});
+
+test("legacy dávkový UPDATE se stejným field stroj POKRÝVÁ — jeho psavec ho do hodnoty vepsal", () => {
+  // Asymetrie proti testu výš je záměrná a datová, ne nedůslednost: starý dávkový
+  // formát psal `new=XL_105 2026-10-13T14:00:00.000Z–…` (dev DB AuditLog#1266,1267,
+  // 1330,1331), takže stroj je na řádku vidět. Undo psavec nic takového nedělá.
+  // Liší se psavci, ne pravidlo — test drží obě větve u sebe, ať se sjednocení
+  // „pro konzistenci" neudělá omylem.
+  assert.deepEqual(
+    sorted(coveredColumns(row("UPDATE", "startTime/endTime/machine", "XL_105 2026-10-13T14:00:00.000Z–2026-10-13T16:00:00.000Z"))),
+    ["endTime", "machine", "startTime"],
+  );
 });
 
 test("UNDO/REDO: field=fields bere seznam sloupců z newValue (v field nejsou vůbec)", () => {
@@ -151,18 +171,20 @@ test("UNDO/REDO: field=fields s prázdným newValue nepokrývá nic", () => {
   assert.deepEqual(coveredColumns(row("UNDO", "fields", null)), []);
 });
 
-test("UNDO/REDO: smíšený tvar pokrývá pozici I vyjmenované sloupce", () => {
+test("UNDO/REDO: smíšený tvar pokrývá časy I vyjmenované sloupce, ale zase NE machine", () => {
+  // Smíšený tvar plní hodnoty úplně stejně jako čistě poziční (undoApply.server.ts:307-308
+  // je společné pro obě větve `touchesPosition`), takže stroj tu chybí ze stejného důvodu.
+  // Doloženo řádkem AuditLog#1538 v dev DB.
   const field = `${UNDO_MIXED_FIELD_PREFIX}description, materialNote`;
   const span = "2026-09-02T04:00:00.000Z–2026-09-02T12:00:00.000Z";
-  assert.deepEqual(
-    sorted(coveredColumns(row("UNDO", field, span))),
-    ["description", "endTime", "machine", "materialNote", "startTime"],
-  );
+  const result = coveredColumns(row("UNDO", field, span));
+  assert.deepEqual(sorted(result), ["description", "endTime", "materialNote", "startTime"]);
+  assert.ok(!(result as string[]).includes("machine"), "machine NESMÍ být pokrytý ani u smíšeného tvaru");
 });
 
-test("UNDO/REDO: smíšený tvar s prázdným seznamem degraduje na čistou pozici", () => {
+test("UNDO/REDO: smíšený tvar s prázdným seznamem degraduje na čisté časy", () => {
   const field = UNDO_MIXED_FIELD_PREFIX;
-  assert.deepEqual(sorted(coveredColumns(row("UNDO", field, null))), ["endTime", "machine", "startTime"]);
+  assert.deepEqual(sorted(coveredColumns(row("UNDO", field, null))), ["endTime", "startTime"]);
 });
 
 test("UNDO/REDO: uťatý seznam klíčů nesmí propustit rozseknutý zbytek", () => {
@@ -213,6 +235,17 @@ test("PRINT_RESET (legacy) pokrývá trojici printCompleted* stejně jako dnešn
 test("legacy akce bez vazby na sloupce Blocku nepokrývají nic", () => {
   assert.deepEqual(coveredColumns(row("RESERVATION_NOTIFY", "message")), []);
   assert.deepEqual(coveredColumns(row("CASCADE_DELETE_SHIFT_ASSIGNMENTS", "ShiftAssignment")), []);
+});
+
+test("legacy akce jsou v mapě VYJMENOVANÉ, ne odbyté výchozí větví", () => {
+  // Bez tohohle testu jdou obě z mapy odstranit a nic nespadne: jejich `[]` je shodné
+  // s výchozí větví a strážný sken je v živém kódu nenajde (dnešní kód je nepíše).
+  // V datech ale leží — dev DB: RESERVATION_NOTIFY 1 řádek, CASCADE_DELETE_SHIFT_
+  // ASSIGNMENTS 1 řádek — a panel je čtenáři ukáže. Vypsané v mapě jsou proto, aby
+  // bylo doložené, že se na ně myslelo, a aby je příští čtenář nemusel dohledávat znovu.
+  for (const action of ["RESERVATION_NOTIFY", "CASCADE_DELETE_SHIFT_ASSIGNMENTS", "PRINT_RESET"]) {
+    assert.ok(KNOWN_AUDIT_ACTIONS.has(action), `${action} zmizel z mapy — je to legacy hodnota ležící v DB`);
+  }
 });
 
 test("OVERLAP_FIX ze servisního skriptu pokrývá jen startTime", () => {
