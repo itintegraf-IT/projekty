@@ -12,9 +12,23 @@ import {
   NESTED_WRITE_OPERATIONS,
 } from "@/lib/revision/blockColumns";
 
+/**
+ * Která mutační CESTA běžela. NENÍ to `AuditLog.action` — ten popisuje, co se
+ * stalo s ŘÁDKEM. Vokabuláře obou tabulek se proto nesmí míchat v jednom dotazu.
+ *
+ * Hodnoty pro opačné směry jsou tu záměrně, i když je routa v páru: bez nich
+ * `WHERE action='PRINT_COMPLETE'` vrátil v `AuditLog` jen potvrzení tisku, ale
+ * v `BlockRevision` potvrzení I vrácení — a panel historie postavený nad tím by
+ * tvrdil „tiskař potvrdil tisk" tam, kde ho vrátil (recenze 8. 8. 2026, K5).
+ * Sloupec je `VARCHAR(32)`, ne databázový enum, takže rozšíření slovníku je
+ * čistě typová změna — žádná migrace. Nejdelší hodnota má 20 znaků.
+ */
 export type RevisionAction =
   | "CREATE" | "UPDATE" | "DELETE" | "BATCH"
-  | "SPLIT" | "REFLOW" | "UNDO" | "PRINT_COMPLETE" | "EXPEDITION";
+  | "SPLIT" | "REFLOW"
+  | "UNDO" | "REDO"
+  | "PRINT_COMPLETE" | "PRINT_UNDO"
+  | "EXPEDITION_PUBLISH" | "EXPEDITION_UNPUBLISH" | "EXPEDITION_REORDER";
 
 type Row = Record<string, unknown>;
 type Kind = "CREATE" | "UPDATE" | "DELETE";
@@ -186,6 +200,59 @@ async function captureBefore(tx: PrismaTransactionClient, cap: Capture, ids: num
   for (const id of missing) if (!found.has(id)) cap.noteExistence(id, false);
 }
 
+/**
+ * Která z `ids` v DB SKUTEČNĚ ještě jsou. Musí to být ZAMYKAJÍCÍ čtení:
+ * obyčejný `tx.block.findMany` by pod MySQL REPEATABLE READ vrátil i řádek,
+ * který mezitím někdo jiný smazal a commitnul (transakce čte ze svého read
+ * view) — a přesně ten rozdíl se tímhle dotazem rozhoduje. Nové zámky to
+ * nepřidává: nad nalezenými řádky je už drží `captureBefore`.
+ */
+async function selectExistingIds(tx: PrismaTransactionClient, ids: number[]): Promise<Set<number>> {
+  if (ids.length === 0) return new Set();
+  const rows = await tx.$queryRaw<{ id: number | bigint }[]>`
+    SELECT id FROM Block WHERE id IN (${Prisma.join(ids)}) FOR UPDATE
+  `;
+  return new Set(rows.map((r) => Number(r.id)));
+}
+
+/**
+ * Rozhodne, jestli je rozdíl mezi snapshotem (`resolveIds`) a current readem
+ * (`updateMany`/`deleteMany`) vada, nebo běžný souběh. Liší se ze DVOU důvodů
+ * a jen jeden z nich je fantom:
+ *
+ * (a) LEGITIMNÍ SOUBĚŽNÉ SMAZÁNÍ — někdo jiný řádek mezitím smazal a commitnul.
+ *     Snapshot ho ještě vidí, zápis už ne, a zachycení „před" ho taky nenašlo,
+ *     takže revizi stejně není z čeho postavit. Hlásit tohle jako fantom shodí
+ *     ZDRAVOU editaci: ve vývoji výjimkou (celá transakce rollback, uživatel
+ *     dostane 500 a jeho změna se neuloží), na produkci příznakem `partial` pro
+ *     CELOU skupinu — a partial podle schématu NIKDY nesmí vyrobit undo operaci,
+ *     takže by se krok tiše stal nevratitelným. Doloženo dvěma servery nad
+ *     dvěma klony DB: PUT sdíleného pole na split hlavu × souběžné smazání
+ *     sourozence dalo před opravou 500, po ní 200 (recenze 8. 8. 2026, K2).
+ *
+ * (b) SKUTEČNÝ FANTOM — zápis trefil řádek, který zachycení nevidělo. Typicky
+ *     když do `where` mezitím řádek PŘIBYL (cizí INSERT): ten se změnil BEZ
+ *     revize, a to je jediný případ, který se hlásit musí.
+ */
+async function reconcileCountMismatch(
+  tx: PrismaTransactionClient,
+  cap: Capture,
+  groupId: string,
+  ids: number[],
+  affected: number,
+  op: string,
+): Promise<void> {
+  const existing = await selectExistingIds(tx, ids);
+  // Odečítají se JEN řádky, které v DB nejsou A zachycení je nenašlo — to je
+  // podpis souběžného smazání. Řádek se zachyceným stavem „před", který zmizel,
+  // sem nepatří: nad ním držíme `FOR UPDATE`, takže ho nikdo cizí smazat nemohl,
+  // a jeho nezasažení znamená, že vypadl z `where` — což hlásit chceme.
+  const vanished = new Set(ids.filter((id) => !existing.has(id) && !cap.before.has(id)));
+  for (const id of vanished) cap.kinds.delete(id);
+  if (affected === ids.length - vanished.size) return;
+  onCountMismatch(groupId, ids.filter((id) => !vanished.has(id)), affected, cap, op);
+}
+
 /** Id, kterých se `where` týká. Pro update/delete stačí `id`, jinak dohledat. */
 async function resolveIds(
   tx: PrismaTransactionClient,
@@ -223,7 +290,7 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             await captureBefore(tx, cap, ids);
             const res = await (target as any).updateMany(args);
             ids.forEach((id) => cap.markKind(id, "UPDATE"));
-            if (res.count !== ids.length) onCountMismatch(groupId, ids, res.count, cap, "updateMany");
+            if (res.count !== ids.length) await reconcileCountMismatch(tx, cap, groupId, ids, res.count, "updateMany");
             return res;
           };
         case "delete":
@@ -240,7 +307,7 @@ function makeClient(tx: PrismaTransactionClient, cap: Capture, groupId: string):
             await captureBefore(tx, cap, ids);
             const res = await (target as any).deleteMany(args);
             ids.forEach((id) => cap.markKind(id, "DELETE"));
-            if (res.count !== ids.length) onCountMismatch(groupId, ids, res.count, cap, "deleteMany");
+            if (res.count !== ids.length) await reconcileCountMismatch(tx, cap, groupId, ids, res.count, "deleteMany");
             return res;
           };
         case "create":

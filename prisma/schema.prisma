@@ -36,7 +36,11 @@ model BlockRevision {
   /// Denormalizováno, aby řádek dával smysl i po smazání bloku.
   machine     String   @db.VarChar(191)
   orderNumber String?  @db.VarChar(191)
-  /// Operace uživatele: CREATE|UPDATE|DELETE|BATCH|SPLIT|REFLOW|UNDO|PRINT_COMPLETE|EXPEDITION
+  /// Která mutační CESTA běžela — NE co se stalo s řádkem (to je `kind`).
+  /// Vokabulář se NESMÍ míchat s `AuditLog.action`, tytéž tokeny tam znamenají
+  /// něco jiného. Zdroj pravdy je `RevisionAction` v src/lib/revision.server.ts:
+  /// CREATE|UPDATE|DELETE|BATCH|SPLIT|REFLOW|UNDO|REDO|PRINT_COMPLETE|PRINT_UNDO|
+  /// EXPEDITION_PUBLISH|EXPEDITION_UNPUBLISH|EXPEDITION_REORDER
   action      String   @db.VarChar(32)
   /// Typ změny TOHOTO řádku. NIKDY se neodvozuje z přítomnosti before/after.
   kind        String   @db.VarChar(8)

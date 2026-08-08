@@ -83,7 +83,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       // ani pro čtení: běželo by mimo transakci a revizi by obešlo.
       const { result: siblingGroupId } = await withRevision(
         {
-          action: "EXPEDITION",
+          // Tři expediční operace = tři hodnoty `action`. Jediné společné
+          // „EXPEDITION" by v panelu historie splácalo zařazení, vyřazení
+          // i přeřazení do jedné hromady (recenze 8. 8. 2026, K5).
+          action: "EXPEDITION_REORDER",
           label: "Změna pořadí v expedici",
           user: { id: session.id, username: session.username },
         },
@@ -140,7 +143,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     // téže transakce dostanou shodné `groupId`. Modulový `prisma` je v těle zakázaný.
     const { result: siblingGroupId } = await withRevision(
       {
-        action: "EXPEDITION",
+        // Viz reorder výš — směr musí být poznat ze samotného `action`.
+        // Tyhle dvě hodnoty jsou schválně shodné s `AuditLog.action`, který
+        // pro publish/unpublish píše totéž: tady se významy KRYJÍ.
+        action: action === "publish" ? "EXPEDITION_PUBLISH" : "EXPEDITION_UNPUBLISH",
         label: action === "publish" ? "Zařazení do expedice" : "Vyřazení z expedice",
         user: { id: session.id, username: session.username },
       },

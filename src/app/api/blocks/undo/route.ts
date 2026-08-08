@@ -47,11 +47,12 @@ export async function POST(request: NextRequest) {
     // pořadí mělo změnit, je to regrese optimistického zámku, ne kosmetika.
     //
     // Vrácení změny je taky změna, takže i undo/redo zakládá vlastní skupinu
-    // revizí — `action: "UNDO"` pro OBA směry (schéma `BlockRevision.action`
-    // hodnotu „REDO" nezná); směr zůstává rozlišený v auditních řádcích téže
-    // `groupId`, které `applyUndoOps` píše jako UNDO/REDO.
+    // revizí. Směr MUSÍ být poznat ze samotného `action`: dokud se pro oba psalo
+    // „UNDO", splácl dotaz `WHERE action='UNDO'` vrácení i zopakování do jedné
+    // hromady a jediné rozlišení leželo v druhé tabulce (recenze 8. 8. 2026, K5).
+    // Sloupec je VARCHAR(32), takže „REDO" nepotřebuje migraci.
     const { result } = await withRevision(
-      { action: "UNDO", label, user: { id: session.id, username: session.username } },
+      { action: direction === "undo" ? "UNDO" : "REDO", label, user: { id: session.id, username: session.username } },
       (tx) => applyUndoOps(tx, ops, { id: session.id, username: session.username }, direction as UndoDirection),
     );
 

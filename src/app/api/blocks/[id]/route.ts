@@ -730,6 +730,19 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
         },
       });
 
+      // NENÍ to zbytečné: `Block.recurrenceParentId` má v migraci
+      // `ON DELETE SET NULL`, takže po smazání kořene série vynuluje odkaz
+      // u všech potomků SAMA MySQL — mimo Prismu, tedy mimo revizní obal.
+      // Naměřeno: 4 změněné řádky Block, 1 revize; `updatedAt` se u potomků
+      // nezvedne (FK kaskáda neaktivuje `ON UPDATE CURRENT_TIMESTAMP`), takže
+      // to nezachytí ani optimistic lock. Když vazbu rozvážeme adresně TADY,
+      // projde to obalem, potomci dostanou vlastní revizi `recurrenceParentId:
+      // X -> null` pod týmž `groupId` — a kaskáda pak nemá co dělat.
+      await tx.block.updateMany({
+        where: { recurrenceParentId: id },
+        data: { recurrenceParentId: null },
+      });
+
       await tx.block.delete({ where: { id } });
 
       // Pokud byl blok spojen s rezervací → zamítnout (REJECTED)
