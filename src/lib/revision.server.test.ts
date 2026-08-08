@@ -2,6 +2,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { resolveChainPushFromDb } from "@/lib/overlapResolver.server";
 import { withRevision } from "./revision.server";
 
 const USER = { id: 1, username: "test" };
@@ -995,4 +996,83 @@ test("rozdělení: kořen dostane UPDATE, nová část CREATE", async () => {
   const ids = revs.map((r) => r.blockId);
   await prisma.blockRevision.deleteMany({ where: { groupId } });
   await prisma.block.deleteMany({ where: { id: { in: ids } } });
+});
+
+test("rozdělení s chain pushem: odsunutý soused dostane VLASTNÍ revizi v téže groupId", async () => {
+  // Jediný test, který pouští PRODUKČNÍ `resolveChainPushFromDb` skrz revizní Proxy.
+  // Ta součinnost je nejcitlivější místo celé etapy: chain push si sám čte kalendář
+  // (`machineWeekShifts`, `companyDay`) a sám zapisuje do cizích bloků — přesně ta
+  // třída interakce, na které v Tasku 6 vybouchl `$queryRaw`. Bez tohohle testu by
+  // regrese „odsunuté bloky zmizí z historie" prošla celou suitou zeleně.
+  //
+  // Soused ZÁMĚRNĚ překrývá budoucí ocas. Endpoint takový stav sám nevyrobí (brání
+  // tomu overlap guard), ale chain push nemá co posouvat, dokud překryv neexistuje —
+  // a v produkční DB takový stav vzniká z legacy dat a bypass bloků.
+  const group = await seedSplitGroup();
+  const hlava = await prisma.block.create({
+    data: {
+      orderNumber: "REV-CHAIN", machine: "XL_105",
+      startTime: new Date("2027-01-12T06:00:00.000Z"),
+      endTime: new Date("2027-01-12T14:00:00.000Z"),
+      type: "ZAKAZKA", printMinutes: 480,
+    },
+  });
+  const soused = await prisma.block.create({
+    data: {
+      orderNumber: "REV-CHAIN-SOUSED", machine: "XL_105",
+      startTime: new Date("2027-01-12T12:00:00.000Z"),
+      endTime: new Date("2027-01-12T16:00:00.000Z"),
+      type: "ZAKAZKA", printMinutes: 240,
+    },
+  });
+
+  const splitAt = new Date("2027-01-12T10:00:00.000Z");
+  const { result: { tail, moves }, groupId } = await withRevision(
+    { action: "SPLIT", label: "Rozdělení bloku", user: USER },
+    async (rtx) => {
+      // Kroky 6, 7 a 9 z POST /api/blocks/[id]/split, ve stejném pořadí.
+      await rtx.block.update({
+        where: { id: hlava.id },
+        data: { endTime: splitAt, printMinutes: 240, splitGroupId: group.id },
+      });
+      const tail = await rtx.block.create({
+        data: {
+          orderNumber: "REV-CHAIN", machine: "XL_105",
+          startTime: splitAt,
+          endTime: new Date("2027-01-12T14:00:00.000Z"),
+          type: "ZAKAZKA", printMinutes: 240, splitGroupId: group.id,
+        },
+      });
+      const moves = await resolveChainPushFromDb(rtx, "XL_105", {
+        id: tail.id, startTime: tail.startTime, endTime: tail.endTime,
+      });
+      return { tail, moves };
+    },
+  );
+
+  assert.equal(moves.length, 1, "chain push musel souseda skutečně posunout, jinak test neměří nic");
+  assert.equal(moves[0].id, soused.id);
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId }, orderBy: { blockId: "asc" } });
+  assert.equal(revs.length, 3, "hlava, ocas I odsunutý soused");
+  const byId = new Map(revs.map((r) => [r.blockId, r]));
+  assert.equal(byId.get(hlava.id)?.kind, "UPDATE");
+  assert.equal(byId.get(tail.id)?.kind, "CREATE");
+  assert.equal(byId.get(soused.id)?.kind, "UPDATE", "odsunutý soused nesmí z historie vypadnout");
+  assert.equal(new Set(revs.map((r) => r.groupId)).size, 1, "celé rozdělení je JEDEN krok historie");
+
+  // `after` musí sedět 1:1 na živý řádek — revize, která tvrdí jiný čas než DB,
+  // by v etapě B2 vrátila blok na místo, kde nikdy nebyl.
+  const sousedZivy = await prisma.block.findUniqueOrThrow({ where: { id: soused.id } });
+  const sousedAfter = byId.get(soused.id)!.after as Record<string, string>;
+  assert.deepEqual(
+    Object.keys(sousedAfter).sort(), ["endTime", "startTime"],
+    "chain push mění jen pozici — nic jiného do rozdílu nepatří",
+  );
+  assert.equal(new Date(sousedAfter.startTime).getTime(), sousedZivy.startTime.getTime());
+  assert.equal(new Date(sousedAfter.endTime).getTime(), sousedZivy.endTime.getTime());
+  assert.notEqual(sousedZivy.startTime.getTime(), soused.startTime.getTime(), "soused se opravdu hnul");
+
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.deleteMany({ where: { id: { in: [hlava.id, tail.id, soused.id] } } });
 });
