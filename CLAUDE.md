@@ -14,7 +14,7 @@ npm run lint         # vrací warningy, 0 chyb je OK
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
 ```
 
-`--experimental-test-module-mocks` je nutný jen kvůli `scheduleSlotFinder.server.test.ts` (`mock.module`); ostatní ho nepotřebují.
+`--experimental-test-module-mocks` je nutný jen kvůli `sessionVersion.test.ts` (`mock.module`); ostatní ho nepotřebují. (`scheduleSlotFinder.server.test.ts` ho potřeboval do 8. 8. 2026 — od zapojení revizí si finder bere Prisma klienta povinným parametrem, takže si test podstrkuje fake přímo, bez mockování modulu.)
 
 ## Role a přístup
 

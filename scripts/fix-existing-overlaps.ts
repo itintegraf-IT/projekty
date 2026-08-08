@@ -56,7 +56,9 @@ async function main() {
         : { id: Number(ov.ida), ord: ov.orda, start: ov.astart, end: ov.aend };
     const durMs = move.end.getTime() - move.start.getTime();
 
-    const slot = await findNextFreeSlotFromDb(ov.machine, anchorEnd, durMs, move.id);
+    // Klient je POVINNÝ parametr; hledání běží PŘED transakcí níž, takže
+    // modulový `prisma` je tu správně (viz docblock findNextFreeSlotFromDb).
+    const slot = await findNextFreeSlotFromDb(prisma, ov.machine, anchorEnd, durMs, move.id);
 
     if (!slot.found) {
       console.log(

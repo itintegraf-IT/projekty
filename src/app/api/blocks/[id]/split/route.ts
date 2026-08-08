@@ -11,6 +11,7 @@ import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { withRevision } from "@/lib/revision.server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -44,7 +45,14 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (isNaN(splitAt.getTime())) throw new AppError("VALIDATION_ERROR", "Neplatný čas rozdělení (splitAt).");
     const expectedUpdatedAt = (body as Record<string, unknown>).expectedUpdatedAt as string | undefined;
 
-    const { head, tail, shifted } = await prisma.$transaction(async (tx) => {
+    // Transakci otevírá `withRevision` — zkrácená hlava dostane revizi `kind: "UPDATE"`,
+    // nově vzniklý ocas `kind: "CREATE"` a chain pushem odsunutí sousedé `kind: "UPDATE"`,
+    // všichni pod jedním `groupId`. Rozdělení je tak v historii jeden krok, ne dva
+    // nesouvisející zápisy. UVNITŘ těla se nesmí sáhnout na modulový `prisma` ani pro
+    // čtení (viz docblock withRevision).
+    const { result: { head, tail, shifted } } = await withRevision(
+      { action: "SPLIT", label: "Rozdělení bloku", user: { id: session.id, username: session.username } },
+      async (tx) => {
       // 1. In-tx re-read bloku (čerstvý stav pod row-lockem update níže).
       const block = await tx.block.findUnique({ where: { id } });
       if (!block) throw new AppError("NOT_FOUND", "Blok nenalezen.");
@@ -190,7 +198,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       await assertNoOverlapForBlocks(block.machine, [headUpdated.id, tailCreated.id, ...shiftedMoves.map((m) => m.id)], tx);
 
       return { head: headUpdated, tail: tailCreated, shifted: shiftedMoves };
-    }, { timeout: 15000, maxWait: 5000 });
+      // Tělo výše si drží PŮVODNÍ odsazení — viz komentář u PUT bloku.
+      // Timeout 15 s / maxWait 5 s má `withRevision` jako výchozí, nepředává se.
+      },
+    );
 
     // Refetch head + tail + shifted JEDNÍM findMany s notes include — jediný zdroj pro SSE i
     // response, aby se původce a ostatní okna nerozešli a autorizovaní neztratili poznámky hlavy.

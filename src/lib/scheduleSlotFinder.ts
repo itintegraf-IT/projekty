@@ -2,7 +2,7 @@ import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
 import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { pragueOf } from "@/lib/dateUtils";
-import { prisma } from "@/lib/prisma";
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
 import { serializeWeekShifts } from "@/lib/scheduleValidation";
 import {
   expandPrintTime,
@@ -78,9 +78,19 @@ export function findNextFreeSlot(
  * Načte weekShifts pro relevantní okno (proposedStart + maxShiftMs + buffer)
  * a všechny existující bloky na stroji v témže okně + firemní odstávky.
  *
+ * `client` je POVINNÝ a stojí první: uvnitř `withRevision`
+ * (`src/lib/revision.server.ts`) se musí předat podstrčený `tx`, jinak by
+ * hledání volného slotu četlo mimo transakci — jiné spojení, jiný snapshot,
+ * a tedy bez rozpracovaných zápisů téže mutace (blok, kterému právě děláme
+ * místo, by se ve výsledku vůbec neobjevil). Nepovinný parametr s tichým
+ * defaultem na modulový `prisma` by tuhle chybu propustil bez výjimky a bez
+ * logu — přesně to tiché selhání, které etapa serverových revizí vymýtá.
+ * Volání MIMO transakci předává `prisma` výslovně.
+ *
  * `excludeBlockId` se použije při PUT (úprava bloku — nesmí kolidovat sám se sebou).
  */
 export async function findNextFreeSlotFromDb(
+  client: PrismaTransactionClient,
   machine: string,
   proposedStart: Date,
   durationMs: number,
@@ -101,10 +111,10 @@ export async function findNextFreeSlotFromDb(
   const weekStartDates = Array.from(weekStarts).map((s) => new Date(`${s}T00:00:00.000Z`));
 
   const [rawWeekShifts, blocks, companyDays] = await Promise.all([
-    prisma.machineWeekShifts.findMany({
+    client.machineWeekShifts.findMany({
       where: { machine, weekStart: { in: weekStartDates } },
     }),
-    prisma.block.findMany({
+    client.block.findMany({
       where: {
         machine,
         ...(excludeBlockId != null ? { id: { not: excludeBlockId } } : {}),
@@ -113,7 +123,7 @@ export async function findNextFreeSlotFromDb(
       },
       select: { startTime: true, endTime: true },
     }),
-    prisma.companyDay.findMany({
+    client.companyDay.findMany({
       where: {
         startDate: { lt: windowEnd },
         endDate: { gt: proposedStart },
@@ -200,8 +210,11 @@ export function findNextFreePrintSlot(
  * DB wrapper kolem findNextFreePrintSlot. Okno = maxShift (posun startu)
  * + MAX_SPAN_DAYS (worst-case span expanze) — NE +durationMs.
  * CompanyDays jdou do kalendáře (pauzy), NE mezi blocked intervaly.
+ *
+ * `client` je POVINNÝ — viz odůvodnění u `findNextFreeSlotFromDb`.
  */
 export async function findNextFreePrintSlotFromDb(
+  client: PrismaTransactionClient,
   machine: string,
   proposedStart: Date,
   printMinutes: number,
@@ -220,10 +233,10 @@ export async function findNextFreePrintSlotFromDb(
   const weekStartDates = Array.from(weekStarts).map((s) => new Date(`${s}T00:00:00.000Z`));
 
   const [rawWeekShifts, blocks, companyDays] = await Promise.all([
-    prisma.machineWeekShifts.findMany({
+    client.machineWeekShifts.findMany({
       where: { machine, weekStart: { in: weekStartDates } },
     }),
-    prisma.block.findMany({
+    client.block.findMany({
       where: {
         machine,
         ...(excludeBlockId != null ? { id: { not: excludeBlockId } } : {}),
@@ -232,7 +245,7 @@ export async function findNextFreePrintSlotFromDb(
       },
       select: { startTime: true, endTime: true },
     }),
-    prisma.companyDay.findMany({
+    client.companyDay.findMany({
       where: {
         startDate: { lt: windowEnd },
         endDate: { gt: proposedStart },

@@ -13,6 +13,7 @@ import { AppError, isAppError } from "@/lib/errors";
 import { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } from "@/lib/scheduleSlotFinder";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { withRevision } from "@/lib/revision.server";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -115,7 +116,9 @@ export async function POST(request: NextRequest) {
       if (rawPrintMinutes == null) {
         return NextResponse.json({ error: sched.error }, { status: 422 });
       }
-      const slot = await findNextFreePrintSlotFromDb(body.machine as string, startTime, rawPrintMinutes);
+      // Pre-transakční větev — klient je výslovně modulový `prisma` (transakce
+      // ještě neběží). Uvnitř `withRevision` níž se předává `tx`.
+      const slot = await findNextFreePrintSlotFromDb(prisma, body.machine as string, startTime, rawPrintMinutes);
       if (!slot.found) {
         const msg =
           slot.reason === "NO_CAPACITY"
@@ -164,8 +167,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: presetResult.error }, { status: 400 });
     }
 
-    // Atomická transakce: block.create + auditLog.create + rezervace SCHEDULED update
-    const { newBlock: block, shiftedMoves } = await prisma.$transaction(async (tx) => {
+    // Atomická transakce: block.create + auditLog.create + rezervace SCHEDULED update.
+    // Transakci otevírá `withRevision` — podstrčí `tx` s obalenými delegáty `block`
+    // a `auditLog`, takže nový blok dostane revizi `kind: "CREATE"`, chain pushem
+    // odsunutí sousedé revizi `kind: "UPDATE"` a auditní řádky téže transakce shodné
+    // `groupId`. UVNITŘ tohoto těla se nesmí sáhnout na modulový `prisma` ani pro
+    // čtení: běželo by mimo transakci, přežilo by její rollback a revizi by obešlo
+    // (viz docblock withRevision). Proto i `findNextFree*SlotFromDb` níž dostávají `tx`.
+    const { result: { newBlock: block, shiftedMoves } } = await withRevision(
+      { action: "CREATE", label: "Nová zakázka", user: { id: session.id, username: session.username } },
+      async (tx) => {
       const finalOrderNumber = finalOrderNumberPreview;
       const finalType = finalTypePreview;
       const finalVariant = reservationPreview ? "STANDARD" : blockVariant;
@@ -181,8 +192,8 @@ export async function POST(request: NextRequest) {
           // Race condition: slot byl mezi pre-check a transakcí obsazen.
           const slot =
             blockType === "ZAKAZKA" && rawPrintMinutes != null
-              ? await findNextFreePrintSlotFromDb(body.machine, startTime, rawPrintMinutes)
-              : await findNextFreeSlotFromDb(body.machine, startTime, durationMs);
+              ? await findNextFreePrintSlotFromDb(tx, body.machine, startTime, rawPrintMinutes)
+              : await findNextFreeSlotFromDb(tx, body.machine, startTime, durationMs);
           if (!slot.found) {
             throw new AppError(
               "AUTO_SHIFT_FAILED",
@@ -226,7 +237,7 @@ export async function POST(request: NextRequest) {
           select: { id: true },
         });
         if (conflict) {
-          const slot = await findNextFreeSlotFromDb(body.machine, startTime, durationMs);
+          const slot = await findNextFreeSlotFromDb(tx, body.machine, startTime, durationMs);
           if (!slot.found) {
             throw new AppError("OVERLAP", "Slot je obsazený a v horizontu není volno — vyber jiné místo.");
           }
@@ -387,7 +398,11 @@ export async function POST(request: NextRequest) {
       await assertNoOverlapForBlocks(body.machine, [newBlock.id, ...shiftedMoves.map((m) => m.id)], tx);
 
       return { newBlock, shiftedMoves };
-    }, { timeout: 15000, maxWait: 5000 });
+      // Tělo výše si drží PŮVODNÍ odsazení: přeformátovat 200 řádků kvůli jednomu
+      // zanoření navíc by zahltilo diff i recenzi (stejně jako u PUT v Tasku 6).
+      // Timeout 15 s / maxWait 5 s má `withRevision` jako výchozí, nepředává se.
+      },
+    );
 
     emitSSE("block:created", { block: serializeBlock(block), machine: block.machine, sourceUserId: session.id });
 

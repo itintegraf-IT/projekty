@@ -1,28 +1,29 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it, mock } from "node:test";
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
+import { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } from "@/lib/scheduleSlotFinder";
 
-// ─── Mocky (musí být před prvním importem testované funkce) ───────────────────
-// Mockujeme JEN Prismu — scheduleValidation nechat běžet reálně,
-// protože serializeWeekShifts a isHardcodedBlocked jsou pure funkce
-// a duplikovat je inline by způsobilo drift při změně produkční logiky.
+// ─── Fake klient ─────────────────────────────────────────────────────────────
+// Mockuje se JEN Prisma — scheduleValidation nechat běžet reálně, protože
+// serializeWeekShifts a isHardcodedBlocked jsou pure funkce a duplikovat je
+// inline by způsobilo drift při změně produkční logiky.
+//
+// Dřív se podstrkoval přes `mock.module("@/lib/prisma")`. Od chvíle, kdy jsou
+// oba `*FromDb` findery napojené na `withRevision` (Task 7), si klienta berou
+// POVINNÝM parametrem a modulový singleton vůbec neimportují — mock modulu by
+// tedy neměl co nahradit. Fake se proto předává přímo, vzorem `reflow.server.test.ts`
+// a `overlapResolver.server.test.ts`.
 const mockBlocks: Array<{ startTime: Date; endTime: Date }> = [];
 const mockCompanyDays: Array<{ startDate: Date; endDate: Date }> = [];
 const mockWeekShifts: unknown[] = [];
 
 const weekShiftsFindManyMock = mock.fn(async () => mockWeekShifts);
 
-await mock.module("@/lib/prisma", {
-  namedExports: {
-    prisma: {
-      machineWeekShifts: { findMany: weekShiftsFindManyMock },
-      block: { findMany: mock.fn(async () => mockBlocks) },
-      companyDay: { findMany: mock.fn(async () => mockCompanyDays) },
-    },
-  },
-});
-
-// Import testované funkce AŽ PO nastavení mocků
-const { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } = await import("@/lib/scheduleSlotFinder");
+const db = {
+  machineWeekShifts: { findMany: weekShiftsFindManyMock },
+  block: { findMany: mock.fn(async () => mockBlocks) },
+  companyDay: { findMany: mock.fn(async () => mockCompanyDays) },
+} as unknown as PrismaTransactionClient;
 
 // ─── Pomocné konstanty pro testy ─────────────────────────────────────────────
 const MACHINE = "XL_105";
@@ -39,7 +40,7 @@ describe("findNextFreeSlotFromDb", () => {
   it("prázdná DB → vrátí původní čas, wasShifted=false", async () => {
     // 2026-09-15 úterý 10:00Z = 12:00 Praha (CEST) — v pracovní době XL_105
     const start = new Date("2026-09-15T10:00:00.000Z");
-    const result = await findNextFreeSlotFromDb(MACHINE, start, 4 * HOUR_MS);
+    const result = await findNextFreeSlotFromDb(db, MACHINE, start, 4 * HOUR_MS);
     assert.equal(result.found, true);
     if (result.found) {
       assert.equal(result.startTime.getTime(), start.getTime());
@@ -54,7 +55,7 @@ describe("findNextFreeSlotFromDb", () => {
       endTime: new Date("2026-09-15T16:00:00.000Z"),
     });
     const start = new Date("2026-09-15T10:00:00.000Z");
-    const result = await findNextFreeSlotFromDb(MACHINE, start, 4 * HOUR_MS);
+    const result = await findNextFreeSlotFromDb(db, MACHINE, start, 4 * HOUR_MS);
     assert.equal(result.found, true);
     if (result.found) {
       assert.equal(result.startTime.toISOString(), "2026-09-15T16:00:00.000Z");
@@ -70,7 +71,7 @@ describe("findNextFreeSlotFromDb", () => {
       endDate: new Date("2026-09-16T00:00:00.000Z"),
     });
     const start = new Date("2026-09-15T10:00:00.000Z");
-    const result = await findNextFreeSlotFromDb(MACHINE, start, 4 * HOUR_MS);
+    const result = await findNextFreeSlotFromDb(db, MACHINE, start, 4 * HOUR_MS);
     assert.equal(result.found, true);
     if (result.found) {
       // Konec odstávky 00:00Z Sep 16 = 02:00 Praha — stále v nočním bloku (22:00–06:00),
@@ -86,7 +87,7 @@ describe("findNextFreeSlotFromDb", () => {
       endTime: new Date("2026-09-30T00:00:00.000Z"),
     });
     const start = new Date("2026-09-15T10:00:00.000Z");
-    const result = await findNextFreeSlotFromDb(MACHINE, start, 4 * HOUR_MS);
+    const result = await findNextFreeSlotFromDb(db, MACHINE, start, 4 * HOUR_MS);
     assert.equal(result.found, false);
     if (!result.found) {
       assert.equal(result.reason, "MAX_SHIFT_EXCEEDED");
@@ -106,7 +107,7 @@ describe("findNextFreePrintSlotFromDb (tiskové hodiny)", () => {
       startTime: new Date("2026-09-15T10:00:00.000Z"),
       endTime: new Date("2026-09-15T16:00:00.000Z"),
     });
-    const r = await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
+    const r = await findNextFreePrintSlotFromDb(db, "XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
     assert.equal(r.found, true);
     if (r.found) {
       assert.equal(r.startTime.toISOString(), "2026-09-15T16:00:00.000Z");
@@ -126,7 +127,7 @@ describe("findNextFreePrintSlotFromDb (tiskové hodiny)", () => {
       startDate: new Date("2026-09-15T00:00:00.000Z"),
       endDate: new Date("2026-09-16T00:00:00.000Z"),
     });
-    const r = await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
+    const r = await findNextFreePrintSlotFromDb(db, "XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
     assert.equal(r.found, true);
     if (r.found) {
       assert.equal(r.startTime.toISOString(), "2026-09-16T04:00:00.000Z");
@@ -139,7 +140,7 @@ describe("findNextFreePrintSlotFromDb (tiskové hodiny)", () => {
       startTime: new Date("2026-09-15T00:00:00.000Z"),
       endTime: new Date("2026-09-30T00:00:00.000Z"),
     });
-    const r = await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
+    const r = await findNextFreePrintSlotFromDb(db, "XL_105", new Date("2026-09-15T10:00:00.000Z"), 240);
     assert.deepEqual(r, { found: false, reason: "MAX_SHIFT_EXCEEDED" });
   });
 });
@@ -154,7 +155,7 @@ describe("findNextFreePrintSlotFromDb — okno kalendáře (week-boundary wrap, 
   it("start v pondělí ráno dotahuje weekShifts i PŘEDCHOZÍHO týdne (nedělní noc přes půlnoc)", async () => {
     weekShiftsFindManyMock.mock.resetCalls();
     // Po 21. 9. 2026 00:30 Praha = 2026-09-20T22:30Z — předchozí týden = 14. 9.
-    await findNextFreePrintSlotFromDb("XL_105", new Date("2026-09-20T22:30:00.000Z"), 60);
+    await findNextFreePrintSlotFromDb(db, "XL_105", new Date("2026-09-20T22:30:00.000Z"), 60);
     const args = (weekShiftsFindManyMock.mock.calls as unknown as { arguments: [{ where: { weekStart: { in: Date[] } } }] }[])[0]!.arguments[0];
     const weeks = args.where.weekStart.in.map((d) => d.toISOString().slice(0, 10));
     assert.ok(weeks.includes("2026-09-14"), `chybí předchozí týden: ${weeks.join(", ")}`);

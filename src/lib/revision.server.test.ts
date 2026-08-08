@@ -964,3 +964,35 @@ test("PUT propagace sdíleného pole vyrobí revizi kořeni i sourozenci", async
   await prisma.blockRevision.deleteMany({ where: { groupId } });
   await prisma.block.deleteMany({ where: { id: { in: [head.id, tail.id] } } });
 });
+
+test("rozdělení: kořen dostane UPDATE, nová část CREATE", async () => {
+  // Tvar, jakým píše POST /api/blocks/[id]/split: zkrácení hlavy adresným
+  // `update` + vznik ocasu `create`. Obojí musí skončit v JEDNÉ groupId,
+  // jinak by šlo rozdělení vzít zpět jen po půlkách.
+  const block = await seedBlock();
+  const { groupId } = await withRevision(
+    { action: "SPLIT", label: "Rozdělení bloku", user: USER },
+    async (rtx) => {
+      await rtx.block.update({
+        where: { id: block.id },
+        data: { endTime: new Date("2026-12-01T10:00:00.000Z"), printMinutes: 240 },
+      });
+      return rtx.block.create({
+        data: {
+          orderNumber: "REV-TEST", machine: "XL_105",
+          startTime: new Date("2026-12-01T10:00:00.000Z"),
+          endTime: new Date("2026-12-01T14:00:00.000Z"),
+          type: "ZAKAZKA", printMinutes: 240,
+        },
+      });
+    },
+  );
+
+  const revs = await prisma.blockRevision.findMany({ where: { groupId }, orderBy: { blockId: "asc" } });
+  assert.equal(revs.length, 2);
+  assert.deepEqual(revs.map((r) => r.kind).sort(), ["CREATE", "UPDATE"]);
+
+  const ids = revs.map((r) => r.blockId);
+  await prisma.blockRevision.deleteMany({ where: { groupId } });
+  await prisma.block.deleteMany({ where: { id: { in: ids } } });
+});

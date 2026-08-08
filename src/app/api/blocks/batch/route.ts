@@ -10,6 +10,7 @@ import { AppError, isAppError } from "@/lib/errors";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { buildBatchAuditRows } from "@/lib/batchAuditRows";
+import { withRevision } from "@/lib/revision.server";
 
 type BatchUpdate = {
   id: number;
@@ -54,7 +55,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { updated: results, shiftedIds } = await prisma.$transaction(async (tx) => {
+    // Transakci otevírá `withRevision` — každý přesunutý blok i každý blok odsunutý
+    // chain pushem dostane vlastní revizi a všechny nesou shodné `groupId`, takže
+    // se celé lasso dá v historii vzít zpět jako JEDEN krok. Auditní řádky téže
+    // transakce dostanou `groupId` automaticky. UVNITŘ těla se nesmí sáhnout na
+    // modulový `prisma` ani pro čtení (viz docblock withRevision).
+    const { result: { updated: results, shiftedIds } } = await withRevision(
+      { action: "BATCH", label: "Hromadný přesun", user: { id: session.id, username: session.username } },
+      async (tx) => {
       // Fetch UVNITŘ transakce — eliminuje TOCTOU gap
       const existingBlocks = await tx.block.findMany({
         where: { id: { in: updates.map((u) => u.id) } },
@@ -253,7 +261,10 @@ export async function POST(request: NextRequest) {
       await tx.auditLog.createMany({ data: auditRows });
 
       return { updated, shiftedIds: shiftedMoves.map((m) => m.id) };
-    }, { timeout: 15000, maxWait: 5000 });
+      // Tělo výše si drží PŮVODNÍ odsazení — viz komentář u PUT bloku.
+      // Timeout 15 s / maxWait 5 s má `withRevision` jako výchozí, nepředává se.
+      },
+    );
 
     // Refetch s Reservation a notes include — batch smí volat jen ADMIN/PLANOVAT, takže notes se vždy vrací
     const resultsWithRes = await prisma.block.findMany({
