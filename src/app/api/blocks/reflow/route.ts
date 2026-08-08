@@ -9,6 +9,7 @@ import { reflowMachineInTx } from "@/lib/reflow.server";
 import { emitSSE } from "@/lib/eventBus";
 import { MACHINES } from "@/lib/machines";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { withRevision } from "@/lib/revision.server";
 
 /**
  * Per-machine in-flight guard proti self-DoS: přepočet celého stroje otevírá 365denní okno
@@ -48,9 +49,22 @@ export async function POST(request: NextRequest) {
   reflowInFlight.set(machine, true);
 
   try {
-    const result = await prisma.$transaction(
+    // Transakci otevírá `withRevision` — každý přepočítaný blok i každý blok odsunutý
+    // jeho chain pushem dostane vlastní revizi a všechny nesou shodné `groupId`, takže
+    // se celý přepočet stroje dá v historii vzít zpět jako JEDEN krok. Auditní řádky
+    // (AUTO_REFLOW + AUTO_SHIFT) dostanou `groupId` automaticky. UVNITŘ těla se nesmí
+    // sáhnout na modulový `prisma` ani pro čtení (viz docblock withRevision).
+    //
+    // `txOptions` se předává VÝSLOVNĚ: tohle je nejdelší transakce v aplikaci (okno
+    // 365 dnů, může se dotknout stovek bloků), výchozích 15 s pomocníka by nestačilo.
+    const { result } = await withRevision(
+      {
+        action: "REFLOW",
+        label: "Přepočet stroje",
+        user: { id: session.id, username: session.username },
+        txOptions: { timeout: 30000, maxWait: 5000 },
+      },
       (tx) => reflowMachineInTx(tx, machine, { id: session.id, username: session.username }, new Date()),
-      { timeout: 30000, maxWait: 5000 }
     );
 
     // Všechna dotčená id: reflownuté bloky + id bloků odsunutých jejich chain pushem

@@ -8,6 +8,7 @@ import { serializeBlock } from "@/lib/blockSerialization";
 import { reflowBlockInTx } from "@/lib/reflow.server";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { withRevision } from "@/lib/revision.server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -25,9 +26,15 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    const outcome = await prisma.$transaction(
+    // Transakci otevírá `withRevision` — přepočítaný blok i bloky odsunuté jeho chain
+    // pushem dostanou vlastní revizi pod jedním `groupId`, auditní řádky téže transakce
+    // (AUTO_REFLOW + AUTO_SHIFT) dostanou `groupId` automaticky. UVNITŘ těla se nesmí
+    // sáhnout na modulový `prisma` ani pro čtení (viz docblock withRevision).
+    // Timeout 15 s / maxWait 5 s má `withRevision` jako výchozí, nepředává se — na rozdíl
+    // od celostrojového přepočtu je tohle krátká transakce nad jedním blokem.
+    const { result: outcome } = await withRevision(
+      { action: "REFLOW", label: "Přepočet bloku", user: { id: session.id, username: session.username } },
       (tx) => reflowBlockInTx(tx, id, { id: session.id, username: session.username }),
-      { timeout: 15000, maxWait: 5000 }
     );
 
     if (!outcome.ok) {

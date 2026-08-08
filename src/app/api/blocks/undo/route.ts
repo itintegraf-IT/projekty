@@ -7,6 +7,7 @@ import { serializeBlock } from "@/lib/blockSerialization";
 import { emitSSE } from "@/lib/eventBus";
 import { sanitizeUndoOps, applyUndoOps, type UndoDirection } from "@/lib/undoApply.server";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { withRevision } from "@/lib/revision.server";
 
 /**
  * Atomické undo/redo — celý krok historie v JEDNÉ transakci.
@@ -37,9 +38,21 @@ export async function POST(request: NextRequest) {
     // zastaralá data — ochrana proti souběhu dvou plánovačů by se tiše otevřela
     // zpátky. Nepřidávej sem žádné čtení PŘED `applyUndoOps` a nerozděluj tenhle
     // callback na víc kroků.
-    const result = await prisma.$transaction(
+    //
+    // `withRevision` tuhle podmínku NEPORUŠUJE a je to ověřené, ne odvozené:
+    // pomocník před tělem žádný dotaz nepouští (zachycení „před" se spouští až
+    // uvnitř obaleného zápisu) a `$queryRaw` propouští svázaný se syrovým `tx`.
+    // Změřeno logem dotazů Prismy — po `BEGIN` je prvním příkazem transakce
+    // `SELECT id FROM Block ... FOR UPDATE` z `applyUndoOps`. Kdyby se tohle
+    // pořadí mělo změnit, je to regrese optimistického zámku, ne kosmetika.
+    //
+    // Vrácení změny je taky změna, takže i undo/redo zakládá vlastní skupinu
+    // revizí — `action: "UNDO"` pro OBA směry (schéma `BlockRevision.action`
+    // hodnotu „REDO" nezná); směr zůstává rozlišený v auditních řádcích téže
+    // `groupId`, které `applyUndoOps` píše jako UNDO/REDO.
+    const { result } = await withRevision(
+      { action: "UNDO", label, user: { id: session.id, username: session.username } },
       (tx) => applyUndoOps(tx, ops, { id: session.id, username: session.username }, direction as UndoDirection),
-      { timeout: 15000, maxWait: 5000 },
     );
 
     // Log AŽ PO commitu — `applyUndoOps` uvnitř transakce záměrně nic neloguje
