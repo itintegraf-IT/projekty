@@ -5,6 +5,7 @@ import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { emitSSE } from "@/lib/eventBus";
+import { withRevision } from "@/lib/revision.server";
 
 // POST /api/blocks/[id]/complete — potvrzení nebo vrácení tisku.
 // Kioskově kritická route (tiskaři na terminálech, flaky síť) — chyby musí
@@ -45,31 +46,45 @@ export async function POST(
 
     const auditAction = completed ? "PRINT_COMPLETE" : "PRINT_UNDO";
 
-    const [updatedBlock] = await prisma.$transaction([
-      prisma.block.update({
-        where: { id: blockId },
-        data: completed
-          ? {
-              printCompletedAt: new Date(),
-              printCompletedByUserId: userId,
-              printCompletedByUsername: username,
-            }
-          : {
-              printCompletedAt: null,
-              printCompletedByUserId: null,
-              printCompletedByUsername: null,
-            },
-      }),
-      prisma.auditLog.create({
-        data: {
-          blockId,
-          orderNumber: block.orderNumber,
-          userId,
-          username,
-          action: auditAction,
-        },
-      }),
-    ]);
+    // Transakci otevírá `withRevision`. Původní POLNÍ `$transaction([...])` musela
+    // ustoupit interaktivní: do pole operací nejde podstrčit klient s obalenými
+    // delegáty, takže by potvrzení tisku zůstalo bez revize. Pole mělo přesně dvě
+    // položky (`block.update`, `auditLog.create`) — jsou níž ve stejném pořadí.
+    // UVNITŘ těla se nesmí sáhnout na modulový `prisma` ani pro čtení: běželo by
+    // mimo transakci, přežilo by její rollback a revizi by obešlo.
+    const { result: updatedBlock } = await withRevision(
+      {
+        action: "PRINT_COMPLETE",
+        label: completed ? "Potvrzení tisku" : "Vrácení tisku",
+        user: { id: userId, username },
+      },
+      async (tx) => {
+        const updated = await tx.block.update({
+          where: { id: blockId },
+          data: completed
+            ? {
+                printCompletedAt: new Date(),
+                printCompletedByUserId: userId,
+                printCompletedByUsername: username,
+              }
+            : {
+                printCompletedAt: null,
+                printCompletedByUserId: null,
+                printCompletedByUsername: null,
+              },
+        });
+        await tx.auditLog.create({
+          data: {
+            blockId,
+            orderNumber: block.orderNumber,
+            userId,
+            username,
+            action: auditAction,
+          },
+        });
+        return updated;
+      },
+    );
 
     // Refetch s Reservation include pro reservationConfirmedAt
     const blockWithRes = await prisma.block.findUnique({

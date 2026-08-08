@@ -6,6 +6,7 @@ import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expeditio
 import { prisma } from "@/lib/prisma";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
+import { withRevision } from "@/lib/revision.server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -76,7 +77,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
 
     try {
-      const siblingGroupId = await prisma.$transaction(async (tx) => {
+      // Transakci otevírá `withRevision` — `updateMany` níž mění expediční pořadí
+      // CELÉ split skupiny, takže revizi dostane každý její člen (zachycení se řídí
+      // `where` toho updateMany). Uvnitř těla se nesmí sáhnout na modulový `prisma`
+      // ani pro čtení: běželo by mimo transakci a revizi by obešlo.
+      const { result: siblingGroupId } = await withRevision(
+        {
+          action: "EXPEDITION",
+          label: "Změna pořadí v expedici",
+          user: { id: session.id, username: session.username },
+        },
+        async (tx) => {
         const currentBlock = await tx.block.findUnique({
           where: { id },
           select: { id: true, expeditionPublishedAt: true, splitGroupId: true },
@@ -101,7 +112,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         });
 
         return currentBlock.splitGroupId;
-      });
+        // Tělo výše si drží PŮVODNÍ odsazení — přeformátovat ho kvůli jednomu
+        // zanoření navíc by zbytečně nafouklo diff i recenzi (týž postup jako u PUT).
+        },
+      );
 
       emitSSE("block:expedition-changed", { sourceUserId: session.id });
       return await expeditionSiblingResponse(id, siblingGroupId, session);
@@ -120,7 +134,17 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    const siblingGroupId = await prisma.$transaction(async (tx) => {
+    // Táž konstrukce jako u reorderu výš: `withRevision` podstrčí klient s obalenými
+    // delegáty `block` a `auditLog`, takže zařazení i vyřazení zanechá revizi u KAŽDÉHO
+    // člena split skupiny (updateMany níž jede přes id celé skupiny) a auditní řádky
+    // téže transakce dostanou shodné `groupId`. Modulový `prisma` je v těle zakázaný.
+    const { result: siblingGroupId } = await withRevision(
+      {
+        action: "EXPEDITION",
+        label: action === "publish" ? "Zařazení do expedice" : "Vyřazení z expedice",
+        user: { id: session.id, username: session.username },
+      },
+      async (tx) => {
       const currentBlock = await tx.block.findUnique({
         where: { id },
         select: {
@@ -222,7 +246,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       }
 
       return currentBlock.splitGroupId;
-    });
+      // Tělo výše si drží PŮVODNÍ odsazení — viz komentář u reorderu.
+      },
+    );
 
     emitSSE("block:expedition-changed", { sourceUserId: session.id });
     return await expeditionSiblingResponse(id, siblingGroupId, session);
