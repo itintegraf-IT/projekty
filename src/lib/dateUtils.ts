@@ -104,6 +104,15 @@ const PRAGUE_DATETIME_FMT = new Intl.DateTimeFormat("cs-CZ", {
   minute: "2-digit",
 });
 
+const PRAGUE_WEEKDAY_FMT = new Intl.DateTimeFormat("cs-CZ", {
+  timeZone: BUSINESS_TIME_ZONE,
+  weekday: "short",
+  day: "numeric",
+  month: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 /** UTC Date → Praha hodina (0–23), pro předvyplnění editačních formulářů */
 export function utcToPragueHour(date: Date): number {
   return parsePragueHour(PRAGUE_HOUR_FMT.format(date));
@@ -216,6 +225,21 @@ export function formatPragueTime(date: Date): string {
 
 export function formatPragueDateTime(date: Date): string {
   return PRAGUE_DATETIME_FMT.format(date);
+}
+
+/**
+ * „so 8. 8. 14:00" — tvar pro panel historie bloku (`revisionFormat.ts`).
+ *
+ * Vlastní formátovač, ne parametr stávajícího: `formatPragueDateTime` dává
+ * „08.08.2026 14:00" a den v týdnu neumí. Jediné `weekday: "short"` v tomhle
+ * souboru běží pod locale `"en"` (PRAGUE_PARTS_FMT) a slouží k VÝPOČTU čísla
+ * dne, ne k zobrazení — přepnout ho na češtinu by rozbilo `pragueOf`.
+ *
+ * Rok se schválně nevypisuje: v historii bloku jde o řádově dny kolem dneška
+ * a den v týdnu nese pro plánovače víc informace („přesunuto na pátek").
+ */
+export function formatPragueDateTimeWithWeekday(date: Date): string {
+  return PRAGUE_WEEKDAY_FMT.format(date);
 }
 
 export function formatCivilDate(dateStr: string | null | undefined): string {

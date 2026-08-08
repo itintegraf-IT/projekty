@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   addMonthsToCivilDate,
+  formatPragueDateTimeWithWeekday,
   normalizeCivilDateInput,
   parseCivilDateWriteInput,
   pragueOf,
@@ -98,4 +99,20 @@ test("clamps monthly civil-date recurrence to the end of the target month", () =
   assert.equal(addMonthsToCivilDate("2026-01-31", 1), "2026-02-28");
   assert.equal(addMonthsToCivilDate("2024-01-31", 1), "2024-02-29");
   assert.equal(addMonthsToCivilDate("2026-03-31", -1), "2026-02-28");
+});
+
+test("formatPragueDateTimeWithWeekday dává tvar „so 8. 8. 14:00“ v pražském čase", () => {
+  // Panel historie bloku potřebuje den v týdnu — plánovač čte „přesunuto na pátek",
+  // ne „přesunuto na 8. 8.". `formatPragueDateTime` dává 08.08.2026 14:00 bez dne.
+  assert.equal(formatPragueDateTimeWithWeekday(new Date("2026-08-08T12:00:00Z")), "so 8. 8. 14:00");
+  assert.equal(formatPragueDateTimeWithWeekday(new Date("2026-08-11T04:00:00Z")), "út 11. 8. 06:00");
+});
+
+test("formatPragueDateTimeWithWeekday respektuje přechod letního času", () => {
+  // Konec října: 24. 10. je ještě CEST (UTC+2), 26. 10. už CET (UTC+1).
+  assert.equal(formatPragueDateTimeWithWeekday(new Date("2026-10-24T06:00:00Z")), "so 24. 10. 08:00");
+  assert.equal(formatPragueDateTimeWithWeekday(new Date("2026-10-26T06:00:00Z")), "po 26. 10. 07:00");
+  // Konec března: 27. 3. je ještě CET, 30. 3. už CEST.
+  assert.equal(formatPragueDateTimeWithWeekday(new Date("2026-03-27T06:00:00Z")), "pá 27. 3. 07:00");
+  assert.equal(formatPragueDateTimeWithWeekday(new Date("2026-03-30T06:00:00Z")), "po 30. 3. 08:00");
 });
