@@ -778,3 +778,54 @@ scénáře skládajícího přesně tenhle případ ze skutečných čistých fu
 - `src/app/api/auth/login/route.ts`
 - `src/app/api/auth/logout/route.ts`
 
+
+## Etapa B1 — serverové revize bloků („černá skříňka"), 7.–8. 8. 2026
+
+**Proč vznikla.** `AUDITED_FIELDS` neobsahuje `startTime`, `endTime`, `machine`
+ani `printMinutes`, takže **jednoblokové přetažení nezapsalo do historie vůbec
+nic**. To znemožnilo hladkou rekonstrukci havárií plánu z 5. a 6. 8. 2026.
+Druhý motiv: atomické undo (etapa A) zapisuje doslova ze snapshotu, který
+skládal klient — a třikrát nezávisle se stalo, že v něm chybělo pole, které
+server dopočítává.
+
+**Co se postavilo.** Tabulka `BlockRevision` + pomocník `withRevision`
+(`src/lib/revision.server.ts`), který otevírá transakci sám a tělu předá klient
+s podstrčenými delegáty `block` a `auditLog`. Zachycení „před" stavu se řídí
+`where` samotného zápisu, takže volající nikde nevyjmenovává pole ani bloky —
+na revizi tedy nejde zapomenout. Zapojeno všech 9 mutačních cest. Panel historie
+bloku nově slučuje `AuditLog` a `BlockRevision` do jedné osy s potlačením
+po sloupcích.
+
+**Co etapa NEŘEŠÍ.** Undo nad revizemi (to je etapa B2, vlastní spec, až tabulka
+pár týdnů poběží na produkci). Historie dál nepřežije reload prohlížeče.
+
+**Poučení, která stojí za zapamatování:**
+
+- **Pomocník uzavírá delegáty a vnořené relace strukturálně, ale globální klient
+  `prisma` v uzávěru těla uzavřít neumí.** Tvrzení „jinudy zapsat nejde" bylo
+  v první verzi nepravdivé a muselo se přeformulovat — od něj se odvozuje,
+  jak pečlivě se revidují nové routy.
+- **Skutečný běh chytí, co unit test nechytí.** `$queryRaw` se propouštěl
+  nesvázaný a shazoval `assertNoOverlapForBlocks` — povinnou pojistku VŠECH
+  zápisových cest. Testy to nechytily, protože ten kód nevolaly.
+- **Povinný parametr > tichý výchozí.** Když `scheduleSlotFinder` dostal klienta
+  povinně, překladač hned odhalil volání ve skriptu mimo hlavní strom, o kterém
+  plán nevěděl. S tichým výchozím by prošlo beze slova a psalo mimo skříňku.
+- **Kaskády referenční integrity jsou slepé místo.** `ON DELETE SET NULL` nad
+  `recurrenceParentId` rozpadl sérii bez jediné revize. Řeší se tím, že se
+  kaskáda **výslovně provede přes `rtx` před smazáním** (v DELETE i v undu).
+- **Nejcennější vady vznikají ze setkání dvou nevinných kusů.** Mapa pokrytí
+  zahazovala revizi u potvrzení tisku s odůvodněním „pokrývá ji auditní řádek",
+  ale panel ten auditní řádek neuměl vykreslit — potvrzení tisku by z osy
+  zmizelo úplně. Ani jedna část sama o sobě chyba nebyla.
+- **Ověřovat proti datům, ne proti návrhu.** Řetězec `startTime/endTime/machine`
+  v historii píšou DVA psavci a každý jinak: undo hodnoty stroje neobsahuje,
+  legacy dávkový zápis ano. Plošná oprava by byla chybná.
+
+**Validace, která rozhodla.** Multi-agent review poskládala ze samotné tabulky
+`BlockRevision` zpátky současný stav databáze — třikrát nezávisle, sloupec po
+sloupci, 145 revizí, **0 neshod**. Plus diferenciální běh 85 kroků proti stavu
+před zapojením: 0 rozdílů ve stavových kódech, odpovědích i obsahu tabulek.
+
+Spec: `docs/superpowers/specs/2026-08-07-undo-serverove-revize-design.md`
+Plán: `docs/superpowers/plans/2026-08-07-etapa-b1-serverove-revize.md`

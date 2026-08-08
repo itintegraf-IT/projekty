@@ -588,3 +588,46 @@ neexistuje a jejíž skutečná data nikdo neviděl.**
 B2 dostane vlastní spec, až `BlockRevision` pár týdnů poběží na produkci. Tehdy
 půjde stavět proti reálným revizím, ne proti domněnkám — přesně kvůli tomu bylo
 členění na B1/B2 od začátku zvolené.
+
+---
+
+## 12. Známé meze po dokončení B1 (doplněno 8. 8. 2026)
+
+Zapsáno po dvou multi-agent recenzích, aby na ně spec etapy B2 a případná
+stránka rekonstrukce nespadly implicitně.
+
+**Co skříňka nezachytí.** Zápis přes globální klient `prisma` uvnitř těla
+`withRevision` (strukturálně neuzavíratelné, hlídá code review a pravidlo
+v `CLAUDE.md`) · DML uvnitř migrací · kaskády referenční integrity, které se
+výslovně neprovedou přes `rtx` (dnes ošetřen jediný existující případ,
+`ON DELETE SET NULL` nad `recurrenceParentId`).
+
+**Marker neúplného zachycení není v ose vidět.** Degradovaný záznam
+(`partial: true`) se zapisuje s `blockId: 0`, takže ho dotaz na historii
+konkrétního bloku nenajde. Dotaz pro rekonstrukci ho musí hledat adresně.
+
+**Jedno gesto uživatele může vyrobit VÍC `groupId`.** „Uložit vše → Celou
+sérii", překlopení rezervace, lasso mazání i skupinové vložení posílají
+N samostatných požadavků, tedy N transakcí. Předpoklad „1 groupId = 1 akce"
+NEPLATÍ a etapa B2 s tím musí počítat (spec B2 to má jako vstupní podmínku).
+
+**Osa stroje potřebuje UNION.** Přesun mezi stroji zapíše do
+`BlockRevision.machine` ZDROJOVÝ stroj; cílový je v `after.machine`. Dotaz
+„co se dělo se strojem X" proto musí spojit páteřní `WHERE machine = ?`
+s `JSON_EXTRACT(after, '$.machine') = ?`.
+
+**Kdo blok skutečně chytil.** Chain push se pozná z auditních řádků
+`AUTO_SHIFT` ve stejné `groupId`; propagace do rozdělené zakázky ze sloupce
+`viaMany`. U expedičních cest má `viaMany` i primární blok (routa staví
+seznam z celé skupiny), takže skupina samých `true` znamená „nikdo nebyl
+jmenován adresně" — ne že by se to odněkud propagovalo.
+
+**Vzkříšený blok nedostane revizní řádek v panelu.** Undo mazání vyrobí
+revizi `kind: "CREATE"` s plným snapshotem, ale mapa pokrytí ji označí jako
+pokrytou auditním řádkem `restore`. Data v tabulce jsou, jen se v ose
+nevykreslují dvakrát.
+
+**Strop celostrojového přepočtu.** Doba roste nadlineárně (300 → 600 bloků
+= 2× práce, ale ~3,5× čas). 600 bloků trvá 7,6–8,2 s, tedy 27 % z 30s limitu;
+extrapolace ho vyčerpá kolem 1 100–1 300 bloků na stroj v 365denním okně.
+Naměřeno stejně před i po zavedení revizí — není to jejich režie.

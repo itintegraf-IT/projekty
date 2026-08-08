@@ -9,7 +9,7 @@
 ```bash
 npm run build        # build (spustit lokálně před pushem — chytí TS chyby dřív než server)
 npm run lint         # vrací warningy, 0 chyb je OK
-# celá test suite (758 testů, node:test + tsx) — glob NEJDE do podsložek,
+# celá test suite (846 testů, node:test + tsx) — glob NEJDE do podsložek,
 # proto se každá složka s testy musí uvést zvlášť (jinak tiše nepoběží):
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
 ```
@@ -33,7 +33,8 @@ Modul `/tiskar` byl zrušen (mrtvý kód) — tiskař jede na `/`.
 ## Data & DB
 
 - Zdroj pravdy schématu: `prisma/schema.prisma` (datasource `mysql`); migrace v `prisma/migrations/`.
-- Modely: `Block`, `Reservation`, `ReservationAttachment`, `Notification`, `JobPreset`, `CodebookOption`, `CompanyDay`, `MachineWeekShifts`, `MachineWorkHours` (jen bootstrap/legacy), `User`, `AuditLog`, `SplitGroup`.
+- Modely: `Block`, `Reservation`, `ReservationAttachment`, `Notification`, `JobPreset`, `CodebookOption`, `CompanyDay`, `MachineWeekShifts`, `MachineWorkHours` (jen bootstrap/legacy), `User`, `AuditLog`, `SplitGroup`, `BlockRevision`.
+- **`BlockRevision`** = „černá skříňka" změn plánu (etapa B1, 8/2026). Ke každé změně bloku drží, jak řádek vypadal předtím a potom. Retence 90 dní, úklid `scripts/prune-revisions.ts` (cron, `docs/OPS_ZALOHY.md`). ZÁMĚRNĚ bez cizího klíče na `Block` — revize musí přežít smazání bloku a produkční `Block.id` je `INT UNSIGNED`. Vzniklo proto, že `AUDITED_FIELDS` neobsahuje `startTime`/`endTime`/`machine`/`printMinutes`, takže jednoblokový přesun nezanechával v historii stopu (viz havárie plánu 5. a 6. 8. 2026).
 - Přílohy: metadata v `ReservationAttachment`, obsah na disku `data/reservation-attachments/<reservationId>/<storageKey>`.
 - **Pracovní doba**: runtime jede na `MachineWeekShifts` (per-týden, flag-only: morningOn/afternoonOn/nightOn). Fixní časy směn MORNING 6–14, AFTERNOON 14–22, NIGHT 22–6 (`src/lib/shifts.ts`).
 - **Datum na serveru**: vždy `new Date(datePart + "T00:00:00.000Z")`, nikdy `getFullYear/Month/Date`. Prague helpery v `src/lib/dateUtils.ts`.
@@ -101,6 +102,15 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 - **Strop 200 operací** v jedné undo dávce (`sanitizeUndoOps`) — nad tím 400 `VALIDATION_ERROR`.
 - **`Block.id` po undo obnově zůstává PŮVODNÍ** (žádný remap) — undo mazání smaže řádek, undo vzkříšení ho vytvoří zpátky se STEJNÝM id (MySQL `AUTO_INCREMENT` se explicitním vložením nižší hodnoty nesnižuje). Mění to předpoklad „smazaný blok je pryč navždy" — `AuditLog.blockId` i `Notification` na něj mohou po redu znovu ukazovat platný řádek.
 
+**Každá mutace bloku běží uvnitř `withRevision`** (`src/lib/revision.server.ts`). Pomocník otevírá transakci SÁM a tělu předá klient s podstrčenými delegáty `block` a `auditLog`; zachycení „před" stavu se řídí `where` samotného zápisu, takže volající nikde nevyjmenovává pole ani bloky. Zapojeno je všech 9 cest (POST · PUT · DELETE · batch · split · reflow ×2 · undo · complete · expedition) a hlídá to `src/lib/revisionWiring.test.ts`.
+- **Uvnitř těla je jakékoliv `prisma.*` ZAKÁZANÉ, i pro čtení.** Zápis přes globální klient přežije rollback a revizi nevytvoří. Pozor na NEPŘÍMÉ nosiče — funkce, které si klienta berou z importu; `scheduleSlotFinder.ts` a `jobPresetServer.ts` proto klienta přijímají parametrem. Před každou novou cestou: `grep -rn 'from "@/lib/prisma"' src/lib/`.
+- **Vnořený relační zápis do `Block` je zakázaný** (`data: { splitGroup: { … } }`, `data: { other_Block_… : { … } }` apod.) — jádro ho odmítne výjimkou. Prošel by i skrz povolený `rtx.block.update` a změnil cizí blok bez revize.
+- **Delegát zakazuje vše, co výslovně nepovolí.** Neznámá zápisová metoda (dnes `createManyAndReturn`, zítra cokoliv nového v Prismě) spadne s hláškou místo aby tiše obešla skříňku. `block.createMany` hází — MySQL nevrací id, takže revizi nejde přiřadit.
+- **`withRevision` NEJDE vnořit** (hlídá `AsyncLocalStorage`) — obaluj ROUTU, ne sdílený helper.
+- **Co pomocník uzavřít NEUMÍ:** globální klient `prisma` v uzávěru těla (hlídá jen code review), kaskády referenční integrity a DML uvnitř migrací. `ON DELETE SET NULL` nad `recurrenceParentId` se proto v DELETE i v undu **výslovně provádí přes `rtx` před smazáním** — bez toho rozpadne sérii bez jediné stopy.
+- **Nový `Boolean`/`DateTime` sloupec na `Block`** MUSÍ přibýt do `src/lib/revision/blockColumns.ts` — hlídá strážný test proti schématu.
+- **Nová hodnota `AuditLog.action`/`field`** MUSÍ přibýt do `src/lib/auditCoverage.ts`, jinak se řádek v historii zdvojí. Pozor: `field` u undo neurčuje pokrytí sám — seznam sloupců je v `newValue`.
+
 ## Design tokens a vizuální konvence
 
 - Barvy/rozměry **vždy přes CSS tokeny** z `src/app/globals.css`, **nikdy hex/rgba literál** v komponentě (rozbíjí light mode): `--bg`/`--text`/`--text-muted`, `--surface`/`--surface-2`/`--surface-3`, `--border`, `--ring`, `--brand`/`--brand-contrast`, `--danger`/`--success`/`--warning`/`--info`.
@@ -113,7 +123,9 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 ## Klíčové soubory (index — detail čti v kódu)
 
-**Sdílené jádro:** `src/lib/errors.ts` (AppError/errorStatus) · `authz.ts`+`auth.ts` (requireRole) · `logger.ts` · `scheduleValidationServer.ts` (validateAndComputeEnd) · `printTime.ts`/`printTime.server.ts`/`printTimeClient.ts` (tiskové hodiny) · `blockPayload.ts` (Block→POST payload, jediný zdroj) · `blockStyles.ts` · `machines.ts` · `zLayers.ts` · `dateUtils.ts` · `plannerTypes.ts` · `uiStyles.ts` · `reflow.server.ts` · `calendarDrift.server.ts` · `findConflictingBlocks.ts` · `undoApply.server.ts` (atomické undo/redo, `sanitizeUndoOps`+`applyUndoOps`) · `splitSharedFields.ts` (`SPLIT_SHARED_FIELDS`, sdílené serverem i klientem) · `undo/restoreFields.ts` (`UNDO_RESTORABLE_FIELDS` allowlist) · `undo/splitSiblingFields.ts` (`buildSplitEditTargets`/`buildSplitEditTargetsWithShifted`/`buildPassiveSiblingTargets`).
+**Sdílené jádro:** `src/lib/errors.ts` (AppError/errorStatus) · `authz.ts`+`auth.ts` (requireRole) · `logger.ts` · `scheduleValidationServer.ts` (validateAndComputeEnd) · `printTime.ts`/`printTime.server.ts`/`printTimeClient.ts` (tiskové hodiny) · `blockPayload.ts` (Block→POST payload, jediný zdroj) · `blockStyles.ts` · `machines.ts` · `zLayers.ts` · `dateUtils.ts` · `plannerTypes.ts` · `uiStyles.ts` · `reflow.server.ts` · `calendarDrift.server.ts` · `findConflictingBlocks.ts` · `undoApply.server.ts` (atomické undo/redo, `sanitizeUndoOps`+`applyUndoOps`) · `splitSharedFields.ts` (`SPLIT_SHARED_FIELDS`, sdílené serverem i klientem) · `undo/restoreFields.ts` (`UNDO_RESTORABLE_FIELDS` allowlist) · `undo/splitSiblingFields.ts` (`buildSplitEditTargets`/`buildSplitEditTargetsWithShifted`/`buildPassiveSiblingTargets`) · `prismaTx.ts` (`PrismaTransactionClient`, jediný zdroj).
+
+**Revize bloků (černá skříňka, etapa B1):** `src/lib/revision.server.ts` (`withRevision`, podstrčené delegáty, allow-list metod) · `revision/blockColumns.ts` (Boolean/DateTime sloupce `Block`) · `revision/rowNormalize.ts` (raw řádek → typovaný) · `revision/diff.ts` (`computeRevisionDiff`, BEZ `updatedAt`) · `auditCoverage.ts` (`coveredColumns` — co už pokrývá audit) · `revisionFormat.ts` (`formatRevisionLines` — české věty) · `blockHistory.ts` (`BlockHistoryEntry`, sloučená osa) · `revisionWiring.test.ts` (strážný test zapojení všech 9 cest) · `scripts/prune-revisions.ts` (retence 90 dní).
 
 **Planner:** `src/app/_components/PlannerPage.tsx` (orchestrátor ~3109 ř.) · `TimelineGrid.tsx` (~2355 ř.) · `src/components/planner/BlockCard.tsx` (render bloku) · `src/hooks/useJobBuilder.ts` + `src/components/planner/JobBuilderPanel.tsx` (builder) · `src/components/planner/ProductionTagsRow.tsx` (sdílený řádek výrobních štítků OBÁLKA/VNITŘKY + archy/série — BlockEdit i builder) · `ShutdownManager.tsx` · `ResizeHandle.tsx` · `src/components/BlockEdit.tsx`/`BlockDetail.tsx`/`NativeSelect.tsx`/`PrimaryCta.tsx`/`ModuleHeader.tsx`/`ConfirmDialog.tsx`.
 
