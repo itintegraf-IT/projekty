@@ -9,15 +9,32 @@ import type { AuditCoverageRow } from "@/lib/auditCoverage";
 type RouteContext = { params: Promise<{ id: string }> };
 
 /**
- * Kolik položek panel historie zobrazí (a kolik se jich načte z každého zdroje).
+ * Kolik řádků se načte Z KAŽDÉHO ZDROJE zvlášť. NENÍ to strop na celou odpověď —
+ * ta jich může nést až dvojnásobek (20 auditních + 20 revizních).
  *
- * 20, ne 10: jedno uložení z BlockEditu s mnoha vyplněnými poli vyrobí až deset
- * auditních řádků NAJEDNOU (změřeno: 13 změněných auditovaných polí = 10 řádků),
- * takže při stropu 10 vyplnily celé okno a revize o PŘESUNU z panelu vypadla —
- * přitom přesun je jediná věc, kterou jinde dohledat nejde. Panel má
- * `maxHeight: 220` + `overflowY: auto`, takže se vizuálně nic nerozjede.
+ * Společný strop na SLOUČENÝ seznam tu být NESMÍ, a to je celý smysl téhle
+ * konstrukce: auditních řádků je vždycky řádově víc než revizních, protože jedno
+ * uložení z BlockEditu jich vyrobí spoustu v JEDINÉ transakci: `AUDITED_FIELDS`
+ * má 23 položek, takže horní mez je 23 řádků, a bohaté uložení se naměřilo na
+ * 12–18 (ověřeno 9. 8. 2026 během endpointu nad dev DB — 18 změněných
+ * auditovaných polí dalo 18 řádků). Revizí přitom ze stejné
+ * transakce vznikne typicky JEDNA. Jakýkoli společný ořez proto revize
+ * SYSTEMATICKY vytlačí — a revize je u některých změn jediný záznam, který
+ * existuje: `machine` v `AUDITED_FIELDS` není, takže o přesunu bloku na jiný
+ * stroj jinde stopa NENÍ. Měřeno na produkční kopii (931 bloků / 3602 auditních
+ * řádků) mělo víc než 20 auditních řádků 6 bloků, tedy 0,6 % — jenže jsou to
+ * zrovna ty nejrušnější, tedy přesně ty, které někdo po havárii vyšetřuje.
+ *
+ * Známá vlastnost dvou nezávislých oken: konec seznamu je „roztřepený". Když
+ * jsou auditní řádky husté a revize řídké, sahá revizní okno časově dál a pod
+ * auditní hranicí už jsou v ose vidět jen revize. Je to vědomá cena za to, že
+ * se řídký zdroj vůbec zobrazí; alternativa (ořez na novější z obou hranic) je
+ * přesně ta vada, kterou tenhle komentář popisuje.
+ *
+ * Panel má `maxHeight: 220` + `overflowY: auto` (`BlockDetail.tsx`), takže se
+ * ani při plných 40 položkách vizuálně nic nerozjede.
  */
-const HISTORY_LIMIT = 20;
+const PER_SOURCE_LIMIT = 20;
 
 export async function GET(_: NextRequest, { params }: RouteContext) {
   const session = await getSession();
@@ -37,20 +54,20 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
       prisma.auditLog.findMany({
         where: { blockId: id },
         orderBy: { createdAt: "desc" },
-        take: HISTORY_LIMIT,
+        take: PER_SOURCE_LIMIT,
       }),
       prisma.blockRevision.findMany({
         where: { blockId: id },
         orderBy: { createdAt: "desc" },
-        take: HISTORY_LIMIT,
+        take: PER_SOURCE_LIMIT,
       }),
     ]);
 
-    // Predikát potlačení NEJDE vyhodnotit z desetiřádkového okna auditu výš —
-    // jedno uložení z BlockEditu vyrobí přes deset auditních řádků, takže starší
-    // skupina by z okna vypadla a její revize by se zobrazila, přestože potlačena
-    // být má. Výsledek by tak závisel na tom, kolik řádků má nejnovější editace.
-    // Ptáme se proto cíleně na dotčené groupId, nezávisle na okně.
+    // Predikát potlačení NEJDE vyhodnotit z auditního okna výš — jedno uložení
+    // z BlockEditu vyrobí i osmnáct auditních řádků, takže starší skupina by
+    // z dvacetiřádkového okna vypadla a její revize by se zobrazila, přestože
+    // potlačena být má. Výsledek by tak závisel na tom, kolik řádků má nejnovější
+    // editace. Ptáme se proto cíleně na dotčené groupId, nezávisle na okně.
     const groupIds = revisionRows.map((r) => r.groupId);
     // Druhý dotaz ze stejného důvodu: jestli byl v téže transakci NĚKDO jmenován
     // adresně, se z revizí tohohle bloku poznat nedá — adresný cíl je typicky
@@ -129,8 +146,13 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
 
     // Jedna časová osa, ne dva seznamy. Řetězcové porovnání stačí — obě strany
     // jsou `toISOString()`, tedy týž formát pevné délky.
+    //
+    // Sloučený seznam se ZÁMĚRNĚ neořezává (viz `PER_SOURCE_LIMIT`): oříznutí by
+    // padlo na revize, protože jich je proti auditu vždycky málo. Strop drží samy
+    // dotazy — víc než `2 × PER_SOURCE_LIMIT` položek sem přijít nemůže a panel
+    // scrolluje.
     entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return NextResponse.json(entries.slice(0, HISTORY_LIMIT));
+    return NextResponse.json(entries);
   } catch (error) {
     logger.error(`[GET /api/blocks/${id}/audit]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });

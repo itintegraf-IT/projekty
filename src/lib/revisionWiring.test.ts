@@ -19,6 +19,20 @@ import { join } from "node:path";
  * NENAHRAZUJE integrační test, který by ověřil obsah zapsaného řádku; ten je
  * pořád dluh (`groupId` společný s auditem, `kind`, `before`/`after`).
  *
+ * Hlídají se DVĚ věci a každá má vlastní smyčku testů:
+ *  1. cesta pořád volá `withRevision` a nese správné hodnoty `action`;
+ *  2. UVNITŘ těla `withRevision` není modulový singleton `prisma`. Tohle je
+ *     poslední známá úniková cesta a jediná, kterou pomocník neuzavírá
+ *     strukturálně: `prisma` je v uzávěru každého těla (routy si ho importují
+ *     nahoře kvůli refetchi ZA transakcí), takže `prisma.block.update` uvnitř
+ *     těla projde typovou kontrolou, lintem i celou suitou — a přitom obejde
+ *     revizi a PŘEŽIJE rollback, protože běží mimo transakci.
+ *
+ * Na co ani druhá kontrola NEDOSÁHNE: nepřímý nosič, tedy helper volaný z těla,
+ * který si klienta bere z importu místo z parametru (dnes
+ * `src/lib/scheduleSlotFinder.ts`). V routě to vidět není a text zdrojáku o tom
+ * neví — tohle zůstává na code review.
+ *
  * Když sem přibude desátá mutační cesta, patří do tabulky níž — jinak ji tenhle
  * test neuhlídá a mlčky projde.
  */
@@ -96,12 +110,18 @@ function readRoute(file: string): string {
   return stripComments(readFileSync(join(process.cwd(), file), "utf8"));
 }
 
-/** Text prvního vyváženého `{ … }` za daným indexem (nad zdrojákem bez komentářů). */
-function balancedObjectAfter(src: string, from: number): string {
-  const start = src.indexOf("{", from);
-  assert.notEqual(start, -1, "za withRevision( musí následovat meta objekt");
+/**
+ * Index znaku, který uzavírá závorku otevřenou na `openIdx` (`(` nebo `{`).
+ *
+ * Řetězcové literály se přeskakují celé: apostrof v české větě uvnitř `label`
+ * nebo závorka v šablonovém řetězci by jinak rozhodily počítání a vymezení
+ * těla by se posunulo — tedy tichá slepá skvrna přesně tam, kde má test hlídat.
+ */
+function matchBalanced(src: string, openIdx: number): number {
+  const open = src[openIdx];
+  const close = open === "(" ? ")" : "}";
   let depth = 0;
-  let i = start;
+  let i = openIdx;
   while (i < src.length) {
     const ch = src[i];
     if (ch === '"' || ch === "'" || ch === "`") {
@@ -111,14 +131,21 @@ function balancedObjectAfter(src: string, from: number): string {
       i++;
       continue;
     }
-    if (ch === "{") depth++;
-    if (ch === "}") {
+    if (ch === open) depth++;
+    else if (ch === close) {
       depth--;
-      if (depth === 0) return src.slice(start, i + 1);
+      if (depth === 0) return i;
     }
     i++;
   }
-  assert.fail("nevyvážené závorky v meta objektu withRevision");
+  assert.fail("nevyvážené závorky ve zdrojáku routy");
+}
+
+/** Text prvního vyváženého `{ … }` za daným indexem (nad zdrojákem bez komentářů). */
+function balancedObjectAfter(src: string, from: number): string {
+  const start = src.indexOf("{", from);
+  assert.notEqual(start, -1, "za withRevision( musí následovat meta objekt");
+  return src.slice(start, matchBalanced(src, start) + 1);
 }
 
 /** Všechna volací místa `withRevision(` a text jejich meta objektu. */
@@ -133,6 +160,40 @@ function revisionMetas(src: string): string[] {
   }
   return metas;
 }
+
+/**
+ * Text TĚLA každého volání `withRevision(` — tedy druhého argumentu, bez meta
+ * objektu. Vymezuje se párováním závorek: od `(` za jménem funkce k jejímu `)`,
+ * a z toho se odřízne meta objekt.
+ *
+ * Odříznout meta je nutné, ne kosmetické — kdyby se hledalo přes celý argument,
+ * byl by rozsah sice širší, ale test by přestal mluvit o „těle" a jeho hláška by
+ * ukazovala na místo, kde pravidlo neplatí.
+ */
+function revisionBodies(src: string): string[] {
+  const bodies: string[] = [];
+  let from = 0;
+  for (;;) {
+    const at = src.indexOf("withRevision(", from);
+    if (at === -1) break;
+    const openParen = at + "withRevision".length;
+    const closeParen = matchBalanced(src, openParen);
+    const metaStart = src.indexOf("{", openParen + 1);
+    assert.ok(metaStart !== -1 && metaStart < closeParen, "za withRevision( musí následovat meta objekt");
+    bodies.push(src.slice(matchBalanced(src, metaStart) + 1, closeParen));
+    from = at + 1;
+  }
+  return bodies;
+}
+
+/**
+ * Modulový singleton `prisma` — hledá se jen tenhle tvar, ne jakékoli „prisma".
+ *
+ * `\b` odstíní `myPrisma.` i `prismaTx`, malé počáteční písmeno odstíní typový
+ * namespace `Prisma.` (`Prisma.join`, `Prisma.DbNull`), který je legitimní všude.
+ * Import `from "@/lib/prisma"` se netrefí, protože za ním není tečka.
+ */
+const MODULE_PRISMA = /\bprisma\s*\./;
 
 for (const route of ROUTES) {
   test(`${route.file} zapisuje revize přes withRevision`, () => {
@@ -172,6 +233,32 @@ for (const route of ROUTES) {
       [...route.actions].sort(),
       "hodnoty action se neshodují — u párových cest musí jít poznat směr (K5)",
     );
+  });
+}
+
+for (const route of ROUTES) {
+  test(`${route.file} nesahá uvnitř withRevision na modulový prisma`, () => {
+    const src = readRoute(route.file);
+    const bodies = revisionBodies(src);
+
+    // Bez tohohle by se test uměl „uzdravit" sám: kdyby vymezení těla selhalo
+    // a vrátilo prázdný seznam, projde smyčka níž naprázdno a zelená by
+    // znamenala jen to, že se nic nekontrolovalo.
+    assert.equal(
+      bodies.length,
+      route.calls,
+      `nepodařilo se vymezit ${route.calls} těl withRevision (nalezeno ${bodies.length})`,
+    );
+
+    for (const body of bodies) {
+      assert.equal(
+        MODULE_PRISMA.test(body),
+        false,
+        "uvnitř těla withRevision je modulový `prisma` — zápis by revizi obešel a PŘEŽIL by " +
+        "rollback transakce, protože běží mimo ni. Do Block se píše výhradně přes rtx.block.*, " +
+        "a ani číst se uvnitř těla přes `prisma` nesmí. Refetch a odpověď patří AŽ ZA volání.",
+      );
+    }
   });
 }
 
