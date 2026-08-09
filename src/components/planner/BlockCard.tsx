@@ -671,9 +671,11 @@ export function BlockCard({
       {!!calendarDrift && (MODE_FULL || MODE_COMPACT || MODE_TINY) && (
         <span
           title={
-            calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd
-              ? `Konec nesedí na aktuální kalendář (správně do ${formatPragueDateTime(calendarDrift.expectedEnd)})`
-              : "Umístění bloku nesedí na aktuální kalendář"
+            calendarDrift.reason === "STALE_BYPASS"
+              ? "Zakázka je značená jako odložená mimo pracovní dobu, ale kalendáři odpovídá — značku lze zrušit tlačítkem Přepočítat"
+              : calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd
+                ? `Konec nesedí na aktuální kalendář (správně do ${formatPragueDateTime(calendarDrift.expectedEnd)})`
+                : "Umístění bloku nesedí na aktuální kalendář"
           }
           style={{
             position: "absolute",

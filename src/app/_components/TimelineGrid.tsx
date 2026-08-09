@@ -830,9 +830,15 @@ export default function TimelineGrid({
 
         // Honest ghost: jen ZAKAZKA + zapnutý zámek. Jinak (nebo při selhání expanze)
         // dnešní naivní výška = stejná jako originál (blok se jen posouvá, délka se nemění).
+        //
+        // Odložené zakázky se od 8/2026 NEVYJÍMAJÍ: při zamčeném zámku posílá klient
+        // `bypassScheduleValidation: false` a server u skutečné změny pozice bere příznak
+        // Z REQUESTU, ne z bloku (`[id]/route.ts`) — takže odloženou zakázku re-expanduje
+        // přes pauzy a značku zruší. Náhled s naivní výškou ukazoval něco jiného, než co
+        // se po puštění myši stane; nesoulad tu byl už dřív, jen ho nikdo nespojil se značkou.
         let height = originalHeight;
         const sourceBlock = blocksRef.current.find((b) => b.id === ds.blockId);
-        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA" && !sourceBlock.scheduleBypassed) {
+        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA") {
           const pm = blockPrintMinutes(sourceBlock);
           const exp = expandPrintTimeCached(
             newMachine, snappedStart, pm,
@@ -852,7 +858,9 @@ export default function TimelineGrid({
 
         const sourceBlock = blocksRef.current.find((b) => b.id === ds.blockId);
         // Guard nezarovnaného startu (legacy bloky) — computePrintMinutes by v mousemove smyčce házel (vzor getBlockSegments).
-        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA" && !sourceBlock.scheduleBypassed && snappedEnd.getTime() > ds.originalStart.getTime() && ds.originalStart.getTime() % SLOT_MS === 0) {
+        // Odložené zakázky se nevyjímají ze stejného důvodu jako u tažení výš: server je
+        // při zamčeném zámku re-expanduje, takže naivní náhled by lhal.
+        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA" && snappedEnd.getTime() > ds.originalStart.getTime() && ds.originalStart.getTime() % SLOT_MS === 0) {
           const weekShifts = machineWeekShiftsRef.current ?? [];
           const cdIntervals = companyDayIntervalsFor(ds.originalMachine, companyDaysRef.current ?? []);
           const pm = computePrintMinutes(ds.originalMachine, ds.originalStart, snappedEnd, weekShifts, cdIntervals);
