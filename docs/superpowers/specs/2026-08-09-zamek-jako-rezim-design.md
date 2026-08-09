@@ -216,6 +216,45 @@ po kliknutí je `scheduleBypassed = 0` a rozpětí zůstalo 1320 minut.
 
 ## 7. Nasazení
 
+### 7.1 Nasazení nesmí pohnout plánem — tvrdý požadavek
+
+Vojta 9. 8. 2026: *„až tento build dáme na produkci, nechci nic měnit ani přepočítávat.
+Prostě to už takhle je a tak to má být. Nesmí se nic hnout samo."*
+
+Po nasazení musí plán vypadat **přesně jako předtím**. Ověřitelné vlastnosti návrhu:
+
+| Změna | Chování při nasazení |
+| --- | --- |
+| Z1 detektor | jen ČTE (`findMany` + výpočet), nikdy nezapisuje |
+| Z2 přepočet | běží výhradně z `POST /api/blocks/reflow` a `…/[id]/reflow`, tedy na kliknutí |
+| Z3 věta v historii | jen formátování textu |
+| Z4 nápověda štítku | jen text |
+| Z5 náhled při tažení | jen náhled pod myší, žádný zápis |
+| Z6 oprava 18447 | ruční kliknutí, a mění jen příznak |
+
+Etapa **nepřidává žádnou migraci**, žádný startovací ani cron skript, který by data
+měnil. Jediná viditelná změna je, že se objeví štítky u zakázek, které dosud byly
+před kontrolou schované.
+
+**Před nasazením změřit, kolik štítků přibude** (dotaz kopíruje filtr detektoru):
+
+```sql
+SELECT COUNT(*) FROM Block
+WHERE type='ZAKAZKA' AND scheduleBypassed=1 AND printMinutes>0
+  AND printCompletedAt IS NULL AND endTime > NOW();
+```
+
+Očekávání podle měření z 9. 8. 2026: **1** (zakázka 18447). Historických 69 zakázek
+s příznakem má konec v minulosti, takže je detektor nebere.
+
+### 7.2 Rozšířený dosah tlačítka „Přepočítat"
+
+Hromadné „Přepočítat" nad strojem po nasazení zabírá i na odložené zakázky, které dosud
+přeskakovalo. Samo se nespustí, ale **udělá víc než dřív** — uživatele na to upozornit
+při předávání. Hláška hlásí počet přepočtených i přeskočených a krok zpět funguje.
+
+### 7.3 Postup
+
 Nasazuje se **společně s etapou B1** jako jeden celek (rozhodnutí Vojty 9. 8. 2026).
 
 Postup podle `docs/DEPLOY_WORKFLOW.md`: záloha → deploy → `prisma migrate deploy`
