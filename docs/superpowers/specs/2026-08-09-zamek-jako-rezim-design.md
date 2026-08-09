@@ -1,7 +1,24 @@
 # Zámek jako režim aplikace — návrh
 
 **Datum:** 9. 8. 2026 · **Autor rozhodnutí:** Vojta Ťokan
-**Stav:** schválený návrh, čeká na implementační plán
+**Stav:** ⚠ ČÁSTEČNĚ PŘEKONÁNO — implementováno s jednou zásadní odchylkou (viz níž)
+
+> ## ⚠ Co z tohohle návrhu NEPLATÍ
+>
+> Změna **Z1 v serverové části** (odstranit `scheduleBypassed: false` z `where`
+> v `detectCalendarDrift`, přidat tam `STALE_BYPASS`) a **část 7.2** („rozšířený dosah
+> tlačítka Přepočítat") se **nenasadily a nasadit se nemají**. Multi-agent review
+> 9. 8. 2026 ukázala, že příznak není přání uživatele, ale spočítaná pravda serveru
+> (`effectivelyBypassed = !conforms`) — odložená zakázka je tedy z definice nekonformní
+> a v souhrnných kanálech by trvale svítila jako porucha; hromadné „Přepočítat" by ji
+> nevratně vystěhovalo (reflow nemá undo).
+>
+> **Platí místo toho:** serverový filtr zůstává, odložené zakázky posuzuje POUZE klient
+> a ukazují se jako štítek ⏸ ODLOŽENO na kartě té jedné zakázky. Rozhodl Vojta
+> 9. 8. 2026. Zdůvodnění: `docs/POUCENI.md` P12 a docblock `detectCalendarDrift`.
+> Výsledný stav popisuje `docs/vyvoj-historie.md`, sekce k této etapě.
+>
+> Zbytek návrhu (Z2–Z6, oddíl 5, požadavek 7.1 „nasazení nesmí pohnout plánem") platí.
 
 ---
 

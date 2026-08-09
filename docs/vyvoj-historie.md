@@ -901,8 +901,25 @@ Po nasazení se u 18447 objeví štítek a nic víc; plán zůstane bit po bitu 
   kalendář" nad strojem pohání hromadnou akci — cokoliv, co do něj započítám a
   akce se toho nedotkne (nebo naopak), je slib, který aplikace nesplní.
 - **Detekce běžící uvnitř cizí transakce nesmí házet.** `expandPrintTime` na
-  nezarovnaném startu hodí výjimku; v `detectCalendarDrift` by shodila celou úpravu
-  směn chybou 500. Klient tu pojistku měl odjakživa, server ne — doplněna.
+  nezarovnaném startu nebo nekladných minutách hodí výjimku; v `detectCalendarDrift`
+  by shodila celou úpravu směn chybou 500. Dnes je obojí vyloučené dřív (SQL filtr
+  a pre-filtr zarovnání), takže doplněný `try/catch` je **obrana do budoucna, ne
+  oprava dosažitelné chyby** — a testem není pokrytý, protože se k němu vstup
+  nedostane. Klient tu pojistku měl odjakživa.
+
+**Známá omezení, která etapa nezavírá:**
+
+- **Odložená zakázka s nezarovnaným startem zůstává neviditelná.** Klient ji vyřadí
+  guardem zarovnání (žádný štítek), server ji nevidí taky a „Přepočítat" by na ní
+  vrátilo `UNALIGNED`. Nese tedy značku, kterou nikdo neuvidí a nejde zrušit z UI.
+  Takové bloky vznikají undem (zapisuje doslova ze snapshotu, bez mřížkové validace).
+- **`HORIZON_EXCEEDED` nemá test na žádné straně** (starší dluh, ne z této etapy).
+  Projeví se u odložené zakázky jako štítek bez údaje o konci po přepočtu.
+- **Rozhodnutí `moved`/`clearsFlag` v `reflowBlockInTx` stojí na nezamykajícím
+  čtení** (`findUnique`), zatímco zámek bere až `withRevision` při zápisu. Souběžná
+  změna téhož bloku mezi tím může nechat zapsat jen zrušení značky. Je to starší
+  vlastnost té cesty, kterou etapa zúžila na adresné tlačítko; pravidlo
+  „`SELECT … FOR UPDATE` musí být první dotaz v transakci" (CLAUDE.md) tu splněné není.
 
 Spec: `docs/superpowers/specs/2026-08-09-zamek-jako-rezim-design.md`
 Plán: `docs/superpowers/plans/2026-08-09-zamek-jako-rezim.md`

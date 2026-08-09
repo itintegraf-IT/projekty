@@ -165,7 +165,7 @@ export function formatRevisionLines(before: Row, after: Row): string[] {
 
   // 4) ZNAČKA „ODLOŽENO MIMO PRACOVNÍ DOBU". Do 8/2026 byla mezi přeskočenými sloupci
   //    s odůvodněním „vnitřní příznak, mění se jako důsledek změny časů" — to přestalo
-  //    platit: je to stav, který plánovač na kartě VIDÍ (štítek ⚠ KALENDÁŘ) a který se
+  //    platit: je to stav, který plánovač na kartě VIDÍ (štítek ⏸ ODLOŽENO) a který se
   //    mění i bez jediné změny časů (tlačítko „Přepočítat" u zbytkové značky). Bez
   //    vlastní věty by po té změně v historii nezůstala žádná stopa — přesně ta třída
   //    slepého místa, kvůli které revize vznikly.

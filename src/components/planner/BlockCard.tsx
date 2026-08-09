@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { blockPrintMinutes, formatPrintHoursShort, type CalendarDriftInfo } from "@/lib/printTimeClient";
+import { isParkedDrift } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
 import { BLOCK_STYLES, BLOCK_OVERDUE, BLOCK_PRINT_DONE, getBlockStyleKey, tint } from "@/lib/blockStyles";
 import {
@@ -392,8 +393,9 @@ export function BlockCard({
   const isPastDeadline = block.type === "ZAKAZKA"
     && isPastExpeditionDeadline(block.endTime, block.deadlineExpedice);
   // Odložení mimo pracovní dobu (vědomé i zbytkové) vs. skutečný drift kalendáře —
-  // jeden štítek, dvě různá sdělení.
-  const isParked = calendarDrift?.reason === "PARKED" || calendarDrift?.reason === "STALE_BYPASS";
+  // jeden štítek, dvě různá sdělení. Rozlišení je sdílené s detailem bloku a s pruhem
+  // nad strojem (`calendarDriftUi.ts`), ať se ta tři místa nerozejdou.
+  const isParked = !!calendarDrift && isParkedDrift(calendarDrift.reason);
   const clampedHeight = Math.max(height, 20);
   // Layout mody se řídí výškou prvního print segmentu (obsah se má vejít do tiskové části,
   // ne propadnout do pauzy) — pro bloky bez segmentů (99 % plánu) je to prostě clampedHeight.
@@ -677,7 +679,9 @@ export function BlockCard({
             calendarDrift.reason === "PARKED"
               ? calendarDrift.expectedEnd
                 ? `Odložená mimo pracovní dobu — tiskne slitě, bez pauz směn. Po přepočtu by končila ${formatPragueDateTime(calendarDrift.expectedEnd)}.`
-                : "Odložená mimo pracovní dobu — tiskne slitě, bez pauz směn. Začátek leží mimo provoz stroje."
+                // Expanze selhala — může za to nespustitelný začátek NEBO překročený
+                // horizont plánování. Konkrétní příčinu tady nemáme, takže ji netvrdíme.
+                : "Odložená mimo pracovní dobu — tiskne slitě, bez pauz směn. Konec podle kalendáře teď spočítat nejde."
               : calendarDrift.reason === "STALE_BYPASS"
                 ? "Značená jako odložená mimo pracovní dobu, ale kalendáři odpovídá — značku zrušíš tlačítkem Přepočítat v detailu zakázky"
                 : calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd

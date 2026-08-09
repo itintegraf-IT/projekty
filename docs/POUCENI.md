@@ -128,6 +128,17 @@ doopravdy odešle.
 
 ---
 
+## P10 — České uvozovky uvnitř dvojitě uvozeného řetězce v kódu
+
+**Co se stalo (9. 8. 2026):** Popisek `"Zbytková značka „odložené…“"` se při zápisu
+do souboru normalizoval — koncová česká uvozovka se změnila na ASCII `"` a ukončila
+řetězec dřív (`TS1002: Unterminated string literal`). Stálo to jedno kolo buildu.
+
+**Pravidlo:** České uvozovky v řetězcových literálech psát v **jednoduše uvozeném**
+řetězci (`'… „text“ …'`). Případná normalizace pak literál neukončí.
+
+---
+
 ## P11 — „Mutační pojistka" musí padnout na mutaci, kterou hlídá
 
 **Co se stalo (9. 8. 2026):** Test `getBlockSegments: bypass blok → null` měl v komentáři
@@ -156,14 +167,3 @@ nevratně vystěhovalo. Spec i plán tuhle vazbu minuly; našla ji až review.
 zapisuje**. Když ho počítá server z geometrie, není to uživatelské nastavení a nesmí se
 číst jako „uživatel si to přál" ani jako „něco je rozbité" — je to důsledek, a jeho
 význam určuje ta funkce, která ho nastavuje.
-
----
-
-## P10 — České uvozovky uvnitř dvojitě uvozeného řetězce v kódu
-
-**Co se stalo (9. 8. 2026):** Popisek `"Zbytková značka „odložené…“"` se při zápisu
-do souboru normalizoval — koncová česká uvozovka se změnila na ASCII `"` a ukončila
-řetězec dřív (`TS1002: Unterminated string literal`). Stálo to jedno kolo buildu.
-
-**Pravidlo:** České uvozovky v řetězcových literálech psát v **jednoduše uvozeném**
-řetězci (`'… „text“ …'`). Případná normalizace pak literál neukončí.

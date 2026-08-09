@@ -1,5 +1,15 @@
 # Zámek jako režim aplikace — implementační plán
 
+> **Stav: HOTOVO 9. 8. 2026, ale ČTI TOHLE PRVNÍ.** Plán se od Tasku 1 nesplnil
+> doslova a nemá se. **Task 1 celý (serverový detektor + `STALE_BYPASS` na serveru)
+> se ZAHODIL** — review ukázala, že by každé vědomě odložené zakázce nasadil trvalý
+> poplach a hromadné „Přepočítat" by ji nevratně vystěhovalo. Serverový filtr
+> `scheduleBypassed: false` zůstává; odložené zakázky posuzuje jen klient (Task 2)
+> a rozlišuje `PARKED` / `STALE_BYPASS`. Task 2 navíc nepoužil kopii
+> `expandForDriftOnly`, ale opt-in parametr `includeBypassed` sdíleného guardu.
+> Tasky 3–5 platí, jak jsou napsané. Skutečný výsledek: `docs/vyvoj-historie.md`;
+> proč: `docs/POUCENI.md` P11 a P12.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `scheduleBypassed` přestane být štítem, který zakázku schová před každou kontrolou, a stane se viditelnou dočasnou značkou „odložená mimo pracovní dobu", kterou jde jedním kliknutím zrušit.

@@ -228,9 +228,13 @@ test("detectCalendarDrift: odložené bloky jsou z detekce vyřazené, i když b
   assert.deepEqual(result, []);
 });
 
-test("detectCalendarDrift: nezarovnaný start bloku shodí expanzi, ale ne celou routu", async () => {
-  // `expandPrintTime` na nezarovnaném startu HÁZÍ. Tahle funkce běží uvnitř transakce
-  // mutace kalendáře, takže neodchycená výjimka = úprava směn skončí chybou 500.
+test("detectCalendarDrift: nezarovnaný start se vyřadí PŘED expanzí, ostatní bloky se posoudí", async () => {
+  // POZOR na to, co tenhle test hlídá: pre-filtr zarovnání (ř. `% SLOT_MS === 0`),
+  // NE `try/catch` kolem expanze. Blok s nezarovnaným startem se k `expandPrintTime`
+  // vůbec nedostane, takže by test prošel i bez té pojistky — ověřeno mutací.
+  // `try/catch` je obrana do budoucna (kdyby některý guard povolil), ne oprava
+  // dosažitelné chyby; kdo ho bude chtít otestovat, musí `expandPrintTime` podstrčit.
+  //
   // Legacy bloky s nezarovnaným startem v datech existují (undo zapisuje doslova
   // ze snapshotu, bez mřížkové validace).
   const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
@@ -315,8 +319,11 @@ test("parita klient ↔ server: u NEODLOŽENÝCH bloků musí obě strany klasif
       expected: "START_NOT_RUNNABLE",
     },
     {
-      // Firemní odstávka je jediná věc, kterou si obě strany načítají a filtrují jinak
-      // (server SQL `OR machine IS NULL`, klient `!cd.machine || cd.machine === machine`).
+      // Firemní odstávku si obě strany načítají vlastní cestou (server SQL, klient
+      // `companyDayIntervalsFor`), takže se na ní můžou rozejít — a bez tohohle řádku
+      // by parita běžela jen přes sdílené jádro `expandPrintTime`, tedy ověřovala
+      // sama sebe. Pokrývá GLOBÁLNÍ odstávku; strojově zacílená (`machine`) tady
+      // otestovaná NENÍ, protože ji fake `companyDay.findMany` nemodeluje.
       name: "firemní odstávka uvnitř bloku",
       row: mkBlock({ id: 37, startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240 }),
       companyDays: [cdInsideBlock],

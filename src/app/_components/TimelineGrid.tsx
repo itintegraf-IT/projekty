@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, SLOT_MS, type CompanyDayInterval } from "@/lib/printTime";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, splitGroupTotalPrintMinutes, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
+import { countActionableDriftByMachine } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
 import { MACHINES } from "@/lib/machines";
 import {
@@ -1215,21 +1216,11 @@ export default function TimelineGrid({
     }
   }
 
-  // ── Banner stroje „Přepočítat" — počet driftujících bloků per stroj z driftMap
-  // (O(n) přes blocks, n je malé — počet bloků na gridu). Jen ADMIN/PLANOVAT (canEdit)
-  // vidí chip + tlačítko (akce); badge na kartě už informaci nese pro všechny role.
-  //
-  // Odložené zakázky (PARKED/STALE_BYPASS) se NEPOČÍTAJÍ. Musí to sedět s tím, co
-  // hromadné „Přepočítat" doopravdy udělá: serverový `detectCalendarDrift` odložené
-  // bloky vyřazuje, takže by chip sliboval akci, která u nich neproběhne. Navíc chip
-  // tvrdí „nesedí na kalendář" a dialog „bloky se posunou" — u vědomého odložení by
-  // bylo obojí nepravda. Ty se řeší adresně z karty zakázky.
-  const driftCountByMachine = new Map<string, number>();
-  for (const b of blocks) {
-    const drift = driftMap.get(b.id);
-    if (!drift || drift.reason === "PARKED" || drift.reason === "STALE_BYPASS") continue;
-    driftCountByMachine.set(b.machine, (driftCountByMachine.get(b.machine) ?? 0) + 1);
-  }
+  // ── Banner stroje „Přepočítat" — počet driftujících bloků per stroj z driftMap.
+  // Jen ADMIN/PLANOVAT (canEdit) vidí chip + tlačítko (akce); badge na kartě už
+  // informaci nese pro všechny role. Odložené zakázky se do počítadla nepočítají —
+  // proč, a co by se stalo jinak, je u `countActionableDriftByMachine` (má testy).
+  const driftCountByMachine = countActionableDriftByMachine(blocks, driftMap);
 
   async function handleReflowClick(machine: string) {
     const n = driftCountByMachine.get(machine) ?? 0;

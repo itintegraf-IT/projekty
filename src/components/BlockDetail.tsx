@@ -14,6 +14,7 @@ import { getSplitChipState } from "@/lib/splitHelpers";
 import { copyTextToClipboard } from "@/lib/clipboardCopy";
 import { formatProductionTags, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes, type CalendarDriftInfo } from "@/lib/printTimeClient";
+import { isParkedDrift } from "@/lib/calendarDriftUi";
 
 // ─── Lokální pomocné funkce ───────────────────────────────────────────────────
 function formatDateTime(iso: string): string {
@@ -314,8 +315,11 @@ export function BlockDetail({
           <>
             <Separator className="my-1 bg-slate-800" />
             <div className="rounded-md bg-amber-500/10 border border-amber-500/30 px-3 py-2 space-y-1.5">
+              {/* Piktogram se řídí týmž rozlišením jako štítek na kartě: odložení je stav
+                  (⏸), drift kalendáře porucha (⚠). Jinak by karta a detail téže zakázky
+                  říkaly každý něco jiného. */}
               <div className="text-[10px] font-semibold text-amber-400 flex items-center gap-1">
-                ⚠ {DRIFT_TITLES[calendarDrift.reason]}
+                {isParkedDrift(calendarDrift.reason) ? "⏸" : "⚠"} {DRIFT_TITLES[calendarDrift.reason]}
               </div>
               {calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd && (
                 <div className="text-slate-400">
