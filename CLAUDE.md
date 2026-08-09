@@ -141,6 +141,7 @@ Prod DB `igvyroba` měla historicky ručně vytvořené sloupce (opraveno 12. 4.
 
 ## Dokumenty v repu
 
+- **`docs/POUCENI.md` — rejstřík chyb, které v tomhle projektu SKUTEČNĚ nastaly, a pravidel, která je příště znemožní. Přečíst před psaním specu nebo plánu; po každé nové chybě sem přibude řádek.**
 - `docs/vyvoj-historie.md` — souhrn featur + implementační reference (tiskové hodiny, split-skupiny B2, copy/paste, reporty, dekompozice fáze E) a historie etap
 - `docs/DEPLOY_WORKFLOW.md` — deploy postup + prod gotchy
 - `docs/OPS_ZALOHY.md` — provozní skripty (denní záloha DB+příloh, health-check à 15 min, CSV export) + restore postup; **NIKDY `git clean -x` v produkční složce** (smaže přílohy v gitignored `data/`)
