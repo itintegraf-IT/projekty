@@ -73,8 +73,13 @@ export interface UndoEffects {
 export interface HistoryEntry {
   /** Krátký popis pro toast / tooltip tlačítka. */
   label: string;
-  undo(effects: UndoEffects): Promise<void>;
-  redo(effects: UndoEffects): Promise<void>;
+  /**
+   * Vrací počet bloků, které krok doopravdy zasáhl (z odpovědi serveru) —
+   * `undoCore` ho vypíše do hlášky. `void` je povolené kvůli případným
+   * budoucím krokům, které s bloky nepracují; hláška pak zůstane bez čísla.
+   */
+  undo(effects: UndoEffects): Promise<number | void>;
+  redo(effects: UndoEffects): Promise<number | void>;
 }
 
 /** Hodí builder, když živý blok neodpovídá snapshotu (někdo ho mezitím změnil). */

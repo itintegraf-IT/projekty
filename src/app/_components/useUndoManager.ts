@@ -17,6 +17,18 @@ function reason(err: unknown): string {
 }
 
 /** Čisté jádro bez Reactu — testovatelné. */
+/**
+ * Dovětek s počtem dotčených bloků: „ — 71 bloků". U jednoho bloku se vynechá,
+ * tam je číslo šum. Skloňování je české, ne „1 bloků" jako u dopředné hlášky.
+ *
+ * Bez něj krok zpět mlčel: přesun ohlásil „Posunuto 71 navazujících bloků",
+ * ale po Ctrl+Z nebylo poznat, jestli se vrátily všechny (Vojta 9. 8. 2026).
+ */
+function blockSuffix(n: number | void): string {
+  if (typeof n !== "number" || n <= 1) return "";
+  return ` — ${n} ${n < 5 ? "bloky" : "bloků"}`;
+}
+
 export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
   const undoStack: HistoryEntry[] = [];
   const redoStack: HistoryEntry[] = [];
@@ -33,9 +45,9 @@ export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
     const entry = undoStack.pop();
     if (!entry) return;
     try {
-      await entry.undo(getEffects());
+      const n = await entry.undo(getEffects());
       redoStack.push(entry);
-      toast("Vráceno zpět", "info");
+      toast(`Vráceno zpět${blockSuffix(n)}`, "info");
     } catch (err) {
       if (isStale(err)) toast(`Nelze vrátit${reason(err)}`, "error");
       else { undoStack.push(entry); toast(`Vrácení zpět selhalo${reason(err)}`, "error"); }
@@ -45,9 +57,9 @@ export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
     const entry = redoStack.pop();
     if (!entry) return;
     try {
-      await entry.redo(getEffects());
+      const n = await entry.redo(getEffects());
       undoStack.push(entry);
-      toast("Znovu provedeno", "info");
+      toast(`Znovu provedeno${blockSuffix(n)}`, "info");
     } catch (err) {
       if (isStale(err)) toast(`Nelze provést${reason(err)}`, "error");
       else { redoStack.push(entry); toast(`Znovu provedení selhalo${reason(err)}`, "error"); }

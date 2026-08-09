@@ -518,3 +518,21 @@ test("buildMultiEditCommand: split sourozenci se vrací adresně, ne přes propa
   assert.equal(calls.undo[0].ops.length, 2, "sourozenec je vlastní operace, ne důsledek propagace");
   assert.equal(live.get(2)!.orderNumber, "PUVODNI");
 });
+
+test("buildMoveCommand: undo vrátí počet dotčených bloků (podklad pro hlášku)", async () => {
+  const live = new Map([
+    [1, blk(1, { startTime: "2026-07-10T10:00:00.000Z", updatedAt: "v2" })],
+    [2, blk(2, { startTime: "2026-07-10T12:00:00.000Z", updatedAt: "w2" })],
+  ]);
+  const { effects } = makeEffects(live);
+  const before = [
+    { id: 1, startTime: "2026-07-10T08:00:00.000Z", endTime: "2026-07-10T09:00:00.000Z", machine: "XL_105", updatedAt: "v1", printMinutes: null, scheduleBypassed: false },
+    { id: 2, startTime: "2026-07-10T09:00:00.000Z", endTime: "2026-07-10T10:00:00.000Z", machine: "XL_105", updatedAt: "w1", printMinutes: null, scheduleBypassed: false },
+  ];
+  const after = [
+    { id: 1, startTime: "2026-07-10T10:00:00.000Z", endTime: "2026-07-10T11:00:00.000Z", machine: "XL_105", updatedAt: "v2", printMinutes: null, scheduleBypassed: false },
+    { id: 2, startTime: "2026-07-10T12:00:00.000Z", endTime: "2026-07-10T13:00:00.000Z", machine: "XL_105", updatedAt: "w2", printMinutes: null, scheduleBypassed: false },
+  ];
+  const n = await buildMoveCommand("Přesun", before, after).undo(effects);
+  assert.equal(n, 2, "počet se bere z ODPOVĚDI serveru, ne z počtu poslaných ops");
+});

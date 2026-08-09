@@ -88,3 +88,54 @@ test("core: chyba bez hlášky skončí tečkou, ne visící dvojtečkou", async
   assert.equal(toasts[0].msg, "Vrácení zpět selhalo.", "prázdná hláška nesmí nechat viset dvojtečku bez textu");
   assert.equal(core.state().canUndo, true, "chyba bez hlášky není souběh — záznam se vrací na zásobník");
 });
+
+// ── Počet vrácených bloků v hlášce (Vojtova připomínka 9. 8. 2026) ───────────
+// Dopředný posun hlásil „Posunuto 71 navazujících bloků", ale krok zpět mlčel,
+// takže u velké dávky nešlo poznat, jestli se vrátily VŠECHNY.
+
+function counting(n: number | void): HistoryEntry {
+  return { label: "X", undo: async () => n, redo: async () => n };
+}
+
+test("core: undo velké dávky ukáže počet vrácených bloků", async () => {
+  const toasts: string[] = [];
+  const core = createUndoCore(() => noEffects, (m) => toasts.push(m));
+  core.record(counting(71));
+  await core.undo();
+  assert.equal(toasts[0], "Vráceno zpět — 71 bloků");
+});
+
+test("core: redo ukáže počet stejně jako undo", async () => {
+  const toasts: string[] = [];
+  const core = createUndoCore(() => noEffects, (m) => toasts.push(m));
+  core.record(counting(22));
+  await core.undo();
+  await core.redo();
+  assert.equal(toasts[1], "Znovu provedeno — 22 bloků");
+});
+
+test("core: u jednoho bloku se číslo nevypisuje (byl by to šum)", async () => {
+  const toasts: string[] = [];
+  const core = createUndoCore(() => noEffects, (m) => toasts.push(m));
+  core.record(counting(1));
+  await core.undo();
+  assert.equal(toasts[0], "Vráceno zpět");
+});
+
+test("core: české skloňování — 2 až 4 „bloky\", od 5 „bloků\"", async () => {
+  for (const [n, expected] of [[2, "bloky"], [4, "bloky"], [5, "bloků"], [71, "bloků"]] as const) {
+    const toasts: string[] = [];
+    const core = createUndoCore(() => noEffects, (m) => toasts.push(m));
+    core.record(counting(n));
+    await core.undo();
+    assert.equal(toasts[0], `Vráceno zpět — ${n} ${expected}`);
+  }
+});
+
+test("core: krok bez počtu (void) hlášku nemění — zpětná kompatibilita", async () => {
+  const toasts: string[] = [];
+  const core = createUndoCore(() => noEffects, (m) => toasts.push(m));
+  core.record(counting(undefined));
+  await core.undo();
+  assert.equal(toasts[0], "Vráceno zpět");
+});

@@ -1,5 +1,18 @@
 import { StaleUndoError, type BlockSnapshot, type EditSnapshot, type HistoryEntry, type UndoEffects, type UndoOpClient } from "./types";
 
+/**
+ * Kolik bloků krok historie doopravdy zasáhl — počítá se z ODPOVĚDI SERVERU,
+ * ne z toho, co klient poslal: server dávku může zúžit (idempotentní remove
+ * neexistujícího bloku) a plánovači záleží na tom, co se skutečně stalo.
+ *
+ * Slouží k hlášce „Vráceno zpět — 71 bloků". Bez ní dopředný posun ohlásil
+ * „Posunuto 71 navazujících bloků", ale krok zpět mlčel, takže u velké dávky
+ * nešlo poznat, jestli se vrátily všechny (Vojtova připomínka 9. 8. 2026).
+ */
+function affected(res: { updated: unknown[]; removed: unknown[] }): number {
+  return res.updated.length + res.removed.length;
+}
+
 function guard(effects: UndoEffects, expected: BlockSnapshot[]): void {
   for (const s of expected) {
     const live = effects.getLiveBlock(s.id);
@@ -51,6 +64,7 @@ export function buildMoveCommand(label: string, before: BlockSnapshot[], after: 
     });
     refresh(target, res.updated);
     effects.addToState(res.updated);
+    return affected(res);
   };
   return {
     label,
@@ -95,6 +109,7 @@ export function buildEditCommand(
     });
     refresh([target, ...shiftedTarget], res.updated);
     effects.addToState(res.updated);
+    return affected(res);
   };
   return {
     label,
@@ -141,6 +156,7 @@ export function buildMultiEditCommand(
     });
     refresh([...targets, ...shiftedTarget], res.updated);
     effects.addToState(res.updated);
+    return affected(res);
   };
   return {
     label,
@@ -248,6 +264,7 @@ export function buildCreateCommand(
       refresh(shiftedBefore, res.updated);
       effects.removeFromState(res.removed);
       effects.addToState(res.updated);
+      return affected(res);
     },
     redo: async (effects) => {
       guard(effects, shiftedBefore);
@@ -261,6 +278,7 @@ export function buildCreateCommand(
       });
       refresh([...created, ...shiftedAfter], res.updated);
       effects.addToState(res.updated);
+      return affected(res);
     },
   };
 }
@@ -311,6 +329,7 @@ export function buildDeleteCommand(label: string, deleted: DeletedRef[]): Histor
       });
       refresh(deleted, res.updated);
       effects.addToState(res.updated);
+      return affected(res);
     },
     redo: async (effects) => {
       const res = await effects.applyUndo({
@@ -318,6 +337,7 @@ export function buildDeleteCommand(label: string, deleted: DeletedRef[]): Histor
         ops: deleted.map((d) => ({ kind: "remove" as const, id: d.id, expectedUpdatedAt: d.updatedAt })),
       });
       effects.removeFromState(res.removed);
+      return affected(res);
     },
   };
 }
