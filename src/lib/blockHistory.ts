@@ -127,13 +127,20 @@ export function suppressCoveredColumns(
  * Seřadí sloučenou osu tak, aby JEDNA uživatelská akce držela pohromadě
  * a auditní řádek stál NAD revizí, která ho doplňuje.
  *
- * Proč to nejde prostým řazením podle času: `AuditLog.createdAt` je `datetime`
- * (přesnost na sekundy), `BlockRevision.createdAt` je `datetime(3)` (milisekundy).
- * Revize ze stejné transakce má proto skoro vždy „novější" časové razítko a
- * v sestupném řazení vyskočí NAD auditní řádek, ke kterému patří. Jedno Ctrl+Z
- * se tak čtenáři ukázalo jako dvě události v obráceném pořadí — nejdřív důsledek
- * („Délka tisku: 1,5h → 1h"), pak příčina („↶ vráceno zpět") — nález
- * z proklikávání na produkčních datech 9. 8. 2026.
+ * Proč to nejde prostým řazením podle času: revize se zapisují až v EPILOGU
+ * transakce — `withRevision` volá `tx.blockRevision.createMany` teprve po doběhnutí
+ * těla (`revision.server.ts`) —, kdežto auditní řádky vznikají uvnitř těla. Revize
+ * téže transakce má proto VŽDY pozdější razítko a v sestupném řazení vyskočí NAD
+ * auditní řádek, ke kterému patří. Jedno Ctrl+Z se tak čtenáři ukázalo jako dvě
+ * události v obráceném pořadí — nejdřív důsledek („Délka tisku: 1,5h → 1h"), pak
+ * příčina („↶ vráceno zpět") — nález z proklikávání na produkčních datech 9. 8. 2026.
+ *
+ * POZOR na past: příčinou NENÍ rozdílná přesnost sloupců. Podle migrací i dev DB
+ * mají `AuditLog.createdAt` i `BlockRevision.createdAt` shodně `datetime(3)`
+ * (ověřeno review 9. 8. 2026 — první verze tohohle komentáře tvrdila opak).
+ * Kdyby se přesnost kdykoli měnila, tenhle helper je pořád potřeba: rozhoduje
+ * POŘADÍ ZÁPISU, ne rozlišení razítka. Neodstraňovat ho s odůvodněním, že
+ * „sloupce mají stejnou přesnost".
  *
  * Klíčem je `groupId`, který od etapy B1 nesou OBA zdroje: celá skupina se řadí
  * podle svého NEJNOVĚJŠÍHO razítka, uvnitř skupiny jde audit před revizí.

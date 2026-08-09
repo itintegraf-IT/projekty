@@ -147,9 +147,9 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     }
 
     // Jedna časová osa, ne dva seznamy. Řazení řeší `sortHistoryEntries`: prosté
-    // porovnání času by kvůli rozdílné přesnosti sloupců (`AuditLog` sekundy,
-    // `BlockRevision` milisekundy) postavilo revizi NAD auditní řádek téže
-    // transakce — podrobně u té funkce.
+    // porovnání času by postavilo revizi NAD auditní řádek téže transakce, protože
+    // revize se zapisují až v epilogu transakce (`withRevision`), kdežto auditní
+    // řádky uvnitř těla. Není to o přesnosti sloupců — podrobně u té funkce.
     //
     // Sloučený seznam se ZÁMĚRNĚ neořezává (viz `PER_SOURCE_LIMIT`): oříznutí by
     // padlo na revize, protože jich je proti auditu vždycky málo. Strop drží samy
