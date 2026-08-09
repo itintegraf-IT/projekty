@@ -101,7 +101,25 @@ ozve stejně jako ostatní. „Přepočítat" u ní **jen zruší značku a s pl
 
 ### Z1 — Detektor kalendáře přestane odložené zakázky přehlížet
 
-`src/lib/calendarDrift.server.ts`
+Detekce běží **na dvou nezávislých místech** a obě se musí změnit, jinak se objeví jen
+půlka výsledku:
+
+| Kde | Co pohání | Soubor |
+| --- | --- | --- |
+| server | pruh nad strojem („2 zakázky nesedí na kalendář — Přepočítat") | `src/lib/calendarDrift.server.ts` |
+| klient | štítek „⚠ KALENDÁŘ" na kartě bloku a v detailu | `src/lib/printTimeClient.ts` (`blockCalendarDrift`) |
+
+**PAST — nesahat na sdílený guard.** `blockCalendarDrift` si expanzi bere přes
+`tryExpandForBlock`, který **sdílí s `getBlockSegments`** (kreslení pauz uvnitř bloku)
+a který na `scheduleBypassed` vypadává. Uvolnit ho je nejnabízenější jednořádková
+změna a je **špatně**: `getBlockSegments` by začal kreslit pás „⏸ PAUZA — mimo provoz"
+dovnitř odložené zakázky, přestože ta tiskne slitě a žádnou pauzu uvnitř nemá. Byla by
+to regrese přesně toho zmatku, který se opravoval 9. 8. 2026 (nález O7).
+
+Správně: `blockCalendarDrift` dostane pro odložené zakázky **vlastní expanzní větev**;
+`tryExpandForBlock` i `getBlockSegments` zůstávají beze změny.
+
+**Serverová část** (`calendarDrift.server.ts`):
 
 - Z `where` odstranit `scheduleBypassed: false`.
 - Vyhodnocení zůstává stejné: `expandPrintTime(..., bypass = false)`, tedy „jak by
@@ -117,6 +135,11 @@ Pořadí vyhodnocení pro blok s `scheduleBypassed = true`:
 1. expanze selhala → dosavadní důvod (`START_NOT_RUNNABLE` / `HORIZON_EXCEEDED`)
 2. expanze sedí na uložený konec → `STALE_BYPASS`
 3. jinak → `END_MISMATCH`
+
+**Klientská část** (`printTimeClient.ts`, `blockCalendarDrift`): stejná klasifikace
+i stejné pořadí, aby štítek na kartě a pruh nad strojem nikdy netvrdily jiné věci.
+Ostatní guardy (ne-ZAKAZKA, neplatné `printMinutes`, nezarovnaný start, potvrzený tisk,
+konec v minulosti) platí pro odložené zakázky beze změny.
 
 ### Z2 — „Přepočítat" začne fungovat a maže značku
 
@@ -205,6 +228,13 @@ po kliknutí je `scheduleBypassed = 0` a rozpětí zůstalo 1320 minut.
 - blok se zbytkovou značkou: **značka zmizí, start ani konec se nezmění, chain push
   se nevolá** (mutační pojistka na opravenou podmínku `changed`)
 - zamčený / vytištěný odložený blok se dál odmítá
+
+**`printTimeClient.test.ts`**
+- odložený blok mimo pracovní dobu → `END_MISMATCH` (dřív `null`)
+- odložený blok s rozpětím odpovídajícím kalendáři → `STALE_BYPASS`
+- **`getBlockSegments` u odloženého bloku vrací dál `null`** — mutační pojistka proti
+  uvolnění sdíleného guardu (past popsaná v Z1); jinak by se do bloku kreslila pauza
+- klasifikace klienta a serveru dává pro tentýž vstup shodný důvod
 
 **`revisionFormat.test.ts`**
 - obě věty (nastavení i zrušení značky) — strážný test proti schématu musí projít
