@@ -167,3 +167,21 @@ nevratně vystěhovalo. Spec i plán tuhle vazbu minuly; našla ji až review.
 zapisuje**. Když ho počítá server z geometrie, není to uživatelské nastavení a nesmí se
 číst jako „uživatel si to přál" ani jako „něco je rozbité" — je to důsledek, a jeho
 význam určuje ta funkce, která ho nastavuje.
+
+---
+
+## P13 — Chyba, kterou aplikace jen ukáže a nikam nezapíše, je nediagnostikovatelná
+
+**Co se stalo (9. 8. 2026):** Po nasazení hlásil plánovači krok zpět „Vrácení zpět
+selhalo". Serverový log přitom u téhož kroku psal „krok historie proveden" (44 bloků) —
+protože ta cesta má dvě tiché díry naráz: `AppError` route vrátí klientovi a **nezaloguje**,
+a klient chybu odchytí do bubliny a **taky ji nikam nezapíše**. Jediný důkaz byl text
+bubliny, který zmizel dřív, než se stihl přečíst. Než jsme se dostali k ladění, problém
+sám zmizel (nejspíš starý balík javascriptu v prohlížeči) a příčinu **už nešlo zjistit**.
+
+**Pravidlo:** Odchycená chyba musí zanechat stopu, která přežije zmizení bubliny —
+na klientovi `console.error` s kontextem, na serveru řádek v logu i u `AppError`, pokud
+je ta cesta pro uživatele kritická. **Bez toho se ladí jen to, co se povede zopakovat.**
+Druhá půlka pravidla je provozní: po každém nasazení **napřed tvrdý refresh**, teprve
+potom ladění (viz `docs/DEPLOY_WORKFLOW.md`, oddíl 8) — jinak se hledá chyba v kódu,
+který v prohlížeči neběží.

@@ -16,6 +16,23 @@ function reason(err: unknown): string {
   return msg.length > 0 ? `: ${msg}` : ".";
 }
 
+/**
+ * Selhání kroku historie do konzole prohlížeče — JEDINÁ trvalá stopa, kterou po sobě
+ * nechá. Serverový log ji nezachytí: buď request vůbec nedorazil, nebo (a to je horší
+ * případ) server zápis provedl a spadl až klient, takže v logu svítí „krok historie
+ * proveden". Bublina s hláškou za pár vteřin zmizí.
+ *
+ * Vzniklo 9. 8. 2026 po nasazení, kdy plánovači vyskočilo „Vrácení zpět selhalo",
+ * server přitom týž krok zapsal úspěšně (44 bloků) — a příčinu se nepodařilo zjistit,
+ * protože jediný důkaz byl text bubliny, který už nešlo získat zpětně.
+ *
+ * Stale (`StaleUndoError` / `CONFLICT`) se ZÁMĚRNĚ neloguje: to je běžný a očekávaný
+ * stav (někdo blok mezitím změnil), ne porucha — konzole by se tím zaplevelila.
+ */
+function logFailure(direction: "undo" | "redo", label: string, err: unknown): void {
+  console.error(`[historie] ${direction} „${label}" selhalo`, err);
+}
+
 /** Čisté jádro bez Reactu — testovatelné. */
 /**
  * Dovětek s počtem dotčených bloků: „ — 71 bloků". U jednoho bloku se vynechá,
@@ -50,7 +67,7 @@ export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
       toast(`Vráceno zpět${blockSuffix(n)}`, "info");
     } catch (err) {
       if (isStale(err)) toast(`Nelze vrátit${reason(err)}`, "error");
-      else { undoStack.push(entry); toast(`Vrácení zpět selhalo${reason(err)}`, "error"); }
+      else { undoStack.push(entry); logFailure("undo", entry.label, err); toast(`Vrácení zpět selhalo${reason(err)}`, "error"); }
     } finally { notify(); }
   };
   const redo = async () => {
@@ -62,7 +79,7 @@ export function createUndoCore(getEffects: () => UndoEffects, toast: Toast) {
       toast(`Znovu provedeno${blockSuffix(n)}`, "info");
     } catch (err) {
       if (isStale(err)) toast(`Nelze provést${reason(err)}`, "error");
-      else { redoStack.push(entry); toast(`Znovu provedení selhalo${reason(err)}`, "error"); }
+      else { redoStack.push(entry); logFailure("redo", entry.label, err); toast(`Znovu provedení selhalo${reason(err)}`, "error"); }
     } finally { notify(); }
   };
   return {

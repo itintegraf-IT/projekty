@@ -389,6 +389,14 @@ endDate    2026-04-09 21:59:00.000
 
 ## 8. Ruční smoke test po deployi
 
+> **NEJDŘÍV TVRDÝ REFRESH — Cmd+Shift+R (Mac) / Ctrl+F5 (Windows).** V každé
+> záložce, která byla během deploye otevřená, včetně kioskových terminálů u strojů.
+> Bez toho běží proti novému serveru **starý balík javascriptu** a aplikace se chová
+> nahodile: 9. 8. 2026 takhle „přestalo fungovat" vrácení zpět (bublina „Vrácení zpět
+> selhalo"), přestože server tentýž krok pokaždé zapsal v pořádku — po obnovení
+> stránky bylo bez chyby. Dřív se stejně projevila chybějící část hlášky u undo.
+> Než začneš cokoliv ladit, **vždycky nejdřív obnov stránku**.
+
 Po deployi v aplikaci ověřit:
 
 - Přesun nebo resize bloku přes `00:00-01:00` na `XL_106` v pracovní den projde.
