@@ -88,6 +88,20 @@ liší, správně je větev u volajícího, ne uvolnění sdíleného guardu.
 
 ---
 
+## P8 — Zpětné apostrofy v commit message uvnitř uvozovek
+
+**Co se stalo (9. 8. 2026):** Commit message psaný jako
+`git commit -m "… podmínka \`changed\` v reflow …"` — shell zpětné apostrofy vyhodnotil
+jako příkaz (`command not found: changed`) a slovo z hlášky **zmizelo**. Commit prošel
+zmrzačený a byl už pushnutý, takže se opravovat nevyplatilo.
+
+**Pravidlo:** Commit message psát **výhradně přes heredoc s uvozeným oddělovačem**
+(`git commit -F - <<'EOF'`). V něm shell nic nevyhodnocuje, takže zpětné apostrofy,
+`$`, uvozovky i diakritika projdou doslova. Totéž platí pro každý delší text posílaný
+přes `-m`.
+
+---
+
 ## P7 — Test nad umělou fixture může schovat, na čem oprava stojí
 
 **Co se stalo (9. 8. 2026):** Testy řazení historie používaly auditní razítka `.000Z`.
