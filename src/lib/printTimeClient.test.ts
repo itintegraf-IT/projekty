@@ -118,18 +118,27 @@ test("getBlockSegments: drift kalendáře (end nesedí na expand) → null", () 
   assert.equal(getBlockSegments(b, SHIFTS, []), null);
 });
 
-test("getBlockSegments: bypass blok → null", () => {
-  // MUTAČNÍ POJISTKA (poučení P6): od 8/2026 umí sdílený `tryExpandForBlock` odložené
-  // bloky expandovat, ale JEN na výslovné vyžádání detektoru driftu. Kdyby se guard
-  // uvolnil i pro segmenty, kreslil by se odložené zakázce dovnitř pás
-  // „⏸ PAUZA — mimo provoz", přestože tiskne slitě (regrese nálezu O7).
+test("getBlockSegments: bypass blok → null (MUTAČNÍ POJISTKA, poučení P6)", () => {
+  // Od 8/2026 umí sdílený `tryExpandForBlock` odložené bloky expandovat, ale JEN na
+  // výslovné vyžádání detektoru driftu. Kdyby se guard uvolnil i pro segmenty, kreslil
+  // by se odložené zakázce dovnitř pás „⏸ PAUZA — mimo provoz", přestože tiskne slitě
+  // (regrese nálezu O7).
+  //
+  // Fixtura je ZÁMĚRNĚ tatáž jako v testu „pauznutý blok vrací print/pause segmenty"
+  // výš, jen se zapnutou značkou: bez guardu se tedy expanze POVEDE, sedne na uložený
+  // konec a segmenty s pauzou vzniknou → test padne. Dřívější fixtura ležela na sobotě,
+  // kdy je stroj celý den vypnutý, takže expanze selhala z úplně jiného důvodu a guard
+  // se nikdy nevyhodnotil — test vypadal jako pojistka, ale žádnou nebyl (nález review).
   const b = {
     type: "ZAKAZKA", machine: "XL_106",
-    startTime: pragueToUTC("2026-08-22", 12), endTime: pragueToUTC("2026-08-22", 16),
-    printMinutes: 240, scheduleBypassed: true,
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-24", 13),
+    printMinutes: 27 * 60, scheduleBypassed: true,
   };
   assert.equal(getBlockSegments(b, SHIFTS, []), null);
   assert.equal(blockReportSegments(b, SHIFTS, []), null, "reportové segmenty taky beze změny");
+  // Kontrola, že fixtura je opravdu „živá": bez značky segmenty s pauzou vzniknou.
+  const unflagged = { ...b, scheduleBypassed: false };
+  assert.deepEqual(getBlockSegments(unflagged, SHIFTS, [])?.map((s) => s.kind), ["print", "pause", "print"]);
 });
 
 test("printMidpoint: Gardena 27 h → polovina (13,5 h) odpracována Ne 23:30", () => {
@@ -187,9 +196,11 @@ test("blockCalendarDrift: start mimo provoz (odstávka) → START_NOT_RUNNABLE",
   assert.equal(drift!.expectedEnd, null);
 });
 
-test("blockCalendarDrift: odložený blok přes víkendovou odstávku → END_MISMATCH", () => {
+test("blockCalendarDrift: odložený blok přes víkendovou odstávku → PARKED s koncem po přepočtu", () => {
   // Do 8/2026 vracel sdílený guard u odložených bloků null → na kartě žádný štítek.
   // Pá 20:00 + 4 h se uloží slitě do So 0:00, ale stroj v 22:00 stojí do Ne 22:00.
+  // Není to porucha (přesně tohle odložení znamená), proto vlastní důvod PARKED —
+  // a `expectedEnd` říká, kam by zakázka po přepočtu sáhla.
   const b = {
     type: "ZAKAZKA", machine: "XL_106",
     startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0),
@@ -197,20 +208,43 @@ test("blockCalendarDrift: odložený blok přes víkendovou odstávku → END_MI
   };
   const drift = blockCalendarDrift(b, SHIFTS, [], NOW);
   assert.ok(drift);
-  assert.equal(drift!.reason, "END_MISMATCH");
+  assert.equal(drift!.reason, "PARKED");
   assert.deepEqual(drift!.expectedEnd, pragueToUTC("2026-08-24", 0));
 });
 
-test("blockCalendarDrift: odložený blok se startem v odstávce → START_NOT_RUNNABLE", () => {
+test("blockCalendarDrift: odložený blok se startem v odstávce → PARKED bez expectedEnd", () => {
+  // Sobota je celá off — přepočet by musel start teprve někam posunout, takže
+  // konec dopředu spočítat nejde.
   const b = {
     type: "ZAKAZKA", machine: "XL_106",
-    startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14), // sobota = celá off
+    startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14),
     printMinutes: 240, scheduleBypassed: true, printCompletedAt: null,
   };
   const drift = blockCalendarDrift(b, SHIFTS, [], NOW);
   assert.ok(drift);
-  assert.equal(drift!.reason, "START_NOT_RUNNABLE");
+  assert.equal(drift!.reason, "PARKED");
   assert.equal(drift!.expectedEnd, null);
+});
+
+test("blockCalendarDrift: odložený blok NEDOSTANE poruchový důvod (rozliš stav od chyby)", () => {
+  // MUTAČNÍ POJISTKA: kdyby se odložená větev vypustila, spadly by tyhle bloky do
+  // END_MISMATCH/START_NOT_RUNNABLE, tedy do slovníku poruch — a s ním do pruhu nad
+  // strojem i do hromadného přepočtu, který je nevratně vystěhuje do pracovní doby.
+  const parked = [
+    { startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0) },
+    { startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14) },
+  ];
+  for (const geom of parked) {
+    const drift = blockCalendarDrift(
+      { type: "ZAKAZKA", machine: "XL_106", printMinutes: 240, scheduleBypassed: true, printCompletedAt: null, ...geom },
+      SHIFTS, [], NOW
+    );
+    assert.ok(drift);
+    assert.ok(
+      drift!.reason === "PARKED" || drift!.reason === "STALE_BYPASS",
+      `odložený blok nesmí dostat poruchový důvod, dostal ${drift!.reason}`
+    );
+  }
 });
 
 test("blockCalendarDrift: odložený blok, jehož rozpětí kalendáři odpovídá → STALE_BYPASS", () => {

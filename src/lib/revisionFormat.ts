@@ -177,7 +177,7 @@ export function formatRevisionLines(before: Row, after: Row): string[] {
     );
   }
 
-  // 4) OBCHODNÍ POLE. Popisek se bere z téhož `FIELD_LABELS`, jaký používají
+  // 5) OBCHODNÍ POLE. Popisek se bere z téhož `FIELD_LABELS`, jaký používají
   //    auditní řádky ve stejném panelu. Není to jen pohodlí: `description`,
   //    `specifikace`, `barvyStatusLabel` ani `lakStatusLabel` v `AUDITED_FIELDS`
   //    nejsou, takže o jejich změně nevzniká auditní řádek a revize je jediné

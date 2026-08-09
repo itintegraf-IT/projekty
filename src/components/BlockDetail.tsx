@@ -54,7 +54,14 @@ const DRIFT_TITLES: Record<CalendarDriftInfo["reason"], string> = {
   END_MISMATCH: "Blok nesedí na kalendář",
   START_NOT_RUNNABLE: "Start bloku je mimo provoz stroje",
   HORIZON_EXCEEDED: "Blok nejde podle kalendáře dopočítat",
+  PARKED: "Odložená mimo pracovní dobu",
   STALE_BYPASS: 'Zbytková značka „odložené mimo pracovní dobu“',
+};
+
+/** Druhý řádek pod nadpisem — u odložených vysvětluje, co udělá „Přepočítat". */
+const DRIFT_HINTS: Partial<Record<CalendarDriftInfo["reason"], string>> = {
+  PARKED: "Tiskne slitě, bez pauz směn. Přepočítat ji vrátí do kalendáře pracovní doby.",
+  STALE_BYPASS: "Geometrie kalendáři odpovídá. Přepočítat jen zruší značku, plánem nehne.",
 };
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -313,6 +320,14 @@ export function BlockDetail({
               {calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd && (
                 <div className="text-slate-400">
                   (správně do {formatPragueDateTime(calendarDrift.expectedEnd)})
+                </div>
+              )}
+              {DRIFT_HINTS[calendarDrift.reason] && (
+                <div className="text-slate-400">{DRIFT_HINTS[calendarDrift.reason]}</div>
+              )}
+              {calendarDrift.reason === "PARKED" && calendarDrift.expectedEnd && (
+                <div className="text-slate-400">
+                  (po přepočtu do {formatPragueDateTime(calendarDrift.expectedEnd)})
                 </div>
               )}
               {onReflow && (

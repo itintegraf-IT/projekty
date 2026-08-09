@@ -88,6 +88,18 @@ liší, správně je větev u volajícího, ne uvolnění sdíleného guardu.
 
 ---
 
+## P7 — Test nad umělou fixture může schovat, na čem oprava stojí
+
+**Co se stalo (9. 8. 2026):** Testy řazení historie používaly auditní razítka `.000Z`.
+Review upozornila, že to nemusí odpovídat realitě. Po přepsání na realistická
+sub-sekundová razítka zůstaly zelené — takže na tom oprava nestála. Kdyby stála,
+odhalilo by se to až v provozu.
+
+**Pravidlo:** Fixture stavět z **tvarů, které se v datech opravdu vyskytují**. Když
+test závisí na kulaté hodnotě, ověřit, že s realistickou taky projde.
+
+---
+
 ## P8 — Zpětné apostrofy v commit message uvnitř uvozovek
 
 **Co se stalo (9. 8. 2026):** Commit message psaný jako
@@ -102,12 +114,56 @@ přes `-m`.
 
 ---
 
-## P7 — Test nad umělou fixture může schovat, na čem oprava stojí
+## P9 — Fake databáze v testu musí promítat `select`
 
-**Co se stalo (9. 8. 2026):** Testy řazení historie používaly auditní razítka `.000Z`.
-Review upozornila, že to nemusí odpovídat realitě. Po přepsání na realistická
-sub-sekundová razítka zůstaly zelené — takže na tom oprava nestála. Kdyby stála,
-odhalilo by se to až v provozu.
+**Co se stalo (9. 8. 2026, chyceno při psaní testu):** Fake `block.findMany`
+v `calendarDrift.server.test.ts` vracel celé testovací řádky bez ohledu na `select`.
+Implementace tedy mohla zapomenout nový sloupec do `select` přidat a test by prošel —
+na produkci by ale Prisma sloupec nevrátila, hodnota by byla `undefined` (falsy)
+a klasifikace by tiše nikdy nefungovala.
 
-**Pravidlo:** Fixture stavět z **tvarů, které se v datech opravdu vyskytují**. Když
-test závisí na kulaté hodnotě, ověřit, že s realistickou taky projde.
+**Pravidlo:** Fake Prisma klient musí napodobit i **projekci podle `select`**, nejen
+filtrování podle `where`. Jinak testy pinují jen tvar výstupu, ne dotaz, který se
+doopravdy odešle.
+
+---
+
+## P11 — „Mutační pojistka" musí padnout na mutaci, kterou hlídá
+
+**Co se stalo (9. 8. 2026):** Test `getBlockSegments: bypass blok → null` měl v komentáři
+napsáno MUTAČNÍ POJISTKA a v commitu jsem se na něj odvolal jako na ochranu proti regresi
+z poučení P6. Jeho fixtura ale ležela **na sobotě, kdy je stroj celý den vypnutý** —
+expanze selhala dřív, než se hlídaný guard vůbec vyhodnotil. Test procházel se zapnutým
+i vypnutým guardem. Odhalila to až review, která mutaci skutečně aplikovala.
+
+**Pravidlo:** U testu, který má hlídat konkrétní řádek, **fixturu ověřit z druhé strany**:
+bez toho řádku musí test PADNOUT. Nejlevnější způsob je přidat do téhož testu i pozitivní
+větev („bez značky segmenty s pauzou vzniknou") — pak je vidět, že vstup projde až tam,
+kam má. Tvrzení „hlídá to test X" nepsat do commitu dřív, než jsem mutaci opravdu spustil.
+
+---
+
+## P12 — Příznak, který zapisuje server, není přání uživatele
+
+**Co se stalo (9. 8. 2026):** Celá etapa „zámek" stála na tom, že se z kontroly kalendáře
+odstraní výjimka pro odložené zakázky — „konečně je někdo zkontroluje". Přehlédl jsem, že
+`scheduleBypassed` zapisuje server jako **spočítanou pravdu** (`effectivelyBypassed = !conforms`),
+takže odložená zakázka je z definice nekonformní. Odstraněním filtru by každé vědomé
+odložení natrvalo svítilo jako porucha ve třech kanálech a hromadné „Přepočítat" by ho
+nevratně vystěhovalo. Spec i plán tuhle vazbu minuly; našla ji až review.
+
+**Pravidlo:** Než změním, kdo se dívá na nějaký příznak, dohledat **kdo a podle čeho ho
+zapisuje**. Když ho počítá server z geometrie, není to uživatelské nastavení a nesmí se
+číst jako „uživatel si to přál" ani jako „něco je rozbité" — je to důsledek, a jeho
+význam určuje ta funkce, která ho nastavuje.
+
+---
+
+## P10 — České uvozovky uvnitř dvojitě uvozeného řetězce v kódu
+
+**Co se stalo (9. 8. 2026):** Popisek `"Zbytková značka „odložené…“"` se při zápisu
+do souboru normalizoval — koncová česká uvozovka se změnila na ASCII `"` a ukončila
+řetězec dřív (`TS1002: Unterminated string literal`). Stálo to jedno kolo buildu.
+
+**Pravidlo:** České uvozovky v řetězcových literálech psát v **jednoduše uvozeném**
+řetězci (`'… „text“ …'`). Případná normalizace pak literál neukončí.

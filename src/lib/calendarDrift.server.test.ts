@@ -194,87 +194,61 @@ test("detectCalendarDrift: vytištěný blok (printCompletedAt set) na rozbitém
   assert.deepEqual(result, []);
 });
 
-test("detectCalendarDrift: odložený blok na nespustitelném startu → START_NOT_RUNNABLE", async () => {
-  // Do 8/2026 byl takový blok z kontroly vyřazen WHERE filtrem `scheduleBypassed: false`
-  // a plánovač o něm nevěděl. Nově se posuzuje jako každý jiný.
-  const weekShifts = [...noMorningMondayWeek(W1), ...noMorningMondayWeek(W2)];
-  const start = pragueToUTC("2026-08-17", 6);
-  const block = mkBlock({
+test("detectCalendarDrift: odložené bloky jsou z detekce vyřazené, i když by geometricky driftovaly", async () => {
+  // ZÁMĚR, ne opomenutí (rozhodnuto 9. 8. 2026). Příznak `scheduleBypassed` nastavuje
+  // server právě tehdy, když geometrie kalendáři nevyhovuje — odložená zakázka je tedy
+  // z definice nekonformní. Bez tohohle filtru by každé vědomé odložení trvale svítilo
+  // jako „nesedí na kalendář": notifikace z každé úpravy směn, nikdy nenulový provozní
+  // report a hromadné „Přepočítat" by ji nevratně vystěhovalo do pracovní doby.
+  // Plánovači ji ukazuje štítek na kartě (klientský blockCalendarDrift) — viz test parity.
+  const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
+  const parkedOverWeekend = mkBlock({
     id: 5,
-    startTime: start,
-    endTime: pragueToUTC("2026-08-17", 10),
+    startTime: pragueToUTC("2026-08-21", 20), // pátek 20:00, tisk 4 h uložený slitě do So 0:00
+    endTime: pragueToUTC("2026-08-22", 0),
     printMinutes: 240,
     scheduleBypassed: true,
   });
-  const db = fakeCalendarDriftDb([block], weekShifts, []);
-  const result = await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now);
-  assert.equal(result.length, 1);
-  assert.equal(result[0].id, 5);
-  assert.equal(result[0].reason, "START_NOT_RUNNABLE");
-});
-
-test("detectCalendarDrift: odložený blok přes víkendovou odstávku → END_MISMATCH", async () => {
-  // Přesně to, co dělá zámek: zakázka položená na pátek 20:00 s tiskem 4 h se uloží
-  // slitě do soboty 0:00, přestože stroj v 22:00 stojí až do neděle 22:00.
-  const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
-  const block = mkBlock({
+  const parkedInShutdown = mkBlock({
+    id: 6,
+    startTime: pragueToUTC("2026-08-22", 10), // sobota = celá odstávka
+    endTime: pragueToUTC("2026-08-22", 14),
+    printMinutes: 240,
+    scheduleBypassed: true,
+  });
+  const staleFlag = mkBlock({
     id: 7,
-    startTime: pragueToUTC("2026-08-21", 20), // pátek
-    endTime: pragueToUTC("2026-08-22", 0), // uložený konec: slitě, bez odstávky
-    printMinutes: 240,
+    startTime: pragueToUTC("2026-08-17", 8), // Po nonstop — geometrie kalendáři odpovídá (případ 18447)
+    endTime: pragueToUTC("2026-08-17", 10),
+    printMinutes: 120,
     scheduleBypassed: true,
   });
-  const db = fakeCalendarDriftDb([block], weekShifts, []);
+  const db = fakeCalendarDriftDb([parkedOverWeekend, parkedInShutdown, staleFlag], weekShifts, []);
   const result = await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now);
-  assert.equal(result.length, 1);
-  assert.equal(result[0].reason, "END_MISMATCH");
-  // Pá 20–22 = 2 h, pak odstávka do Ne 22:00, zbylé 2 h → Po 0:00.
-  assert.equal(result[0].expectedEnd?.getTime(), pragueToUTC("2026-08-24", 0).getTime());
+  assert.deepEqual(result, []);
 });
 
-test("detectCalendarDrift: odložený blok, jehož rozpětí kalendáři ODPOVÍDÁ → STALE_BYPASS", async () => {
-  // Případ zakázky 18447: značka zbyla po havárii, geometrie je v pořádku.
-  // Není co posouvat — jen zrušit značku, proto expectedEnd null.
+test("detectCalendarDrift: nezarovnaný start bloku shodí expanzi, ale ne celou routu", async () => {
+  // `expandPrintTime` na nezarovnaném startu HÁZÍ. Tahle funkce běží uvnitř transakce
+  // mutace kalendáře, takže neodchycená výjimka = úprava směn skončí chybou 500.
+  // Legacy bloky s nezarovnaným startem v datech existují (undo zapisuje doslova
+  // ze snapshotu, bez mřížkové validace).
   const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
-  const block = mkBlock({
+  const unaligned = mkBlock({
     id: 8,
-    startTime: pragueToUTC("2026-08-17", 8), // Po, nonstop
-    endTime: pragueToUTC("2026-08-17", 10),
-    printMinutes: 120,
-    scheduleBypassed: true,
+    startTime: pragueToUTC("2026-08-17", 8, 10), // 8:10 — mimo 30min mřížku
+    endTime: pragueToUTC("2026-08-17", 12),
+    printMinutes: 240,
   });
-  const db = fakeCalendarDriftDb([block], weekShifts, []);
+  const healthyDrift = mkBlock({
+    id: 9,
+    startTime: pragueToUTC("2026-08-21", 20),
+    endTime: pragueToUTC("2026-08-22", 0), // uložený konec bez víkendové odstávky → drift
+    printMinutes: 240,
+  });
+  const db = fakeCalendarDriftDb([unaligned, healthyDrift], weekShifts, []);
   const result = await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now);
-  assert.equal(result.length, 1);
-  assert.equal(result[0].id, 8);
-  assert.equal(result[0].reason, "STALE_BYPASS");
-  assert.equal(result[0].expectedEnd, null);
-});
-
-test("detectCalendarDrift: STALE_BYPASS je vázaný na značku, ne na geometrii", async () => {
-  // MUTAČNÍ POJISTKA: kdyby se STALE_BYPASS hlásil podle shody konců bez ohledu na
-  // `scheduleBypassed`, naskočil by u KAŽDÉHO zdravého bloku v plánu. Dva bloky se
-  // shodnou geometrií, liší se jen značkou — projít smí právě jeden.
-  const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
-  const parked = mkBlock({
-    id: 20,
-    startTime: pragueToUTC("2026-08-17", 8),
-    endTime: pragueToUTC("2026-08-17", 10),
-    printMinutes: 120,
-    scheduleBypassed: true,
-  });
-  const healthy = mkBlock({
-    id: 21,
-    startTime: pragueToUTC("2026-08-18", 8),
-    endTime: pragueToUTC("2026-08-18", 10),
-    printMinutes: 120,
-    scheduleBypassed: false,
-  });
-  const db = fakeCalendarDriftDb([parked, healthy], weekShifts, []);
-  const result = await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now);
-  assert.equal(result.length, 1, "zdravý blok se stejnou geometrií se hlásit nesmí");
-  assert.equal(result[0].id, 20);
-  assert.equal(result[0].reason, "STALE_BYPASS");
+  assert.deepEqual(result.map((r) => r.id), [9], "vadný blok se přeskočí, ostatní se posoudí");
 });
 
 test("detectCalendarDrift: blok s endTime < now → [] (where filtr aktuálnosti)", async () => {
@@ -308,45 +282,106 @@ test("detectCalendarDrift: žádné bloky → [] bez fetche kalendáře", async 
   assert.equal(weekShiftsFetched, false, "kalendář se nesmí fetchovat, když nejsou žádné bloky");
 });
 
-test("parita klient ↔ server: tytéž vstupy, tatáž klasifikace", async () => {
-  // Server notifikuje a plní pruh „Přepočítat", klient kreslí štítek na kartě.
-  // Kdyby se klasifikace rozešly, štítek na zakázce by tvrdil něco jiného než
-  // pruh nad strojem. Proto jedna tabulka vstupů proháněná OBĚMA implementacemi.
+test("parita klient ↔ server: u NEODLOŽENÝCH bloků musí obě strany klasifikovat stejně", async () => {
+  // Server plní notifikace, provozní report a pruh „Přepočítat"; klient kreslí štítek
+  // na kartě. U běžné zakázky se rozejít nesmí — jinak štítek tvrdí něco jiného než
+  // pruh nad strojem. Tabulka schválně obsahuje i vstupy, které si KAŽDÁ STRANA POČÍTÁ
+  // SAMA (odstávky, zarovnání startu) — na sdíleném `expandPrintTime` by se parita
+  // ověřovala sama sebou.
   const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
-  const cases: Array<{ name: string; row: FakeBlockRow; expected: DriftedBlock["reason"] | null }> = [
+  const cdInsideBlock: CompanyDayRow = {
+    startDate: pragueToUTC("2026-08-18", 9),
+    endDate: pragueToUTC("2026-08-18", 9, 30),
+  };
+  const cases: Array<{
+    name: string;
+    row: FakeBlockRow;
+    companyDays?: CompanyDayRow[];
+    expected: DriftedBlock["reason"] | null;
+  }> = [
     {
-      name: "odložený přes víkendovou odstávku",
-      row: mkBlock({ id: 31, startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0), printMinutes: 240, scheduleBypassed: true }),
-      expected: "END_MISMATCH",
-    },
-    {
-      name: "odložený se startem v odstávce",
-      row: mkBlock({ id: 32, startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14), printMinutes: 240, scheduleBypassed: true }),
-      expected: "START_NOT_RUNNABLE",
-    },
-    {
-      name: "odložený, geometrie sedí",
-      row: mkBlock({ id: 33, startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240, scheduleBypassed: true }),
-      expected: "STALE_BYPASS",
-    },
-    {
-      name: "neoznačený, geometrie sedí",
+      name: "geometrie sedí",
       row: mkBlock({ id: 34, startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240 }),
       expected: null,
     },
     {
-      name: "neoznačený driftující",
+      name: "konec nesedí (víkendová odstávka v rozvrhu)",
       row: mkBlock({ id: 35, startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0), printMinutes: 240 }),
       expected: "END_MISMATCH",
+    },
+    {
+      name: "start mimo provoz stroje",
+      row: mkBlock({ id: 36, startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14), printMinutes: 240 }),
+      expected: "START_NOT_RUNNABLE",
+    },
+    {
+      // Firemní odstávka je jediná věc, kterou si obě strany načítají a filtrují jinak
+      // (server SQL `OR machine IS NULL`, klient `!cd.machine || cd.machine === machine`).
+      name: "firemní odstávka uvnitř bloku",
+      row: mkBlock({ id: 37, startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240 }),
+      companyDays: [cdInsideBlock],
+      expected: "END_MISMATCH",
+    },
+    {
+      // Zarovnání startu hlídá server post-query filtrem, klient guardem v tryExpandForBlock —
+      // dvě různá místa, tentýž závěr „nelze posoudit".
+      name: "nezarovnaný start (legacy blok)",
+      row: mkBlock({ id: 38, startTime: pragueToUTC("2026-08-18", 8, 10), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240 }),
+      expected: null,
+    },
+    {
+      name: "vytištěný blok na rozbitém místě",
+      row: mkBlock({
+        id: 39,
+        startTime: pragueToUTC("2026-08-22", 10),
+        endTime: pragueToUTC("2026-08-22", 14),
+        printMinutes: 240,
+        printCompletedAt: pragueToUTC("2026-08-22", 14),
+      }),
+      expected: null,
+    },
+  ];
+
+  for (const c of cases) {
+    const db = fakeCalendarDriftDb([c.row], weekShifts, c.companyDays ?? []);
+    const server = (await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now))[0]?.reason ?? null;
+    const clientCompanyDays = (c.companyDays ?? []).map((cd) => ({ startDate: cd.startDate, endDate: cd.endDate }));
+    const client = blockCalendarDrift(c.row, weekShifts, clientCompanyDays, now)?.reason ?? null;
+    assert.equal(server, c.expected, `server: ${c.name}`);
+    assert.equal(client, c.expected, `klient: ${c.name}`);
+  }
+});
+
+test("rozsah se u ODLOŽENÝCH bloků liší ZÁMĚRNĚ: server mlčí, klient dá štítek", async () => {
+  // Vědomé odložení není porucha, takže nepatří do souhrnných kanálů (notifikace,
+  // provozní report, hromadné „Přepočítat") — ty pohání server. Patří na kartu té jedné
+  // zakázky, a tu kreslí klient. Důvody jsou proto oddělené: PARKED a STALE_BYPASS
+  // na serveru NIKDY nevzniknou. Kdyby tenhle test padl, znamená to, že se jedna
+  // ze stran vydala do rozsahu té druhé.
+  const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
+  const cases: Array<{ name: string; row: FakeBlockRow; clientReason: string }> = [
+    {
+      name: "odložený přes víkendovou odstávku",
+      row: mkBlock({ id: 41, startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0), printMinutes: 240, scheduleBypassed: true }),
+      clientReason: "PARKED",
+    },
+    {
+      name: "odložený se startem v odstávce",
+      row: mkBlock({ id: 42, startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14), printMinutes: 240, scheduleBypassed: true }),
+      clientReason: "PARKED",
+    },
+    {
+      name: "zbytková značka (případ 18447)",
+      row: mkBlock({ id: 43, startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240, scheduleBypassed: true }),
+      clientReason: "STALE_BYPASS",
     },
   ];
 
   for (const c of cases) {
     const db = fakeCalendarDriftDb([c.row], weekShifts, []);
-    const server = (await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now))[0]?.reason ?? null;
-    const client = blockCalendarDrift(c.row, weekShifts, [], now)?.reason ?? null;
-    assert.equal(server, c.expected, `server: ${c.name}`);
-    assert.equal(client, c.expected, `klient: ${c.name}`);
+    const server = await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now);
+    assert.deepEqual(server, [], `server: ${c.name}`);
+    assert.equal(blockCalendarDrift(c.row, weekShifts, [], now)?.reason, c.clientReason, `klient: ${c.name}`);
   }
 });
 
@@ -380,24 +415,22 @@ function fakeNotifyDb() {
 
 const notifyActor = { id: 1, username: "planovac" };
 
-test("notifyCalendarDrift: zbytkové značky se do hlášky nepočítají", async () => {
-  // Notifikace tvrdí „nesedí na kalendář" — u STALE_BYPASS by to byla lež: geometrie
-  // sedí, zbyla jen značka. Plánovač ji vidí jako štítek na kartě, ne jako poplach
-  // z každé úpravy směn.
+test("notifyCalendarDrift: jedna hláška pro obě role, se skloňováním a výčtem zakázek", async () => {
   const { created, db } = fakeNotifyDb();
   await notifyCalendarDrift(
     db,
-    [mkDrifted({ id: 1, reason: "END_MISMATCH" }), mkDrifted({ id: 2, reason: "STALE_BYPASS" })],
+    [mkDrifted({ id: 1, reason: "END_MISMATCH" }), mkDrifted({ id: 2, reason: "START_NOT_RUNNABLE" })],
     notifyActor,
     "Změna směn"
   );
   assert.equal(created.length, 2, "dvě role, jedna hláška");
-  assert.match(created[0].message, /1 blok nesedí na kalendář \(Z-1\)/);
+  assert.deepEqual(created.map((c) => c.targetRole), ["PLANOVAT", "ADMIN"]);
+  assert.equal(created[0].message, "Změna směn: 2 bloky nesedí na kalendář (Z-1, Z-2)");
 });
 
-test("notifyCalendarDrift: samé zbytkové značky → žádná notifikace", async () => {
+test("notifyCalendarDrift: prázdný seznam → žádná notifikace", async () => {
   const { created, db } = fakeNotifyDb();
-  await notifyCalendarDrift(db, [mkDrifted({ id: 2, reason: "STALE_BYPASS" })], notifyActor, "Změna směn");
+  await notifyCalendarDrift(db, [], notifyActor, "Změna směn");
   assert.deepEqual(created, []);
 });
 

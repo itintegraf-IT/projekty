@@ -829,3 +829,80 @@ před zapojením: 0 rozdílů ve stavových kódech, odpovědích i obsahu tabul
 
 Spec: `docs/superpowers/specs/2026-08-07-undo-serverove-revize-design.md`
 Plán: `docs/superpowers/plans/2026-08-07-etapa-b1-serverove-revize.md`
+
+---
+
+## Etapa „zámek jako režim aplikace" — konec neviditelné značky (9. 8. 2026)
+
+**Proč vznikla.** Zámek pracovní doby v hlavičce plánovače je přechodný stav
+JEDNÉ ZÁLOŽKY prohlížeče, který ale zapisuje TRVALÝ příznak `scheduleBypassed`
+na jednotlivé bloky. Vojta čekal opak — režim aplikace. Příznak byl přitom
+lepivý i neviditelný naráz: vzniká odemčením zámku (i u jiného uživatele),
+přežije zamčení, autoposun se ho jen drží a nikdy ho nepřepočítá, lasso ho
+udrží přes `bypass = požadavek || stávající`, undo ho vrátí doslova ze
+snapshotu — a `calendarDrift` bypassované bloky **výslovně vyřazoval z kontroly**.
+Tři vrstvy neviditelnosti nad příznakem, který mění geometrii zakázky.
+
+**Reálná škoda, ze které etapa vzešla.** Zakázka 18447 na XL 106 měla příznak
+z havárie 5. 8. Autoposun ji proto místo roztažení přes noční pauzu **scvrknul
+z 22 h na 14 h**, přestala dosahovat k navazujícímu PŘEMYTÍ a v plánu vznikla
+tichá 3,5hodinová díra v pracovní době. Na produkci byla taková nekonzistence
+jediná ze 70 bypassovaných zakázek; 69 z nich je z doby před červencem.
+
+**Co se postavilo.** Odložená zakázka přestala být neviditelná: dostane na kartě
+vlastní štítek **⏸ ODLOŽENO** a v detailu tlačítko, kterým se vrátí do kalendáře.
+Dva nové důvody popisují STAV, ne poruchu — `PARKED` („leží mimo kalendář, protože
+ji tam plánovač dal"; `expectedEnd` říká, kam by po přepočtu sáhla) a `STALE_BYPASS`
+(„nese značku, ale kalendáři odpovídá" — případ 18447, stačí zrušit značku).
+
+| Kde | Co se změnilo |
+| --- | --- |
+| `printTimeClient.ts` | `blockCalendarDrift` posuzuje i odložené zakázky (opt-in `includeBypassed`) a rozlišuje `PARKED`/`STALE_BYPASS` |
+| `reflow.server.ts` | přepočet odloženou zakázku přijme a značku ZRUŠÍ; nová větev „nic se nepohnulo" |
+| `revisionFormat.ts` | `scheduleBypassed` přestal být přeskočený sloupec, má vlastní českou větu |
+| `TimelineGrid.tsx` | náhled při tažení a resize se odloženým zakázkám přestal vyhýbat; pruh nad strojem je nepočítá |
+| `BlockCard.tsx`, `BlockDetail.tsx` | vlastní štítek a nápověda podle důvodu |
+| `calendarDrift.server.ts` | beze změny klasifikace — jen pojistka proti výjimce z expanze (viz níž) |
+
+**Klíčové rozhodnutí: odložení není porucha.** Etapa původně odstranila serverový
+filtr `scheduleBypassed: false`, aby odložené zakázky „konečně někdo kontroloval".
+Multi-agent review ukázala, proč je to špatně: příznak není přání uživatele, ale
+**spočítaná pravda** (`effectivelyBypassed = !conforms`) — odložená zakázka je tedy
+z definice nekonformní. Bez filtru by každé vědomé odložení trvale svítilo jako
+„nesedí na kalendář": notifikace z každé úpravy směn, nikdy nenulový provozní report
+a hromadné „Přepočítat" nad strojem by ji jedním kliknutím vystěhovalo do pracovní
+doby i s autoposunem navazujících bloků — **nevratně, protože reflow nemá undo**.
+
+Filtr se proto vrátil a rozsah obou detektorů se **záměrně liší**: server pohání
+souhrnné kanály, klient kreslí kartu jedné zakázky. Vědomé odložení patří na tu
+kartu a nikam jinam. Rozhodl Vojta 9. 8. 2026 po předložení nálezu.
+
+**Tvrdý požadavek, který tvaroval celý návrh.** *„Až tento build dáme na
+produkci, nechci nic měnit ani přepočítávat. Nesmí se nic hnout samo."* Proto:
+žádná migrace, žádný startovací ani cron skript, který by měnil data. Jediná
+cesta, kterou příznak z bloku mizí, je **klik na Přepočítat u konkrétní zakázky**.
+Po nasazení se u 18447 objeví štítek a nic víc; plán zůstane bit po bitu stejný.
+
+**Rozhodnutí, která stojí za zapamatování:**
+
+- **Dvojí detekce driftu je fakt, se kterým se musí počítat.** Pruh nad strojem
+  počítá server, štítek na kartě klient. Spec původně mířil jen na server —
+  půlka funkce by tiše chyběla. Chyceno kontrolou před psaním plánu (poučení P5).
+- **Sdílený guard se neuvolňuje, dává se mu opt-in.** `tryExpandForBlock` sdílí
+  detektor driftu s kreslením pauz. Uvolnění podmínky by odloženým zakázkám
+  kreslilo dovnitř pás „⏸ PAUZA — mimo provoz", přestože tisknou slitě. Řešením
+  je parametr s přísným výchozím stavem, ne změna podmínky (poučení P6).
+- **„Je co zapsat" ≠ „něco se pohnulo".** Zbytková značka je přesně ten případ,
+  kdy se nic nepohne a přesto je co uložit. Zkratka `changed = posun` by
+  tlačítku dovolila hlásit úspěch a příznak by v DB zůstal.
+- **Hlášení musí rozlišit dva různé výsledky.** Skutečný posun a pouhé zrušení
+  značky mají oba `changed: true`; „Blok přepočítán" by u nepohnutého bloku lhalo.
+- **Souhrnné počítadlo musí sedět s tím, co tlačítko udělá.** Pruh „N nesedí na
+  kalendář" nad strojem pohání hromadnou akci — cokoliv, co do něj započítám a
+  akce se toho nedotkne (nebo naopak), je slib, který aplikace nesplní.
+- **Detekce běžící uvnitř cizí transakce nesmí házet.** `expandPrintTime` na
+  nezarovnaném startu hodí výjimku; v `detectCalendarDrift` by shodila celou úpravu
+  směn chybou 500. Klient tu pojistku měl odjakživa, server ne — doplněna.
+
+Spec: `docs/superpowers/specs/2026-08-09-zamek-jako-rezim-design.md`
+Plán: `docs/superpowers/plans/2026-08-09-zamek-jako-rezim.md`

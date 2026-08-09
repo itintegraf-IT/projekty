@@ -1218,9 +1218,16 @@ export default function TimelineGrid({
   // ── Banner stroje „Přepočítat" — počet driftujících bloků per stroj z driftMap
   // (O(n) přes blocks, n je malé — počet bloků na gridu). Jen ADMIN/PLANOVAT (canEdit)
   // vidí chip + tlačítko (akce); badge na kartě už informaci nese pro všechny role.
+  //
+  // Odložené zakázky (PARKED/STALE_BYPASS) se NEPOČÍTAJÍ. Musí to sedět s tím, co
+  // hromadné „Přepočítat" doopravdy udělá: serverový `detectCalendarDrift` odložené
+  // bloky vyřazuje, takže by chip sliboval akci, která u nich neproběhne. Navíc chip
+  // tvrdí „nesedí na kalendář" a dialog „bloky se posunou" — u vědomého odložení by
+  // bylo obojí nepravda. Ty se řeší adresně z karty zakázky.
   const driftCountByMachine = new Map<string, number>();
   for (const b of blocks) {
-    if (!driftMap.has(b.id)) continue;
+    const drift = driftMap.get(b.id);
+    if (!drift || drift.reason === "PARKED" || drift.reason === "STALE_BYPASS") continue;
     driftCountByMachine.set(b.machine, (driftCountByMachine.get(b.machine) ?? 0) + 1);
   }
 

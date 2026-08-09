@@ -391,6 +391,9 @@ export function BlockCard({
   // běží nezávisle na `now`, takže hlásí i bloky naplánované do budoucna.
   const isPastDeadline = block.type === "ZAKAZKA"
     && isPastExpeditionDeadline(block.endTime, block.deadlineExpedice);
+  // Odložení mimo pracovní dobu (vědomé i zbytkové) vs. skutečný drift kalendáře —
+  // jeden štítek, dvě různá sdělení.
+  const isParked = calendarDrift?.reason === "PARKED" || calendarDrift?.reason === "STALE_BYPASS";
   const clampedHeight = Math.max(height, 20);
   // Layout mody se řídí výškou prvního print segmentu (obsah se má vejít do tiskové části,
   // ne propadnout do pauzy) — pro bloky bez segmentů (99 % plánu) je to prostě clampedHeight.
@@ -664,18 +667,22 @@ export function BlockCard({
         </span>
       )}
 
-      {/* Drift kalendáře štítek — druhé patro stacku pravého horního rohu, pod deadline
+      {/* Drift kalendáře / odložení — druhé patro stacku pravého horního rohu, pod deadline
           badge (etapa 6). Informační pro VŠECHNY role (i TISKAR/VIEWER) — akce
           „Přepočítat" je jen v banneru stroje / BlockDetail, gatované na ADMIN/PLANOVAT.
-          Parita s deadline badge: TINY jen „⚠", pod TINY nic. */}
+          Parita s deadline badge: TINY jen piktogram, pod TINY nic. */}
       {!!calendarDrift && (MODE_FULL || MODE_COMPACT || MODE_TINY) && (
         <span
           title={
-            calendarDrift.reason === "STALE_BYPASS"
-              ? "Zakázka je značená jako odložená mimo pracovní dobu, ale kalendáři odpovídá — značku lze zrušit tlačítkem Přepočítat"
-              : calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd
-                ? `Konec nesedí na aktuální kalendář (správně do ${formatPragueDateTime(calendarDrift.expectedEnd)})`
-                : "Umístění bloku nesedí na aktuální kalendář"
+            calendarDrift.reason === "PARKED"
+              ? calendarDrift.expectedEnd
+                ? `Odložená mimo pracovní dobu — tiskne slitě, bez pauz směn. Po přepočtu by končila ${formatPragueDateTime(calendarDrift.expectedEnd)}.`
+                : "Odložená mimo pracovní dobu — tiskne slitě, bez pauz směn. Začátek leží mimo provoz stroje."
+              : calendarDrift.reason === "STALE_BYPASS"
+                ? "Značená jako odložená mimo pracovní dobu, ale kalendáři odpovídá — značku zrušíš tlačítkem Přepočítat v detailu zakázky"
+                : calendarDrift.reason === "END_MISMATCH" && calendarDrift.expectedEnd
+                  ? `Konec nesedí na aktuální kalendář (správně do ${formatPragueDateTime(calendarDrift.expectedEnd)})`
+                  : "Umístění bloku nesedí na aktuální kalendář"
           }
           style={{
             position: "absolute",
@@ -694,7 +701,10 @@ export function BlockCard({
             whiteSpace: "nowrap",
           }}
         >
-          {MODE_TINY ? "⚠" : "⚠ KALENDÁŘ"}
+          {/* Odložení je stav, ne porucha — vlastní text i piktogram, ať plánovač nehledá
+              chybu tam, kde žádná není. Zbytková značka (STALE_BYPASS) je pořád odložení,
+              jen zrušitelné, takže nese týž štítek a liší se nápovědou. */}
+          {isParked ? (MODE_TINY ? "⏸" : "⏸ ODLOŽENO") : MODE_TINY ? "⚠" : "⚠ KALENDÁŘ"}
         </span>
       )}
 
