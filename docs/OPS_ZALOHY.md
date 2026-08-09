@@ -115,20 +115,41 @@ by rostla donekonečna.
 Přidat pátý řádek do téhož crontabu:
 
 ```
-50 3 * * *   cd /var/www/planovanivyroby && /usr/bin/env npx tsx scripts/prune-revisions.ts >> /var/log/planovani-backup.log 2>&1
+50 3 * * * /bin/sh -c 'export PATH=/home/administrator/.nvm/versions/node/v20.20.1/bin:$PATH; cd /var/www/planovanivyroby && npx tsx scripts/prune-revisions.ts' >> /var/log/planovani-backup.log 2>&1
 ```
 
-**Před vložením do crontabu spusť skript jednou ručně** (stejně jako u ostatních
-čtyř úloh — ověří cestu, práva i připojení k DB):
+> **POZOR — `npx` NENÍ v prostředí cronu dostupný.** Node je na serveru z **nvm**
+> pod uživatelem `administrator` (`/home/administrator/.nvm/versions/node/<verze>/bin`),
+> kdežto cron startuje s holým `PATH=/usr/bin:/bin`. Původní znění řádku
+> (`/usr/bin/env npx tsx …`) proto **tiše nikdy neproběhlo** — ověřeno 9. 8. 2026,
+> `/usr/bin/env: 'npx': No such file or directory`. Absolutní cesta k `npx` sama
+> NESTAČÍ: je to skript se `#!/usr/bin/env node`, takže v `PATH` musí být i `node`.
+> **Cesta obsahuje verzi Node** — po upgradu nvm ji v crontabu opravit, jinak úloha
+> zase tiše přestane běžet.
+
+**Před vložením do crontabu spusť skript dvakrát** — jednou normálně, jednou
+v podmínkách cronu. Druhá zkouška je ta, která odhalí chybějící `PATH`; bez ní
+se selhání pozná až podle toho, že tabulka nepřestává růst:
 
 ```bash
 cd /var/www/planovanivyroby && npx tsx scripts/prune-revisions.ts
+
+sudo sh -c 'PATH=/usr/bin:/bin; cd /var/www/planovanivyroby && /usr/bin/env npx tsx scripts/prune-revisions.ts'
 ```
+
+Druhý příkaz MUSÍ projít stejně jako první. Když spadne, řádek do crontabu
+v té podobě nepatří.
 
 Po instalaci téhle páté úlohy vrací kontrola `sudo crontab -l | grep -c planovani`
 hodnotu **5**, ne 4. Řádek s úklidem revizí jako jediný nespouští skript
 z `/usr/local/bin` — jede přímo z pracovní kopie aplikace, protože potřebuje
 `node_modules` a Prisma klienta.
+
+> **Zjištěno 9. 8. 2026: v root crontabu na `srv-igweb` NEJSOU ani ty čtyři úlohy.**
+> Je tam jediný řádek (`igweb-full-backup.sh`), takže denní záloha DB, health-check
+> ani CSV export z Fáze 1 na serveru nikdy nainstalované nebyly. Než se přidá pátá
+> úloha, je potřeba doinstalovat ty čtyři — a ověřit, jestli neběží pod jiným
+> uživatelem: `crontab -l | grep planovani` (bez `sudo`).
 
 Čas 3:50 je **po** noční záloze (1:45) a CSV exportu (2:20) — smazané revize
 tak vždycky ještě jednou odejdou do zálohy, než z databáze zmizí. A je mimo
