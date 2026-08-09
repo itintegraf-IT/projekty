@@ -135,12 +135,17 @@ export function suppressCoveredColumns(
  * události v obráceném pořadí — nejdřív důsledek („Délka tisku: 1,5h → 1h"), pak
  * příčina („↶ vráceno zpět") — nález z proklikávání na produkčních datech 9. 8. 2026.
  *
- * POZOR na past: příčinou NENÍ rozdílná přesnost sloupců. Podle migrací i dev DB
- * mají `AuditLog.createdAt` i `BlockRevision.createdAt` shodně `datetime(3)`
- * (ověřeno review 9. 8. 2026 — první verze tohohle komentáře tvrdila opak).
- * Kdyby se přesnost kdykoli měnila, tenhle helper je pořád potřeba: rozhoduje
- * POŘADÍ ZÁPISU, ne rozlišení razítka. Neodstraňovat ho s odůvodněním, že
- * „sloupce mají stejnou přesnost".
+ * Na produkci to navíc zesiluje ODCHYLKA SCHÉMATU: `AuditLog.createdAt` je tam
+ * `datetime` (přesnost 0), i když migrace předepisuje `datetime(3)` — dev DB ho
+ * `datetime(3)` skutečně má. Auditní řádek tedy na produkci navíc ztrácí
+ * milisekundy a zaokrouhlí se DOLŮ na celou sekundu. Viz „Produkční DB — známé
+ * odchylky od migrací" v CLAUDE.md (ověřeno přes information_schema 9. 8. 2026).
+ *
+ * POZOR na past: helper je potřeba i BEZ té odchylky. Kdyby se přesnost sloupce
+ * někdy srovnala, revize pořád vzniká později, protože se zapisuje v epilogu.
+ * Neodstraňovat ho s odůvodněním „sloupce už mají stejnou přesnost" — přesně
+ * na tohle upozornila review 9. 8. 2026 (a shodila přitom moje původní, opačně
+ * chybné zdůvodnění, které příčinu svádělo POUZE na přesnost).
  *
  * Klíčem je `groupId`, který od etapy B1 nesou OBA zdroje: celá skupina se řadí
  * podle svého NEJNOVĚJŠÍHO razítka, uvnitř skupiny jde audit před revizí.

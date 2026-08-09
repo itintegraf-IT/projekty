@@ -127,7 +127,8 @@ test("prázdný vstup nedá žádnou skupinu", () => {
 // ── sortHistoryEntries (O2, nález z proklikávání 9. 8. 2026) ──────────────────
 // Revize se zapisují až v EPILOGU transakce (withRevision volá blockRevision.createMany
 // po doběhnutí těla), auditní řádky uvnitř těla — revize téže transakce má proto vždy
-// pozdější razítko. NENÍ to o přesnosti sloupců, oba jsou datetime(3).
+// pozdější razítko. Na produkci to navíc zesiluje odchylka schématu: AuditLog.createdAt
+// je tam datetime(0), zatímco BlockRevision.createdAt datetime(3).
 
 const auditEntry = (over: Partial<BlockHistoryEntry & { source: "audit" }> = {}) => ({
   source: "audit" as const, id: 1, createdAt: "2026-08-09T14:51:03.512Z", groupId: "G1",

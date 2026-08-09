@@ -137,6 +137,8 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 Prod DB `igvyroba` měla historicky ručně vytvořené sloupce (opraveno 12. 4. 2026): `AuditLog.action` `varchar(16)`→`varchar(191)`; `Block.doprava` a `Block.expediceNote` doplněny jako `varchar(191) NULL`. Při deploy chybě `P2022`/`P2000` nejdřív ověřit skutečný typ sloupce v DB (`SHOW COLUMNS FROM <Tabulka>`).
 
+**`AuditLog.createdAt` je na produkci `datetime` (přesnost 0), ne `datetime(3)`, jak předepisuje migrace** — ověřeno přes `information_schema` 9. 8. 2026 nad ostrou DB i její kopií; dev DB `datetime(3)` skutečně má. Auditní razítka se tam tedy zaokrouhlují dolů na celou sekundu, kdežto `BlockRevision.createdAt` má milisekundy. **Nikdy neporovnávat časy z těch dvou tabulek na rovnost ani z nich neodvozovat pořadí** (viz `sortHistoryEntries` v `blockHistory.ts`, které kvůli tomu řadí podle `groupId`). Odchylka je neškodná, dopad má jen na řazení — schéma se kvůli ní neupravuje.
+
 ## Dokumenty v repu
 
 - `docs/vyvoj-historie.md` — souhrn featur + implementační reference (tiskové hodiny, split-skupiny B2, copy/paste, reporty, dekompozice fáze E) a historie etap
