@@ -237,6 +237,37 @@ test("prázdný rozdíl → žádná věta", () => {
 // ---------------------------------------------------------------------------
 
 const testDir = dirname(fileURLToPath(import.meta.url));
+test("scheduleBypassed: nastavení značky → česká věta", () => {
+  const lines = formatRevisionLines({ scheduleBypassed: false }, { scheduleBypassed: true });
+  assert.deepEqual(lines, ["Označeno jako odložené mimo pracovní dobu"]);
+});
+
+test("scheduleBypassed: zrušení značky → česká věta", () => {
+  // Přesně tohle zapíše tlačítko „Přepočítat" u zbytkové značky, kde se nic nepohne —
+  // bez věty by v historii nebyla po té změně ani stopa.
+  const lines = formatRevisionLines({ scheduleBypassed: true }, { scheduleBypassed: false });
+  assert.deepEqual(lines, ["Zrušeno označení „odložené mimo pracovní dobu“"]);
+});
+
+test("scheduleBypassed: MySQL TINYINT 0/1 se čte stejně jako boolean", () => {
+  // Hodnota chodí z Json sloupce BlockRevision.after, kde po cestě přes MySQL
+  // může být 0/1 místo false/true (týž důvod, proč existuje asBool).
+  assert.deepEqual(formatRevisionLines({ scheduleBypassed: 0 }, { scheduleBypassed: 1 }), [
+    "Označeno jako odložené mimo pracovní dobu",
+  ]);
+});
+
+test("scheduleBypassed: věta o značce nepotlačí větu o přesunu", () => {
+  // Přetažení do šrafování mění obojí naráz — v historii musí být obě věty.
+  const lines = formatRevisionLines(
+    { startTime: "2026-08-17T06:00:00.000Z", scheduleBypassed: false },
+    { startTime: "2026-08-17T08:00:00.000Z", scheduleBypassed: true },
+  );
+  assert.equal(lines.length, 2);
+  assert.match(lines[0]!, /^Přesunuto na /);
+  assert.equal(lines[1], "Označeno jako odložené mimo pracovní dobu");
+});
+
 const schemaPath = join(testDir, "../../prisma/schema.prisma");
 
 /** Skalární sloupce modelu Block ze schématu (relační pole = typ je jméno modelu). */

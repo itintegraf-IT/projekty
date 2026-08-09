@@ -16,6 +16,7 @@ export const REVISION_LINE_COLUMNS = [
   "endTime",
   "printMinutes",
   "locked",
+  "scheduleBypassed",
 ] as const;
 
 /**
@@ -37,8 +38,6 @@ export const REVISION_SKIPPED_COLUMNS: Record<string, string> = {
   id: "Identita řádku — obě strany rozdílu jsou týž blok, ve výsledku se objevit nemůže.",
   createdAt: "Nastaví se při vzniku bloku a už se nemění; vznik pokrývá auditní akce CREATE.",
   updatedAt: "Do rozdílu se nedostane vůbec — `computeRevisionDiff` ho vylučuje (verze je v BlockRevision.rowVersion).",
-  scheduleBypassed:
-    "Vnitřní příznak validace harmonogramu (spočítaná pravda serveru), ne uživatelské nastavení; mění se jako důsledek změny časů, kterou už popisuje věta o přesunu/délce.",
   splitGroupId:
     "Interní členství ve split skupině — číslo skupiny čtenáři nic neříká, rozdělení bloku je v historii vidět jako vznik nových bloků (CREATE).",
   reservationId:
@@ -163,6 +162,20 @@ export function formatRevisionLines(before: Row, after: Row): string[] {
   // 3) ZÁMEK. Vlastní věta proto, že `locked` NENÍ v `AUDITED_FIELDS` — auditní
   //    řádek o zamčení nevzniká vůbec a revize je jediný záznam.
   if ("locked" in after) lines.push(asBool(after.locked) ? "Zamčeno" : "Odemčeno");
+
+  // 4) ZNAČKA „ODLOŽENO MIMO PRACOVNÍ DOBU". Do 8/2026 byla mezi přeskočenými sloupci
+  //    s odůvodněním „vnitřní příznak, mění se jako důsledek změny časů" — to přestalo
+  //    platit: je to stav, který plánovač na kartě VIDÍ (štítek ⚠ KALENDÁŘ) a který se
+  //    mění i bez jediné změny časů (tlačítko „Přepočítat" u zbytkové značky). Bez
+  //    vlastní věty by po té změně v historii nezůstala žádná stopa — přesně ta třída
+  //    slepého místa, kvůli které revize vznikly.
+  if ("scheduleBypassed" in after) {
+    lines.push(
+      asBool(after.scheduleBypassed)
+        ? "Označeno jako odložené mimo pracovní dobu"
+        : "Zrušeno označení „odložené mimo pracovní dobu“",
+    );
+  }
 
   // 4) OBCHODNÍ POLE. Popisek se bere z téhož `FIELD_LABELS`, jaký používají
   //    auditní řádky ve stejném panelu. Není to jen pohodlí: `description`,
