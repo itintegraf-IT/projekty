@@ -48,11 +48,13 @@ function blockLengthLabel(block: Block): string {
 }
 
 /** Nadpis drift sekce podle `reason` (Task 6, etapa 7) — místo jednoho fixního textu
- * pro všechny tři případy `blockCalendarDrift`/`detectCalendarDrift` mohou vrátit. */
+ * pro všechny případy, které `blockCalendarDrift`/`detectCalendarDrift` mohou vrátit.
+ * `Record` nad unionem je záměrný: nový důvod nejde přidat bez doplnění titulku. */
 const DRIFT_TITLES: Record<CalendarDriftInfo["reason"], string> = {
   END_MISMATCH: "Blok nesedí na kalendář",
   START_NOT_RUNNABLE: "Start bloku je mimo provoz stroje",
   HORIZON_EXCEEDED: "Blok nejde podle kalendáře dopočítat",
+  STALE_BYPASS: 'Zbytková značka „odložené mimo pracovní dobu“',
 };
 
 function Row({ label, value }: { label: string; value: string }) {

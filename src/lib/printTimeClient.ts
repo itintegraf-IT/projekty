@@ -108,13 +108,23 @@ export function snapGroupDeltaStartOnly(
  * resp. "nelze posoudit" (blockCalendarDrift). Když guardy projdou, vrací vždy
  * `ExpandResult` (i `ok: false` s reasonem) — jeho klasifikaci (fail vs. end
  * mismatch vs. sedí) už řeší každá volající funkce podle vlastní sémantiky.
+ *
+ * `includeBypassed` je VÝSLOVNÝ opt-in jediného volajícího — `blockCalendarDrift`,
+ * který od 8/2026 odložené zakázky posuzuje (dřív byly neviditelné, viz 18447).
+ * Výchozí stav je a musí zůstat PŘÍSNÝ: kreslení segmentů (`getBlockSegments`,
+ * `blockReportSegments`) odloženou zakázku expandovat NESMÍ — nakreslilo by jí
+ * dovnitř pás „⏸ PAUZA — mimo provoz", přestože tiskne slitě. Proto je to
+ * parametr a ne uvolnění podmínky; hlídá to test „getBlockSegments: bypass blok
+ * → null" (poučení P6 v docs/POUCENI.md).
  */
 function tryExpandForBlock(
   b: { type: string; machine: string; startTime: string | Date; printMinutes?: number | null; scheduleBypassed?: boolean | null },
   weekShifts: MachineWeekShiftsRow[],
-  companyDays: CompanyDayClientRow[]
+  companyDays: CompanyDayClientRow[],
+  opts: { includeBypassed?: boolean } = {}
 ): ExpandResult | null {
-  if (b.type !== "ZAKAZKA" || b.scheduleBypassed) return null;
+  if (b.type !== "ZAKAZKA") return null;
+  if (b.scheduleBypassed && !opts.includeBypassed) return null;
   const pm = b.printMinutes;
   if (pm == null || !Number.isFinite(pm) || pm <= 0) return null;
   const start = new Date(b.startTime);
@@ -189,7 +199,9 @@ export function printOverlapMinutes(
 }
 
 export type CalendarDriftInfo = {
-  reason: "END_MISMATCH" | "START_NOT_RUNNABLE" | "HORIZON_EXCEEDED";
+  /** `STALE_BYPASS` = zbytková značka „odložené mimo pracovní dobu" nad geometrií,
+   *  která kalendáři odpovídá. Významy důvodů viz `DriftedBlock` (calendarDrift.server.ts). */
+  reason: "END_MISMATCH" | "START_NOT_RUNNABLE" | "HORIZON_EXCEEDED" | "STALE_BYPASS";
   expectedEnd: Date | null;
 };
 
@@ -201,10 +213,15 @@ export type CalendarDriftInfo = {
  *
  * Vrací null (bez štítku) pro: vytištěný blok (printCompletedAt), blok
  * v minulosti (endTime <= now), a guardy sdílené s getBlockSegments přes
- * tryExpandForBlock (ne-ZAKAZKA, bypass, printMinutes null/≤0, nezarovnaný
- * start) — v tomto pořadí. Jinak expandPrintTime: fail → drift s reasonem
+ * tryExpandForBlock (ne-ZAKAZKA, printMinutes null/≤0, nezarovnaný start) —
+ * v tomto pořadí. Jinak expandPrintTime: fail → drift s reasonem
  * z expanze (expectedEnd null — nelze spočítat), ok a end nesedí na uložený
  * → END_MISMATCH s expectedEnd, ok a sedí → null (žádný drift).
+ *
+ * Odložené zakázky (`scheduleBypassed`) se od 8/2026 posuzují taky — jako jediný
+ * volající si expanzi vyžádá přes `includeBypassed` (viz komentář u sdíleného
+ * guardu). Když jim geometrie kalendáři odpovídá, výsledek není „bez štítku",
+ * ale STALE_BYPASS: zbytková značka, kterou stačí zrušit.
  *
  * Klient nemá pojem „okna" (server filtruje endTime > max(windowStart, now),
  * protože posuzuje jen dávku dotčenou mutací kalendáře) — okno je serverová
@@ -230,11 +247,12 @@ export function blockCalendarDrift(
   const endTime = new Date(b.endTime);
   if (endTime.getTime() <= now.getTime()) return null;
 
-  const exp = tryExpandForBlock(b, weekShifts, companyDays);
-  if (!exp) return null; // guard selhal (ne-ZAKAZKA/bypass/pm neplatné/nezarovnaný start) — nelze posoudit
+  const exp = tryExpandForBlock(b, weekShifts, companyDays, { includeBypassed: true });
+  if (!exp) return null; // guard selhal (ne-ZAKAZKA/pm neplatné/nezarovnaný start) — nelze posoudit
   if (!exp.ok) return { reason: exp.reason, expectedEnd: null };
   if (exp.end.getTime() !== endTime.getTime()) return { reason: "END_MISMATCH", expectedEnd: exp.end };
-  return null;
+  // Geometrie sedí. U neoznačeného bloku zdravý stav; u odloženého zbytková značka.
+  return b.scheduleBypassed ? { reason: "STALE_BYPASS", expectedEnd: null } : null;
 }
 
 /**

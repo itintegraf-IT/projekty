@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { pragueToUTC } from "./dateUtils";
 import { mkDay, xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
 import { detectCalendarDrift, notifyCalendarDrift, type DriftedBlock } from "./calendarDrift.server";
+import { blockCalendarDrift } from "./printTimeClient";
 import type { PrismaClientLike } from "./printTime.server";
 import type { serializeWeekShifts } from "./scheduleValidation";
 
@@ -305,6 +306,48 @@ test("detectCalendarDrift: žádné bloky → [] bez fetche kalendáře", async 
   const result = await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now);
   assert.deepEqual(result, []);
   assert.equal(weekShiftsFetched, false, "kalendář se nesmí fetchovat, když nejsou žádné bloky");
+});
+
+test("parita klient ↔ server: tytéž vstupy, tatáž klasifikace", async () => {
+  // Server notifikuje a plní pruh „Přepočítat", klient kreslí štítek na kartě.
+  // Kdyby se klasifikace rozešly, štítek na zakázce by tvrdil něco jiného než
+  // pruh nad strojem. Proto jedna tabulka vstupů proháněná OBĚMA implementacemi.
+  const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
+  const cases: Array<{ name: string; row: FakeBlockRow; expected: DriftedBlock["reason"] | null }> = [
+    {
+      name: "odložený přes víkendovou odstávku",
+      row: mkBlock({ id: 31, startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0), printMinutes: 240, scheduleBypassed: true }),
+      expected: "END_MISMATCH",
+    },
+    {
+      name: "odložený se startem v odstávce",
+      row: mkBlock({ id: 32, startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 14), printMinutes: 240, scheduleBypassed: true }),
+      expected: "START_NOT_RUNNABLE",
+    },
+    {
+      name: "odložený, geometrie sedí",
+      row: mkBlock({ id: 33, startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240, scheduleBypassed: true }),
+      expected: "STALE_BYPASS",
+    },
+    {
+      name: "neoznačený, geometrie sedí",
+      row: mkBlock({ id: 34, startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240 }),
+      expected: null,
+    },
+    {
+      name: "neoznačený driftující",
+      row: mkBlock({ id: 35, startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0), printMinutes: 240 }),
+      expected: "END_MISMATCH",
+    },
+  ];
+
+  for (const c of cases) {
+    const db = fakeCalendarDriftDb([c.row], weekShifts, []);
+    const server = (await detectCalendarDrift(db, ["XL_106"], windowStart, windowEnd, now))[0]?.reason ?? null;
+    const client = blockCalendarDrift(c.row, weekShifts, [], now)?.reason ?? null;
+    assert.equal(server, c.expected, `server: ${c.name}`);
+    assert.equal(client, c.expected, `klient: ${c.name}`);
+  }
 });
 
 // ── notifyCalendarDrift ──────────────────────────────────────────────────────
