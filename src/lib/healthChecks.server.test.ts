@@ -192,3 +192,17 @@ test("bucketDrift: END_MISMATCH+HORIZON → drift; START_NOT_RUNNABLE → outsid
   assert.equal(drift[0].storedEnd.getTime(), D("2026-08-01T10:00:00Z").getTime());
   assert.equal(drift[0].expectedEnd?.getTime(), D("2026-08-01T11:00:00Z").getTime());
 });
+
+test("bucketDrift: STALE_BYPASS nepatří ani do jednoho kbelíku", () => {
+  // Provozní hlášení je o rozbité geometrii; zbytková značka geometrii nerozbíjí.
+  // Kdyby spadla do `drift`, hlásila by se v reportu napořád jako „nesedí na kalendář",
+  // dokud ji někdo neodklikne — trvalý falešný poplach pro Michala.
+  const stale: DriftedBlock = {
+    id: 9, orderNumber: "18447", machine: "XL_106",
+    startTime: D("2026-08-01T08:00:00Z"), endTime: D("2026-08-01T10:00:00Z"),
+    expectedEnd: null, reason: "STALE_BYPASS",
+  };
+  const { drift, outsideHours } = bucketDrift([stale]);
+  assert.deepEqual(drift, []);
+  assert.deepEqual(outsideHours, []);
+});

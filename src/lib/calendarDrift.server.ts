@@ -11,7 +11,6 @@ export type PrismaClientLike = CalendarPrismaClientLike & {
       where: {
         machine: { in: string[] };
         type: string;
-        scheduleBypassed: boolean;
         printMinutes: { gt: number };
         printCompletedAt: null;
         startTime: { lt: Date };
@@ -24,9 +23,18 @@ export type PrismaClientLike = CalendarPrismaClientLike & {
         startTime: true;
         endTime: true;
         printMinutes: true;
+        scheduleBypassed: true;
       };
     }) => Promise<
-      { id: number; orderNumber: string; machine: string; startTime: Date; endTime: Date; printMinutes: number | null }[]
+      {
+        id: number;
+        orderNumber: string;
+        machine: string;
+        startTime: Date;
+        endTime: Date;
+        printMinutes: number | null;
+        scheduleBypassed: boolean;
+      }[]
     >;
   };
 };
@@ -56,15 +64,25 @@ export type DriftedBlock = {
   machine: string;
   startTime: Date;
   endTime: Date;
-  expectedEnd: Date | null; // null = expanze selhala
-  reason: "END_MISMATCH" | "START_NOT_RUNNABLE" | "HORIZON_EXCEEDED";
+  expectedEnd: Date | null; // null = expanze selhala, nebo není co posouvat (STALE_BYPASS)
+  /**
+   * `STALE_BYPASS` = blok je značený jako odložený mimo pracovní dobu, ale jeho
+   * rozpětí kalendáři ODPOVÍDÁ — geometrie je v pořádku, zbytková je jen značka.
+   * Ostatní tři důvody znamenají skutečný nesoulad geometrie s kalendářem.
+   */
+  reason: "END_MISMATCH" | "START_NOT_RUNNABLE" | "HORIZON_EXCEEDED" | "STALE_BYPASS";
 };
 
 /**
  * Detekuje ZAKAZKA bloky, jejichž uložený `endTime` už nesedí na aktuální
  * pracovní kalendář (weekShifts/companyDays se od uložení změnily). Jen ČTE —
  * neukládá, žádné migrace. Posuzuje jen bloky, které lze poctivě re-expandovat:
- * ne-bypass, printMinutes > 0, zarovnaný start, ještě nevytištěné a neskončené.
+ * printMinutes > 0, zarovnaný start, ještě nevytištěné a neskončené.
+ *
+ * Odložené bloky (`scheduleBypassed`) se do 8/2026 vyřazovaly už ve WHERE — plánovač
+ * o nich nevěděl a jejich geometrii nikdo nekontroloval (viz zakázka 18447: tichá
+ * 3,5hodinová díra v pracovní době). Nově se posuzují jako každý jiný; když sedí,
+ * hlásí se `STALE_BYPASS` = „zruš značku", ne „posuň blok".
  */
 export async function detectCalendarDrift(
   db: PrismaClientLike,
@@ -78,13 +96,20 @@ export async function detectCalendarDrift(
     where: {
       machine: { in: machines },
       type: "ZAKAZKA",
-      scheduleBypassed: false,
       printMinutes: { gt: 0 },
       printCompletedAt: null,
       startTime: { lt: windowEnd },
       endTime: { gt: new Date(activeAfter) },
     },
-    select: { id: true, orderNumber: true, machine: true, startTime: true, endTime: true, printMinutes: true },
+    select: {
+      id: true,
+      orderNumber: true,
+      machine: true,
+      startTime: true,
+      endTime: true,
+      printMinutes: true,
+      scheduleBypassed: true,
+    },
   });
 
   // Nezarovnaný start = legacy blok předcházející modelu tiskových hodin — nelze posoudit.
@@ -124,17 +149,32 @@ export async function detectCalendarDrift(
         });
         continue;
       }
-      if (expanded.end.getTime() !== b.endTime.getTime()) {
-        drifted.push({
-          id: b.id,
-          orderNumber: b.orderNumber,
-          machine: b.machine,
-          startTime: b.startTime,
-          endTime: b.endTime,
-          expectedEnd: expanded.end,
-          reason: "END_MISMATCH",
-        });
+      if (expanded.end.getTime() === b.endTime.getTime()) {
+        // Konec sedí na kalendář. U neoznačeného bloku je to zdravý stav (nehlásí se nic);
+        // u označeného to znamená, že značka je zbytková — geometrie je v pořádku a jediné,
+        // co zbývá, je značku zrušit (proto expectedEnd null — není co posouvat).
+        if (b.scheduleBypassed) {
+          drifted.push({
+            id: b.id,
+            orderNumber: b.orderNumber,
+            machine: b.machine,
+            startTime: b.startTime,
+            endTime: b.endTime,
+            expectedEnd: null,
+            reason: "STALE_BYPASS",
+          });
+        }
+        continue;
       }
+      drifted.push({
+        id: b.id,
+        orderNumber: b.orderNumber,
+        machine: b.machine,
+        startTime: b.startTime,
+        endTime: b.endTime,
+        expectedEnd: expanded.end,
+        reason: "END_MISMATCH",
+      });
     }
   }
 
@@ -153,6 +193,11 @@ function pluralBlok(count: number): string {
  * Vytvoří notifikace pro PLANOVAT a ADMIN, když mutace kalendáře (směny/odstávky)
  * rozhodí uložený `endTime` bloků, které na ni spoléhaly. No-op při prázdném poli
  * (volající nemusí sám kontrolovat `drifted.length`).
+ *
+ * `STALE_BYPASS` se do hlášky NEPOČÍTÁ: hláška tvrdí „nesedí na kalendář", což by
+ * u zbytkové značky byla lež (geometrie sedí) — a navíc by ji vyvolala každá úprava
+ * směn, přestože s ní ta značka nijak nesouvisí. Plánovač ji vidí jako štítek
+ * na kartě zakázky, což je trvalý a přesný kanál.
  */
 export async function notifyCalendarDrift(
   db: NotifyPrismaClientLike,
@@ -160,12 +205,13 @@ export async function notifyCalendarDrift(
   session: Pick<SessionUser, "id" | "username">,
   contextLabel: string
 ): Promise<void> {
-  if (drifted.length === 0) return;
+  const geometric = drifted.filter((d) => d.reason !== "STALE_BYPASS");
+  if (geometric.length === 0) return;
 
-  const orderNumbers = drifted.map((d) => d.orderNumber);
+  const orderNumbers = geometric.map((d) => d.orderNumber);
   const shown = orderNumbers.slice(0, 3).join(", ");
   const suffix = orderNumbers.length > 3 ? "…" : "";
-  const message = `${contextLabel}: ${drifted.length} ${pluralBlok(drifted.length)} nesedí na kalendář (${shown}${suffix})`;
+  const message = `${contextLabel}: ${geometric.length} ${pluralBlok(geometric.length)} nesedí na kalendář (${shown}${suffix})`;
 
   await db.notification.createMany({
     data: [

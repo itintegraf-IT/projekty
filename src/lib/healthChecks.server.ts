@@ -205,11 +205,19 @@ export async function scanAttachmentDir(dir: string): Promise<DiskEntry[]> {
 }
 
 // ── Drift bucket + agregátor ─────────────────────────────────────────────────
-/** END_MISMATCH/HORIZON_EXCEEDED → drift; START_NOT_RUNNABLE → mimo provoz. Čistá funkce. */
+/**
+ * END_MISMATCH/HORIZON_EXCEEDED → drift; START_NOT_RUNNABLE → mimo provoz. Čistá funkce.
+ *
+ * `STALE_BYPASS` se do reportu NEZAŘAZUJE: provozní kontrola hlásí rozbitou geometrii,
+ * kdežto zbytková značka geometrii nerozbíjí (blok kalendáři odpovídá). V kbelíku
+ * `drift` by figurovala napořád, dokud ji někdo v aplikaci neodklikne — trvale nenulový
+ * report je horší než žádný. Plánovači ji ukazuje štítek na kartě zakázky.
+ */
 export function bucketDrift(drifted: DriftedBlock[]): { drift: DriftItem[]; outsideHours: DriftItem[] } {
   const drift: DriftItem[] = [];
   const outsideHours: DriftItem[] = [];
   for (const d of drifted) {
+    if (d.reason === "STALE_BYPASS") continue;
     const item: DriftItem = {
       id: d.id, orderNumber: d.orderNumber, machine: d.machine,
       startTime: d.startTime, storedEnd: d.endTime, expectedEnd: d.expectedEnd, reason: d.reason,
