@@ -26,7 +26,7 @@ export type ReflowOutcome =
   | { ok: true; changed: boolean; startTime: Date; endTime: Date; moves: AppliedMove[] }
   | {
       ok: false;
-      code: "NOT_FOUND" | "NOT_ZAKAZKA" | "BYPASS" | "LOCKED" | "PRINTED" | "NO_PM" | "UNALIGNED" | "NO_SLOT" | "HORIZON";
+      code: "NOT_FOUND" | "NOT_ZAKAZKA" | "LOCKED" | "PRINTED" | "NO_PM" | "UNALIGNED" | "NO_SLOT" | "HORIZON";
       message: string;
     };
 
@@ -53,8 +53,14 @@ const defaultDeps: ReflowDeps = { resolveChainPush: resolveChainPushFromDb };
  * expandPrintTime) — akce plánovače „Přepočítat" pro drift mezi uloženým end a tím, co
  * by dnes vyšlo z tiskových hodin (kalendář se změnil po uložení bloku).
  *
- * Idempotentní: blok, který už na kalendář sedí, nezapisuje nic (žádný update, žádný
- * audit, žádný chain push) — vrací `{ ok: true, changed: false }`.
+ * Idempotentní: blok, který už na kalendář sedí a nenese značku „odložené mimo pracovní
+ * dobu", nezapisuje nic (žádný update, žádný audit, žádný chain push) — vrací
+ * `{ ok: true, changed: false }`.
+ *
+ * Odložené bloky (`scheduleBypassed`) se do 8/2026 odmítaly s `code: "BYPASS"`, takže
+ * plánovač neměl jak takovou zakázku vrátit do kalendáře jinak než ručním tažením.
+ * Nově se přepočítají jako každý jiný a značka se přitom RUŠÍ — je to jediná cesta,
+ * kterou příznak z bloku mizí, a spouští ji vždy klik uživatele, nikdy ne aplikace sama.
  *
  * Reflownutý blok sám NEPODLÉHÁ MIN_PRINT_SEGMENT_MINUTES (explicitní ruční akce);
  * navazující bloky odsunuté chain pushem si svá pravidla drží beze změny.
@@ -74,9 +80,6 @@ export async function reflowBlockInTx(
   }
   if (block.type !== "ZAKAZKA") {
     return { ok: false, code: "NOT_ZAKAZKA", message: "Lze přepočítat jen blok typu zakázka." };
-  }
-  if (block.scheduleBypassed) {
-    return { ok: false, code: "BYPASS", message: "Blok s vypnutým zámkem se nepřepočítává." };
   }
   if (block.locked) {
     return { ok: false, code: "LOCKED", message: "Zamčený blok nelze přepočítat — nejdřív ho odemkni." };
@@ -126,15 +129,30 @@ export async function reflowBlockInTx(
   }
   const newEnd = exp.end;
 
-  const changed = newStart.getTime() !== oldStart.getTime() || newEnd.getTime() !== oldEnd.getTime();
-  if (!changed) {
+  // Dvě nezávislé věci, které přepočet může spravit: geometrii (`moved`) a zbytkovou
+  // značku „odložené mimo pracovní dobu" (`clearsFlag`). Zbytková značka je právě
+  // ten případ, kdy se nic nepohne a přesto je co zapsat — kdyby `changed` viselo
+  // jen na posunu, tlačítko by hlásilo úspěch a příznak by v DB zůstal (zakázka 18447).
+  const moved = newStart.getTime() !== oldStart.getTime() || newEnd.getTime() !== oldEnd.getTime();
+  const clearsFlag = block.scheduleBypassed === true;
+  if (!moved && !clearsFlag) {
     return { ok: true, changed: false, startTime: oldStart, endTime: oldEnd, moves: [] };
   }
 
   await tx.block.update({
     where: { id: blockId },
-    data: { startTime: newStart, endTime: newEnd },
+    data: {
+      ...(moved ? { startTime: newStart, endTime: newEnd } : {}),
+      ...(clearsFlag ? { scheduleBypassed: false } : {}),
+    },
   });
+
+  // Když se nic nepohnulo, není co odsouvat, co kontrolovat na překryv ani co zapsat
+  // do auditu jako přesun — samotné zrušení značky zaznamená revize bloku (černá
+  // skříňka), která na `scheduleBypassed` má vlastní českou větu.
+  if (!moved) {
+    return { ok: true, changed: true, startTime: oldStart, endTime: oldEnd, moves: [] };
+  }
 
   // Chain push navazujících bloků — kolize se zamčeným/vytištěným následníkem hází
   // AppError, záměrně NECHYTÁNO zde: bublá do route, transakce se odvolá.

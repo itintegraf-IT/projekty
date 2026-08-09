@@ -1973,8 +1973,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast(data.error ?? "Přepočet se nepodařilo dokončit.", "error");
         return;
       }
+      // Hlášení musí rozlišit dva různé výsledky se stejným `changed: true`: skutečný
+      // posun a pouhé zrušení zbytkové značky (u té se plán nehne ani o minutu).
+      // Porovnání proti stavu PŘED applyServerBlocks — potom už je přepsaný.
+      const before = blocksRef.current.find((b) => b.id === blockId);
+      const timesMoved =
+        !before || before.startTime !== data.block?.startTime || before.endTime !== data.block?.endTime;
       applyServerBlocks([data.block, ...(data.moves ?? [])]);
-      showToast(data.changed ? "Blok přepočítán podle aktuálního kalendáře." : "Blok už na kalendář sedí.", "success");
+      showToast(
+        !data.changed
+          ? "Blok už na kalendář sedí."
+          : timesMoved
+            ? "Blok přepočítán podle aktuálního kalendáře."
+            : "Značka „odložené mimo pracovní dobu“ zrušena — plán se nepohnul.",
+        "success"
+      );
     } catch (error) {
       console.error("Reflow block failed", error);
       showToast("Přepočet se nepodařilo dokončit.", "error");

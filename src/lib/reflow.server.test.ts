@@ -295,13 +295,74 @@ describe("reflowBlockInTx", () => {
     assert.equal(result.code, "NOT_ZAKAZKA");
   });
 
-  it("BYPASS: blok se scheduleBypassed=true se nepřepočítává", async () => {
-    const block = mkBlock({ scheduleBypassed: true });
-    const { tx } = mkTx(block);
+  it("odložený blok mimo kalendář → přepočítá se, posune a značka zmizí", async () => {
+    // Do 8/2026 se takový blok odmítal s code:"BYPASS" — plánovač neměl jak
+    // odloženou zakázku vrátit do kalendáře jinak než ručním tažením.
+    const block = mkBlock({ scheduleBypassed: true, startTime: H(10), endTime: H(13), printMinutes: 120 });
+    const { tx, updateMock, auditCreateMock } = mkTx(block);
+    const deps = mkDeps();
+
+    const result = await reflowBlockInTx(tx, 1, actor, deps);
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.changed, true);
+    assert.deepEqual(result.endTime, H(12));
+
+    assert.equal(updateMock.mock.calls.length, 1);
+    const data = (updateMock.mock.calls[0]!.arguments[0] as { data: Partial<BlockRow> }).data;
+    assert.equal(data.scheduleBypassed, false, "přepočet značku ruší");
+    assert.deepEqual(data.startTime, H(10));
+    assert.deepEqual(data.endTime, H(12));
+    assert.equal(auditCreateMock.mock.calls.length, 1);
+    assert.equal(deps.resolveChainPush.mock.calls.length, 1);
+  });
+
+  it("zbytková značka: značka zmizí, časy se NEZMĚNÍ, chain push se nevolá", async () => {
+    // MUTAČNÍ POJISTKA na podmínku `changed`: zkratka `changed = posun` by u zbytkové
+    // značky vrátila changed:false, tlačítko by hlásilo úspěch a příznak by v DB zůstal.
+    // Zároveň se nesmí přepsat časy ani spustit chain push — nic se nepohnulo,
+    // takže není co odsouvat a AUTO_REFLOW řádek "old–new" by lhal (obojí stejné).
+    const block = mkBlock({ scheduleBypassed: true, startTime: H(10), endTime: H(12), printMinutes: 120 });
+    const { tx, updateMock, auditCreateMock, auditCreateManyMock } = mkTx(block);
+    const deps = mkDeps();
+
+    const result = await reflowBlockInTx(tx, 1, actor, deps);
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.changed, true, "změna nastala — jen ne v časech");
+    assert.deepEqual(result.startTime, H(10));
+    assert.deepEqual(result.endTime, H(12));
+
+    assert.equal(updateMock.mock.calls.length, 1);
+    const data = (updateMock.mock.calls[0]!.arguments[0] as { data: Partial<BlockRow> }).data;
+    assert.equal(data.scheduleBypassed, false);
+    assert.ok(!("startTime" in data), "časy se nesmí přepisovat, když se nic nepohnulo");
+    assert.ok(!("endTime" in data), "časy se nesmí přepisovat, když se nic nepohnulo");
+    assert.equal(deps.resolveChainPush.mock.calls.length, 0, "nic se nepohnulo → není co odsouvat");
+    assert.equal(auditCreateMock.mock.calls.length, 0, "žádný AUTO_REFLOW — nic se nepřesunulo");
+    assert.equal(auditCreateManyMock.mock.calls.length, 0);
+  });
+
+  it("zamčený odložený blok se dál odmítá (LOCKED má přednost před značkou)", async () => {
+    const block = mkBlock({ scheduleBypassed: true, locked: true, startTime: H(10), endTime: H(13) });
+    const { tx, updateMock } = mkTx(block);
     const result = await reflowBlockInTx(tx, 1, actor, mkDeps());
     assert.equal(result.ok, false);
     if (result.ok) return;
-    assert.equal(result.code, "BYPASS");
+    assert.equal(result.code, "LOCKED");
+    assert.equal(updateMock.mock.calls.length, 0);
+  });
+
+  it("vytištěný odložený blok se dál odmítá (PRINTED má přednost před značkou)", async () => {
+    const block = mkBlock({ scheduleBypassed: true, printCompletedAt: H(13), startTime: H(10), endTime: H(13) });
+    const { tx, updateMock } = mkTx(block);
+    const result = await reflowBlockInTx(tx, 1, actor, mkDeps());
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.code, "PRINTED");
+    assert.equal(updateMock.mock.calls.length, 0);
   });
 
   it("NO_PM: printMinutes null", async () => {
