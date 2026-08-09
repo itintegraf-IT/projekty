@@ -117,3 +117,18 @@ test("O3: složené názvy polí mají český popisek", () => {
   assert.equal(FIELD_LABELS["startTime/endTime"], "Čas");
   assert.equal(FIELD_LABELS["startTime/endTime/machine"], "Čas a stroj");
 });
+
+test("N1: běžný český text se NESMÍ zobrazit jako datum (nález 9. 8. 2026)", () => {
+  // new Date() tyhle řetězce doopravdy spolkne — bez striktního guardu se
+  // popis zakázky v historii ukázal jako smyšlené datum z roku 2001.
+  for (const text of ["TEST 2", "Tisk 4", "TISK 2000", "Tisk do PA 2", "Teplice 2", "Tiskarna 12", "STICKERS 5"]) {
+    assert.equal(fmtAuditVal(text, "description"), text, `„${text}" se nesmí přeformátovat`);
+  }
+});
+
+test("N1: skutečné ISO datum se dál formátuje (žádná regrese)", () => {
+  assert.equal(
+    fmtAuditVal("2026-08-18T10:00:00.000Z", "expeditionPublishedAt"),
+    formatPragueDateTime(new Date("2026-08-18T10:00:00.000Z")),
+  );
+});

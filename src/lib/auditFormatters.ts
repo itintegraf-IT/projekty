@@ -93,7 +93,16 @@ export function fmtAuditVal(val: string | null, field: string | null): string {
       }
     }
   }
-  if (val.includes("T")) {
+  // Samostatné ISO datum. Guard MUSÍ být striktní ISO tvar, ne pouhé `val.includes("T")`:
+  // `new Date()` je extrémně benevolentní a běžný český text jí projde jako datum —
+  // ověřeno v Node: „Tisk 4" → 1. 4. 2001, „Teplice 2" → 1. 2. 2001,
+  // „TISK 2000" → 1. 1. 2000, „Tiskarna 12" → 1. 12. 2001. V polygrafické firmě je
+  // „Tisk…" jedno z nejčastějších slov v popisu zakázky, takže se v historii místo
+  // popisu ukazovalo smyšlené datum z roku 2001. Psavci píšou výhradně
+  // `toISOString()`, takže striktní tvar nic legitimního neodřízne.
+  // Nález z proklikávání na produkčních datech 9. 8. 2026 (popis „TEST 2" se
+  // v historii zobrazil jako „01. 02. 2001 01:00").
+  if (/^\d{4}-\d{2}-\d{2}T/.test(val)) {
     const d = new Date(val);
     if (!Number.isNaN(d.getTime())) return formatPragueDateTime(d);
   }
