@@ -225,6 +225,64 @@ test("applyUndoOps: upsert chybějícího bloku ho vytvoří s PŮVODNÍM id", a
   assert.ok(store.has(738));
 });
 
+// ── createdAt při vzkříšení (nález z proklikávání na produkčních datech 9. 8. 2026) ──
+// Undo mazání obnoví blok pod PŮVODNÍM id, ale bez tohohle by mu Prisma dosadila
+// `now()` — tentýž blok by pak měl dvě různá data narození. `createdAt` proto jde
+// VEDLE `fields` (v UNDO_RESTORABLE_FIELDS být nesmí, viz komentář u UndoOp).
+
+test("sanitizeUndoOps: propustí createdAt vedle fields", () => {
+  const ops = sanitizeUndoOps([
+    { kind: "upsert", id: 1, fields: { orderNumber: "17300" }, createdAt: "2026-08-03T11:14:16.000Z" },
+  ]);
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0].kind, "upsert");
+  assert.equal(ops[0].kind === "upsert" ? ops[0].createdAt : undefined, "2026-08-03T11:14:16.000Z");
+  // Do fields se propašovat nesmí — allowlist ho nezná a update větev by ho zapsala.
+  assert.ok(!("createdAt" in (ops[0].kind === "upsert" ? ops[0].fields : {})));
+});
+
+test("sanitizeUndoOps: odmítne createdAt, které není platné datum", () => {
+  rejects([{ kind: "upsert", id: 1, fields: { orderNumber: "17300" }, createdAt: "vcera" }], "createdAt");
+  rejects([{ kind: "upsert", id: 1, fields: { orderNumber: "17300" }, createdAt: 12345 }], "createdAt");
+});
+
+test("sanitizeUndoOps: createdAt uvnitř fields projít NESMÍ (allowlist)", () => {
+  rejects([{ kind: "upsert", id: 1, fields: { createdAt: "2026-08-03T11:14:16.000Z" } }], "createdAt");
+});
+
+test("applyUndoOps: vzkříšení zapíše PŮVODNÍ createdAt ze snapshotu", async () => {
+  const { tx, createMock } = mkTx([]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 738,
+    fields: { orderNumber: "17300", machine: "XL_105", startTime: "2026-09-02T14:00:00.000Z", endTime: "2026-09-02T16:00:00.000Z" },
+    createdAt: "2026-08-03T11:14:16.000Z",
+  }], actor, "undo");
+  const data = (createMock.mock.calls[0].arguments[0] as { data: Record<string, unknown> }).data;
+  assert.ok(data.createdAt instanceof Date, "createdAt musí jít do Prismy jako Date, ne ISO string");
+  assert.equal((data.createdAt as Date).toISOString(), "2026-08-03T11:14:16.000Z");
+});
+
+test("applyUndoOps: bez createdAt se vzkříšení chová jako dřív (Prisma dosadí default)", async () => {
+  const { tx, createMock } = mkTx([]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 738,
+    fields: { orderNumber: "17300", machine: "XL_105", startTime: "2026-09-02T14:00:00.000Z", endTime: "2026-09-02T16:00:00.000Z" },
+  }], actor, "undo");
+  const data = (createMock.mock.calls[0].arguments[0] as { data: Record<string, unknown> }).data;
+  assert.ok(!("createdAt" in data), "bez snapshotu se createdAt nesmí posílat vůbec");
+});
+
+test("applyUndoOps: createdAt se NEZAPÍŠE při obnově existujícího bloku (jen vzkříšení)", async () => {
+  const { tx, updateMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: { startTime: "2026-09-02T15:00:00.000Z", endTime: "2026-09-02T17:00:00.000Z" },
+    createdAt: "2026-08-03T11:14:16.000Z",
+  }], actor, "undo");
+  const data = (updateMock.mock.calls[0].arguments[0] as { data: Record<string, unknown> }).data;
+  assert.ok(!("createdAt" in data), "běžné undo úpravy nesmí datum vzniku přepisovat");
+});
+
 test("applyUndoOps: vytvoření bez povinného pole → VALIDATION_ERROR", async () => {
   const { tx, createMock } = mkTx([]);
   await assert.rejects(

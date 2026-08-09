@@ -1562,7 +1562,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // blok je osamocený člen ✂1/1 (neškodné, ne FK crash) — viz CLAUDE.md.
     const fields = blockToRestoreFields(block);
 
-    recordUndo(buildDeleteCommand("Smazání bloku", [{ id: block.id, updatedAt: block.updatedAt, fields }]));
+    // `createdAt` mimo `fields` — server ho použije jen při vzkříšení, aby si
+    // obnovený blok podržel původní datum vzniku (id se zachovává taky).
+    recordUndo(buildDeleteCommand("Smazání bloku", [{ id: block.id, updatedAt: block.updatedAt, fields, createdAt: block.createdAt }]));
     return true;
   }
 
@@ -1686,7 +1688,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // B2: splitGroupId přežije deleci (FK na stabilní SplitGroup.id) → posílat vždy; každá
     // smazaná část se vrátí do své skupiny (i když se maže root + listy najednou). Endpoint
     // obnoví bloky pod PŮVODNÍMI id (žádný remap).
-    recordUndo(buildDeleteCommand("Smazání bloků", deletedStandalone.map((b) => ({ id: b.id, updatedAt: b.updatedAt, fields: blockToRestoreFields(b) }))));
+    recordUndo(buildDeleteCommand("Smazání bloků", deletedStandalone.map((b) => ({ id: b.id, updatedAt: b.updatedAt, fields: blockToRestoreFields(b), createdAt: b.createdAt }))));
     return protectedIds.length === 0;
   }
 

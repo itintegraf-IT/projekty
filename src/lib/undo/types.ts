@@ -40,7 +40,14 @@ export type EditSnapshot = {
  * modul, proto je tenhle typ nadeklarovaný samostatně. Tvar musí zůstat shodný.
  */
 export type UndoOpClient =
-  | { kind: "upsert"; id: number; expectedUpdatedAt?: string; fields: Record<string, unknown> }
+  | {
+      kind: "upsert";
+      id: number;
+      expectedUpdatedAt?: string;
+      fields: Record<string, unknown>;
+      /** Původní datum vzniku — server ho použije JEN při vzkříšení smazaného bloku. */
+      createdAt?: string;
+    }
   | { kind: "remove"; id: number; expectedUpdatedAt?: string };
 
 export type UndoRequest = { label: string; direction: "undo" | "redo"; ops: UndoOpClient[] };

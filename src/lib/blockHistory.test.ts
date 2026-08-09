@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { suppressCoveredColumns, groupsWithAddressedTarget } from "./blockHistory";
+import { suppressCoveredColumns, groupsWithAddressedTarget, sortHistoryEntries, type BlockHistoryEntry } from "./blockHistory";
 
 test("sloupec pokrytý auditem se z revize odečte", () => {
   const out = suppressCoveredColumns(
@@ -122,4 +122,77 @@ test("skupiny se vyhodnocují nezávisle", () => {
 
 test("prázdný vstup nedá žádnou skupinu", () => {
   assert.equal(groupsWithAddressedTarget([]).size, 0);
+});
+
+// ── sortHistoryEntries (O2, nález z proklikávání 9. 8. 2026) ──────────────────
+// `AuditLog.createdAt` je datetime (sekundy), `BlockRevision.createdAt` datetime(3)
+// (milisekundy) — revize ze stejné transakce má proto skoro vždy „novější" razítko.
+
+const auditEntry = (over: Partial<BlockHistoryEntry & { source: "audit" }> = {}) => ({
+  source: "audit" as const, id: 1, createdAt: "2026-08-09T14:51:03.000Z", groupId: "G1",
+  username: "v.tokan", action: "UNDO", field: "startTime/endTime/machine",
+  oldValue: null, newValue: null, orderNumber: "18681", ...over,
+});
+const revisionEntry = (over: Partial<BlockHistoryEntry & { source: "revision" }> = {}) => ({
+  source: "revision" as const, id: 10, createdAt: "2026-08-09T14:51:03.758Z", groupId: "G1",
+  username: "v.tokan", action: "UNDO", label: "Krok zpět", propagated: false,
+  lines: ["Délka tisku: 1,5h → 1h"], ...over,
+});
+
+test("O2: revize NESMÍ předběhnout auditní řádek téže transakce (rozdílná přesnost razítek)", () => {
+  const out = sortHistoryEntries([auditEntry(), revisionEntry()]);
+  assert.deepEqual(out.map((e) => e.source), ["audit", "revision"],
+    "nejdřív příčina (↶ vráceno zpět), pak doplňující revize");
+});
+
+test("O2: pořadí vstupu na výsledek nemá vliv", () => {
+  const out = sortHistoryEntries([revisionEntry(), auditEntry()]);
+  assert.deepEqual(out.map((e) => e.source), ["audit", "revision"]);
+});
+
+test("O2: skupina drží pohromadě — starší skupina se mezi její řádky nevloží", () => {
+  const out = sortHistoryEntries([
+    auditEntry({ id: 1, createdAt: "2026-08-09T14:51:03.000Z", groupId: "G1" }),
+    revisionEntry({ id: 10, createdAt: "2026-08-09T14:51:03.758Z", groupId: "G1" }),
+    auditEntry({ id: 2, createdAt: "2026-08-09T14:51:03.000Z", groupId: "G0" }),
+    revisionEntry({ id: 9, createdAt: "2026-08-09T14:51:03.400Z", groupId: "G0" }),
+  ]);
+  assert.deepEqual(out.map((e) => e.id), [1, 10, 2, 9],
+    "G1 (novější revize) celá nahoře, teprve pak celá G0");
+});
+
+test("O2: víc auditních řádků jedné skupiny stojí před její revizí", () => {
+  const out = sortHistoryEntries([
+    revisionEntry({ id: 10 }),
+    auditEntry({ id: 3 }),
+    auditEntry({ id: 1 }),
+    auditEntry({ id: 2 }),
+  ]);
+  assert.deepEqual(out.map((e) => e.id), [3, 2, 1, 10], "audit sestupně dle id, revize až za nimi");
+});
+
+test("O2: historické řádky bez groupId se řadí podle vlastního času (beze změny chování)", () => {
+  const out = sortHistoryEntries([
+    auditEntry({ id: 1, groupId: null, createdAt: "2026-08-03T11:14:16.000Z" }),
+    auditEntry({ id: 2, groupId: null, createdAt: "2026-08-07T15:31:00.000Z" }),
+    auditEntry({ id: 3, groupId: null, createdAt: "2026-08-05T08:14:15.000Z" }),
+  ]);
+  assert.deepEqual(out.map((e) => e.id), [2, 3, 1], "sestupně podle času");
+});
+
+test("O2: řádek bez groupId se nesmí přilepit ke skupině se shodným časem", () => {
+  const out = sortHistoryEntries([
+    auditEntry({ id: 1, groupId: "G1", createdAt: "2026-08-09T14:51:03.000Z" }),
+    revisionEntry({ id: 10, groupId: "G1", createdAt: "2026-08-09T14:51:03.758Z" }),
+    auditEntry({ id: 5, groupId: null, createdAt: "2026-08-09T14:51:03.000Z" }),
+  ]);
+  // Osamocený řádek má vlastní klíč (…03.000) — je starší než klíč skupiny (…03.758).
+  assert.deepEqual(out.map((e) => e.id), [1, 10, 5]);
+});
+
+test("O2: vstupní pole se nemutuje", () => {
+  const input = [revisionEntry(), auditEntry()];
+  const before = input.map((e) => e.id);
+  sortHistoryEntries(input);
+  assert.deepEqual(input.map((e) => e.id), before, "sort musí pracovat nad kopií");
 });

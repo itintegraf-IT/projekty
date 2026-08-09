@@ -40,6 +40,12 @@ export const FIELD_LABELS: Record<string, string> = {
   orderNumber: "Číslo zakázky",
   description: "Popis",
   specifikace: "Specifikace",
+  // Složené názvy, které do `field` píší hromadné cesty (batch, PUT s přesunem
+  // na jiný stroj, undo). Bez popisku se v historii ukazovaly syrově jako
+  // „startTime/endTime/machine:" — nález z proklikávání na produkčních datech
+  // 9. 8. 2026. Klíč je celý řetězec včetně lomítek, ne jednotlivá pole.
+  "startTime/endTime": "Čas",
+  "startTime/endTime/machine": "Čas a stroj",
 };
 
 export function fmtAuditVal(val: string | null, field: string | null): string {
@@ -61,16 +67,29 @@ export function fmtAuditVal(val: string | null, field: string | null): string {
     return formatCivilDate(val);
   }
   // Span "start–end" (AUTO_SHIFT řádky po re-expanzi) — formátovat obě půlky.
-  // Guard MUSÍ být striktní ISO tvar: new Date() je benevolentní a český free-text
-  // („dodávka 1–2") by se jinak mis-formátoval na data — server píše výhradně toISOString().
+  // Volitelně s předsazeným strojem ("XL_106 <ISO>–<ISO>"): tak ho píšou cesty,
+  // kde se spolu s časem měnil i stroj. Bez téhle větve řádek propadl až na
+  // `return val` a v historii svítil syrový ISO čas (nález z proklikávání
+  // na produkčních datech 9. 8. 2026).
+  //
+  // Guard MUSÍ zůstat striktní ISO tvar: new Date() je benevolentní a český
+  // free-text („dodávka 1–2") by se jinak mis-formátoval na data — server píše
+  // výhradně toISOString(). Prefix se strojem se proto přijme jen tehdy, když po
+  // něm následuje ISO datum; „Praha 1–2" tudy neprojde.
   if (val.includes("–")) {
     const ISO = /^\d{4}-\d{2}-\d{2}T/;
-    const [a, b] = val.split("–");
-    if (a && b && ISO.test(a.trim()) && ISO.test(b.trim())) {
-      const da = new Date(a.trim());
-      const db = new Date(b.trim());
-      if (!Number.isNaN(da.getTime()) && !Number.isNaN(db.getTime())) {
-        return `${formatPragueDateTime(da)} – ${formatPragueDateTime(db)}`;
+    const [rawA, rawB] = val.split("–");
+    if (rawA && rawB) {
+      const machineSplit = /^(\S+)\s+(\d{4}-\d{2}-\d{2}T.*)$/.exec(rawA.trim());
+      const a = machineSplit ? machineSplit[2] : rawA.trim();
+      const b = rawB.trim();
+      const prefix = machineSplit ? `${machineSplit[1]} ` : "";
+      if (ISO.test(a) && ISO.test(b)) {
+        const da = new Date(a);
+        const db = new Date(b);
+        if (!Number.isNaN(da.getTime()) && !Number.isNaN(db.getTime())) {
+          return `${prefix}${formatPragueDateTime(da)} – ${formatPragueDateTime(db)}`;
+        }
       }
     }
   }

@@ -10,7 +10,25 @@ import { loadMachineCalendarRange } from "@/lib/printTime.server";
 import { UNDO_MIXED_FIELD_PREFIX } from "@/lib/auditFormatters";
 
 export type UndoOp =
-  | { kind: "upsert"; id: number; expectedUpdatedAt?: string; fields: Record<string, unknown> }
+  | {
+      kind: "upsert";
+      id: number;
+      expectedUpdatedAt?: string;
+      fields: Record<string, unknown>;
+      /**
+       * Původní datum vzniku bloku, použité VÝHRADNĚ při vzkříšení (Prisma
+       * `create`). Stojí schválně VEDLE `fields`, ne v nich:
+       * - v `UNDO_RESTORABLE_FIELDS` být nesmí, protože `blockToRestoreFields`
+       *   plní `fields` u KAŽDÉ undo operace — běžná obnova úpravy by pak
+       *   `createdAt` zbytečně přepisovala a `coveredColumns` (auditCoverage.ts)
+       *   by ho vypsal do historie jako „obnoveno createdAt";
+       * - větev `update` ho tím pádem nemůže omylem zapsat — nemá ho v `data`.
+       * Bez něj by vzkříšený blok tvrdil, že vznikl dnes: `id` se zachovává,
+       * takže by aplikace u téhož bloku hlásila dvě různá data narození
+       * (nález z proklikávání na produkčních datech 9. 8. 2026).
+       */
+      createdAt?: string;
+    }
   | { kind: "remove"; id: number; expectedUpdatedAt?: string };
 
 export type UndoDirection = "undo" | "redo";
@@ -91,7 +109,18 @@ export function sanitizeUndoOps(raw: unknown): UndoOp[] {
       }
       fields[key] = value;
     }
-    ops.push({ kind: "upsert", id, expectedUpdatedAt, fields });
+
+    // Mimo `fields` (viz komentář u UndoOp) — validuje se stejně přísně jako
+    // `expectedUpdatedAt`, protože jde rovnou do Prisma create.
+    let createdAt: string | undefined;
+    if (o.createdAt !== undefined) {
+      if (typeof o.createdAt !== "string" || Number.isNaN(new Date(o.createdAt).getTime())) {
+        bad(`Neplatné createdAt u bloku ${id}.`);
+      }
+      createdAt = o.createdAt as string;
+    }
+
+    ops.push({ kind: "upsert", id, expectedUpdatedAt, fields, createdAt });
   }
   return ops;
 }
@@ -324,7 +353,17 @@ export async function applyUndoOps(
       // Obnova s PŮVODNÍM id — historie v AuditLogu a notifikace zůstanou
       // navázané. MySQL AUTO_INCREMENT se explicitním vložením nižší hodnoty
       // nesnižuje, takže budoucí kolize nehrozí.
-      const saved = await tx.block.create({ data: { ...data, id: op.id } as never });
+      //
+      // `createdAt` ze snapshotu: bez něj by Prisma dosadila `now()` a blok by
+      // se stejným id tvrdil, že vznikl dnes. Když ho klient nepošle (starší
+      // záznam v historii, cizí volající), zůstává dosavadní chování.
+      const saved = await tx.block.create({
+        data: {
+          ...data,
+          id: op.id,
+          ...(op.createdAt ? { createdAt: new Date(op.createdAt) } : {}),
+        } as never,
+      });
       result.createdIds.push(op.id);
       addToMachine(saved.machine, op.id);
       auditRows.push({

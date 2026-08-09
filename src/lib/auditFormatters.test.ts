@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAuditVal, classifyUndoRedoField, UNDO_MIXED_FIELD_PREFIX } from "@/lib/auditFormatters";
+import { fmtAuditVal, classifyUndoRedoField, UNDO_MIXED_FIELD_PREFIX, FIELD_LABELS } from "@/lib/auditFormatters";
+import { formatPragueDateTime } from "@/lib/dateUtils";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 
 test("Fix round 1: pantoneOk se formátuje jako ✓ OK / ✗ Ne (dřív spadlo na syrové true/false)", () => {
@@ -85,4 +86,34 @@ test("Fix round 1: classifyUndoRedoField — smíšený prefix BEZ zbytku (krajn
 
 test("Fix round 1: classifyUndoRedoField — cizí/neznámá hodnota field (žádný marker) → fallback na position", () => {
   assert.deepEqual(classifyUndoRedoField("materialStatusId", null), { kind: "position" });
+});
+
+// ── O3: čitelnost starých auditních řádků (nález z proklikávání 9. 8. 2026) ──
+// Řádky, které do `field` píší hromadné cesty, se v historii ukazovaly syrově:
+// „startTime/endTime/machine: — → XL_105 2026-08-18T10:00:00.000Z–…".
+
+test("O3: span s předsazeným strojem se naformátuje a stroj zůstane vepředu", () => {
+  assert.equal(
+    fmtAuditVal("XL_106 2026-08-18T10:00:00.000Z–2026-08-18T11:00:00.000Z", "startTime/endTime/machine"),
+    `XL_106 ${formatPragueDateTime(new Date("2026-08-18T10:00:00.000Z"))} – ${formatPragueDateTime(new Date("2026-08-18T11:00:00.000Z"))}`,
+  );
+});
+
+test("O3: span BEZ stroje se formátuje dál stejně (žádná regrese)", () => {
+  assert.equal(
+    fmtAuditVal("2026-08-18T10:00:00.000Z–2026-08-18T11:00:00.000Z", "startTime/endTime"),
+    `${formatPragueDateTime(new Date("2026-08-18T10:00:00.000Z"))} – ${formatPragueDateTime(new Date("2026-08-18T11:00:00.000Z"))}`,
+  );
+});
+
+test("O3: český free-text s pomlčkou se NESMÍ mis-formátovat na data", () => {
+  // Původní guard chránil právě tohle — prefix se strojem ho nesmí prolomit.
+  assert.equal(fmtAuditVal("dodávka 1–2", "expediceNote"), "dodávka 1–2");
+  assert.equal(fmtAuditVal("Praha 1–2", "doprava"), "Praha 1–2");
+  assert.equal(fmtAuditVal("XL_106 neco–jineho", "doprava"), "XL_106 neco–jineho");
+});
+
+test("O3: složené názvy polí mají český popisek", () => {
+  assert.equal(FIELD_LABELS["startTime/endTime"], "Čas");
+  assert.equal(FIELD_LABELS["startTime/endTime/machine"], "Čas a stroj");
 });

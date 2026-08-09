@@ -396,6 +396,17 @@ export function BlockCard({
   // ne propadnout do pauzy) — pro bloky bez segmentů (99 % plánu) je to prostě clampedHeight.
   const layoutHeight  = contentHeight ?? clampedHeight;
 
+  // Obsah úzkých layoutů (COMPACT / TINY / MICRO) je svisle vycentrovaný. U bloku
+  // s pauzou by ho `flex: 1` roztáhl přes CELOU kartu a vycentroval do jejího středu
+  // — tedy doprostřed šrafované pauzy. Reálný případ z produkčních dat: zakázka
+  // 13. 8. 21:00 → 14. 8. 10:00 (5 h tisku ve 13 h) měla název ve 3:30 v noci.
+  // `contentHeight` (výška PRVNÍHO tiskového úseku) se do té chvíle používala jen
+  // na volbu layoutu, ne na jeho umístění — záměr „obsah nesmí propadnout do pauzy"
+  // tak byl provedený z půlky. Bloky bez pauzy (99 % plánu) se chovají beze změny.
+  const contentBoxFlex: React.CSSProperties = contentHeight != null
+    ? { height: contentHeight, flexGrow: 0, flexShrink: 0 }
+    : { flex: 1 };
+
   // Velikost tlačítka Hotovo (jen tiskařský režim) — pravidla v tiskarBlockView.ts
   const printDone = printDoneSize(layoutHeight);
   const togglePrintDone = () => {
@@ -751,7 +762,7 @@ export function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, ...contentBoxFlex, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datumy + separator + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
               {/* Na nízké kartě se pás specifikace nevejde — zbývá značka na začátku
@@ -866,7 +877,7 @@ export function BlockCard({
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         const pIcon = pantoneDeadlineState === "ok" ? " ✓" : pantoneDeadlineState === "danger" ? " ✕" : pantoneDeadlineState === "warning" ? " !" : pantoneDeadlineState === "earlyStart" ? " ⚠" : "";
         return (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, flex: 1, overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, ...contentBoxFlex, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
               {/* Značka specifikace i tady — bez ní by karta 14–43 px neukázala

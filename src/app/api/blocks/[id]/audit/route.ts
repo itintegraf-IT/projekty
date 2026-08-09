@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { suppressCoveredColumns, groupsWithAddressedTarget, type BlockHistoryEntry } from "@/lib/blockHistory";
+import { suppressCoveredColumns, groupsWithAddressedTarget, sortHistoryEntries, type BlockHistoryEntry } from "@/lib/blockHistory";
 import { formatRevisionLines } from "@/lib/revisionFormat";
 import type { AuditCoverageRow } from "@/lib/auditCoverage";
 
@@ -102,6 +102,7 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
       source: "audit" as const,
       id: log.id,
       createdAt: log.createdAt.toISOString(),
+      groupId: log.groupId,
       username: log.username,
       action: log.action,
       field: log.field,
@@ -133,6 +134,7 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
         source: "revision",
         id: rev.id,
         createdAt: rev.createdAt.toISOString(),
+        groupId: rev.groupId,
         username: rev.username,
         action: rev.action,
         label: rev.label,
@@ -144,15 +146,16 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
       });
     }
 
-    // Jedna časová osa, ne dva seznamy. Řetězcové porovnání stačí — obě strany
-    // jsou `toISOString()`, tedy týž formát pevné délky.
+    // Jedna časová osa, ne dva seznamy. Řazení řeší `sortHistoryEntries`: prosté
+    // porovnání času by kvůli rozdílné přesnosti sloupců (`AuditLog` sekundy,
+    // `BlockRevision` milisekundy) postavilo revizi NAD auditní řádek téže
+    // transakce — podrobně u té funkce.
     //
     // Sloučený seznam se ZÁMĚRNĚ neořezává (viz `PER_SOURCE_LIMIT`): oříznutí by
     // padlo na revize, protože jich je proti auditu vždycky málo. Strop drží samy
     // dotazy — víc než `2 × PER_SOURCE_LIMIT` položek sem přijít nemůže a panel
     // scrolluje.
-    entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return NextResponse.json(entries);
+    return NextResponse.json(sortHistoryEntries(entries));
   } catch (error) {
     logger.error(`[GET /api/blocks/${id}/audit]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });

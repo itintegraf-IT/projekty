@@ -19,6 +19,8 @@ export type BlockHistoryEntry =
       source: "audit";
       id: number;
       createdAt: string;
+      /** Transakce, ze které řádek pochází. Historické řádky ho nemají (sloupec je nullable). */
+      groupId: string | null;
       username: string;
       action: string;
       field: string | null;
@@ -30,6 +32,8 @@ export type BlockHistoryEntry =
       source: "revision";
       id: number;
       createdAt: string;
+      /** Transakce, ze které revize pochází. U revizí je vždy vyplněné. */
+      groupId: string | null;
       username: string;
       /** `RevisionAction` — mutační CESTA. Slouží k ladění, popisek se bere z `label`. */
       action: string;
@@ -117,4 +121,49 @@ export function suppressCoveredColumns(
   }
 
   return Object.keys(after).length === 0 ? null : { before, after };
+}
+
+/**
+ * Seřadí sloučenou osu tak, aby JEDNA uživatelská akce držela pohromadě
+ * a auditní řádek stál NAD revizí, která ho doplňuje.
+ *
+ * Proč to nejde prostým řazením podle času: `AuditLog.createdAt` je `datetime`
+ * (přesnost na sekundy), `BlockRevision.createdAt` je `datetime(3)` (milisekundy).
+ * Revize ze stejné transakce má proto skoro vždy „novější" časové razítko a
+ * v sestupném řazení vyskočí NAD auditní řádek, ke kterému patří. Jedno Ctrl+Z
+ * se tak čtenáři ukázalo jako dvě události v obráceném pořadí — nejdřív důsledek
+ * („Délka tisku: 1,5h → 1h"), pak příčina („↶ vráceno zpět") — nález
+ * z proklikávání na produkčních datech 9. 8. 2026.
+ *
+ * Klíčem je `groupId`, který od etapy B1 nesou OBA zdroje: celá skupina se řadí
+ * podle svého NEJNOVĚJŠÍHO razítka, uvnitř skupiny jde audit před revizí.
+ * Historické řádky bez `groupId` (a tedy bez páru) se řadí samy za sebe podle
+ * vlastního času — chovají se přesně jako dřív.
+ *
+ * ZÁMĚRNĚ se tu nic neslučuje do jedné položky ani nezahazuje: potlačení po
+ * sloupcích (`suppressCoveredColumns`) zůstává jediným místem, které něco skrývá.
+ * Rozšířit ho místo tohohle by znamenalo riskovat, že se skryje změna stroje —
+ * a to je přesně díra, kvůli které etapa B1 vznikla.
+ */
+export function sortHistoryEntries(entries: BlockHistoryEntry[]): BlockHistoryEntry[] {
+  // Nejnovější razítko ve skupině — podle něj se řadí všichni její členové.
+  const groupNewest = new Map<string, string>();
+  for (const e of entries) {
+    if (!e.groupId) continue;
+    const cur = groupNewest.get(e.groupId);
+    if (cur === undefined || e.createdAt > cur) groupNewest.set(e.groupId, e.createdAt);
+  }
+
+  const sortKey = (e: BlockHistoryEntry) => (e.groupId ? groupNewest.get(e.groupId) ?? e.createdAt : e.createdAt);
+  // Uvnitř skupiny: audit (0) před revizí (1).
+  const rank = (e: BlockHistoryEntry) => (e.source === "audit" ? 0 : 1);
+
+  return [...entries].sort((a, b) => {
+    const byGroup = sortKey(b).localeCompare(sortKey(a));
+    if (byGroup !== 0) return byGroup;
+    const byRank = rank(a) - rank(b);
+    if (byRank !== 0) return byRank;
+    // Stabilní doraz: v rámci téhož zdroje novější (vyšší id) nahoře.
+    return b.id - a.id;
+  });
 }

@@ -266,7 +266,18 @@ export function buildCreateCommand(
 }
 
 /** Snapshot smazaného bloku — `fields` z `blockToRestoreFields`, `updatedAt` z okamžiku smazání. */
-type DeletedRef = { id: number; updatedAt: string; fields: Record<string, unknown> };
+type DeletedRef = {
+  id: number;
+  updatedAt: string;
+  fields: Record<string, unknown>;
+  /**
+   * Datum vzniku smazaného bloku. Nejde do `fields` (allowlist
+   * `UNDO_RESTORABLE_FIELDS` ho vědomě nemá) — server ho použije jen ve větvi
+   * vzkříšení. Volitelné kvůli zpětné kompatibilitě: záznam v historii
+   * vytvořený starším kódem ho nenese a undo funguje jako dřív.
+   */
+  createdAt?: string;
+};
 
 /**
  * undo = obnovit smazané bloky pod PŮVODNÍM id; redo = smazat je znovu.
@@ -290,7 +301,13 @@ export function buildDeleteCommand(label: string, deleted: DeletedRef[]): Histor
     undo: async (effects) => {
       const res = await effects.applyUndo({
         label, direction: "undo",
-        ops: deleted.map((d) => ({ kind: "upsert" as const, id: d.id, expectedUpdatedAt: d.updatedAt, fields: d.fields })),
+        ops: deleted.map((d) => ({
+          kind: "upsert" as const,
+          id: d.id,
+          expectedUpdatedAt: d.updatedAt,
+          fields: d.fields,
+          ...(d.createdAt ? { createdAt: d.createdAt } : {}),
+        })),
       });
       refresh(deleted, res.updated);
       effects.addToState(res.updated);
