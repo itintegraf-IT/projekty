@@ -112,33 +112,39 @@ Tabulka `BlockRevision` je „černá skříňka" změn plánu — ke každé zm
 drží, jak řádek vypadal předtím a potom. Retence je **90 dní**; bez úklidu
 by rostla donekonečna.
 
-Přidat pátý řádek do téhož crontabu:
+Instaluje se stejně jako ostatní čtyři úlohy, přes wrapper v `/usr/local/bin`:
+
+```bash
+cd /var/www/planovanivyroby
+sudo install -m 700 scripts/ops/planovani-prune-revisions.sh /usr/local/bin/planovani-prune-revisions.sh
+```
+
+Pátý řádek do téhož crontabu:
 
 ```
-50 3 * * * /bin/sh -c 'export PATH=/home/administrator/.nvm/versions/node/v20.20.1/bin:$PATH; cd /var/www/planovanivyroby && npx tsx scripts/prune-revisions.ts' >> /var/log/planovani-backup.log 2>&1
+50 3 * * *   /usr/local/bin/planovani-prune-revisions.sh >> /var/log/planovani-backup.log 2>&1
 ```
 
 > **POZOR — `npx` NENÍ v prostředí cronu dostupný.** Node je na serveru z **nvm**
-> pod uživatelem `administrator` (`/home/administrator/.nvm/versions/node/<verze>/bin`),
-> kdežto cron startuje s holým `PATH=/usr/bin:/bin`. Původní znění řádku
-> (`/usr/bin/env npx tsx …`) proto **tiše nikdy neproběhlo** — ověřeno 9. 8. 2026,
-> `/usr/bin/env: 'npx': No such file or directory`. Absolutní cesta k `npx` sama
-> NESTAČÍ: je to skript se `#!/usr/bin/env node`, takže v `PATH` musí být i `node`.
-> **Cesta obsahuje verzi Node** — po upgradu nvm ji v crontabu opravit, jinak úloha
-> zase tiše přestane běžet.
+> pod uživatelem `administrator`, kdežto cron startuje s holým `PATH=/usr/bin:/bin`.
+> Přímý řádek `/usr/bin/env npx tsx …` proto **tiše nikdy neproběhne** — ověřeno
+> 9. 8. 2026, `/usr/bin/env: 'npx': No such file or directory`. Absolutní cesta
+> k `npx` sama NESTAČÍ: je to skript se `#!/usr/bin/env node`, takže v `PATH` musí
+> být i `node`. Proto ten wrapper — a verzi Node si hledá dynamicky, aby se po
+> upgradu nvm zase tiše nerozbil.
 
-**Před vložením do crontabu spusť skript dvakrát** — jednou normálně, jednou
-v podmínkách cronu. Druhá zkouška je ta, která odhalí chybějící `PATH`; bez ní
-se selhání pozná až podle toho, že tabulka nepřestává růst:
+**Před vložením do crontabu spusť wrapper dvakrát** — jednou normálně, jednou
+v podmínkách cronu. Druhá zkouška je ta podstatná; bez ní se selhání pozná až
+podle toho, že tabulka nepřestává růst:
 
 ```bash
-cd /var/www/planovanivyroby && npx tsx scripts/prune-revisions.ts
+sudo /usr/local/bin/planovani-prune-revisions.sh
 
-sudo sh -c 'PATH=/usr/bin:/bin; cd /var/www/planovanivyroby && /usr/bin/env npx tsx scripts/prune-revisions.ts'
+sudo env -i /bin/sh -c 'PATH=/usr/bin:/bin /usr/local/bin/planovani-prune-revisions.sh'
 ```
 
-Druhý příkaz MUSÍ projít stejně jako první. Když spadne, řádek do crontabu
-v té podobě nepatří.
+Druhý příkaz MUSÍ projít stejně jako první. Po instalaci téhle páté úlohy
+vrací `sudo crontab -l | grep -c planovani` hodnotu **5**, ne 4.
 
 Po instalaci téhle páté úlohy vrací kontrola `sudo crontab -l | grep -c planovani`
 hodnotu **5**, ne 4. Řádek s úklidem revizí jako jediný nespouští skript
