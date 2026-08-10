@@ -14,10 +14,12 @@ type Props = {
 };
 
 /**
- * Tlačítko „Hotovo" na kartě bloku v tiskařském režimu.
+ * Tlačítko „Hotovo" v tiskařském režimu.
  *
- * Jediný zdroj vzhledu pro všechna tři místa v BlockCard (FULL / COMPACT / TINY).
- * Rozměr přichází zvenčí z printDoneSize() — komponenta nezná layout režimy karty.
+ * Jediný zdroj vzhledu pro tři místa v BlockCard (FULL / COMPACT / TINY,
+ * varianty `bar` a `square`) i pro velké tlačítko na Monitoru u stroje
+ * (varianta `hero`). Rozměr přichází zvenčí — komponenta nezná layout
+ * režimy karty ani rozvržení Monitoru.
  * Barvy jdou výhradně přes tokeny, aby fungoval světlý i tmavý režim.
  */
 export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }: Props) {
@@ -26,7 +28,7 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
   const isWide = size.variant === "bar" || size.variant === "hero";
   const [hovered, setHovered] = useState(false);
 
-  const barLabel = isDone
+  const wideLabel = isDone
     ? completedAt
       ? `✓ Hotovo ${formatPragueTime(new Date(completedAt))}`
       : "✓ Hotovo"
@@ -54,9 +56,10 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
         border: "none", borderRadius: size.variant === "hero" ? 12 : 5,
         cursor: pending ? "not-allowed" : "pointer",
         fontFamily: "inherit",
-        // Popisek po odklepnutí je delší ("✓ Hotovo 14:32") — strop 13 px,
-        // aby se na užším sloupci nepřetekl.
-        fontSize: isDone && isWide ? Math.min(size.fontSize, 13) : size.fontSize,
+        // Popisek po odklepnutí je delší ("✓ Hotovo 14:32") — v úzkém sloupci
+        // karty bloku (varianta `bar`) ho stropujeme na 13 px, aby nepřetekl.
+        // Varianta `hero` na Monitoru má místa dost a zmenšovat se nesmí.
+        fontSize: isDone && size.variant === "bar" ? Math.min(size.fontSize, 13) : size.fontSize,
         fontWeight: isDone ? 620 : 750,
         letterSpacing: isDone ? 0 : "0.05em",
         background: isDone ? "var(--surface-3)" : isHoverActive ? "color-mix(in oklab, var(--success) 82%, white)" : "var(--success)",
@@ -67,7 +70,7 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
         whiteSpace: "nowrap", overflow: "hidden",
       }}
     >
-      {pending ? "·" : isWide ? barLabel : isDone ? "↩" : "✓"}
+      {pending ? "·" : isWide ? wideLabel : isDone ? "↩" : "✓"}
     </button>
   );
 }
