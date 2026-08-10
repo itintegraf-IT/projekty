@@ -43,6 +43,7 @@ import { NotificationsPanel, type NotifTab } from "@/components/NotificationsPan
 import { BlockNotesDialog } from "@/components/BlockNotesDialog";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 import type { NoteRole } from "@/lib/blockNotePermissions";
+import { MonitorView } from "@/components/monitor/MonitorView";
 import { BlockDetail } from "@/components/BlockDetail";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ShutdownManager } from "@/components/planner/ShutdownManager";
@@ -127,6 +128,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // přes TiskarMachineToggle nebo automaticky po kliku na SplitChip / výběru v hledání.
   const [viewMachine, setViewMachine] = useState<string>(currentUser.assignedMachine ?? "XL_105");
   const [searchSheetOpen, setSearchSheetOpen] = useState(false);
+  // TISKAR: Monitor je domovská obrazovka, plán je za tlačítkem „Celý plán →".
+  // Záměrně asymetrické — nejde o dvojici rovnocenných záložek.
+  const [tiskarView, setTiskarView] = useState<"monitor" | "plan">("monitor");
 
   // ── Job Builder (tvorba zakázek/série/fronty) — vlastní hook ──
   // handleBlockCreate je hoisted function (níže) → lze ji předat sem jako onBlockCreated.
@@ -2677,14 +2681,43 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         onConfirm={() => { const ids = [...selectedBlockIds]; setMultiDeletePending(false); setSelectedBlockIds(new Set()); handleDeleteAll(ids); }}
         onCancel={() => setMultiDeletePending(false)}
       />
+      {/* ── TISKAR: Monitor jako domovská obrazovka ── */}
+      {isTiskar && tiskarView === "monitor" && (
+        <MonitorView
+          blocks={blocks}
+          viewMachine={viewMachine}
+          ownMachine={currentUser.assignedMachine ?? null}
+          now={new Date()}
+          onPrintComplete={
+            viewMachine === currentUser.assignedMachine ? handlePrintComplete : undefined
+          }
+          onOpenPlan={() => setTiskarView("plan")}
+          onOpenSearch={() => setSearchSheetOpen(true)}
+          onMachineChange={(machine) => setViewMachine(machine)}
+          onSelectBlock={(block) => setSelectedBlock(block)}
+          onLogout={handleLogout}
+        />
+      )}
+
       {/* ── Header (TISKAR — minimální pruh) ── */}
-      {isTiskar && (
+      {isTiskar && tiskarView === "plan" && (
         <header className="flex-shrink-0 px-4 py-2 flex items-center gap-3" style={{
           borderBottom: "1px solid var(--border)",
           background: "var(--surface)",
         }}>
           <img src="/logo.png" alt="Integraf" style={{ height: 24, width: "auto", objectFit: "contain", flexShrink: 0 }} />
           <div style={{ width: 1, height: 16, background: "var(--border)", flexShrink: 0 }} />
+          <button
+            onClick={(e) => { if (e.button !== 0) return; setTiskarView("monitor"); }}
+            title="Zpět na Monitor"
+            style={{
+              padding: "3px 10px", fontSize: 11, borderRadius: 6,
+              background: "var(--surface-2)", border: "1px solid var(--border)",
+              color: "var(--text)", cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            ← Monitor
+          </button>
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
             {currentUser.username}
             <span style={{ marginLeft: 5, fontSize: 10, background: "var(--surface-2)", borderRadius: 4, padding: "1px 5px", color: "var(--text-muted)" }}>
@@ -2994,7 +3027,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         </div>
       </header>}
 
-      {/* ── Tělo ── */}
+      {/* ── Tělo ── (TISKAR ho vidí jen v režimu plánu; v Monitoru je nahrazené MonitorView) */}
+      {(!isTiskar || tiskarView === "plan") && (
       <section style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
         {/* LEVÁ ČÁST – timeline grid */}
         <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
@@ -3178,6 +3212,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           )}
         </aside>}
       </section>
+      )}
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
