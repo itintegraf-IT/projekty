@@ -10,12 +10,12 @@ import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
 import { MonitorQueue } from "@/components/monitor/MonitorQueue";
 import { machineLabel, MACHINES } from "@/lib/machines";
 import { formatPragueTime } from "@/lib/dateUtils";
+import { VARIANT_CONFIG } from "@/lib/blockVariants";
 
 type Props = {
   blocks: Block[];
   viewMachine: string;
   ownMachine: string | null;
-  now: Date;
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
   onOpenPlan: () => void;
   onOpenSearch: () => void;
@@ -40,28 +40,32 @@ const HEADER_BTN: CSSProperties = {
  * Domovská obrazovka tiskaře u stroje. Vlevo velká karta zakázky, kterou má
  * právě na starosti, vpravo fronta dneška. Plán je o klik dál („Celý plán →").
  *
- * Komponenta nic nenačítá ani netiká — bloky i `now` dostává z PlannerPage,
- * která je už drží a udržuje aktuální přes SSE.
+ * Komponenta nic nenačítá — bloky dostává z PlannerPage, která je drží a
+ * udržuje aktuální přes SSE. `now` si ale tiká sama (stejný vzor jako
+ * TimelineGrid): jinak v noci, kdy nechodí SSE ani se nic v plánu nemění,
+ * Monitor zamrzne na čase posledního renderu PlannerPage a running →
+ * overdue → upcoming přechod (a půlnoční posun fronty) vůbec nenastane.
  */
 export function MonitorView({
-  blocks, viewMachine, ownMachine, now,
+  blocks, viewMachine, ownMachine,
   onPrintComplete, onOpenPlan, onOpenSearch, onMachineChange, onSelectBlock, onLogout,
 }: Props) {
   // Vázané na konkrétní blok, ne na komponentu: po odklepnutí se hero karta
   // přepne na další zakázku ještě během požadavku a jeden sdílený boolean
   // by zašedil tlačítko, kterého se nikdo nedotkl.
   const [pendingId, setPendingId] = useState<number | null>(null);
+  // Krátké okno po libovolném odklepnutí, kdy je tlačítko HOTOVO zamčené i pro
+  // NOVOU hero zakázku, která se sem optimisticky přepne dřív, než dorazí
+  // odpověď požadavku — jinak dvojklik na stejném místě obrazovky odklepne
+  // zakázku, která se ještě netiskla.
+  const [lockUntil, setLockUntil] = useState(0);
 
-  // Hodiny v hlavičce si Monitor vede sám — je to čistě zobrazovací věc
-  // a PlannerPage žádný takový stav nemá, nemá smysl mu ho přidávat.
-  const [clock, setClock] = useState("");
+  // `now` tiká samo — hodiny v hlavičce (formatPragueTime) i běhová logika
+  // (pickHeroBlock/runProgress) běží ze stejné hodnoty; 15 s je dost časté
+  // na hodiny a víc než dost časté na požadovaný strop 30 s pro `now`.
+  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const tick = () => {
-      const d = new Date();
-      setClock(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`);
-    };
-    tick();
-    const id = setInterval(tick, 15000);
+    const id = setInterval(() => setNow(new Date()), 15_000);
     return () => clearInterval(id);
   }, []);
 
@@ -104,7 +108,7 @@ export function MonitorView({
           fontSize: 18, color: "var(--text)",
           fontVariantNumeric: "tabular-nums", flexShrink: 0,
         }}>
-          {clock}
+          {formatPragueTime(now)}
         </span>
         <button style={HEADER_BTN} onClick={(e) => { if (e.button !== 0) return; onOpenSearch(); }}>
           🔍 Najít
@@ -199,10 +203,13 @@ export function MonitorView({
                       size={{ variant: "hero", height: 96, fontSize: 30 }}
                       isDone={hero.block.printCompletedAt != null}
                       completedAt={hero.block.printCompletedAt}
-                      pending={pendingId === hero.block.id}
+                      pending={pendingId === hero.block.id || Date.now() < lockUntil}
                       onToggle={() => {
                         const id = hero.block.id;
                         setPendingId(id);
+                        const until = Date.now() + 800;
+                        setLockUntil(until);
+                        setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
                         onPrintComplete(id, hero.block.printCompletedAt == null)
                           .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
                       }}
@@ -248,14 +255,31 @@ export function MonitorView({
 
 /** Výrobní a stavové štítky velké karty. */
 function HeroChips({ block }: { block: Block }) {
-  const chips: { label: string; tone: "brand" | "ok" | "wait" | "plain" }[] = [];
+  const chips: { label: string; tone: "brand" | "ok" | "wait" | "plain" | "danger" }[] = [];
   if (block.obalka) chips.push({ label: "OBÁLKA", tone: "brand" });
   if (block.vnitrky) chips.push({ label: "VNITŘKY", tone: "brand" });
   if (block.tiskoveArchy) chips.push({ label: block.tiskoveArchy, tone: "plain" });
   if (block.serie) chips.push({ label: block.serie, tone: "plain" });
   if (block.dataStatusLabel) chips.push({ label: block.dataStatusLabel, tone: block.dataOk ? "ok" : "wait" });
-  if (block.materialStatusLabel) chips.push({ label: block.materialStatusLabel, tone: block.materialOk ? "ok" : "wait" });
-  if (block.pantoneRequired) chips.push({ label: "PANTONE", tone: block.pantoneOk ? "ok" : "wait" });
+  // Připravenost materiálu = na skladě NEBO vydáno NEBO potvrzeno — stejná
+  // logika jako BlockCard (jinak Monitor hlásí „čeká" na to, co je v plánu zelené).
+  if (block.materialStatusLabel) {
+    const materialReady = block.materialInStock || block.materialIssued || block.materialOk;
+    chips.push({ label: block.materialStatusLabel, tone: materialReady ? "ok" : "wait" });
+  }
+  // Štítek se zobrazí za stejné podmínky jako v BlockCard (požadováno, má termín,
+  // nebo je už odklepnuto) — samotné `pantoneRequired` je jen jedna ze tří cest tam.
+  if (block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk) {
+    chips.push({ label: "PANTONE", tone: block.pantoneOk ? "ok" : "wait" });
+  }
+  // Nestandardní varianta zakázky (POZASTAVENO = výrobní stopka) — v plánu je
+  // sytě červená, na Monitoru se dřív neukazovala vůbec (nález I5).
+  if (block.blockVariant && block.blockVariant !== "STANDARD") {
+    chips.push({
+      label: VARIANT_CONFIG[block.blockVariant].label,
+      tone: block.blockVariant === "POZASTAVENO" ? "danger" : "plain",
+    });
+  }
 
   if (chips.length === 0) return null;
 
@@ -268,14 +292,16 @@ function HeroChips({ block }: { block: Block }) {
             fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
             borderRadius: 6, padding: "5px 10px", whiteSpace: "nowrap",
             background:
-              c.tone === "ok"    ? "color-mix(in oklab, var(--success) 22%, transparent)"
-              : c.tone === "wait"  ? "color-mix(in oklab, var(--warning) 22%, transparent)"
-              : c.tone === "brand" ? "var(--brand)"
+              c.tone === "ok"     ? "color-mix(in oklab, var(--success) 22%, transparent)"
+              : c.tone === "wait"   ? "color-mix(in oklab, var(--warning) 22%, transparent)"
+              : c.tone === "brand"  ? "var(--brand)"
+              : c.tone === "danger" ? "var(--danger)"
               : "var(--surface-3)",
             color:
-              c.tone === "ok"    ? "var(--success)"
-              : c.tone === "wait"  ? "var(--warning)"
-              : c.tone === "brand" ? "var(--brand-contrast)"
+              c.tone === "ok"     ? "var(--success)"
+              : c.tone === "wait"   ? "var(--warning)"
+              : c.tone === "brand"  ? "var(--brand-contrast)"
+              : c.tone === "danger" ? "white"
               : "var(--text)",
           }}
         >

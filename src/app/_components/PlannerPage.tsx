@@ -842,19 +842,40 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const target = pendingScrollMs.current;
     if (target === null) return;
     pendingScrollMs.current = null;
-    const newViewStart = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -daysBack), 0, 0);
+    // effectiveDaysBack (ne "holý" daysBack) — u TISKAŘE je pevně 1 bez ohledu
+    // na daysBack state, přesně jako viewStart výš; jinak by se cíl scrollu
+    // počítal vůči jinému řádku 0, než jaký ve skutečnosti kreslí TimelineGrid.
+    const newViewStart = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -effectiveDaysBack), 0, 0);
     const y = dateToY(new Date(target), newViewStart, slotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     if (pendingSelectBlock.current) {
       setSelectedBlock(pendingSelectBlock.current);
       pendingSelectBlock.current = null;
     }
-  }, [daysBack, daysAhead]); // eslint-disable-line react-hooks/exhaustive-deps
+    // tiskarView v deps: přechod z Monitoru (kde TimelineGrid není mountnutá,
+    // scrollRef.current je null) do plánu musí doscrollovat AŽ PO mountu,
+    // ne synchronně v handleru — batchovaný setTiskarView("plan") by scroll
+    // jinak tiše zahodil (nález I3/I4).
+  }, [daysBack, daysAhead, tiskarView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleJumpToOutOfRange(block: Block) {
     const diffDays = diffCivilDateDays(utcToPragueDateStr(new Date(block.startTime)), todayPragueDateStr());
     pendingScrollMs.current = new Date(block.startTime).getTime();
     setDaysBack(Math.max(3, diffDays + 5));
+  }
+
+  // Sdílené i pro OrderSearchSheet i pro klik na řádek v Monitoru (MonitorQueue):
+  // přepnout do plánu, případně na jiný stroj, vybrat blok a doscrollovat na něj
+  // (přes stejný odložený mechanismus jako handleJumpToOutOfRange výše).
+  function jumpToBlockFromMonitor(block: Block) {
+    setTiskarView("plan");
+    if (block.machine !== viewMachine) setViewMachine(block.machine);
+    setSelectedBlock(block);
+    if (new Date(block.startTime) < viewStart) {
+      handleJumpToOutOfRange(block);
+    } else {
+      pendingScrollMs.current = new Date(block.startTime).getTime();
+    }
   }
 
   const handleSplitChipClick = useCallback((partnerId: number) => {
@@ -2687,14 +2708,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           blocks={blocks}
           viewMachine={viewMachine}
           ownMachine={currentUser.assignedMachine ?? null}
-          now={new Date()}
           onPrintComplete={
             viewMachine === currentUser.assignedMachine ? handlePrintComplete : undefined
           }
           onOpenPlan={() => setTiskarView("plan")}
           onOpenSearch={() => setSearchSheetOpen(true)}
           onMachineChange={(machine) => setViewMachine(machine)}
-          onSelectBlock={(block) => setSelectedBlock(block)}
+          onSelectBlock={jumpToBlockFromMonitor}
           onLogout={handleLogout}
         />
       )}
@@ -3261,19 +3281,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           allBlocks={blocks}
           onSelect={(block) => {
             setSearchSheetOpen(false);
-            // Výsledek hledání se scrolluje v timeline — z Monitoru na ni musíme
-            // nejdřív přepnout, jinak by se výběr tiše ztratil (scrollRef je null).
-            setTiskarView("plan");
-            // Pokud je zakázka na jiném stroji, přepneme tiskaři viewMachine
-            // → TimelineGrid re-renderuje na daný stroj. Pak vybereme blok a scrollneme.
-            if (block.machine !== viewMachine) setViewMachine(block.machine);
-            setSelectedBlock(block);
-            if (new Date(block.startTime) < viewStart) {
-              handleJumpToOutOfRange(block);
-            } else {
-              const y = dateToY(new Date(block.startTime), viewStart, slotHeight);
-              scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
-            }
+            jumpToBlockFromMonitor(block);
           }}
           onClose={() => setSearchSheetOpen(false)}
         />
