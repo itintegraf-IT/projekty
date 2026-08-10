@@ -65,15 +65,49 @@ export async function GET(request: NextRequest) {
 // Retro mode
 // ---------------------------------------------------------------------------
 
+/**
+ * Revize v období — podklad pro „Stabilita plánu" i „Aktivita plánovačů".
+ *
+ * `JSON_CONTAINS_PATH` se počítá v SQL, aby se přes síť netahal celý sloupec
+ * `after` (u širokých editací z BlockEditu jsou to kilobajty na řádek). Filtrovat
+ * `kind`/`action` se ZÁMĚRNĚ nechává až na JS: aktivita plánovačů potřebuje
+ * všechny revize, stabilita jen podmnožinu, a dva dotazy by nad touž tabulkou
+ * byly dražší než jeden.
+ *
+ * POZOR na návratový typ `positional`: MySQL funkci vrací přes `$queryRaw` jako
+ * **BigInt** (ověřeno na MySQL 8.0.45 — `1n`, ne `1`), takže striktní `=== 1`
+ * by tiše platilo nikdy. Vždycky přes `Number()`.
+ */
+type RevisionRow = {
+  groupId: string;
+  blockId: number;
+  username: string;
+  kind: string;
+  action: string;
+  /** 1 = změnil se startTime/endTime/machine. NULL u kind=DELETE (`after` je prázdné). */
+  positional: bigint | number | null;
+};
+
+/** Revizní akce, které NEJSOU rozhodnutím o plánu — undo vrací blok tam, kde byl. */
+const NON_DECISION_ACTIONS = new Set(["UNDO", "REDO"]);
+
 async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date, endUtc: Date) {
-  const [blocks, auditLogs, rawWeekShifts, reservations, companyDays] = await Promise.all([
+  const [blocks, revisions, oldestRevision, rawWeekShifts, reservations, companyDays] = await Promise.all([
     prisma.block.findMany({
       where: { startTime: { lt: endUtc }, endTime: { gt: startUtc } },
       select: { id: true, machine: true, type: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true, printMinutes: true, scheduleBypassed: true },
     }),
-    prisma.auditLog.findMany({
-      where: { createdAt: { gte: startUtc, lt: endUtc }, action: "UPDATE" },
-      select: { blockId: true, field: true, username: true },
+    prisma.$queryRaw<RevisionRow[]>`
+      SELECT groupId, blockId, username, kind, action,
+             JSON_CONTAINS_PATH(after, 'one', '$.startTime', '$.endTime', '$.machine') AS positional
+      FROM BlockRevision
+      WHERE createdAt >= ${startUtc} AND createdAt < ${endUtc}
+    `,
+    // Odkdy vůbec revize existují — retence je 90 dní a skříňka se zapnula
+    // 9. 8. 2026, takže starší období POCTIVĚ mlčí místo aby vracelo 100 %.
+    prisma.blockRevision.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true },
     }),
     prisma.machineWeekShifts.findMany({
       // ±28 d: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
@@ -158,17 +192,38 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   // Maintenance ratio
   const maintenanceRatio = computeMaintenanceRatio(totalMaintenance, totalAvailable);
 
-  // Plan stability
-  const auditLogInputs = auditLogs.map((l) => ({ blockId: l.blockId, field: l.field }));
-  const { rescheduleCount, stabilityPercent } = computePlanStability(auditLogInputs, blocks.length);
+  // Stabilita plánu — jen poziční revize, které vzešly z rozhodnutí uživatele.
+  const positionalMoves = revisions
+    .filter(
+      (r) =>
+        r.kind === "UPDATE" &&
+        !NON_DECISION_ACTIONS.has(r.action) &&
+        Number(r.positional) === 1,
+    )
+    .map((r) => ({ groupId: r.groupId, blockId: r.blockId }));
 
-  // Planner activity
-  const activityMap = new Map<string, number>();
-  for (const log of auditLogs) {
-    activityMap.set(log.username, (activityMap.get(log.username) ?? 0) + 1);
+  const blockIdsInRange = new Set(blocks.map((b) => b.id));
+  const { interventionCount, movedBlockCount, stabilityPercent } = computePlanStability(
+    positionalMoves,
+    blockIdsInRange,
+  );
+
+  // Celé období musí být pokryté, ne jen jeho konec — částečné pokrytí by číslo
+  // podhodnotilo a vypadalo by to jako klidný měsíc, ne jako chybějící data.
+  const planningCovered = oldestRevision != null && oldestRevision.createdAt <= startUtc;
+
+  // Aktivita plánovačů = počet ULOŽENÍ (transakcí) na uživatele, ne počet změněných
+  // polí. Dřív se počítaly auditní řádky `UPDATE`, tedy jeden za KAŽDÉ pole: jedno
+  // uložení z BlockEditu s pěti změnami dělalo „5 akcí", kdežto přetažení bloku
+  // nula (poziční sloupce v `AUDITED_FIELDS` nejsou). Revize berou všechny cesty.
+  const groupsByUser = new Map<string, Set<string>>();
+  for (const r of revisions) {
+    const set = groupsByUser.get(r.username) ?? new Set<string>();
+    set.add(r.groupId);
+    groupsByUser.set(r.username, set);
   }
-  const plannerActivity = Array.from(activityMap.entries())
-    .map(([username, actionCount]) => ({ username, actionCount }))
+  const plannerActivity = Array.from(groupsByUser.entries())
+    .map(([username, groups]) => ({ username, actionCount: groups.size }))
     .sort((a, b) => b.actionCount - a.actionCount);
 
   // Pipeline
@@ -197,7 +252,13 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     throughput,
     avgLeadTimeDays,
     maintenanceRatio,
-    planning: { rescheduleCount, stabilityPercent },
+    planning: {
+      covered: planningCovered,
+      coverageFrom: oldestRevision?.createdAt.toISOString() ?? null,
+      interventionCount,
+      movedBlockCount,
+      stabilityPercent,
+    },
     plannerActivity,
     pipeline: { ...statusCounts, conversionPercent },
     logins,

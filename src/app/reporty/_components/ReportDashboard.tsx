@@ -6,6 +6,8 @@ import { machineLabel } from "@/lib/machines";
 import { ModuleHeader } from "@/components/ModuleHeader";
 import HealthPanel from "./HealthPanel";
 import { useHealthData } from "./useHealthData";
+import { KpiCard } from "./KpiCard";
+import { PlanningSection, type PlanningMetrics, type PlannerActivityEntry } from "./PlanningSection";
 
 type Mode = "retro" | "outlook" | "health";
 type TimeRange = "today" | "week" | "month" | "custom";
@@ -23,8 +25,8 @@ interface RetroData {
   throughput: number;
   avgLeadTimeDays: number;
   maintenanceRatio: number;
-  planning: { rescheduleCount: number; stabilityPercent: number };
-  plannerActivity: Array<{ username: string; actionCount: number }>;
+  planning: PlanningMetrics;
+  plannerActivity: PlannerActivityEntry[];
   pipeline: { SUBMITTED: number; ACCEPTED: number; QUEUE_READY: number; SCHEDULED: number; REJECTED: number; conversionPercent: number };
   logins: { periodCount: number; activeUsers: number };
 }
@@ -125,19 +127,6 @@ function HealthBadge({ loading, error, total, active }: { loading: boolean; erro
   return <span style={{ ...base, background: "color-mix(in oklab, var(--success) 22%, transparent)", color: "var(--success)" }}>✓</span>;
 }
 
-function KpiCard({ label, value, subtitle, color }: { label: string; value: string | number; subtitle?: string; color?: string }) {
-  return (
-    <div style={{
-      background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10,
-      padding: "14px 16px", flex: "1 1 0",
-    }}>
-      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: color ?? "var(--text)" }}>{value}</div>
-      {subtitle && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{subtitle}</div>}
-    </div>
-  );
-}
-
 function SectionHeader({ label }: { label: string }) {
   return (
     <div style={{
@@ -200,7 +189,6 @@ function RetroView({ data }: { data: RetroData }) {
     SCHEDULED: "Naplánované", REJECTED: "Zamítnuté",
   };
   const pipelineTotal = pipelineKeys.reduce((sum, k) => sum + (data.pipeline[k] ?? 0), 0);
-  const maxActivity = Math.max(...data.plannerActivity.map((a) => a.actionCount), 1);
 
   const chartLabels = data.dailyUtilization.length > 0
     ? [data.dailyUtilization[0].date.slice(5), data.dailyUtilization[data.dailyUtilization.length - 1].date.slice(5)]
@@ -253,26 +241,11 @@ function RetroView({ data }: { data: RetroData }) {
 
       {/* PLANOVANI */}
       <SectionHeader label="PLÁNOVÁNÍ" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <KpiCard label="Přeplánování" value={data.planning.rescheduleCount} subtitle="bloky přesunuty" />
-          <KpiCard label="Stabilita plánu" value={`${data.planning.stabilityPercent}%`} subtitle="bloků beze změny" />
-          <KpiCard label="Přihlášení za období" value={data.logins.periodCount} subtitle={`${data.logins.activeUsers} aktivních uživatelů`} />
-        </div>
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Aktivita plánovačů</div>
-          {data.plannerActivity.map((a) => (
-            <div key={a.username} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 11, width: 80, flexShrink: 0, color: "var(--text)" }}>{a.username}</span>
-              <div style={{ flex: 1, height: 8, background: "var(--surface-2)", borderRadius: 4, overflow: "hidden" }}>
-                <div style={{ width: `${(a.actionCount / maxActivity) * 100}%`, height: "100%", background: "var(--brand)", borderRadius: 4 }} />
-              </div>
-              <span style={{ fontSize: 10, color: "var(--text-muted)", width: 32, textAlign: "right" }}>{a.actionCount}</span>
-            </div>
-          ))}
-          {data.plannerActivity.length === 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Žádná aktivita</div>}
-        </div>
-      </div>
+      <PlanningSection
+        planning={data.planning}
+        plannerActivity={data.plannerActivity}
+        logins={data.logins}
+      />
 
       {/* OBCHOD */}
       <SectionHeader label="OBCHOD" />

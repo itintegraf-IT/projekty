@@ -21,11 +21,6 @@ type BlockInput = {
   createdAt: Date;
 };
 
-type AuditLogInput = {
-  blockId: number;
-  field: string | null;
-};
-
 // ---------------------------------------------------------------------------
 // 1. computeAvailableHours
 // ---------------------------------------------------------------------------
@@ -151,24 +146,58 @@ export function computeMaintenanceRatio(maintenanceHours: number, availableHours
 // 6. computePlanStability
 // ---------------------------------------------------------------------------
 
-const MOVE_FIELDS = new Set(["startTime", "endTime", "machine"]);
+/**
+ * Jedna poziční změna bloku, jak ji zaznamenala „černá skříňka" `BlockRevision`.
+ *
+ * Volající předává JEN řádky, u kterých se skutečně změnil `startTime`, `endTime`
+ * nebo `machine` — filtr patří do dotazu, ne sem (viz `handleRetro`).
+ */
+export type PlanMoveInput = {
+  /**
+   * `BlockRevision.groupId` — jedna serverová transakce. Schéma to má v komentáři
+   * doslova: „Jedna serverová transakce = jeden groupId napříč všemi dotčenými
+   * bloky." Právě proto se dá počítat jako JEDNO rozhodnutí uživatele: přetažení
+   * i lasso přes deset bloků i vložení, které odsune pět navazujících, mají
+   * všechny jeden groupId.
+   */
+  groupId: string;
+  blockId: number;
+};
 
-/** Stabilita plánu — kolik bloků nebylo přeplánováno. */
+/**
+ * Stabilita plánu — dvě čísla a podíl mezi nimi.
+ *
+ * `interventionCount` odpovídá na „jak často musel plánovač sáhnout do hotového
+ * plánu", `movedBlockCount` na „kolik zakázek se tím reálně pohnulo". Jejich
+ * poměr říká, jak drahý je jeden zásah (typicky vložení spěchající zakázky).
+ *
+ * ## Proč se OBĚ čísla počítají nad TOUŽE množinou bloků
+ *
+ * Průnik s `blockIdsInRange` je jádro opravy, ne detail. Předchozí verze brala
+ * čitatel z bloků EDITOVANÝCH v období a jmenovatel z bloků NAPLÁNOVANÝCH
+ * v období — dvě sotva se překrývající množiny (kdo v srpnu plánuje září,
+ * vyrábí srpnové záznamy o zářijových blocích). Podíl proto mohl vyjít i záporný.
+ * Průnikem je `movedBlockCount ≤ blockIdsInRange.size`, takže výsledek je
+ * z principu v rozsahu 0–100 a poměr obou čísel dává smysl.
+ *
+ * Zásah nad blokem mimo období se nezapočítá ani do `interventionCount` —
+ * jinak by report za srpen tvrdil „12 zásahů", z nichž se v srpnu neprojevil
+ * ani jeden.
+ */
 export function computePlanStability(
-  auditLogs: AuditLogInput[],
-  totalBlockCount: number,
-): { rescheduleCount: number; movedBlockCount: number; stabilityPercent: number } {
-  const moves = auditLogs.filter((l) => l.field !== null && MOVE_FIELDS.has(l.field));
-  const rescheduleCount = moves.length;
-  const movedBlockIds = new Set(moves.map((l) => l.blockId));
-  const movedBlockCount = movedBlockIds.size;
+  moves: PlanMoveInput[],
+  blockIdsInRange: ReadonlySet<number>,
+): { interventionCount: number; movedBlockCount: number; stabilityPercent: number } {
+  const relevant = moves.filter((m) => blockIdsInRange.has(m.blockId));
 
+  const movedBlockCount = new Set(relevant.map((m) => m.blockId)).size;
+  const interventionCount = new Set(relevant.map((m) => m.groupId)).size;
+
+  const total = blockIdsInRange.size;
   const stabilityPercent =
-    totalBlockCount <= 0
-      ? 100
-      : Math.round(((totalBlockCount - movedBlockCount) / totalBlockCount) * 100);
+    total <= 0 ? 100 : Math.round(((total - movedBlockCount) / total) * 100);
 
-  return { rescheduleCount, movedBlockCount, stabilityPercent };
+  return { interventionCount, movedBlockCount, stabilityPercent };
 }
 
 // ---------------------------------------------------------------------------

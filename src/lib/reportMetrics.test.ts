@@ -239,50 +239,79 @@ describe("computeMaintenanceRatio", () => {
 // computePlanStability
 // ---------------------------------------------------------------------------
 describe("computePlanStability", () => {
-  it("counts moves and calculates stability", () => {
-    const auditLogs = [
-      { blockId: 1, field: "startTime" },
-      { blockId: 1, field: "endTime" },
-      { blockId: 2, field: "machine" },
-      { blockId: 3, field: "color" }, // not a move
-      { blockId: 4, field: null },    // not a move
+  const inRange = (...ids: number[]) => new Set(ids);
+
+  it("vložení s chain pushem = JEDEN zásah, pět posunutých bloků", () => {
+    // Vojta vloží spěchající zakázku a aplikace odsune pět navazujících.
+    // Všechno je to jedna serverová transakce, tedy jedno rozhodnutí uživatele.
+    const moves = [11, 12, 13, 14, 15].map((blockId) => ({ groupId: "g1", blockId }));
+    const r = computePlanStability(moves, inRange(11, 12, 13, 14, 15, 16, 17, 18, 19, 20));
+    assert.equal(r.interventionCount, 1);
+    assert.equal(r.movedBlockCount, 5);
+    assert.equal(r.stabilityPercent, 50); // (10 − 5) / 10
+  });
+
+  it("dvě nezávislá přetažení = dva zásahy, dva bloky", () => {
+    const moves = [
+      { groupId: "g1", blockId: 11 },
+      { groupId: "g2", blockId: 12 },
     ];
-    const result = computePlanStability(auditLogs, 10);
-    assert.equal(result.rescheduleCount, 3);
-    assert.equal(result.movedBlockCount, 2); // blocks 1 and 2
-    assert.equal(result.stabilityPercent, 80); // (10 - 2) / 10 * 100
+    const r = computePlanStability(moves, inRange(11, 12, 13, 14));
+    assert.equal(r.interventionCount, 2);
+    assert.equal(r.movedBlockCount, 2);
+    assert.equal(r.stabilityPercent, 50);
   });
 
-  it("no moves → 100% stability", () => {
-    const result = computePlanStability([], 5);
-    assert.equal(result.rescheduleCount, 0);
-    assert.equal(result.movedBlockCount, 0);
-    assert.equal(result.stabilityPercent, 100);
-  });
-
-  it("all blocks moved → 0% stability", () => {
-    const auditLogs = [
-      { blockId: 1, field: "startTime" },
-      { blockId: 2, field: "endTime" },
-      { blockId: 3, field: "machine" },
+  it("týž blok pohnutý dvakrát = dva zásahy, ale jeden posunutý blok", () => {
+    // Poměr „posunutých na zásah" musí umět klesnout pod 1 — jinak by vypadalo,
+    // že každý zásah rozhýbe aspoň jednu NOVOU zakázku, což není pravda.
+    const moves = [
+      { groupId: "g1", blockId: 11 },
+      { groupId: "g2", blockId: 11 },
     ];
-    const result = computePlanStability(auditLogs, 3);
-    assert.equal(result.movedBlockCount, 3);
-    assert.equal(result.stabilityPercent, 0);
+    const r = computePlanStability(moves, inRange(11, 12, 13, 14));
+    assert.equal(r.interventionCount, 2);
+    assert.equal(r.movedBlockCount, 1);
+    assert.equal(r.stabilityPercent, 75);
   });
 
-  it("totalBlockCount = 0 → 100% stability", () => {
-    const result = computePlanStability([], 0);
-    assert.equal(result.stabilityPercent, 100);
-  });
-
-  it("regrese FIX 6b: span field 'startTime/endTime' (AUTO_SHIFT/AUTO_REFLOW) se nepočítá jako move", () => {
-    const auditLogs = [
-      { blockId: 1, field: "startTime/endTime" },
-      { blockId: 2, field: "startTime" },
+  it("blok mimo období se nezapočítá ANI do zásahů, ani do posunutých", () => {
+    // Kořen vady č. 3 staré metriky: čitatel počítal bloky editované v období,
+    // jmenovatel bloky NAPLÁNOVANÉ v období. Kdo v srpnu plánuje září, vyrobí
+    // srpnové záznamy o zářijových blocích — a podíl vyšel i záporný.
+    const moves = [
+      { groupId: "g1", blockId: 11 },   // v období
+      { groupId: "g2", blockId: 999 },  // mimo období — jiný měsíc
     ];
-    const result = computePlanStability(auditLogs, 10);
-    assert.equal(result.rescheduleCount, 1);
+    const r = computePlanStability(moves, inRange(11, 12));
+    assert.equal(r.interventionCount, 1, "zásah nad cizím blokem nepatří do tohoto období");
+    assert.equal(r.movedBlockCount, 1);
+    assert.equal(r.stabilityPercent, 50);
+  });
+
+  it("žádné pohyby → 100 % stabilita", () => {
+    const r = computePlanStability([], inRange(1, 2, 3, 4, 5));
+    assert.equal(r.interventionCount, 0);
+    assert.equal(r.movedBlockCount, 0);
+    assert.equal(r.stabilityPercent, 100);
+  });
+
+  it("prázdná množina bloků → 100 %, žádné dělení nulou", () => {
+    const r = computePlanStability([{ groupId: "g1", blockId: 11 }], new Set<number>());
+    assert.equal(r.movedBlockCount, 0);
+    assert.equal(r.stabilityPercent, 100);
+    assert.ok(Number.isFinite(r.stabilityPercent));
+  });
+
+  it("stabilita nikdy neklesne pod nulu, i když se pohnuly všechny bloky", () => {
+    const moves = [
+      { groupId: "g1", blockId: 11 },
+      { groupId: "g2", blockId: 12 },
+      { groupId: "g3", blockId: 11 },
+    ];
+    const r = computePlanStability(moves, inRange(11, 12));
+    assert.equal(r.movedBlockCount, 2);
+    assert.equal(r.stabilityPercent, 0);
   });
 });
 

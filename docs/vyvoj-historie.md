@@ -923,3 +923,77 @@ Po nasazení se u 18447 objeví štítek a nic víc; plán zůstane bit po bitu 
 
 Spec: `docs/superpowers/specs/2026-08-09-zamek-jako-rezim-design.md`
 Plán: `docs/superpowers/plans/2026-08-09-zamek-jako-rezim.md`
+
+---
+
+## Stabilita plánu — přepojení metriky na `BlockRevision` (10. 8. 2026)
+
+**Proč vznikla.** Karta „Stabilita plánu" na reportu pro vedení ukazovala 100 %
+a „0 přeplánování". Křížová tabulka `AuditLog GROUP BY action, field` nad dev DB
+ukázala, že metrika nedokáže napočítat **vůbec nic**, a to ze tří nezávislých
+důvodů naráz (podrobně `docs/POUCENI.md`, P14):
+
+1. `MOVE_FIELDS` porovnávala PŘESNOU shodu `startTime`/`endTime`/`machine`, kdežto
+   dávkový přesun píše `startTime/endTime` (`buildBatchAuditRows`) a starší formát
+   `startTime/endTime/machine` (198 řádků v dev DB).
+2. Dotaz filtroval `action: "UPDATE"`, takže `AUTO_SHIFT` (chain push), `AUTO_REFLOW`
+   i `UNDO` odpadly dřív, než se na ně sčítání podívalo. Jediné, co mohlo projít,
+   byl holý `machine` z dnešního dávkového přesunu.
+3. Přetažení jednoho bloku myší **nemá v `AuditLog` řádek vůbec** — poziční sloupce
+   nejsou v `AUDITED_FIELDS`. Nejběžnější způsob přesunu byl neviditelný z principu,
+   takže oprava bodů 1–2 by metriku neuzdravila.
+
+Navíc čitatel (bloky editované v období) a jmenovatel (bloky naplánované v období)
+počítaly různé množiny, takže podíl mohl vyjít i záporný.
+
+**Zdrojem je nově `BlockRevision`** — černá skříňka etapy B1 pokrývá všech 9
+zápisových cest včetně jednoblokového dragu. `kind = "UPDATE"` plus přítomnost
+`startTime`/`endTime`/`machine` v rozdílu = poziční změna. `action ∈ {UNDO, REDO}`
+se vylučuje: krok zpět vrací blok tam, kde byl, takže by tentýž blok počítal dvakrát,
+aniž by se plán změnil.
+
+**Dvě čísla místo jednoho** (rozhodnutí Vojty 10. 8. 2026):
+
+| Karta | Definice | Vložení spěchající zakázky, které odsune 5 navazujících |
+| --- | --- | --- |
+| Zásahy do plánu | distinct `groupId` | **1** — jedna transakce = jedno rozhodnutí |
+| Posunuté bloky | distinct `blockId` | **5** |
+| Stabilita plánu | `(bloky v období − posunuté) / bloky v období` | |
+
+Podtitulek druhé karty nese jejich **poměr** („⌀ 5,0 na zásah") — to je vlastní
+informační hodnota té dvojice: říká, jak drahé je přijmout spěchající zakázku.
+Že se `groupId` dá takhle číst, garantuje schéma: *„Jedna serverová transakce =
+jeden groupId napříč všemi dotčenými bloky."*
+
+**Obě čísla se počítají nad TOUŽE množinou bloků** (průnik s bloky v období) —
+bez toho by poměr neznamenal nic a stabilita mohla klesnout pod nulu.
+
+**Pokrytí se přiznává.** Revize existují od 9. 8. 2026 a drží se 90 dní. Když
+zvolené období není celé pokryté, všechny tři karty ukážou `—` a pod nimi se
+vypíše, odkdy data jsou. Poziční změny se dřív nikam nezapisovaly, takže žádné
+číslo za starší období není k dispozici — a vymyslet ho by bylo horší než mlčet.
+
+**Aktivita plánovačů jede ze stejného dotazu.** Dřív = počet auditních řádků
+`UPDATE` na uživatele, tedy jeden za KAŽDÉ změněné pole: jedno uložení z BlockEditu
+s pěti změnami dělalo „5 akcí", přetažení bloku nula. Nově distinct `groupId` na
+uživatele přes všechny revize = počet uložení.
+
+**Implementační poznámky.**
+- `JSON_CONTAINS_PATH` se počítá v SQL (`$queryRaw`), aby se netahal celý sloupec
+  `after`. Ověřeno na MySQL 8.0.45; **před nasazením ověřit verzi na produkci**
+  (MySQL 5.7+ / MariaDB 10.2.3+). Fallback: vytáhnout `after` a testovat klíče v JS.
+- Funkce vrací **`BigInt`** (`1n`, ne `1`), takže se čte přes `Number(r.positional)` —
+  striktní `=== 1` by tiše platilo nikdy.
+- `after` je u `kind = "DELETE"` NULL → funkce vrátí NULL → `Number(null)` je 0.
+  Chová se správně bez zvláštní větve.
+- Sekce PLÁNOVÁNÍ se vydělila do `src/app/reporty/_components/PlanningSection.tsx`
+  a `KpiCard.tsx` (soubor `ReportDashboard.tsx` byl přes limit `max-lines` už předtím;
+  po extrakci má 559 řádků místo původních 631).
+- Zmizel test „regrese FIX 6b", který vylučoval tvar `startTime/endTime` jako
+  automatické odsunutí. Záměr byl správný, ale provedený na špatné ose — ten tvar
+  píše i vědomý dávkový přesun, takže test hlídal přesně tu vadu, která metriku
+  zabila. V novém zdroji složené názvy polí neexistují.
+
+Klíčové soubory: `src/lib/reportMetrics.ts` (`computePlanStability`, `PlanMoveInput`) ·
+`src/app/api/report/dashboard/route.ts` (`handleRetro`) ·
+`src/app/reporty/_components/PlanningSection.tsx` · `KpiCard.tsx`

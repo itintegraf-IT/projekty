@@ -185,3 +185,35 @@ je ta cesta pro uživatele kritická. **Bez toho se ladí jen to, co se povede z
 Druhá půlka pravidla je provozní: po každém nasazení **napřed tvrdý refresh**, teprve
 potom ladění (viz `docs/DEPLOY_WORKFLOW.md`, oddíl 8) — jinak se hledá chyba v kódu,
 který v prohlížeči neběží.
+
+---
+
+## P14 — Metrika, která nikdy nic nenapočítá, vypadá jako zdravé KPI
+
+**Co se stalo (10. 8. 2026):** Karta „Stabilita plánu" na reportu vedení ukazovala
+100 % a číslo „0 přeplánování". Vypadalo to jako mimořádně stabilní provoz. Ve
+skutečnosti metrika nedokázala napočítat **vůbec nic** a měla přitom tři nezávislé
+vady najednou:
+
+1. Porovnávala **přesnou shodu** názvu sloupce (`startTime`) proti hodnotám, které
+   se do `AuditLog.field` reálně zapisují ve **složeném tvaru** (`startTime/endTime`,
+   `startTime/endTime/machine`). Dávkový přesun deseti bloků dal nulu.
+2. Visela na zdroji, který nejběžnější akci nezaznamenává vůbec — přetažení jednoho
+   bloku myší nemá v `AuditLog` řádek, protože poziční sloupce nejsou
+   v `AUDITED_FIELDS` (táž díra jako havárie 5.–6. 8. 2026).
+3. Čitatel a jmenovatel počítaly **různé množiny**: bloky editované v období proti
+   blokům naplánovaným v období. Podíl mohl vyjít i záporný.
+
+Testy byly přitom zelené — pět kusů, všechny nad vymyšlenými vstupy tvaru
+`{ field: "startTime" }`, který ale žádná zápisová cesta nepíše. Jeden z nich
+dokonce **aktivně bránil** správnému chování: vylučoval tvar `startTime/endTime`
+jako „automatické odsunutí", jenže ten tvar píše i vědomý dávkový přesun. Záměr
+byl správný, provedení na špatné ose — filtrovat se mělo podle **akce**, ne podle
+názvu pole.
+
+**Pravidlo:** U každé metriky napsat aspoň jeden test nad **skutečným tvarem dat**,
+jaký do databáze píše produkční kód, a ověřit, že vrací **nenulovou** hodnotu.
+Zelené testy nad vymyšlenými vstupy tuhle třídu vady neodhalí — a metrika, která
+tiše vrací nulu, je horší než chybějící metrika, protože se podle ní rozhoduje.
+Než se metrika napojí na zdroj, ověřit křížovou tabulkou nad reálnou databází
+(`GROUP BY action, field`), že ten zdroj měřenou událost vůbec obsahuje.
