@@ -9,7 +9,11 @@
 #
 # Cron (root):  45 1 * * * /usr/local/bin/planovani-backup.sh >> /var/log/planovani-backup.log 2>&1
 # ─────────────────────────────────────────────────────────────────────────────
-set -euo pipefail
+# `-E` (errtrace) je POVINNÉ, ne kosmetika: bez něj se past ERR nedědí do funkcí,
+# takže selhání uvnitř `prune_keep_last` skript ukončilo BEZE SLOVA a bez zápisu
+# do STATUS_FILE — záloha na disku byla, ale monitoring hlásil starý stav
+# (první ostrý běh 10. 8. 2026, exit 2 a nulový výstup).
+set -Eeuo pipefail
 umask 077   # dumpy obsahují hashe hesel a business data — nikdy world-readable
 
 APP_DIR=/var/www/planovanivyroby
@@ -92,7 +96,13 @@ cp             "$APP_DIR/ecosystem.config.cjs" "$BACKUP_ROOT/config/ecosystem_$S
 # Počet posledních navíc nikdy nesmaže poslední zálohy, ani když nové
 # přestanou vznikat. head -n -N = GNU (server-only).
 prune_keep_last() {  # $1 = glob prefix, $2 = kolik posledních nechat
-  ls -1d "$1"* 2>/dev/null | sort | head -n -"$2" | xargs -r rm -rf
+  # Prázdný glob NENÍ chyba — typicky když ta kategorie ještě nemá co uklízet
+  # (na produkci nejsou žádné přílohy, takže attachments/ zůstává prázdný).
+  # GNU `ls` na neexistující cestu ale vrací 2 a `pipefail` to propustí dál,
+  # takže `set -e` shodilo celý skript AŽ PO vytvoření zálohy: dump na disku
+  # ležel, ale STATUS_FILE zůstal na starém FAIL a health-check hlásil poplach.
+  # Závorky jsou nutné — bez nich by `|| true` platilo až za rourou.
+  { ls -1d "$1"* 2>/dev/null || true; } | sort | head -n -"$2" | xargs -r rm -rf
 }
 prune_keep_last "$BACKUP_ROOT/db/igvyroba_"          "$KEEP_DB"
 prune_keep_last "$BACKUP_ROOT/attachments/20"        "$KEEP_ATT"
