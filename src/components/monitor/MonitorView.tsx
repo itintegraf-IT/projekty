@@ -69,7 +69,9 @@ export function MonitorView({
   // Vrátit je destruktivní a karta drží zakázku bez expirace — tiskař na další
   // směně by jinak jedním kliknutím rozdělal zakázku z minulé směny, která by mu
   // navíc z Monitoru zmizela (je mimo OVERDUE_WINDOW_MS). Proto na dvě doby.
-  const [confirmingRevert, setConfirmingRevert] = useState(false);
+  // Držíme id, ne boolean: zastaralý časovač by jinak zhasl dotaz, který mezitím
+  // otevřela jiná zakázka.
+  const [confirmingRevertId, setConfirmingRevertId] = useState<number | null>(null);
 
   // `now` tiká samo — hodiny v hlavičce (formatPragueTime) i běhová logika
   // (pickHeroBlock/runProgress) běží ze stejné hodnoty; 15 s je dost časté
@@ -102,14 +104,14 @@ export function MonitorView({
   // zahodíme id, ať se stav nedrží naprázdno.
   useEffect(() => {
     if (stickyId != null && !sticky) setStickyId(null);
-    setConfirmingRevert(false);
+    setConfirmingRevertId(null);
   }, [stickyId, sticky]);
 
   // Přepnutí stroje ruší jak držení, tak rozdělané dotazy — karta patří jinam.
   useEffect(() => {
     setStickyId(null);
     setConfirmingId(null);
-    setConfirmingRevert(false);
+    setConfirmingRevertId(null);
   }, [viewMachine]);
 
   const queue = now ? todayQueue(blocks, viewMachine, now) : [];
@@ -280,13 +282,16 @@ export function MonitorView({
                           // první klik se jen zeptá, zámek se nastaví až u druhého
                           // (skutečného) kliknutí — jinak by tiskař nemohl potvrdit
                           // dřív, než by mu vlastní zámek zablokoval tlačítko.
-                          if (!confirmingRevert) {
-                            setConfirmingRevert(true);
-                            setTimeout(() => setConfirmingRevert(false), 5000);
+                          const id = card.block.id;
+                          if (confirmingRevertId !== id) {
+                            setConfirmingRevertId(id);
+                            setTimeout(
+                              () => setConfirmingRevertId((cur) => (cur === id ? null : cur)),
+                              5000
+                            );
                             return;
                           }
-                          setConfirmingRevert(false);
-                          const id = card.block.id;
+                          setConfirmingRevertId(null);
                           setPendingId(id);
                           // stickyId nemažeme ručně: jakmile zakázka v datech přestane
                           // být odklepnutá, resolveStickyBlock vrátí null a úklidový
@@ -300,13 +305,13 @@ export function MonitorView({
                         disabled={pendingId === card.block.id || Date.now() < lockUntil}
                         style={{
                           flex: 1, borderRadius: 12,
-                          border: confirmingRevert ? "none" : "1px solid var(--border)",
-                          background: confirmingRevert ? "var(--warning)" : "var(--surface-3)",
-                          color: confirmingRevert ? "var(--brand-contrast)" : "var(--text)",
-                          font: "inherit", fontSize: confirmingRevert ? 16 : 22, fontWeight: 700, cursor: "pointer",
+                          border: confirmingRevertId === card.block.id ? "none" : "1px solid var(--border)",
+                          background: confirmingRevertId === card.block.id ? "var(--warning)" : "var(--surface-3)",
+                          color: confirmingRevertId === card.block.id ? "var(--brand-contrast)" : "var(--text)",
+                          font: "inherit", fontSize: confirmingRevertId === card.block.id ? 16 : 22, fontWeight: 700, cursor: "pointer",
                         }}
                       >
-                        {confirmingRevert ? "OPRAVDU VRÁTIT?" : "Vrátit"}
+                        {confirmingRevertId === card.block.id ? "OPRAVDU VRÁTIT?" : "Vrátit"}
                       </button>
                       <button
                         onClick={(e) => {
