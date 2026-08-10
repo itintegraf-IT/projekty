@@ -80,3 +80,10 @@ test("isBlockRunningNow: odklepnutý blok neběží, i když je uvnitř svého �
   const now = new Date("2026-08-03T10:00:00.000Z");
   assert.equal(isBlockRunningNow("2026-08-03T08:00:00.000Z", "2026-08-03T12:00:00.000Z", now, true), false);
 });
+
+test("printDoneSize: nikdy nevrátí variantu hero (ta patří jen Monitoru)", () => {
+  for (const h of [200, 140, 139, 96, 95, 48, 47, 14, 13, 0]) {
+    const size = printDoneSize(h);
+    assert.notEqual(size?.variant, "hero");
+  }
+});

@@ -21,7 +21,9 @@ type Props = {
  * Barvy jdou výhradně přes tokeny, aby fungoval světlý i tmavý režim.
  */
 export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }: Props) {
-  const isBar = size.variant === "bar";
+  // `hero` (Monitor) i `bar` (karta bloku) jsou širokými variantami s popiskem;
+  // `square` je jen háček. Jednotné jméno usnadňuje sdílenou logiku.
+  const isWide = size.variant === "bar" || size.variant === "hero";
   const [hovered, setHovered] = useState(false);
 
   const barLabel = isDone
@@ -45,16 +47,16 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
       title={isDone ? "Vrátit hotovo" : "Označit jako hotovo"}
       style={{
         display: "flex", alignItems: "center", justifyContent: "center",
-        gap: isBar ? 6 : 0,
-        width: isBar ? "100%" : size.height,
+        gap: isWide ? 6 : 0,
+        width: isWide ? "100%" : size.height,
         height: size.height,
         flexShrink: 0,
-        border: "none", borderRadius: 5,
+        border: "none", borderRadius: size.variant === "hero" ? 12 : 5,
         cursor: pending ? "not-allowed" : "pointer",
         fontFamily: "inherit",
         // Popisek po odklepnutí je delší ("✓ Hotovo 14:32") — strop 13 px,
         // aby se na užším sloupci nepřetekl.
-        fontSize: isDone && isBar ? Math.min(size.fontSize, 13) : size.fontSize,
+        fontSize: isDone && isWide ? Math.min(size.fontSize, 13) : size.fontSize,
         fontWeight: isDone ? 620 : 750,
         letterSpacing: isDone ? 0 : "0.05em",
         background: isDone ? "var(--surface-3)" : isHoverActive ? "color-mix(in oklab, var(--success) 82%, white)" : "var(--success)",
@@ -65,7 +67,7 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
         whiteSpace: "nowrap", overflow: "hidden",
       }}
     >
-      {pending ? "·" : isBar ? barLabel : isDone ? "↩" : "✓"}
+      {pending ? "·" : isWide ? barLabel : isDone ? "↩" : "✓"}
     </button>
   );
 }

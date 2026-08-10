@@ -5,10 +5,15 @@
  * PrintDoneButton i BlockCard na ní jen staví a samy nic nepočítají.
  */
 
-/** Podoba tlačítka Hotovo podle výšky bloku. */
+/**
+ * Podoba tlačítka Hotovo.
+ * `bar` a `square` vrací printDoneSize() podle výšky bloku v plánu;
+ * `hero` si sestavuje Monitor sám — v kartě bloku se nikdy nepoužije.
+ */
 export type PrintDoneSize =
   | { variant: "bar";    height: 40 | 32 | 24; fontSize: number }
-  | { variant: "square"; height: 26;           fontSize: number };
+  | { variant: "square"; height: 26;           fontSize: number }
+  | { variant: "hero";   height: number;       fontSize: number };
 
 /**
  * Rozměr tlačítka Hotovo pro danou výšku bloku (`layoutHeight` z BlockCard).
