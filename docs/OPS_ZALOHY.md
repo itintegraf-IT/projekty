@@ -263,6 +263,7 @@ vytvořit `/etc/logrotate.d/planovani`:
 
 ```
 /var/log/planovani-*.log {
+    su root syslog
     weekly
     rotate 8
     compress
@@ -270,6 +271,13 @@ vytvořit `/etc/logrotate.d/planovani`:
     notifempty
 }
 ```
+
+`su root syslog` je POVINNÉ: `/var/log` je na Ubuntu zapisovatelný skupinou
+`syslog` a logrotate bez téhle direktivy rotaci odmítne s hláškou
+*„parent directory has insecure permissions"* (ověřeno 10. 8. 2026). Dry-run
+`sudo logrotate -d /etc/logrotate.d/planovani` pak hlásí už jen
+*„log … does not exist -- skipping"*, což je v pořádku — soubory vzniknou
+až prvním během z cronu.
 
 ## Denní CSV export (2:20)
 
