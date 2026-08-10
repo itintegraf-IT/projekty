@@ -111,9 +111,11 @@ export function MonitorView({
     ? ({ kind: "live", block: liveHero.block, reason: liveHero.reason } as const)
     : null;
 
-  // Označíme jen skutečné přebití — když si tiskař vybral právě to, co navrhuje
-  // automatika, není co hlásit.
-  const manualOverride = !!selected && !sticky && selected.id !== liveHero?.block.id;
+  // Jen u živé karty: u odklepnuté se nabízí Vrátit / Další a druhá dvojice
+  // ovládání by ji jen zaplevelila. Automatika navíc odklepnutou zakázku
+  // nikdy nevybere, takže by se označení u ní zobrazovalo vždy.
+  const manualOverride =
+    !!selected && !sticky && card?.kind === "live" && selected.id !== liveHero?.block.id;
 
   // Držení přestalo platit (odklepnutí zrušil někdo jiný, blok zmizel) —
   // zahodíme id, ať se stav nedrží naprázdno.
@@ -432,7 +434,7 @@ export function MonitorView({
             fontSize: 12, letterSpacing: "0.16em", textTransform: "uppercase",
             color: "var(--text-muted)", fontWeight: 700, flexShrink: 0,
           }}>
-            Dnes na {machineLabel(viewMachine)}
+            Fronta na {machineLabel(viewMachine)}
           </div>
           <MonitorQueue
             today={queue.today}
