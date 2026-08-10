@@ -12,6 +12,13 @@ import { utcToPragueDateStr } from "@/lib/dateUtils";
 export type HeroReason = "running" | "overdue" | "upcoming";
 export type HeroPick = { block: Block; reason: HeroReason } | null;
 
+/**
+ * Jak dlouho po svém konci smí neodklepnutá zakázka zůstat na velké kartě.
+ * Počítá se od KONCE, ne podle dne startu — noční směna 22:00–6:00 by jinak
+ * ráno z Monitoru zmizela, protože „nezačala dnes".
+ */
+export const OVERDUE_WINDOW_MS = 16 * 60 * 60 * 1000;
+
 /** Otevřená zakázka na daném stroji = ZAKAZKA + správný stroj + neodklepnutá. */
 function isOpenOrder(b: Block, machine: string): boolean {
   return b.type === "ZAKAZKA" && b.machine === machine && b.printCompletedAt == null;
@@ -24,9 +31,10 @@ function byStartAsc(a: Block, b: Block): number {
 /**
  * Zakázka na velkou kartu Monitoru, s důvodem výběru. Priorita:
  *  1. `running`  — je uvnitř svého času,
- *  2. `overdue`  — nic neběží, ale dnešní zakázce už vypršel čas a nikdo ji
- *                  neodklepl (bez tohohle by z Monitoru zmizela a tiskař by ji
- *                  musel hledat v plánu),
+ *  2. `overdue`  — nic neběží, ale zakázce už vypršel čas, nikdo ji neodklepl
+ *                  a od jejího konce neuplynulo víc než OVERDUE_WINDOW_MS
+ *                  (bez tohohle by z Monitoru zmizela a tiskař by ji musel
+ *                  hledat v plánu),
  *  3. `upcoming` — jinak nejbližší budoucí.
  */
 export function pickHeroBlock(blocks: Block[], machine: string, now: Date): HeroPick {
@@ -38,13 +46,11 @@ export function pickHeroBlock(blocks: Block[], machine: string, now: Date): Hero
     .sort(byStartAsc);
   if (running.length > 0) return { block: running[0], reason: "running" };
 
-  const today = utcToPragueDateStr(now);
   const overdue = open
-    .filter(
-      (b) =>
-        new Date(b.endTime).getTime() <= t &&
-        utcToPragueDateStr(new Date(b.startTime)) === today
-    )
+    .filter((b) => {
+      const end = new Date(b.endTime).getTime();
+      return end <= t && t - end <= OVERDUE_WINDOW_MS;
+    })
     .sort((a, b) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime());
   if (overdue.length > 0) return { block: overdue[0], reason: "overdue" };
 

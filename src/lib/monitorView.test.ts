@@ -62,6 +62,21 @@ test("pickHeroBlock: nic neběží ani nepřetahuje = upcoming", () => {
   assert.equal(hero?.block.id, 3);
 });
 
+test("pickHeroBlock: noční směna přes půlnoc zůstane na kartě i ráno", () => {
+  // 22:00 pražského času předchozího dne až 6:00 ráno; teď je 8:00 ráno.
+  const b = mk({ id: 9, startTime: "2026-08-09T20:00:00.000Z", endTime: "2026-08-10T04:00:00.000Z" });
+  const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T06:00:00.000Z"));
+  assert.equal(hero?.reason, "overdue");
+  assert.equal(hero?.block.id, 9);
+});
+
+test("pickHeroBlock: zakázka po 16hodinovém okně už na kartě není", () => {
+  const b = mk({ startTime: "2026-08-09T04:00:00.000Z", endTime: "2026-08-09T08:00:00.000Z" });
+  // konec + 17 h
+  const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T01:00:00.000Z"));
+  assert.equal(hero, null);
+});
+
 test("pickHeroBlock: včerejší neodklepnutá zakázka se jako overdue nebere", () => {
   const b = mk({ startTime: "2026-08-09T06:00:00.000Z", endTime: "2026-08-09T09:00:00.000Z" });
   const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
