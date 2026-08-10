@@ -47,7 +47,10 @@ export function MonitorView({
   blocks, viewMachine, ownMachine, now,
   onPrintComplete, onOpenPlan, onOpenSearch, onMachineChange, onSelectBlock, onLogout,
 }: Props) {
-  const [pending, setPending] = useState(false);
+  // Vázané na konkrétní blok, ne na komponentu: po odklepnutí se hero karta
+  // přepne na další zakázku ještě během požadavku a jeden sdílený boolean
+  // by zašedil tlačítko, kterého se nikdo nedotkl.
+  const [pendingId, setPendingId] = useState<number | null>(null);
 
   // Hodiny v hlavičce si Monitor vede sám — je to čistě zobrazovací věc
   // a PlannerPage žádný takový stav nemá, nemá smysl mu ho přidávat.
@@ -142,6 +145,7 @@ export function MonitorView({
                 border: "1px solid var(--border)",
                 borderRadius: 14,
                 padding: 22,
+                overflow: "hidden",
               }}>
                 <div style={{
                   fontSize: 46, fontWeight: 700, letterSpacing: "-0.02em",
@@ -150,12 +154,20 @@ export function MonitorView({
                   {hero.block.orderNumber}
                 </div>
 
-                <div style={{ fontSize: 24, fontWeight: 600, color: "var(--text)", lineHeight: 1.2 }}>
+                <div style={{
+                  fontSize: 24, fontWeight: 600, color: "var(--text)", lineHeight: 1.2,
+                  display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                  overflow: "hidden", flexShrink: 0,
+                }}>
                   {hero.block.description ?? ""}
                 </div>
 
                 {hero.block.specifikace && (
-                  <div style={{ fontSize: 15, color: "var(--text-muted)", lineHeight: 1.4 }}>
+                  <div style={{
+                    fontSize: 15, color: "var(--text-muted)", lineHeight: 1.4,
+                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                    overflow: "hidden", flexShrink: 0,
+                  }}>
                     {hero.block.specifikace}
                   </div>
                 )}
@@ -187,11 +199,12 @@ export function MonitorView({
                       size={{ variant: "hero", height: 96, fontSize: 30 }}
                       isDone={hero.block.printCompletedAt != null}
                       completedAt={hero.block.printCompletedAt}
-                      pending={pending}
+                      pending={pendingId === hero.block.id}
                       onToggle={() => {
-                        setPending(true);
-                        onPrintComplete(hero.block.id, hero.block.printCompletedAt == null)
-                          .finally(() => setPending(false));
+                        const id = hero.block.id;
+                        setPendingId(id);
+                        onPrintComplete(id, hero.block.printCompletedAt == null)
+                          .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
                       }}
                     />
                   ) : (
@@ -257,12 +270,12 @@ function HeroChips({ block }: { block: Block }) {
             background:
               c.tone === "ok"    ? "color-mix(in oklab, var(--success) 22%, transparent)"
               : c.tone === "wait"  ? "color-mix(in oklab, var(--warning) 22%, transparent)"
-              : c.tone === "brand" ? "color-mix(in oklab, var(--brand) 22%, transparent)"
+              : c.tone === "brand" ? "var(--brand)"
               : "var(--surface-3)",
             color:
               c.tone === "ok"    ? "var(--success)"
               : c.tone === "wait"  ? "var(--warning)"
-              : c.tone === "brand" ? "var(--brand)"
+              : c.tone === "brand" ? "var(--brand-contrast)"
               : "var(--text)",
           }}
         >

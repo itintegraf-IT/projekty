@@ -47,7 +47,7 @@ export function MonitorQueue({ blocks, heroId, onSelect }: Props) {
             }}
           >
             <span style={{
-              fontFamily: "var(--font-mono, ui-monospace), monospace",
+              fontFamily: "ui-monospace, monospace",
               fontWeight: 700, fontVariantNumeric: "tabular-nums",
               fontSize: 14, flexShrink: 0,
               color: isDone ? "var(--success)" : "var(--text)",
