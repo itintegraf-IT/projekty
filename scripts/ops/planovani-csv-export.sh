@@ -26,20 +26,36 @@ rm -rf "$TMP" "$OUT"
 mkdir -p "$TMP"
 
 # mysql --batch = tab-oddělený výstup; sed ho převede na quotovaný ;-CSV.
-export_query() {  # $1 = název souboru (bez přípony), $2 = SQL
+#
+# Prázdný soubor NENÍ sám o sobě chyba: `mysql --batch` u prázdného výsledku
+# nevypíše ani hlavičku, takže legitimně prázdná tabulka dá jen BOM (3 B).
+# Selhání dotazu tahle funkce hlídat nemusí — `set -euo pipefail` výš ukončí
+# celý skript s chybou přímo z `mysql`. Fatální je proto prázdnota jen u tabulek,
+# které prázdné být NESMÍ (třetí parametr `required`); u ostatních se jen zaloguje.
+# Původní bezvýjimečná kontrola shodila první ostrý běh (10. 8. 2026) na tom,
+# že v produkci zatím není ani jedna příloha rezervace.
+export_query() {  # $1 = název souboru (bez přípony), $2 = SQL, $3 = "required" (volitelné)
   { printf '\xEF\xBB\xBF'                      # BOM → česká diakritika v Excelu
     mysql igvyroba --batch -e "$2" \
       | sed 's/"/""/g; s/\t/";"/g; s/^/"/; s/$/"/'
   } > "$TMP/$1.csv"
-  # BOM má 3 B — prázdný výsledek se pozná až nad jeho velikostí.
-  [ "$(stat -c%s "$TMP/$1.csv")" -gt 3 ] || { echo "FAIL: $1.csv je prázdný" >&2; exit 1; }
+  if [ "$(stat -c%s "$TMP/$1.csv")" -le 3 ]; then
+    if [ "${3:-}" = "required" ]; then
+      echo "FAIL: $1.csv je prázdný, a prázdný být nesmí" >&2
+      exit 1
+    fi
+    echo "INFO: $1.csv je prázdný (tabulka nemá žádné řádky)" >&2
+  fi
 }
 
-export_query Block                 'SELECT * FROM `Block`'
+# `required` = prázdný export téhle tabulky znamená katastrofu, ne provozní stav.
+# Block a User prázdné být nemůžou, dokud aplikace vůbec funguje. Rezervace,
+# přílohy ani měsíční výřez auditu naopak legitimně prázdné být můžou.
+export_query Block                 'SELECT * FROM `Block`'                required
 export_query Reservation           'SELECT * FROM `Reservation`'
 export_query ReservationAttachment 'SELECT * FROM `ReservationAttachment`'
 # User ZÁMĚRNĚ bez passwordHash — bcrypt hashe do CSV nepatří.
-export_query User                  'SELECT id, username, role, assignedMachine, createdAt FROM `User`'
+export_query User                  'SELECT id, username, role, assignedMachine, createdAt FROM `User`' required
 # AuditLog jen poslední měsíc, ať soubor neroste donekonečna.
 export_query AuditLog              'SELECT * FROM `AuditLog` WHERE createdAt > NOW() - INTERVAL 31 DAY'
 

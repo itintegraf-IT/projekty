@@ -19,7 +19,12 @@ STATUS_FILE=$BACKUP_ROOT/last_backup_status   # čte ho SSH banner (a health-che
 KEEP_DB=14                                    # kolik POSLEDNÍCH denních dumpů držet
 KEEP_ATT=14                                   # kolik POSLEDNÍCH snapshotů příloh držet
 KEEP_CFG=90                                   # kolik POSLEDNÍCH kopií configu držet
-MIN_DUMP_BYTES=200000                         # dump pod ~200 kB = podezřelý
+# Práh se porovnává proti ZAGZIPOVANÉMU dumpu, ne proti SQL. Původních 200 kB
+# bylo odvozeno z nekomprimované velikosti, takže první ostrý běh (10. 8. 2026)
+# spadl na zdravé záloze: 974 kB SQL → 108 kB po gzipu. Smysl téhle kontroly je
+# chytit uříznutý nebo prázdný dump, ne malou databázi — 50 kB nechává proti
+# dnešnímu stavu 2× rezervu dolů. Po výrazném růstu dat práh klidně zvednout.
+MIN_DUMP_BYTES=50000                          # gzipovaný dump pod ~50 kB = podezřelý
 DUMP=""
 
 fail() {
