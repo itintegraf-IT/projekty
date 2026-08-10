@@ -138,22 +138,27 @@ test("runProgress: před startem je 0 %", () => {
 
 test("resolveStickyBlock: vrátí odklepnutý blok, který je pořád v datech", () => {
   const b = mk({ id: 5, printCompletedAt: "2026-08-10T13:20:00.000Z" });
-  assert.equal(resolveStickyBlock([b], 5)?.id, 5);
+  assert.equal(resolveStickyBlock([b], 5, "XL_106")?.id, 5);
 });
 
 test("resolveStickyBlock: bez id vrátí null", () => {
   const b = mk({ id: 5, printCompletedAt: "2026-08-10T13:20:00.000Z" });
-  assert.equal(resolveStickyBlock([b], null), null);
+  assert.equal(resolveStickyBlock([b], null, "XL_106"), null);
 });
 
 test("resolveStickyBlock: blok, který z dat zmizel, drží kartu neplatně", () => {
   const other = mk({ id: 9, printCompletedAt: "2026-08-10T13:20:00.000Z" });
-  assert.equal(resolveStickyBlock([other], 5), null);
+  assert.equal(resolveStickyBlock([other], 5, "XL_106"), null);
 });
 
 test("resolveStickyBlock: zrušené odklepnutí kartu pustí", () => {
   const b = mk({ id: 5, printCompletedAt: null });
-  assert.equal(resolveStickyBlock([b], 5), null);
+  assert.equal(resolveStickyBlock([b], 5, "XL_106"), null);
+});
+
+test("resolveStickyBlock: zakázka přesunutá na jiný stroj kartu pustí", () => {
+  const b = mk({ id: 5, machine: "XL_105", printCompletedAt: "2026-08-10T13:20:00.000Z" });
+  assert.equal(resolveStickyBlock([b], 5, "XL_106"), null);
 });
 
 test("startDayLabel: zakázka začínající dnes nemá popisek dne", () => {

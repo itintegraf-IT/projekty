@@ -100,16 +100,18 @@ export function runProgress(block: Block, now: Date): { percent: number; remaini
  * Zakázka, kterou Monitor po odklepnutí drží na velké kartě, dokud tiskař
  * nezmáčkne „Další →" nebo „Vrátit".
  *
- * Vrátí ji jen tehdy, když v datech pořád je a pořád je odklepnutá. Tím se
- * jedním pravidlem řeší i to, že odklepnutí mezitím někdo zrušil z jiné
- * stanice (přijde přes SSE) nebo blok úplně zmizel — karta by pak tvrdila
- * „hotovo" o zakázce, která hotová není.
+ * Vrátí ji jen tehdy, když v datech pořád je, pořád je odklepnutá a pořád je
+ * na stejném stroji. Tím se jedním pravidlem řeší i to, že odklepnutí mezitím
+ * někdo zrušil z jiné stanice (přijde přes SSE), blok úplně zmizel, nebo ho
+ * plánovač mezitím přesunul na jiný stroj — karta by pak tvrdila „hotovo"
+ * o zakázce, která hotová není, nebo ji ukazovala na stroji, kam už nepatří.
  */
-export function resolveStickyBlock(blocks: Block[], stickyId: number | null): Block | null {
+export function resolveStickyBlock(blocks: Block[], stickyId: number | null, machine: string): Block | null {
   if (stickyId == null) return null;
   const block = blocks.find((b) => b.id === stickyId);
   if (!block) return null;
   if (block.printCompletedAt == null) return null;
+  if (block.machine !== machine) return null;
   return block;
 }
 

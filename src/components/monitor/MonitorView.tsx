@@ -84,7 +84,7 @@ export function MonitorView({
   }, []);
 
   const liveHero = now ? pickHeroBlock(blocks, viewMachine, now) : null;
-  const sticky = resolveStickyBlock(blocks, stickyId);
+  const sticky = resolveStickyBlock(blocks, stickyId, viewMachine);
 
   // Rozlišený tvar, ať TypeScript pozná, že `reason` má jen živá karta.
   // Držená (odklepnutá) zakázka má přednost před běžným výběrem.
@@ -272,7 +272,12 @@ export function MonitorView({
                           if (e.button !== 0) return;
                           const id = card.block.id;
                           setPendingId(id);
-                          setStickyId(null);
+                          // stickyId nemažeme ručně: jakmile zakázka v datech přestane
+                          // být odklepnutá, resolveStickyBlock vrátí null a úklidový
+                          // efekt držení pustí. Když požadavek selže, karta zůstane.
+                          const until = Date.now() + 800;
+                          setLockUntil(until);
+                          setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
                           onPrintComplete(id, false)
                             .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
                         }}
@@ -289,6 +294,9 @@ export function MonitorView({
                         onClick={(e) => {
                           if (e.button !== 0) return;
                           setStickyId(null);
+                          const until = Date.now() + 800;
+                          setLockUntil(until);
+                          setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
                         }}
                         disabled={Date.now() < lockUntil}
                         style={{
