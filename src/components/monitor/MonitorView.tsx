@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Block } from "@/app/_components/TimelineGrid";
-import { pickHeroBlock, todayQueue, runProgress } from "@/lib/monitorView";
+import { pickHeroBlock, todayQueue, runProgress, resolveStickyBlock, startDayLabel } from "@/lib/monitorView";
 import { findSplitPartner, getSplitChipState } from "@/lib/splitHelpers";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
@@ -60,6 +60,13 @@ export function MonitorView({
   // zakázku, která se ještě netiskla.
   const [lockUntil, setLockUntil] = useState(0);
 
+  // Zakázka držená na kartě po odklepnutí — karta se sama nikdy nepřepne,
+  // čeká na „Další →" nebo „Vrátit" (vědomé rozhodnutí, viz spec §2).
+  const [stickyId, setStickyId] = useState<number | null>(null);
+  // Zakázka, u které první kliknutí jen vyvolalo dotaz „opravdu?" — týká se
+  // výhradně zakázek, které ještě nezačaly.
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+
   // `now` tiká samo — hodiny v hlavičce (formatPragueTime) i běhová logika
   // (pickHeroBlock/runProgress) běží ze stejné hodnoty; 15 s je dost časté
   // na hodiny a víc než dost časté na požadovaný strop 30 s pro `now`.
@@ -76,19 +83,52 @@ export function MonitorView({
     return () => clearInterval(id);
   }, []);
 
-  const hero = now ? pickHeroBlock(blocks, viewMachine, now) : null;
+  const liveHero = now ? pickHeroBlock(blocks, viewMachine, now) : null;
+  const sticky = resolveStickyBlock(blocks, stickyId);
+
+  // Rozlišený tvar, ať TypeScript pozná, že `reason` má jen živá karta.
+  // Držená (odklepnutá) zakázka má přednost před běžným výběrem.
+  const card = sticky
+    ? ({ kind: "completed", block: sticky } as const)
+    : liveHero
+    ? ({ kind: "live", block: liveHero.block, reason: liveHero.reason } as const)
+    : null;
+
+  // Držení přestalo platit (odklepnutí zrušil někdo jiný, blok zmizel) —
+  // zahodíme id, ať se stav nedrží naprázdno.
+  useEffect(() => {
+    if (stickyId != null && !sticky) setStickyId(null);
+  }, [stickyId, sticky]);
+
+  // Přepnutí stroje ruší jak držení, tak rozdělaný dotaz — karta patří jinam.
+  useEffect(() => {
+    setStickyId(null);
+    setConfirmingId(null);
+  }, [viewMachine]);
+
   const queue = now ? todayQueue(blocks, viewMachine, now) : [];
-  const partner = hero ? findSplitPartner(hero.block, blocks, viewMachine) : null;
+  const partner = card ? findSplitPartner(card.block, blocks, viewMachine) : null;
 
   const kicker =
-    hero?.reason === "running" ? "TEĎ BĚŽÍ"
-    : hero?.reason === "overdue" ? "PŘETAHUJE"
-    : hero ? "ZAČÍNÁ" : "";
+    card?.kind === "completed" ? "✓ ODKLEPNUTO"
+    : card?.kind === "live" && card.reason === "running" ? "TEĎ BĚŽÍ"
+    : card?.kind === "live" && card.reason === "overdue" ? "PŘETAHUJE"
+    : card ? "ZAČÍNÁ" : "";
 
   const kickerColor =
-    hero?.reason === "overdue" ? "var(--warning)"
-    : hero?.reason === "running" ? "var(--success)"
+    card?.kind === "live" && card.reason === "overdue" ? "var(--warning)"
+    : card?.kind === "completed" || (card?.kind === "live" && card.reason === "running")
+    ? "var(--success)"
     : "var(--text-muted)";
+
+  // Popisek do potvrzovacího tlačítka: „ZÍTRA 6:00" / „13. 08. 6:00" / „V 6:00".
+  const startLabelForConfirm = card && now
+    ? (() => {
+        const day = startDayLabel(card.block.startTime, now);
+        const time = formatPragueTime(new Date(card.block.startTime));
+        return day ? `${day.toUpperCase()} ${time}` : `V ${time}`;
+      })()
+    : "";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, background: "var(--bg)" }}>
@@ -139,7 +179,7 @@ export function MonitorView({
       }}>
         {/* Levý sloupec — velká karta */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          {hero && now ? (
+          {card && now ? (
             <>
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
@@ -162,7 +202,7 @@ export function MonitorView({
                   fontSize: 46, fontWeight: 700, letterSpacing: "-0.02em",
                   fontVariantNumeric: "tabular-nums", lineHeight: 1, color: "var(--text)",
                 }}>
-                  {hero.block.orderNumber}
+                  {card.block.orderNumber}
                 </div>
 
                 <div style={{
@@ -170,22 +210,30 @@ export function MonitorView({
                   display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                   overflow: "hidden", flexShrink: 0,
                 }}>
-                  {hero.block.description ?? ""}
+                  {card.block.description ?? ""}
                 </div>
 
-                {hero.block.specifikace && (
+                {card.block.specifikace && (
                   <div style={{
                     fontSize: 15, color: "var(--text-muted)", lineHeight: 1.4,
                     display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                     overflow: "hidden", flexShrink: 0,
                   }}>
-                    {hero.block.specifikace}
+                    {card.block.specifikace}
                   </div>
                 )}
 
-                <HeroChips block={hero.block} />
+                <HeroChips block={card.block} />
 
-                <HeroTiming block={hero.block} reason={hero.reason} now={now} />
+                {card.kind === "completed" ? (
+                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--success)" }}>
+                    ✓ Hotovo {card.block.printCompletedAt
+                      ? formatPragueTime(new Date(card.block.printCompletedAt))
+                      : ""}
+                  </div>
+                ) : (
+                  <HeroTiming block={card.block} reason={card.reason} now={now} />
+                )}
 
                 {partner && (() => {
                   const { state, time } = getSplitChipState(partner);
@@ -205,23 +253,7 @@ export function MonitorView({
                 })()}
 
                 <div style={{ marginTop: "auto" }}>
-                  {onPrintComplete ? (
-                    <PrintDoneButton
-                      size={{ variant: "hero", height: 96, fontSize: 30 }}
-                      isDone={hero.block.printCompletedAt != null}
-                      completedAt={hero.block.printCompletedAt}
-                      pending={pendingId === hero.block.id || Date.now() < lockUntil}
-                      onToggle={() => {
-                        const id = hero.block.id;
-                        setPendingId(id);
-                        const until = Date.now() + 800;
-                        setLockUntil(until);
-                        setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
-                        onPrintComplete(id, hero.block.printCompletedAt == null)
-                          .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
-                      }}
-                    />
-                  ) : (
+                  {!onPrintComplete ? (
                     <div style={{
                       height: 96, borderRadius: 12,
                       display: "grid", placeItems: "center",
@@ -230,6 +262,77 @@ export function MonitorView({
                     }}>
                       Odklepnout jde jen na vlastním stroji.
                     </div>
+                  ) : card.kind === "completed" ? (
+                    // Karta drží zakázku, dokud tiskař nerozhodne. Obě tlačítka jsou
+                    // po dobu zámku neaktivní, aby je netrefil druhý klik rychlého
+                    // dvojkliku na místě, kde do té chvíle bylo HOTOVO.
+                    <div style={{ display: "flex", gap: 12, height: 96 }}>
+                      <button
+                        onClick={(e) => {
+                          if (e.button !== 0) return;
+                          const id = card.block.id;
+                          setPendingId(id);
+                          setStickyId(null);
+                          onPrintComplete(id, false)
+                            .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
+                        }}
+                        disabled={pendingId === card.block.id || Date.now() < lockUntil}
+                        style={{
+                          flex: 1, borderRadius: 12, border: "1px solid var(--border)",
+                          background: "var(--surface-3)", color: "var(--text)",
+                          font: "inherit", fontSize: 22, fontWeight: 700, cursor: "pointer",
+                        }}
+                      >
+                        Vrátit
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          if (e.button !== 0) return;
+                          setStickyId(null);
+                        }}
+                        disabled={Date.now() < lockUntil}
+                        style={{
+                          flex: 2, borderRadius: 12, border: "none",
+                          background: "var(--brand)", color: "var(--brand-contrast)",
+                          font: "inherit", fontSize: 26, fontWeight: 750,
+                          letterSpacing: "0.04em", cursor: "pointer",
+                        }}
+                      >
+                        Další →
+                      </button>
+                    </div>
+                  ) : (
+                    <PrintDoneButton
+                      size={{ variant: "hero", height: 96, fontSize: 30 }}
+                      isDone={false}
+                      completedAt={null}
+                      pending={pendingId === card.block.id || Date.now() < lockUntil}
+                      confirmLabel={
+                        card.reason === "upcoming" && confirmingId === card.block.id
+                          ? `ZAČÍNÁ ${startLabelForConfirm} — POTVRDIT`
+                          : undefined
+                      }
+                      onToggle={() => {
+                        const id = card.block.id;
+                        // Budoucí zakázka na dvě doby: první kliknutí se jen zeptá.
+                        if (card.reason === "upcoming" && confirmingId !== id) {
+                          setConfirmingId(id);
+                          setTimeout(
+                            () => setConfirmingId((cur) => (cur === id ? null : cur)),
+                            5000
+                          );
+                          return;
+                        }
+                        setConfirmingId(null);
+                        setPendingId(id);
+                        const until = Date.now() + 800;
+                        setLockUntil(until);
+                        setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
+                        onPrintComplete(id, true)
+                          .then(() => setStickyId(id))
+                          .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
+                      }}
+                    />
                   )}
                 </div>
               </div>
@@ -255,7 +358,7 @@ export function MonitorView({
           }}>
             Dnes na {machineLabel(viewMachine)}
           </div>
-          <MonitorQueue blocks={queue} heroId={hero?.block.id ?? null} onSelect={onSelectBlock} />
+          <MonitorQueue blocks={queue} heroId={card?.block.id ?? null} onSelect={onSelectBlock} />
         </div>
       </div>
     </div>
@@ -327,9 +430,10 @@ function HeroTiming({ block, reason, now }: { block: Block; reason: "running" | 
 
   if (reason === "upcoming") {
     const minutesToStart = Math.ceil((new Date(block.startTime).getTime() - now.getTime()) / 60000);
+    const day = startDayLabel(block.startTime, now);
     return (
       <div style={{ fontSize: 17, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
-        Začíná v {formatPragueTime(new Date(block.startTime))}
+        Začíná {day ? `${day} v` : "v"} {formatPragueTime(new Date(block.startTime))}
         <span style={{ color: "var(--text-muted)" }}> · za {formatMinutes(minutesToStart)}</span>
       </div>
     );
