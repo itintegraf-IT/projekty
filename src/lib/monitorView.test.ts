@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pickHeroBlock, pickNextBlock, todayQueue, runProgress, resolveStickyBlock, startDayLabel } from "./monitorView.js";
+import { pickHeroBlock, pickNextBlock, monitorQueue, resolveSelectedBlock, reasonForBlock, runProgress, resolveStickyBlock, startDayLabel } from "./monitorView.js";
 import type { Block } from "../app/_components/TimelineGrid.js";
 
 // Pozn.: časy jsou v UTC. Praha je v srpnu UTC+2, takže 2026-08-10T06:00Z = 8:00 ráno.
@@ -102,19 +102,29 @@ test("pickNextBlock: bez budoucí zakázky vrátí null", () => {
   assert.equal(pickNextBlock([past], "XL_106", new Date("2026-08-10T10:00:00.000Z")), null);
 });
 
-test("todayQueue: jen dnešek, jen daný stroj, seřazeno podle startu", () => {
+test("monitorQueue: jen daný stroj, dnešek i zítřek, seřazeno podle startu", () => {
   const a = mk({ id: 1, startTime: "2026-08-10T10:00:00.000Z", endTime: "2026-08-10T12:00:00.000Z" });
   const b = mk({ id: 2, startTime: "2026-08-10T06:00:00.000Z", endTime: "2026-08-10T09:00:00.000Z" });
   const other = mk({ id: 3, machine: "XL_105" });
-  const tomorrow = mk({ id: 4, startTime: "2026-08-11T06:00:00.000Z", endTime: "2026-08-11T09:00:00.000Z" });
-  const q = todayQueue([a, b, other, tomorrow], "XL_106", new Date("2026-08-10T08:00:00.000Z"));
-  assert.deepEqual(q.map((x) => x.id), [2, 1]);
+  const tmr = mk({ id: 4, startTime: "2026-08-11T06:00:00.000Z", endTime: "2026-08-11T09:00:00.000Z" });
+  const later = mk({ id: 5, startTime: "2026-08-13T06:00:00.000Z", endTime: "2026-08-13T09:00:00.000Z" });
+  const q = monitorQueue([a, b, other, tmr, later], "XL_106", new Date("2026-08-10T08:00:00.000Z"));
+  assert.deepEqual(q.today.map((x) => x.id), [2, 1]);
+  assert.deepEqual(q.tomorrow.map((x) => x.id), [4]);
 });
 
-test("todayQueue: odklepnuté zakázky ve frontě zůstávají (zobrazí se ztlumené)", () => {
+test("monitorQueue: odklepnuté zakázky ve frontě zůstávají (zobrazí se ztlumené)", () => {
   const done = mk({ id: 5, printCompletedAt: "2026-08-10T08:00:00.000Z" });
-  const q = todayQueue([done], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
-  assert.equal(q.length, 1);
+  const q = monitorQueue([done], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
+  assert.equal(q.today.length, 1);
+});
+
+test("monitorQueue: rezervace a údržba do fronty nepatří", () => {
+  const rez = mk({ id: 6, type: "REZERVACE" });
+  const udr = mk({ id: 7, type: "UDRZBA" });
+  const q = monitorQueue([rez, udr], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
+  assert.equal(q.today.length, 0);
+  assert.equal(q.tomorrow.length, 0);
 });
 
 test("runProgress: v polovině běhu = 50 % a zbývá polovina", () => {
@@ -180,4 +190,52 @@ test("startDayLabel: rozhoduje civilní den, ne počet hodin", () => {
   // Ve 23:30 pražského času je zakázka na 0:30 „zítra", i když je za hodinu.
   const now = new Date("2026-08-10T21:30:00.000Z");
   assert.equal(startDayLabel("2026-08-10T22:30:00.000Z", now), "zítra");
+});
+
+test("resolveSelectedBlock: vrátí zakázku na daném stroji", () => {
+  const b = mk({ id: 5 });
+  assert.equal(resolveSelectedBlock([b], 5, "XL_106")?.id, 5);
+});
+
+test("resolveSelectedBlock: bez id vrátí null", () => {
+  assert.equal(resolveSelectedBlock([mk({ id: 5 })], null, "XL_106"), null);
+});
+
+test("resolveSelectedBlock: zakázka, která z dat zmizela", () => {
+  assert.equal(resolveSelectedBlock([mk({ id: 9 })], 5, "XL_106"), null);
+});
+
+test("resolveSelectedBlock: zakázka přesunutá na jiný stroj výběr pustí", () => {
+  const b = mk({ id: 5, machine: "XL_105" });
+  assert.equal(resolveSelectedBlock([b], 5, "XL_106"), null);
+});
+
+test("resolveSelectedBlock: rezervaci ani údržbu vybrat nejde", () => {
+  const rez = mk({ id: 5, type: "REZERVACE" });
+  assert.equal(resolveSelectedBlock([rez], 5, "XL_106"), null);
+});
+
+test("resolveSelectedBlock: odklepnutou zakázku vybrat jde (kvůli vrácení)", () => {
+  const b = mk({ id: 5, printCompletedAt: "2026-08-10T08:00:00.000Z" });
+  assert.equal(resolveSelectedBlock([b], 5, "XL_106")?.id, 5);
+});
+
+test("reasonForBlock: uvnitř svého času = running", () => {
+  const b = mk({ startTime: "2026-08-10T06:00:00.000Z", endTime: "2026-08-10T12:00:00.000Z" });
+  assert.equal(reasonForBlock(b, new Date("2026-08-10T08:00:00.000Z")), "running");
+});
+
+test("reasonForBlock: přesný konec už není running", () => {
+  const b = mk({ startTime: "2026-08-10T06:00:00.000Z", endTime: "2026-08-10T12:00:00.000Z" });
+  assert.equal(reasonForBlock(b, new Date("2026-08-10T12:00:00.000Z")), "overdue");
+});
+
+test("reasonForBlock: dávno skončená zakázka je overdue bez ohledu na 16h okno", () => {
+  const b = mk({ startTime: "2026-08-01T06:00:00.000Z", endTime: "2026-08-01T12:00:00.000Z" });
+  assert.equal(reasonForBlock(b, new Date("2026-08-10T08:00:00.000Z")), "overdue");
+});
+
+test("reasonForBlock: budoucí zakázka je upcoming", () => {
+  const b = mk({ startTime: "2026-08-12T06:00:00.000Z", endTime: "2026-08-12T12:00:00.000Z" });
+  assert.equal(reasonForBlock(b, new Date("2026-08-10T08:00:00.000Z")), "upcoming");
 });

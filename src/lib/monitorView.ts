@@ -68,19 +68,26 @@ export function pickNextBlock(blocks: Block[], machine: string, now: Date): Bloc
 }
 
 /**
- * Zakázky na stroji, jejichž start padá do civilního pražského dne `now`.
- * Odklepnuté zůstávají — fronta je ukazuje ztlumené, aby byl vidět postup směny.
+ * Fronta Monitoru — zakázky na daném stroji pro dnešek a zítřek, obojí seřazené
+ * podle začátku. Odklepnuté zůstávají, fronta je ukazuje ztlumené, aby byl vidět
+ * postup směny. Rezervace a údržba do fronty nepatří — tiskař odklepává zakázky.
+ *
+ * Dva dny záměrně: tiskař, který přeskočí zakázku kvůli chybějícímu materiálu,
+ * často sáhne po něčem z dalšího dne. Na vzdálenější zakázky je tlačítko Najít.
  */
-export function todayQueue(blocks: Block[], machine: string, now: Date): Block[] {
-  const today = utcToPragueDateStr(now);
-  return blocks
-    .filter(
-      (b) =>
-        b.type === "ZAKAZKA" &&
-        b.machine === machine &&
-        utcToPragueDateStr(new Date(b.startTime)) === today
-    )
-    .sort(byStartAsc);
+export function monitorQueue(
+  blocks: Block[],
+  machine: string,
+  now: Date
+): { today: Block[]; tomorrow: Block[] } {
+  const todayStr = utcToPragueDateStr(now);
+  const tomorrowStr = addDaysToCivilDate(todayStr, 1);
+  const onMachine = blocks.filter((b) => b.type === "ZAKAZKA" && b.machine === machine);
+  const forDay = (dayStr: string) =>
+    onMachine
+      .filter((b) => utcToPragueDateStr(new Date(b.startTime)) === dayStr)
+      .sort(byStartAsc);
+  return { today: forDay(todayStr), tomorrow: forDay(tomorrowStr) };
 }
 
 /**
@@ -129,4 +136,40 @@ export function startDayLabel(startTime: string | Date, now: Date): string | nul
   if (startStr === todayStr) return null;
   if (startStr === addDaysToCivilDate(todayStr, 1)) return "zítra";
   return formatPragueDateShort(start);
+}
+
+/**
+ * Zakázka, kterou si tiskař ručně vytáhl na velkou kartu, nebo null, když výběr
+ * přestal platit (zakázka zmizela z dat nebo ji plánovač přesunul na jiný stroj).
+ *
+ * Odklepnutou zakázku vybrat **jde** — je to jediná cesta, jak z Monitoru vzít
+ * zpět starší odklepnutí.
+ */
+export function resolveSelectedBlock(
+  blocks: Block[],
+  selectedId: number | null,
+  machine: string
+): Block | null {
+  if (selectedId == null) return null;
+  const block = blocks.find((b) => b.id === selectedId);
+  if (!block) return null;
+  if (block.machine !== machine) return null;
+  if (block.type !== "ZAKAZKA") return null;
+  return block;
+}
+
+/**
+ * Stav zakázky podle jejího času — bez ohledu na to, jak se na kartu dostala.
+ *
+ * Záměrně **bez** šestnáctihodinového okna: to je pravidlo pro automatický výběr
+ * (`pickHeroBlock`), ne pro zobrazení. Když si tiskař ručně vytáhne týden starou
+ * neodklepnutou zakázku, „PŘETAHUJE" je pořád pravdivý popis.
+ */
+export function reasonForBlock(block: Block, now: Date): HeroReason {
+  const t = now.getTime();
+  const start = new Date(block.startTime).getTime();
+  const end = new Date(block.endTime).getTime();
+  if (t >= start && t < end) return "running";
+  if (end <= t) return "overdue";
+  return "upcoming";
 }
