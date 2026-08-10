@@ -75,8 +75,17 @@ export async function GET(request: NextRequest) {
  * byly dražší než jeden.
  *
  * POZOR na návratový typ `positional`: MySQL funkci vrací přes `$queryRaw` jako
- * **BigInt** (ověřeno na MySQL 8.0.45 — `1n`, ne `1`), takže striktní `=== 1`
- * by tiše platilo nikdy. Vždycky přes `Number()`.
+ * **BigInt** (ověřeno na dev MySQL 8.0.45 — `1n`, ne `1`), takže striktní `=== 1`
+ * by tiše platilo nikdy. Vždycky přes `Number()` — ten sjednotí i případný rozdíl
+ * mezi oběma motory.
+ *
+ * ## Dev a produkce mají POD SLOUPCEM `after` jiný typ, a je to v pořádku
+ *
+ * Dev je MySQL 8.0.45 (sloupec `json`), produkce **MariaDB 10.11** (sloupec
+ * `longtext` — MariaDB nativní typ JSON nemá a Prisma tam vyrobí text s kontrolou
+ * `json_valid()`). `JSON_CONTAINS_PATH` funguje nad obojím; ověřeno 10. 8. 2026
+ * přímo nad ostrou tabulkou, ne odvozeno z čísla verze. Kdyby se motor někdy měnil,
+ * je to první věc ke kontrole — funkce existuje od MySQL 5.7 a MariaDB 10.2.3.
  */
 type RevisionRow = {
   groupId: string;

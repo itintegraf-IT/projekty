@@ -980,8 +980,11 @@ uživatele přes všechny revize = počet uložení.
 
 **Implementační poznámky.**
 - `JSON_CONTAINS_PATH` se počítá v SQL (`$queryRaw`), aby se netahal celý sloupec
-  `after`. Ověřeno na MySQL 8.0.45; **před nasazením ověřit verzi na produkci**
-  (MySQL 5.7+ / MariaDB 10.2.3+). Fallback: vytáhnout `after` a testovat klíče v JS.
+  `after`. **Dev a produkce mají pod tím sloupcem jiný typ:** dev je MySQL 8.0.45
+  (`json`), produkce **MariaDB 10.11.14** (`longtext` — MariaDB nativní typ JSON nemá,
+  Prisma tam vyrobí text s kontrolou `json_valid()`). Funkce běží nad obojím; ověřeno
+  10. 8. 2026 přímo nad ostrou tabulkou, ne odvozeno z čísla verze.
+  Fallback při změně motoru: vytáhnout `after` a testovat klíče v JS.
 - Funkce vrací **`BigInt`** (`1n`, ne `1`), takže se čte přes `Number(r.positional)` —
   striktní `=== 1` by tiše platilo nikdy.
 - `after` je u `kind = "DELETE"` NULL → funkce vrátí NULL → `Number(null)` je 0.
@@ -993,6 +996,29 @@ uživatele přes všechny revize = počet uložení.
   automatické odsunutí. Záměr byl správný, ale provedený na špatné ose — ten tvar
   píše i vědomý dávkový přesun, takže test hlídal přesně tu vadu, která metriku
   zabila. V novém zdroji složené názvy polí neexistují.
+
+**Ověření nad ostrou databází (10. 8. 2026), 164 revizí od 9. 8. 20:41.** Tabulka
+níž je zároveň důkaz, že filtry sedí — každý řádek je jiná větev rozhodování:
+
+| `kind` / `action` / `positional` | řádků | co to je | metrika |
+| --- | --- | --- | --- |
+| `UPDATE` / `BATCH` / 1 | 69 | lasso a dávkové přesuny | počítá |
+| `UPDATE` / `UPDATE` / 1 | 38 | **přetažení a resize JEDNOHO bloku** | počítá |
+| `UPDATE` / `UNDO` / 1 | 32 | krok zpět | vylučuje |
+| `UPDATE` / `UPDATE` / 0 | 21 | obchodní editace (Pantone, statusy) | vylučuje |
+| `DELETE` / `DELETE` / NULL | 2 | smazání bloku | vylučuje |
+| `CREATE` / `CREATE` / 1 | 1 | vznik bloku | vylučuje (`kind ≠ UPDATE`) |
+| `UPDATE` / `REFLOW` / 0 | 1 | „Přepočítat" u 18447 | nepočítá — časy se nezměnily |
+
+Těch **38 řádků `UPDATE`/`UPDATE`** je jádro celé opravy: jsou to jednoblokové
+přesuny, které v `AuditLog` nezanechaly stopu žádnou. Za necelý den provozu 38 kusů,
+z toho stará metrika neviděla ani jeden. Celkem **107 skutečných přesunů** tam, kde
+karta hlásila nulu.
+
+Dva řádky potvrzují správnost filtrů zvlášť pěkně. `REFLOW` s `positional = 0` je
+kliknutí na „Přepočítat" u zakázky 18447, kde se přepnul jen `scheduleBypassed`
+a časy zůstaly — přesun to tedy není a metrika ho nezapočítá. A 32 undo řádků je
+skoro čtvrtina všeho; bez jejich vyloučení by číslo bylo nafouklé o třetinu.
 
 Klíčové soubory: `src/lib/reportMetrics.ts` (`computePlanStability`, `PlanMoveInput`) ·
 `src/app/api/report/dashboard/route.ts` (`handleRetro`) ·
