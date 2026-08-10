@@ -9,6 +9,7 @@ import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
 import { MonitorQueue } from "@/components/monitor/MonitorQueue";
 import { machineLabel, MACHINES } from "@/lib/machines";
+import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
 import { formatPragueTime } from "@/lib/dateUtils";
 import { VARIANT_CONFIG } from "@/lib/blockVariants";
 
@@ -269,11 +270,24 @@ export function MonitorView({
                 </div>
 
                 {card.block.specifikace && (
-                  <div style={{
-                    fontSize: 15, color: "var(--text-muted)", lineHeight: 1.4,
-                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-                    overflow: "hidden", flexShrink: 0,
-                  }}>
+                  // Amber pás jako na kartě bloku v plánu (SpecBand, 8/2026) — specifikace
+                  // je to, podle čeho tiskař u stroje seřizuje, a jako šedý text ji
+                  // přehlédne. Barvy jsou záměrně stejné literály jako v plánu
+                  // (SPEC_HIGHLIGHT), aby stejná informace vypadala na obou místech stejně;
+                  // pás si nese vlastní pozadí, takže funguje ve světlém i tmavém režimu.
+                  <div
+                    title={card.block.specifikace}
+                    style={{
+                      background: SPEC_HIGHLIGHT.bg,
+                      color: SPEC_HIGHLIGHT.text,
+                      borderRadius: 7,
+                      padding: "8px 12px",
+                      fontSize: 17, fontWeight: 700, lineHeight: 1.35,
+                      letterSpacing: "0.01em",
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                      overflow: "hidden", flexShrink: 0,
+                    }}
+                  >
                     {card.block.specifikace}
                   </div>
                 )}
