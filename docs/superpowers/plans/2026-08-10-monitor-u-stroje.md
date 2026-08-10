@@ -281,7 +281,7 @@ Expected: PASS — 15 testů zelených
 - [ ] **Step 5: Ověř, že nic jiného nespadlo**
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 492 původních + 15 nových = 507
+Expected: PASS — 792 původních + 15 nových = 807
 
 - [ ] **Step 6: Commit**
 
@@ -366,7 +366,7 @@ Zbytek komponenty (hover, `isDone`, `pending`, popisky) zůstává beze změny.
 - [ ] **Step 5: Spusť testy a build**
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 508 testů
+Expected: PASS — 808 testů
 
 Run: `npm run build`
 Expected: build projde, 0 TypeScript chyb
@@ -809,7 +809,7 @@ Run: `npm run build`
 Expected: build projde, 0 TypeScript chyb
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 508 testů
+Expected: PASS — 808 testů
 
 - [ ] **Step 5: Commit**
 
@@ -935,7 +935,7 @@ Run: `npm run build`
 Expected: build projde, 0 TypeScript chyb
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 508 testů
+Expected: PASS — 808 testů
 
 Run: `npm run lint`
 Expected: 0 chyb (warningy jsou v pořádku, ale **nesmí přibýt nový `max-lines`** na PlannerPage nad dnešní stav)
@@ -967,7 +967,7 @@ git commit -m "feat(monitor): Monitor jako domovská obrazovka tiskaře, plán z
 ## Hotovo, když
 
 - [ ] `npm run build` projde
-- [ ] Celá test suite zelená (507+ testů)
+- [ ] Celá test suite zelená (808 testů)
 - [ ] Ruční průchod z Tasku 4 kroku 7 sedí celý
 - [ ] `PlannerPage.tsx` nenarostl o víc než ~35 řádků (kontrola: `wc -l src/app/_components/PlannerPage.tsx` — před začátkem 3273)
 - [ ] Role mimo `TISKAR` vidí přesně to co dřív
