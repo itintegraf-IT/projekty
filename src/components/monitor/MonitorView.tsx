@@ -97,25 +97,29 @@ export function MonitorView({
   const sticky = resolveStickyBlock(blocks, stickyId, viewMachine);
   const selected = resolveSelectedBlock(blocks, selectedId, viewMachine);
 
-  // Priorita: rozdělaná akce (odklepnuto, čeká na Další) → ruční výběr → automatika.
+  // Priorita: ruční výběr → držení (odklepnuto, čeká na Další) → automatika.
+  // Klik ve frontě je vědomá akce a přebije i probíhající držení — tiskař tak
+  // může kdykoli přeskočit na jinou zakázku, aniž by musel nejdřív dát Další →.
   // Rozlišený tvar, ať TypeScript pozná, že `reason` má jen živá karta.
   const card = !now
     ? null
-    : sticky
-    ? ({ kind: "completed", block: sticky } as const)
     : selected
     ? selected.printCompletedAt != null
       ? ({ kind: "completed", block: selected } as const)
       : ({ kind: "live", block: selected, reason: reasonForBlock(selected, now) } as const)
+    : sticky
+    ? ({ kind: "completed", block: sticky } as const)
     : liveHero
     ? ({ kind: "live", block: liveHero.block, reason: liveHero.reason } as const)
     : null;
 
-  // Jen u živé karty: u odklepnuté se nabízí Vrátit / Další a druhá dvojice
-  // ovládání by ji jen zaplevelila. Automatika navíc odklepnutou zakázku
-  // nikdy nevybere, takže by se označení u ní zobrazovalo vždy.
+  // Označení je jediná cesta zpět k doporučenému pořadí — schováme ho jen tehdy,
+  // když karta sama nabízí „Další →" (tedy u odklepnuté zakázky na vlastním stroji).
+  // Na cizím stroji se místo tlačítek vykreslí jen hláška, takže označení musí zůstat.
+  const offersNext = !!onPrintComplete && card?.kind === "completed";
   const manualOverride =
-    !!selected && !sticky && card?.kind === "live" && selected.id !== liveHero?.block.id;
+    !!selected && card?.block.id === selected.id && !offersNext
+    && selected.id !== liveHero?.block.id;
 
   // Držení přestalo platit (odklepnutí zrušil někdo jiný, blok zmizel) —
   // zahodíme id, ať se stav nedrží naprázdno.
