@@ -63,14 +63,21 @@ export function MonitorView({
   // `now` tiká samo — hodiny v hlavičce (formatPragueTime) i běhová logika
   // (pickHeroBlock/runProgress) běží ze stejné hodnoty; 15 s je dost časté
   // na hodiny a víc než dost časté na požadovaný strop 30 s pro `now`.
-  const [now, setNow] = useState(() => new Date());
+  //
+  // Výchozí hodnota je záměrně `null`, ne `new Date()`: komponenta se renderuje
+  // i na serveru a serverový čas se nikdy netrefí do klientského na milisekundu.
+  // Šířka pruhu postupu by pak v serverovém a klientském HTML vyšla jinak a React
+  // by hlásil hydration error. Skutečný čas nasadíme až po připojení v prohlížeči
+  // — stejný vzor používá TimelineGrid (`useState<Date | null>(null)`).
+  const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 15_000);
     return () => clearInterval(id);
   }, []);
 
-  const hero = pickHeroBlock(blocks, viewMachine, now);
-  const queue = todayQueue(blocks, viewMachine, now);
+  const hero = now ? pickHeroBlock(blocks, viewMachine, now) : null;
+  const queue = now ? todayQueue(blocks, viewMachine, now) : [];
   const partner = hero ? findSplitPartner(hero.block, blocks, viewMachine) : null;
 
   const kicker =
@@ -108,7 +115,7 @@ export function MonitorView({
           fontSize: 18, color: "var(--text)",
           fontVariantNumeric: "tabular-nums", flexShrink: 0,
         }}>
-          {formatPragueTime(now)}
+          {now ? formatPragueTime(now) : "--:--"}
         </span>
         <button style={HEADER_BTN} onClick={(e) => { if (e.button !== 0) return; onOpenSearch(); }}>
           🔍 Najít
@@ -132,7 +139,7 @@ export function MonitorView({
       }}>
         {/* Levý sloupec — velká karta */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-          {hero ? (
+          {hero && now ? (
             <>
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
@@ -233,7 +240,9 @@ export function MonitorView({
               background: "var(--surface)", border: "1px solid var(--border)",
               borderRadius: 14, color: "var(--text-muted)", fontSize: 16, textAlign: "center", padding: 24,
             }}>
-              Na tomhle stroji nic naplánováno.
+              {/* Dokud neběží čas (server render a první snímek v prohlížeči), nevíme,
+                  co má být na kartě — hlásit „nic naplánováno" by v tu chvíli lhalo. */}
+              {now ? "Na tomhle stroji nic naplánováno." : ""}
             </div>
           )}
         </div>
