@@ -46,6 +46,11 @@ zvětšujeme a přebarvujeme tři existující varianty.
 - **Samostatná obrazovka „Monitor"** a přepínač Monitor ↔ Plán. Zamítnuto:
   kioskový launcher už jednu úroveň přepínání má (Sběr dat ↔ Plánování), druhá
   uvnitř by byla nepřehledná.
+  > ⚠️ **Revidováno 10. 8. 2026** — Vojta rozhodl Monitor postavit.
+  > Námitka o druhé úrovni přepínání se řeší tím, že Monitor je **domovská
+  > obrazovka** tiskaře a plán je za tlačítkem „Celý plán →", tedy odbočka,
+  > ne rovnocenná záložka. Viz `2026-08-10-monitor-u-stroje-design.md`.
+  > Tlačítko Hotovo popsané níž **platí dál** — timeline zůstává dostupná.
 - **Potvrzovací mezikrok.** Zamítnuto: akce je vratná a ovládá se myší, kde
   omylem netrefíš tak snadno jako prstem.
 - Jakákoli změna pro role mimo `TISKAR`. Plánovači vidí totéž co dnes.
