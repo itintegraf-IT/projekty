@@ -3261,6 +3261,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           allBlocks={blocks}
           onSelect={(block) => {
             setSearchSheetOpen(false);
+            // Výsledek hledání se scrolluje v timeline — z Monitoru na ni musíme
+            // nejdřív přepnout, jinak by se výběr tiše ztratil (scrollRef je null).
+            setTiskarView("plan");
             // Pokud je zakázka na jiném stroji, přepneme tiskaři viewMachine
             // → TimelineGrid re-renderuje na daný stroj. Pak vybereme blok a scrollneme.
             if (block.machine !== viewMachine) setViewMachine(block.machine);
