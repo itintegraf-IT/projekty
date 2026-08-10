@@ -1,5 +1,5 @@
 import type { Block } from "@/app/_components/TimelineGrid";
-import { utcToPragueDateStr } from "@/lib/dateUtils";
+import { utcToPragueDateStr, addDaysToCivilDate, formatPragueDateShort } from "@/lib/dateUtils";
 
 /**
  * Pravidla pro tiskařský Monitor — která zakázka patří na velkou kartu,
@@ -94,4 +94,37 @@ export function runProgress(block: Block, now: Date): { percent: number; remaini
   const span = end - start;
   const percent = span <= 0 ? 100 : Math.max(0, Math.min(100, ((t - start) / span) * 100));
   return { percent, remainingMinutes: Math.ceil((end - t) / 60000) };
+}
+
+/**
+ * Zakázka, kterou Monitor po odklepnutí drží na velké kartě, dokud tiskař
+ * nezmáčkne „Další →" nebo „Vrátit".
+ *
+ * Vrátí ji jen tehdy, když v datech pořád je a pořád je odklepnutá. Tím se
+ * jedním pravidlem řeší i to, že odklepnutí mezitím někdo zrušil z jiné
+ * stanice (přijde přes SSE) nebo blok úplně zmizel — karta by pak tvrdila
+ * „hotovo" o zakázce, která hotová není.
+ */
+export function resolveStickyBlock(blocks: Block[], stickyId: number | null): Block | null {
+  if (stickyId == null) return null;
+  const block = blocks.find((b) => b.id === stickyId);
+  if (!block) return null;
+  if (block.printCompletedAt == null) return null;
+  return block;
+}
+
+/**
+ * Popisek dne pro zakázku, která teprve začne: `null` pro dnešek, `"zítra"`
+ * pro následující den, jinak krátké datum (`"13. 08."`).
+ *
+ * Porovnávají se civilní pražské dny, ne rozdíl v hodinách — zakázka na 0:30
+ * je „zítra" i ve 23:30, kdy do ní zbývá hodina.
+ */
+export function startDayLabel(startTime: string | Date, now: Date): string | null {
+  const start = new Date(startTime);
+  const startStr = utcToPragueDateStr(start);
+  const todayStr = utcToPragueDateStr(now);
+  if (startStr === todayStr) return null;
+  if (startStr === addDaysToCivilDate(todayStr, 1)) return "zítra";
+  return formatPragueDateShort(start);
 }

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pickHeroBlock, pickNextBlock, todayQueue, runProgress } from "./monitorView.js";
+import { pickHeroBlock, pickNextBlock, todayQueue, runProgress, resolveStickyBlock, startDayLabel } from "./monitorView.js";
 import type { Block } from "../app/_components/TimelineGrid.js";
 
 // Pozn.: časy jsou v UTC. Praha je v srpnu UTC+2, takže 2026-08-10T06:00Z = 8:00 ráno.
@@ -134,4 +134,45 @@ test("runProgress: po konci je 100 % a zbývající minuty jsou záporné", () =
 test("runProgress: před startem je 0 %", () => {
   const b = mk({ startTime: "2026-08-10T10:00:00.000Z", endTime: "2026-08-10T12:00:00.000Z" });
   assert.equal(runProgress(b, new Date("2026-08-10T09:00:00.000Z")).percent, 0);
+});
+
+test("resolveStickyBlock: vrátí odklepnutý blok, který je pořád v datech", () => {
+  const b = mk({ id: 5, printCompletedAt: "2026-08-10T13:20:00.000Z" });
+  assert.equal(resolveStickyBlock([b], 5)?.id, 5);
+});
+
+test("resolveStickyBlock: bez id vrátí null", () => {
+  const b = mk({ id: 5, printCompletedAt: "2026-08-10T13:20:00.000Z" });
+  assert.equal(resolveStickyBlock([b], null), null);
+});
+
+test("resolveStickyBlock: blok, který z dat zmizel, drží kartu neplatně", () => {
+  const other = mk({ id: 9, printCompletedAt: "2026-08-10T13:20:00.000Z" });
+  assert.equal(resolveStickyBlock([other], 5), null);
+});
+
+test("resolveStickyBlock: zrušené odklepnutí kartu pustí", () => {
+  const b = mk({ id: 5, printCompletedAt: null });
+  assert.equal(resolveStickyBlock([b], 5), null);
+});
+
+test("startDayLabel: zakázka začínající dnes nemá popisek dne", () => {
+  const now = new Date("2026-08-10T08:00:00.000Z");
+  assert.equal(startDayLabel("2026-08-10T12:00:00.000Z", now), null);
+});
+
+test("startDayLabel: zítřejší zakázka má \"zítra\"", () => {
+  const now = new Date("2026-08-10T08:00:00.000Z");
+  assert.equal(startDayLabel("2026-08-11T04:00:00.000Z", now), "zítra");
+});
+
+test("startDayLabel: vzdálenější zakázka má krátké datum", () => {
+  const now = new Date("2026-08-10T08:00:00.000Z");
+  assert.equal(startDayLabel("2026-08-13T04:00:00.000Z", now), "13. 08.");
+});
+
+test("startDayLabel: rozhoduje civilní den, ne počet hodin", () => {
+  // Ve 23:30 pražského času je zakázka na 0:30 „zítra", i když je za hodinu.
+  const now = new Date("2026-08-10T21:30:00.000Z");
+  assert.equal(startDayLabel("2026-08-10T22:30:00.000Z", now), "zítra");
 });
