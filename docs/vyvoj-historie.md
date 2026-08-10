@@ -2,6 +2,93 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Monitor u stroje — domovská obrazovka tiskaře (10. 8. 2026)
+
+Tiskař u stroje viděl **stejnou plánovací timeline jako plánovač** a musel v ní svou
+zakázku hledat na ose přes šest dní. Monitor to nahrazuje: vlevo velká karta zakázky,
+kterou má právě na starosti, vpravo fronta. Plán zůstal dostupný tlačítkem
+**„Celý plán →"**, zpět šipkou **„← Monitor"**.
+
+Tři etapy, tři specifikace v `docs/superpowers/specs/`:
+`2026-08-10-monitor-u-stroje-design.md` (obrazovka) ·
+`…-monitor-potvrzeni-odklepnuti-design.md` (držení karty + potvrzování) ·
+`…-monitor-rucni-vyber-zakazky-design.md` (ruční výběr).
+
+### Klíčová rozhodnutí
+
+- **Není to třetí záložka.** Kioskový launcher u stroje už jednu úroveň přepínání má
+  (Sběr dat ↔ Plánování), takže Monitor je **domovská obrazovka** a plán je odbočka,
+  ne rovnocenná záložka. Launcher se kvůli Monitoru neměnil vůbec — jeho záložka
+  Plánování vkládá `/`, a to pro roli `TISKAR` vykreslí Monitor.
+- **Nic se nezapisuje do databáze.** Když tiskař zakázku přeskočí, zůstane
+  neodklepnutá a po uplynutí času ji `BlockCard` vyhodnotí jako `isOverdue` a vykreslí
+  oranžově — plánovač ji v plánu uvidí sám od sebe. Žádné pole „začátek tisku“,
+  žádná migrace.
+- **Karta se nikdy nepřepne sama.** Po odklepnutí drží hotovou zakázku s tlačítky
+  **Vrátit** / **Další →**, dokud tiskař nerozhodne (vědomá volba předvídatelnosti).
+- **Potvrzení na dvě kliknutí** u zakázky, která ještě nezačala, a u tlačítka Vrátit.
+  U běžící a přetahující se nepotvrzuje — je to očekávaný úkon.
+
+### Pravidla (čistá logika v `src/lib/monitorView.ts`, pokryto testy)
+
+| Funkce | Co dělá |
+| --- | --- |
+| `pickHeroBlock` | automatický výběr: `running` → `overdue` → `upcoming` |
+| `resolveSelectedBlock` | ručně vybraná zakázka; pustí ji, když zmizí nebo se přesune na jiný stroj |
+| `resolveStickyBlock` | zakázka držená po odklepnutí; pustí ji, když přestane být odklepnutá |
+| `reasonForBlock` | stav podle času, **bez** 16h okna — to je pravidlo výběru, ne zobrazení |
+| `monitorQueue` | fronta na **dnešek + zítřek**, jen `ZAKAZKA`, odklepnuté zůstávají |
+| `startDayLabel` | `null` / `"zítra"` / `"13. 08."` — porovnává civilní pražské dny |
+
+**Priorita karty:** ruční výběr → držená (odklepnutá) → automatika. Klik ve frontě je
+vědomá akce a přebije i držení; vrátit odklepnutí jde pak přes klik na hotovou zakázku
+ve frontě.
+
+**`OVERDUE_WINDOW_MS` = 16 h se počítá od KONCE zakázky, ne podle dne startu.** Původní
+návrh vázal `overdue` na pražský den startu a tím shodil noční směnu: zakázka 22:00–6:00
+by v 8:00 ráno z Monitoru zmizela, protože „nezačala dnes“.
+
+### Gotchy, které stály čas
+
+- **`now` netiká, když je timeline odmontovaná.** Tikající `now` je uvnitř
+  `TimelineGrid` — a tu Monitor nahrazuje. Bez vlastního intervalu byl Monitor
+  zamrzlý snímek; v noci, kdy plánovač nic nemění a nechodí SSE, by ve 2:40 pořád
+  hlásil „TEĎ BĚŽÍ“ a odpočet z 23:10. `MonitorView` má proto vlastní tik po 15 s.
+- **`now` musí startovat jako `null`.** `useState(() => new Date())` se vyhodnotí i při
+  serverovém renderu a serverový čas se nikdy netrefí do klientského na milisekundu →
+  hydration error na šířce pruhu postupu. Stejný vzor jako `TimelineGrid`.
+- **Držení se musí nastavit synchronně, ne v `.then()`.** `handlePrintComplete`
+  aktualizuje bloky optimisticky ještě před odpovědí serveru, takže by se karta
+  v mezidobí přepnula na cizí zakázku — a při odpovědi delší než 800 ms by šla
+  odklepnout.
+- **Zámek proti dvojkliku patří na všechna tři tlačítka.** HOTOVO, Vrátit i Další →
+  se objevují na tomtéž místě obrazovky; bez zámku dvojklik na Další odklepl
+  následující zakázku.
+- **Pozastavená zakázka musí být na kartě poznat** (červený štítek z `VARIANT_CONFIG`) —
+  jinak vypadá jako běžná a tiskař ji vytiskne.
+- **Specifikace má i na Monitoru amber pás** (`SPEC_HIGHLIGHT`, stejné literály jako
+  `SpecBand` v plánu) — jako šedý text ji tiskař přehlédne.
+
+### Klíčové soubory
+
+`src/lib/monitorView.ts` (+ testy) · `src/components/monitor/MonitorView.tsx` ·
+`src/components/monitor/MonitorQueue.tsx` · `src/components/planner/PrintDoneButton.tsx`
+(varianty `bar`/`square`/`hero` + potvrzovací podoba) · `src/app/_components/PlannerPage.tsx`
+(stav `tiskarView`, větev pro `isTiskar`). Nový token `--success-contrast` v `globals.css`.
+
+**Testovací data:** `npx tsx prisma/seed-monitor.ts` (dev only) — časy relativní k okamžiku
+spuštění, protože Monitor ukazuje jen dnešek a zítřek. Skript dodržuje pravidla aplikace
+(30minutová hranice startu, délka násobek 30 min, štítky z `CodebookOption`) a před zápisem
+si je ověří; bez toho nejdou vygenerované bloky v plánu uložit.
+
+### Známá omezení (vědomě přijatá)
+
+- Držení karty ani ruční výběr **nemají expiraci** — přežijí i předání směny.
+- „zpět na doporučené“ po sledu *odklepnu A → vyberu B* vrátí na A (držení), ne na
+  doporučenou zakázku.
+- Zakázky dál než zítřek se hledají tlačítkem **Najít**, které skáče do plánu.
+- V plánu jde nezačatá zakázka pořád odklepnout jedním kliknutím bez potvrzení.
+
 ## Tlačítko Hotovo u stroje — tiskařský režim (3. 8. 2026)
 
 Terminál u tiskového stroje se ovládá myší z odstupu, ale tlačítko „Hotovo" bylo
