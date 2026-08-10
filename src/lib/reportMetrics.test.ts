@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   computeAvailableHours,
   computeUtilization,
@@ -7,6 +9,7 @@ import {
   computeAvgLeadTimeDays,
   computeMaintenanceRatio,
   computePlanStability,
+  resolvePlanCoverage,
   computeBlockHours,
 } from "./reportMetrics";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
@@ -312,6 +315,78 @@ describe("computePlanStability", () => {
     const r = computePlanStability(moves, inRange(11, 12));
     assert.equal(r.movedBlockCount, 2);
     assert.equal(r.stabilityPercent, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolvePlanCoverage
+// ---------------------------------------------------------------------------
+describe("resolvePlanCoverage", () => {
+  const NOW = new Date("2026-08-10T09:30:00.000Z");
+  const RETENTION = 90;
+
+  it("nahrávání začalo PŘED obdobím → pokryto, i když v období nepřišla ani jedna změna", () => {
+    // Vstupem je ZAČÁTEK NAHRÁVÁNÍ, ne datum první změny — a v tom byl 10. 8. 2026
+    // nález z ručního testu. Původní verze sem posílala `MIN(createdAt)` z revizí,
+    // takže klidný úsek před první změnou vypadal jako chybějící data a karta
+    // ukazovala „—", i když se bloky prokazatelně přesouvaly. Že se ta záměna
+    // nevrátí, hlídá strážný test nad zdrojákem route níž — tady se testovat
+    // NEDÁ, protože funkce revize vůbec nevidí.
+    const r = resolvePlanCoverage(
+      new Date("2026-08-09T18:41:00.000Z"),   // migrace doběhla včera večer
+      new Date("2026-08-09T22:00:00.000Z"),   // období = dnešek (půlnoc Praha)
+      NOW, RETENTION,
+    );
+    assert.equal(r.covered, true);
+    assert.equal(r.coverageFrom?.toISOString(), "2026-08-09T18:41:00.000Z");
+  });
+
+  it("období začíná PŘED spuštěním nahrávání → nepokryto", () => {
+    const r = resolvePlanCoverage(
+      new Date("2026-08-09T18:41:00.000Z"),
+      new Date("2026-07-01T00:00:00.000Z"),   // červenec — skříňka tehdy neexistovala
+      NOW, RETENTION,
+    );
+    assert.equal(r.covered, false);
+  });
+
+  it("retence uřízne období starší než 90 dní, i když nahrávání běželo", () => {
+    const r = resolvePlanCoverage(
+      new Date("2026-01-01T00:00:00.000Z"),   // nahrává se od ledna…
+      new Date("2026-02-01T00:00:00.000Z"),   // …ale únor je za hranicí retence
+      NOW, RETENTION,
+    );
+    assert.equal(r.covered, false, "úklid ta data smazal, takže se o nich nesmí tvrdit nic");
+    assert.equal(r.coverageFrom?.toISOString(), "2026-05-12T09:30:00.000Z", "hranice = now − 90 dní");
+  });
+
+  it("neznámý začátek nahrávání → nepokryto a bez data", () => {
+    const r = resolvePlanCoverage(null, new Date("2026-08-09T22:00:00.000Z"), NOW, RETENTION);
+    assert.equal(r.covered, false);
+    assert.equal(r.coverageFrom, null);
+  });
+
+  it("hranice period == coverageFrom je POKRYTÁ (ne o vteřinu vedle)", () => {
+    const at = new Date("2026-08-09T18:41:00.000Z");
+    assert.equal(resolvePlanCoverage(at, at, NOW, RETENTION).covered, true);
+  });
+
+  it("strážný: route bere začátek nahrávání z migrace, NE z nejstarší revize", () => {
+    // Tenhle test hlídá to, co čistá funkce ohlídat nemůže — čím ji route krmí.
+    // Záměna „první revize" za „začátek nahrávání" prošla testy i buildem
+    // a zabila kartu na produkčně vypadajících datech (10. 8. 2026).
+    const src = readFileSync(
+      join(process.cwd(), "src/app/api/report/dashboard/route.ts"),
+      "utf8",
+    );
+    assert.ok(
+      src.includes("REVISION_MIGRATION_NAME"),
+      "pokrytí se musí odvozovat od migrace, která BlockRevision založila",
+    );
+    assert.ok(
+      !/blockRevision\.findFirst/.test(src),
+      "nejstarší revize NENÍ začátek nahrávání — klidné období by se tvářilo jako chybějící data",
+    );
   });
 });
 

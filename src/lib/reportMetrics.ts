@@ -200,6 +200,44 @@ export function computePlanStability(
   return { interventionCount, movedBlockCount, stabilityPercent };
 }
 
+/**
+ * Smí metrika o zvoleném období vůbec něco tvrdit?
+ *
+ * Data existují jen v průniku dvou hranic:
+ *  - **odkdy se nahrává** — kdy na daném prostředí doběhla migrace, která
+ *    `BlockRevision` založila (`REVISION_MIGRATION_NAME`). Dřív se poziční
+ *    změny nikam nezapisovaly;
+ *  - **kam sahá retence** — `now − retentionDays`. Starší řádky noční úklid
+ *    smazal, takže by nad nimi vyšla nula změn místo poctivého „nevím".
+ *
+ * ## Proč NE `MIN(createdAt)` z revizí
+ *
+ * To je datum PRVNÍ ZMĚNY, ne začátek nahrávání. Když skříňka poctivě běží
+ * a nikdo se celý den ničeho nedotkne, první revize přijde pozdě — a metrika
+ * by ten klid přečetla jako chybějící data. Ruční test 10. 8. 2026 to trefil
+ * napoprvé: bloky se přesouvaly, revize prokazatelně vznikaly, a karta pořád
+ * ukazovala „—", protože první revize dne byla mladší než jeho půlnoc.
+ * Klidné období je legitimní odpověď „nic se nepohnulo", ne prázdno.
+ *
+ * Neznámý začátek nahrávání (chybí řádek migrace) vrací `covered: false` —
+ * raději pomlčku než číslo, za které nikdo neručí.
+ */
+export function resolvePlanCoverage(
+  recordingStartedAt: Date | null,
+  rangeStartUtc: Date,
+  now: Date,
+  retentionDays: number,
+): { covered: boolean; coverageFrom: Date | null } {
+  if (recordingStartedAt == null) return { covered: false, coverageFrom: null };
+
+  const retentionFloor = now.getTime() - retentionDays * 24 * 60 * 60 * 1000;
+  const coverageFrom = new Date(Math.max(recordingStartedAt.getTime(), retentionFloor));
+
+  // `<=` schválně: období, které začíná PŘESNĚ v okamžiku spuštění nahrávání,
+  // je pokryté celé.
+  return { covered: coverageFrom.getTime() <= rangeStartUtc.getTime(), coverageFrom };
+}
+
 // ---------------------------------------------------------------------------
 // 7. computeBlockHours
 // ---------------------------------------------------------------------------

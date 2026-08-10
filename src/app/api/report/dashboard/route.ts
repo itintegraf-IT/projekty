@@ -12,8 +12,10 @@ import {
   computeAvgLeadTimeDays,
   computeMaintenanceRatio,
   computePlanStability,
+  resolvePlanCoverage,
   blockDurationHours,
 } from "@/lib/reportMetrics";
+import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
 import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
 import { MACHINES } from "@/lib/machines";
 
@@ -101,7 +103,7 @@ type RevisionRow = {
 const NON_DECISION_ACTIONS = new Set(["UNDO", "REDO"]);
 
 async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date, endUtc: Date) {
-  const [blocks, revisions, oldestRevision, rawWeekShifts, reservations, companyDays] = await Promise.all([
+  const [blocks, revisions, migrationRows, rawWeekShifts, reservations, companyDays] = await Promise.all([
     prisma.block.findMany({
       where: { startTime: { lt: endUtc }, endTime: { gt: startUtc } },
       select: { id: true, machine: true, type: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true, printMinutes: true, scheduleBypassed: true },
@@ -112,12 +114,15 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       FROM BlockRevision
       WHERE createdAt >= ${startUtc} AND createdAt < ${endUtc}
     `,
-    // Odkdy vůbec revize existují — retence je 90 dní a skříňka se zapnula
-    // 9. 8. 2026, takže starší období POCTIVĚ mlčí místo aby vracelo 100 %.
-    prisma.blockRevision.findFirst({
-      orderBy: { createdAt: "asc" },
-      select: { createdAt: true },
-    }),
+    // Odkdy se vůbec nahrává = kdy na TOMHLE prostředí doběhla migrace, která
+    // `BlockRevision` založila. ZÁMĚRNĚ ne `MIN(createdAt)` z revizí — to je
+    // datum první změny, takže klidné období by se tvářilo jako chybějící data
+    // (viz `resolvePlanCoverage` a nález z ručního testu 10. 8. 2026).
+    prisma.$queryRaw<{ finished_at: Date | null }[]>`
+      SELECT finished_at FROM _prisma_migrations
+      WHERE migration_name = ${REVISION_MIGRATION_NAME} AND finished_at IS NOT NULL
+      LIMIT 1
+    `,
     prisma.machineWeekShifts.findMany({
       // ±28 d: blok protínající rozsah může začínat až MAX_SPAN_DAYS (21 d) před
       // rangeStart (expanze potřebuje i týden před startem bloku — noční prev-tail)
@@ -219,7 +224,12 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 
   // Celé období musí být pokryté, ne jen jeho konec — částečné pokrytí by číslo
   // podhodnotilo a vypadalo by to jako klidný měsíc, ne jako chybějící data.
-  const planningCovered = oldestRevision != null && oldestRevision.createdAt <= startUtc;
+  const { covered: planningCovered, coverageFrom } = resolvePlanCoverage(
+    migrationRows[0]?.finished_at ?? null,
+    startUtc,
+    new Date(),
+    REVISION_RETENTION_DAYS,
+  );
 
   // Aktivita plánovačů = počet ULOŽENÍ (transakcí) na uživatele, ne počet změněných
   // polí. Dřív se počítaly auditní řádky `UPDATE`, tedy jeden za KAŽDÉ pole: jedno
@@ -263,7 +273,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     maintenanceRatio,
     planning: {
       covered: planningCovered,
-      coverageFrom: oldestRevision?.createdAt.toISOString() ?? null,
+      coverageFrom: coverageFrom?.toISOString() ?? null,
       interventionCount,
       movedBlockCount,
       stabilityPercent,

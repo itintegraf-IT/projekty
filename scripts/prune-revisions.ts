@@ -14,9 +14,9 @@
  * ani na nic jiného nesahá.
  */
 import { prisma } from "../src/lib/prisma";
-
-/** Jediné místo, kde se retence nastavuje. */
-const REVISION_RETENTION_DAYS = 90;
+// Retence je sdílená s reportem — dashboard podle ní pozná, odkdy smí tvrdit,
+// že o období něco ví. Vlastní kopie čísla by ty dva rozešla (viz retention.ts).
+import { REVISION_RETENTION_DAYS } from "../src/lib/revision/retention";
 
 /** Kolik skupin se smaže v jedné dávce. */
 const BATCH = 1000;

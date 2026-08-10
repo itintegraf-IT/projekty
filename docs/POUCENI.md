@@ -217,3 +217,38 @@ Zelené testy nad vymyšlenými vstupy tuhle třídu vady neodhalí — a metrik
 tiše vrací nulu, je horší než chybějící metrika, protože se podle ní rozhoduje.
 Než se metrika napojí na zdroj, ověřit křížovou tabulkou nad reálnou databází
 (`GROUP BY action, field`), že ten zdroj měřenou událost vůbec obsahuje.
+
+---
+
+## P15 — První záznam není začátek nahrávání
+
+**Co se stalo (10. 8. 2026):** Nová metrika „Stabilita plánu" má poctivý guard —
+za období, které černá skříňka nepokrývá, ukáže `—` místo vymyšleného čísla.
+Jenže jsem jako začátek pokrytí vzal `MIN(createdAt)` z tabulky `BlockRevision`,
+tedy **datum první zaznamenané změny**. To je něco jiného než **odkdy se nahrává**.
+
+Důsledek se ukázal hned při ručním prokliku: Vojta přesunul blok, revize
+prokazatelně vznikly (tři bloky, jeden `groupId` — přetažení plus chain push),
+a karta pořád ukazovala `—`. První změna dne je totiž z definice mladší než
+půlnoc toho dne, takže období „dnes" nebylo nikdy pokryté.
+
+Horší podoba téže vady by se projevila až v provozu: kdyby se celý týden nic
+nepřesunulo, metrika by to přečetla jako **„nemám data"** místo správného
+**„nic se nepohnulo"** — a zamlčela by tím nejlepší možnou odpověď, jakou ten
+report umí dát.
+
+Správný signál je, kdy na daném prostředí **doběhla migrace**, která tabulku
+založila (`_prisma_migrations.finished_at`), oříznutý retencí. Na devu 7. 8.
+19:17, na produkci 9. 8. večer — dvě různá data pro tentýž kód, což je přesně
+důvod, proč to nejde zapsat konstantou.
+
+**Pravidlo:** U každého „odkdy o tom něco víme" rozlišit **začátek sběru** od
+**prvního záznamu**. Prázdno v datech má dvě různé příčiny — *nesbíralo se*
+a *nic se nedělo* — a metrika je nesmí splést, protože každá vede k opačnému
+závěru. Zdrojem prvního je vždy něco vně sbíraných dat (migrace, konfigurace,
+datum nasazení), nikdy `MIN()` nad nimi.
+
+**Druhá půlka:** Testy byly zelené a chybu neodhalily, protože čistá funkce
+dostávala správný vstup — záměna byla o patro výš, ve volajícím. Kde se logika
+takhle rozpadá mezi funkci a její napojení, patří strážný test nad zdrojákem
+volajícího (vzor `revisionWiring.test.ts`); ověřit ho mutací, jinak hlídá vzduch.
