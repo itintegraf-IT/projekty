@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Block } from "@/app/_components/TimelineGrid";
-import { pickHeroBlock, todayQueue, runProgress, resolveStickyBlock, startDayLabel } from "@/lib/monitorView";
+import { pickHeroBlock, monitorQueue, runProgress, resolveStickyBlock, startDayLabel, resolveSelectedBlock, reasonForBlock } from "@/lib/monitorView";
 import { findSplitPartner, getSplitChipState } from "@/lib/splitHelpers";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
@@ -20,7 +20,6 @@ type Props = {
   onOpenPlan: () => void;
   onOpenSearch: () => void;
   onMachineChange: (machine: string) => void;
-  onSelectBlock: (block: Block) => void;
   onLogout: () => void;
 };
 
@@ -48,7 +47,7 @@ const HEADER_BTN: CSSProperties = {
  */
 export function MonitorView({
   blocks, viewMachine, ownMachine,
-  onPrintComplete, onOpenPlan, onOpenSearch, onMachineChange, onSelectBlock, onLogout,
+  onPrintComplete, onOpenPlan, onOpenSearch, onMachineChange, onLogout,
 }: Props) {
   // Vázané na konkrétní blok, ne na komponentu: po odklepnutí se hero karta
   // přepne na další zakázku ještě během požadavku a jeden sdílený boolean
@@ -73,6 +72,11 @@ export function MonitorView({
   // otevřela jiná zakázka.
   const [confirmingRevertId, setConfirmingRevertId] = useState<number | null>(null);
 
+  // Zakázka, kterou si tiskař ručně vytáhl z fronty. Přebíjí automatický výběr:
+  // plán je optimální pořadí, ale u stroje se legitimně odchýlí (typicky když
+  // na následující zakázku není materiál).
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
   // `now` tiká samo — hodiny v hlavičce (formatPragueTime) i běhová logika
   // (pickHeroBlock/runProgress) běží ze stejné hodnoty; 15 s je dost časté
   // na hodiny a víc než dost časté na požadovaný strop 30 s pro `now`.
@@ -91,14 +95,25 @@ export function MonitorView({
 
   const liveHero = now ? pickHeroBlock(blocks, viewMachine, now) : null;
   const sticky = resolveStickyBlock(blocks, stickyId, viewMachine);
+  const selected = resolveSelectedBlock(blocks, selectedId, viewMachine);
 
+  // Priorita: rozdělaná akce (odklepnuto, čeká na Další) → ruční výběr → automatika.
   // Rozlišený tvar, ať TypeScript pozná, že `reason` má jen živá karta.
-  // Držená (odklepnutá) zakázka má přednost před běžným výběrem.
-  const card = sticky
+  const card = !now
+    ? null
+    : sticky
     ? ({ kind: "completed", block: sticky } as const)
+    : selected
+    ? selected.printCompletedAt != null
+      ? ({ kind: "completed", block: selected } as const)
+      : ({ kind: "live", block: selected, reason: reasonForBlock(selected, now) } as const)
     : liveHero
     ? ({ kind: "live", block: liveHero.block, reason: liveHero.reason } as const)
     : null;
+
+  // Označíme jen skutečné přebití — když si tiskař vybral právě to, co navrhuje
+  // automatika, není co hlásit.
+  const manualOverride = !!selected && !sticky && selected.id !== liveHero?.block.id;
 
   // Držení přestalo platit (odklepnutí zrušil někdo jiný, blok zmizel) —
   // zahodíme id, ať se stav nedrží naprázdno.
@@ -107,14 +122,20 @@ export function MonitorView({
     setConfirmingRevertId(null);
   }, [stickyId, sticky]);
 
+  // Výběr přestal platit (zakázka zmizela z dat nebo se přesunula na jiný stroj).
+  useEffect(() => {
+    if (selectedId != null && !selected) setSelectedId(null);
+  }, [selectedId, selected]);
+
   // Přepnutí stroje ruší jak držení, tak rozdělané dotazy — karta patří jinam.
   useEffect(() => {
     setStickyId(null);
     setConfirmingId(null);
     setConfirmingRevertId(null);
+    setSelectedId(null);
   }, [viewMachine]);
 
-  const queue = now ? todayQueue(blocks, viewMachine, now) : [];
+  const queue = now ? monitorQueue(blocks, viewMachine, now) : { today: [], tomorrow: [] };
   const partner = card ? findSplitPartner(card.block, blocks, viewMachine) : null;
 
   const kicker =
@@ -196,6 +217,26 @@ export function MonitorView({
               }}>
                 {kicker}
               </div>
+
+              {manualOverride && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
+                  fontSize: 13, color: "var(--text-muted)",
+                }}>
+                  <span>vybráno ručně</span>
+                  <button
+                    onClick={(e) => { if (e.button !== 0) return; setSelectedId(null); }}
+                    style={{
+                      font: "inherit", fontSize: 13,
+                      padding: "3px 10px", borderRadius: 7,
+                      background: "var(--surface-2)", border: "1px solid var(--border)",
+                      color: "var(--text)", cursor: "pointer",
+                    }}
+                  >
+                    zpět na doporučené
+                  </button>
+                </div>
+              )}
 
               <div style={{
                 flex: 1, minHeight: 0,
@@ -317,6 +358,7 @@ export function MonitorView({
                         onClick={(e) => {
                           if (e.button !== 0) return;
                           setStickyId(null);
+                          setSelectedId(null);
                           const until = Date.now() + 800;
                           setLockUntil(until);
                           setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
@@ -392,7 +434,12 @@ export function MonitorView({
           }}>
             Dnes na {machineLabel(viewMachine)}
           </div>
-          <MonitorQueue blocks={queue} heroId={card?.block.id ?? null} onSelect={onSelectBlock} />
+          <MonitorQueue
+            today={queue.today}
+            tomorrow={queue.tomorrow}
+            heroId={card?.block.id ?? null}
+            onSelect={(block) => setSelectedId(block.id)}
+          />
         </div>
       </div>
     </div>

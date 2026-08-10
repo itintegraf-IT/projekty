@@ -2724,7 +2724,6 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           onOpenPlan={() => setTiskarView("plan")}
           onOpenSearch={() => setSearchSheetOpen(true)}
           onMachineChange={(machine) => setViewMachine(machine)}
-          onSelectBlock={jumpToBlockFromMonitor}
           onLogout={handleLogout}
         />
       )}
