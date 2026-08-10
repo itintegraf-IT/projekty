@@ -325,11 +325,14 @@ export function MonitorView({
                         }
                         setConfirmingId(null);
                         setPendingId(id);
+                        // Musí být synchronně, ne v .then(): PlannerPage označí
+                        // zakázku za odklepnutou optimisticky ještě před odpovědí
+                        // serveru, takže by karta do té doby ukazovala cizí zakázku.
+                        setStickyId(id);
                         const until = Date.now() + 800;
                         setLockUntil(until);
                         setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
                         onPrintComplete(id, true)
-                          .then(() => setStickyId(id))
                           .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
                       }}
                     />
