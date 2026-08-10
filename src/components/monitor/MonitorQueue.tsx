@@ -4,27 +4,47 @@ import type { Block } from "@/app/_components/TimelineGrid";
 import { formatPragueTime } from "@/lib/dateUtils";
 
 type Props = {
-  blocks: Block[];
+  today: Block[];
+  tomorrow: Block[];
   heroId: number | null;
   onSelect: (block: Block) => void;
 };
 
 /**
- * Pravý sloupec Monitoru — dnešní zakázky na stroji.
- * Odklepnuté jsou ztlumené se zeleným háčkem, hlavní zakázka je zvýrazněná.
- * Kliknutí otevře detail bloku; odklepnout jde jen z velké karty vlevo.
+ * Pravý sloupec Monitoru — zakázky na stroji pro dnešek a zítřek.
+ * Odklepnuté jsou ztlumené se zeleným háčkem, zakázka na velké kartě zvýrazněná.
+ * Kliknutí ji vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
  */
-export function MonitorQueue({ blocks, heroId, onSelect }: Props) {
-  if (blocks.length === 0) {
+export function MonitorQueue({ today, tomorrow, heroId, onSelect }: Props) {
+  if (today.length === 0 && tomorrow.length === 0) {
     return (
       <div style={{ color: "var(--text-muted)", fontSize: 14, padding: "12px 4px" }}>
-        Dnes na tomhle stroji nic naplánováno.
+        Na tomhle stroji není dnes ani zítra nic naplánováno.
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", minHeight: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", minHeight: 0 }}>
+      <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} />
+      <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} />
+    </div>
+  );
+}
+
+function QueueSection({
+  title, blocks, heroId, onSelect,
+}: { title: string; blocks: Block[]; heroId: number | null; onSelect: (block: Block) => void }) {
+  if (blocks.length === 0) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+      <div style={{
+        fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase",
+        color: "var(--text-muted)", fontWeight: 700,
+      }}>
+        {title}
+      </div>
       {blocks.map((b) => {
         const isDone = b.printCompletedAt != null;
         const isHero = b.id === heroId;
