@@ -110,6 +110,21 @@ test("pickHeroBlock: nic neběží ani nepřetahuje = upcoming", () => {
   assert.equal(hero?.block.id, 3);
 });
 
+test("pickHeroBlock: noční směna přes půlnoc zůstane na kartě i ráno", () => {
+  // 22:00 pražského času předchozího dne až 6:00 ráno; teď je 8:00 ráno.
+  const b = mk({ id: 9, startTime: "2026-08-09T20:00:00.000Z", endTime: "2026-08-10T04:00:00.000Z" });
+  const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T06:00:00.000Z"));
+  assert.equal(hero?.reason, "overdue");
+  assert.equal(hero?.block.id, 9);
+});
+
+test("pickHeroBlock: zakázka po 16hodinovém okně už na kartě není", () => {
+  const b = mk({ startTime: "2026-08-09T04:00:00.000Z", endTime: "2026-08-09T08:00:00.000Z" });
+  // konec + 17 h
+  const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T01:00:00.000Z"));
+  assert.equal(hero, null);
+});
+
 test("pickHeroBlock: včerejší neodklepnutá zakázka se jako overdue nebere", () => {
   const b = mk({ startTime: "2026-08-09T06:00:00.000Z", endTime: "2026-08-09T09:00:00.000Z" });
   const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
@@ -191,6 +206,13 @@ import { utcToPragueDateStr } from "@/lib/dateUtils";
  * na ní jen staví a sám nic nepočítá.
  */
 
+/**
+ * Jak dlouho po svém konci smí neodklepnutá zakázka zůstat na velké kartě.
+ * Počítá se od KONCE, ne podle dne startu — noční směna 22:00–6:00 by jinak
+ * ráno z Monitoru zmizela, protože „nezačala dnes".
+ */
+export const OVERDUE_WINDOW_MS = 16 * 60 * 60 * 1000;
+
 export type HeroReason = "running" | "overdue" | "upcoming";
 export type HeroPick = { block: Block; reason: HeroReason } | null;
 
@@ -206,9 +228,10 @@ function byStartAsc(a: Block, b: Block): number {
 /**
  * Zakázka na velkou kartu Monitoru, s důvodem výběru. Priorita:
  *  1. `running`  — je uvnitř svého času,
- *  2. `overdue`  — nic neběží, ale dnešní zakázce už vypršel čas a nikdo ji
- *                  neodklepl (bez tohohle by z Monitoru zmizela a tiskař by ji
- *                  musel hledat v plánu),
+ *  2. `overdue`  — nic neběží, ale zakázce už vypršel čas, nikdo ji neodklepl
+ *                  a od jejího konce neuplynulo víc než OVERDUE_WINDOW_MS
+ *                  (bez tohohle by z Monitoru zmizela a tiskař by ji musel
+ *                  hledat v plánu),
  *  3. `upcoming` — jinak nejbližší budoucí.
  */
 export function pickHeroBlock(blocks: Block[], machine: string, now: Date): HeroPick {
@@ -220,13 +243,11 @@ export function pickHeroBlock(blocks: Block[], machine: string, now: Date): Hero
     .sort(byStartAsc);
   if (running.length > 0) return { block: running[0], reason: "running" };
 
-  const today = utcToPragueDateStr(now);
   const overdue = open
-    .filter(
-      (b) =>
-        new Date(b.endTime).getTime() <= t &&
-        utcToPragueDateStr(new Date(b.startTime)) === today
-    )
+    .filter((b) => {
+      const end = new Date(b.endTime).getTime();
+      return end <= t && t - end <= OVERDUE_WINDOW_MS;
+    })
     .sort((a, b) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime());
   if (overdue.length > 0) return { block: overdue[0], reason: "overdue" };
 
@@ -276,12 +297,12 @@ export function runProgress(block: Block, now: Date): { percent: number; remaini
 - [ ] **Step 4: Spusť test a ověř, že prochází**
 
 Run: `node --test --import tsx src/lib/monitorView.test.ts`
-Expected: PASS — 15 testů zelených
+Expected: PASS — 17 testů zelených
 
 - [ ] **Step 5: Ověř, že nic jiného nespadlo**
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 792 původních + 15 nových = 807
+Expected: PASS — 792 původních + 17 nových = 809
 
 - [ ] **Step 6: Commit**
 
@@ -366,7 +387,7 @@ Zbytek komponenty (hover, `isDone`, `pending`, popisky) zůstává beze změny.
 - [ ] **Step 5: Spusť testy a build**
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 808 testů
+Expected: PASS — 810 testů
 
 Run: `npm run build`
 Expected: build projde, 0 TypeScript chyb
@@ -809,7 +830,7 @@ Run: `npm run build`
 Expected: build projde, 0 TypeScript chyb
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 808 testů
+Expected: PASS — 810 testů
 
 - [ ] **Step 5: Commit**
 
@@ -935,7 +956,7 @@ Run: `npm run build`
 Expected: build projde, 0 TypeScript chyb
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts`
-Expected: PASS — 808 testů
+Expected: PASS — 810 testů
 
 Run: `npm run lint`
 Expected: 0 chyb (warningy jsou v pořádku, ale **nesmí přibýt nový `max-lines`** na PlannerPage nad dnešní stav)
@@ -967,7 +988,7 @@ git commit -m "feat(monitor): Monitor jako domovská obrazovka tiskaře, plán z
 ## Hotovo, když
 
 - [ ] `npm run build` projde
-- [ ] Celá test suite zelená (808 testů)
+- [ ] Celá test suite zelená (810 testů)
 - [ ] Ruční průchod z Tasku 4 kroku 7 sedí celý
 - [ ] `PlannerPage.tsx` nenarostl o víc než ~35 řádků (kontrola: `wc -l src/app/_components/PlannerPage.tsx` — před začátkem 3273)
 - [ ] Role mimo `TISKAR` vidí přesně to co dřív

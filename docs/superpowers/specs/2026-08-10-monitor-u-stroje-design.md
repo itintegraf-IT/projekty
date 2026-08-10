@@ -94,8 +94,15 @@ export function runProgress(block: Block, now: Date): { percent: number; remaini
 
 1. **`running`** — ZAKÁZKA na stroji, `startTime <= now < endTime`, neodklepnutá.
    Při více kandidátech (nemělo by nastat, hlídá overlap guard) vyhrává nejdřívější start.
-2. **`overdue`** — žádná neběží, ale na dnešku je **neodklepnutá zakázka, které už
-   uplynul čas** (`endTime <= now`). Vezme se ta s nejpozdějším koncem.
+2. **`overdue`** — žádná neběží, ale je tu **neodklepnutá zakázka, které už uplynul
+   čas** (`endTime <= now`) a od jejího konce **neuplynulo víc než 16 hodin**.
+   Vezme se ta s nejpozdějším koncem.
+
+   > Okno se počítá od **konce zakázky**, ne podle toho, jestli začala „dnes".
+   > Původní návrh vázal `overdue` na pražský den startu a tím shodil noční směnu:
+   > zakázka 22:00–6:00 by v 8:00 ráno z Monitoru zmizela, protože „nezačala dnes"
+   > (nález review 10. 8., rozhodnuto Vojtou). 16 hodin pokryje celou noční směnu
+   > a zároveň zabrání tomu, aby týden zapomenutá zakázka blokovala Monitor.
 3. **`upcoming`** — jinak nejbližší budoucí neodklepnutá zakázka (i zítřejší).
 
 Bod 2 je přídavek nad rámec původního zadání a je záměrný: bez něj by zakázka, kterou
@@ -194,9 +201,10 @@ Bez zásahu: API, Prisma schéma, migrace, kioskový launcher, role mimo `TISKAR
 
 - **`PlannerPage` u limitu.** Monitor musí být samostatný soubor; do `PlannerPage`
   přibude jen stav a přepnutí větve (odhad pod 30 řádků).
-- **„Dnešek" přes půlnoc.** Noční směna končí v 6:00, takže po půlnoci se fronta
-  přepne na nový den a ranní část směny bude v „dnešku" sama. Vědomě přijato —
-  alternativa (fronta podle směny) je složitější a nikdo ji nežádal.
+- **„Dnešek" přes půlnoc — pouze u fronty.** Noční směna končí v 6:00, takže po
+  půlnoci se fronta vpravo přepne na nový den a ranní část směny v ní bude sama.
+  Vědomě přijato — alternativa (fronta podle směny) je složitější a nikdo ji nežádal.
+  **Velké karty se to netýká**, ta jede na 16hodinovém okně od konce (§3.3).
 - **Priorita `overdue` může být překvapivá.** Když tiskař nechá starou zakázku
   neodklepnutou, bude na Monitoru viset, i když už fyzicky tiskne další. Je to
   záměrné (nutí to k odklepnutí), ale při ověření se na to podívat.
