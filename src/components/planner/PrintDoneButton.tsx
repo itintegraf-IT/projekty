@@ -11,6 +11,12 @@ type Props = {
   completedAt: string | null;
   pending: boolean;
   onToggle: () => void;
+  /**
+   * Potvrzovací podoba — žluté pozadí a tenhle popisek místo „✓ HOTOVO".
+   * Používá jen Monitor u zakázky, která ještě nezačala; karta bloku v plánu
+   * tuhle prop nepředává, takže se pro plánovače nic nemění.
+   */
+  confirmLabel?: string;
 };
 
 /**
@@ -22,7 +28,7 @@ type Props = {
  * režimy karty ani rozvržení Monitoru.
  * Barvy jdou výhradně přes tokeny, aby fungoval světlý i tmavý režim.
  */
-export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }: Props) {
+export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle, confirmLabel }: Props) {
   // `hero` (Monitor) i `bar` (karta bloku) jsou širokými variantami s popiskem;
   // `square` je jen háček. Jednotné jméno usnadňuje sdílenou logiku.
   const isWide = size.variant === "bar" || size.variant === "hero";
@@ -35,6 +41,10 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
     : "✓ HOTOVO";
 
   const isHoverActive = hovered && !pending && !isDone;
+
+  // Potvrzovací stav má přednost před hoverem i běžnou zelenou, ale ne nad
+  // `isDone`/`pending` — ty popisují, co se s tlačítkem právě děje.
+  const isConfirm = !!confirmLabel && !isDone && !pending;
 
   return (
     <button
@@ -59,18 +69,29 @@ export function PrintDoneButton({ size, isDone, completedAt, pending, onToggle }
         // Popisek po odklepnutí je delší ("✓ Hotovo 14:32") — v úzkém sloupci
         // karty bloku (varianta `bar`) ho stropujeme na 13 px, aby nepřetekl.
         // Varianta `hero` na Monitoru má místa dost a zmenšovat se nesmí.
-        fontSize: isDone && size.variant === "bar" ? Math.min(size.fontSize, 13) : size.fontSize,
+        // Potvrzovací popisek je delší než „✓ HOTOVO" — na hero tlačítku by se
+        // ve 30 px nevešel, proto strop 20 px.
+        fontSize: isDone && size.variant === "bar" ? Math.min(size.fontSize, 13)
+          : isConfirm ? Math.min(size.fontSize, 20)
+          : size.fontSize,
         fontWeight: isDone ? 620 : 750,
         letterSpacing: isDone ? 0 : "0.05em",
-        background: isDone ? "var(--surface-3)" : isHoverActive ? "color-mix(in oklab, var(--success) 82%, white)" : "var(--success)",
+        background: isDone ? "var(--surface-3)"
+          : isConfirm ? "var(--warning)"
+          : isHoverActive ? "color-mix(in oklab, var(--success) 82%, white)"
+          : "var(--success)",
         boxShadow: isHoverActive ? "0 0 0 3px color-mix(in oklab, var(--success) 34%, transparent)" : undefined,
-        color: isDone ? "var(--text-muted)" : "var(--success-contrast)",
+        // --brand-contrast je projektová tmavá barva pro text na světlém akcentu
+        // (--warning i --brand jsou v obou tématech světlé), proto ji sdílíme.
+        color: isDone ? "var(--text-muted)"
+          : isConfirm ? "var(--brand-contrast)"
+          : "var(--success-contrast)",
         opacity: pending ? 0.5 : 1,
         transition: "all 0.12s ease-out",
         whiteSpace: "nowrap", overflow: "hidden",
       }}
     >
-      {pending ? "·" : isWide ? wideLabel : isDone ? "↩" : "✓"}
+      {pending ? "·" : isConfirm ? confirmLabel : isWide ? wideLabel : isDone ? "↩" : "✓"}
     </button>
   );
 }
