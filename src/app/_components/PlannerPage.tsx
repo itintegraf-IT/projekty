@@ -873,7 +873,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setSelectedBlock(block);
     if (new Date(block.startTime) < viewStart) {
       handleJumpToOutOfRange(block);
+    } else if (scrollRef.current) {
+      // Timeline je už namontovaná (voláno z už otevřeného plánu, ne z Monitoru)
+      // — tiskarView zůstává "plan" beze změny, takže by se pendingScrollMs efekt
+      // vůbec nespustil. Scrollujeme rovnou, jako to dělal původní kód, a
+      // pendingScrollMs pro jistotu vynulujeme, ať ho efekt nezpracuje podruhé.
+      pendingScrollMs.current = null;
+      const y = dateToY(new Date(block.startTime), viewStart, slotHeight);
+      scrollRef.current.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     } else {
+      // Voláno z Monitoru — timeline se teprve mountuje, doscrolluje ji
+      // useLayoutEffect výš, jakmile naskočí tiskarView === "plan".
       pendingScrollMs.current = new Date(block.startTime).getTime();
     }
   }
