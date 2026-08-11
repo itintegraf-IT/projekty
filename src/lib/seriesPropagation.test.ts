@@ -23,7 +23,7 @@ test("SERIES_EXCLUDED_FIELDS obsahuje právě 16 očekávaných polí", () => {
   ]);
 });
 
-test("stripSeriesPropagatedFields odstraní všech 10 per-occurrence polí", () => {
+test("stripSeriesPropagatedFields odstraní per-occurrence pole (SERIES_EXCLUDED_FIELDS má 16 položek)", () => {
   const payload = {
     orderNumber: "12345",
     dataRequiredDate: "2026-06-24",

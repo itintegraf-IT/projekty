@@ -2077,13 +2077,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       materialStatusLabel: item.materialStatusLabel,
       materialRequiredDate: item.materialInStock ? null : item.materialRequiredDate || null,
       materialInStock: item.materialInStock,
-      pantoneRequiredDate: item.pantoneRequiredDate || null,
+      // Guard stejný jako u materialRequiredDate o pár řádků výš: je-li SKLADEM
+      // zapnuté, termín se neposílá (obrana do hloubky — tenhle invariant vynucuje
+      // i POST i PUT /api/blocks, ale nespoléháme jen na server; klient nemá důvod
+      // posílat protichůdný pár SKLADEM=true + konkrétní termín).
+      pantoneRequiredDate: item.pantoneInStock ? null : item.pantoneRequiredDate || null,
       pantoneOk: item.pantoneOk,
       pantoneRequired: item.pantoneRequired ?? false,
-      // pantoneInStock se posílá stejně jako materialInStock o pár řádků výš — server si
-      // při zapnutí sám vynuluje termín a zapne pantoneRequired. pantoneIssued se sem
-      // záměrně NEPŘIDÁVÁ (stejně jako materialIssued o pár řádků výš) — z fronty vzniká
-      // vždy nový blok, takže „vydáno" nikdy není true a sloupec má na serveru default false.
+      // pantoneInStock se posílá stejně jako materialInStock o pár řádků výš. pantoneIssued
+      // se sem záměrně NEPŘIDÁVÁ (stejně jako materialIssued o pár řádků výš) — z fronty
+      // vzniká vždy nový blok, takže „vydáno" nikdy není true a sloupec má na serveru
+      // default false.
       pantoneInStock: item.pantoneInStock ?? false,
       barvyStatusId: item.barvyStatusId,
       barvyStatusLabel: item.barvyStatusLabel,

@@ -112,17 +112,34 @@ test("regrese #2: Pantone / SKLADEM / materialNote se NIKDY neztrácí", () => {
 });
 
 test("blockToCreatePayload nese pantoneInStock i pantoneIssued (copy/paste je nesmí ztratit)", () => {
-  const payload = blockToCreatePayload({
+  // Zdrojový objekt pantoneInStock/pantoneIssued VYNECHÁVÁ — obě pole jsou v
+  // BlockPayloadSource volitelná, takže tohle zároveň ověřuje výchozí `?? false`,
+  // ne jen prosté prokopírování hodnoty ze zdroje.
+  const zdroj: BlockPayloadSource = {
     orderNumber: "25-9001",
     machine: "XL_106",
     startTime: "2026-08-11T06:00:00.000Z",
     endTime: "2026-08-11T09:00:00.000Z",
     type: "ZAKAZKA",
-    pantoneRequired: true,
-    pantoneInStock: true,
-    pantoneIssued: false,
-  } as never);
-  assert.equal(payload.pantoneInStock, true);
+    description: null,
+    locked: false,
+    deadlineExpedice: null,
+    jobPresetId: null,
+    dataStatusId: null,
+    dataStatusLabel: null,
+    dataRequiredDate: null,
+    materialStatusId: null,
+    materialStatusLabel: null,
+    materialRequiredDate: null,
+    materialOk: false,
+    barvyStatusId: null,
+    barvyStatusLabel: null,
+    lakStatusId: null,
+    lakStatusLabel: null,
+    specifikace: null,
+  };
+  const payload = blockToCreatePayload(zdroj);
+  assert.equal(payload.pantoneInStock, false);
   assert.equal(payload.pantoneIssued, false);
 });
 

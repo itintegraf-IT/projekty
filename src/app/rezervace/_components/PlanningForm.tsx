@@ -302,7 +302,7 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
                 color: pantoneInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer",
               }}>
                 <div
-                  onClick={() => { setPantoneInStock(!pantoneInStock); if (!pantoneInStock) { setPantoneRequiredDate(""); setPantoneRequired(true); } }}
+                  onClick={() => { setPantoneInStock(!pantoneInStock); if (!pantoneInStock) { setPantoneRequiredDate(""); setPantoneOk(false); setPantoneRequired(true); } }}
                   style={{
                     width: 32, height: 18, borderRadius: 9,
                     background: pantoneInStock ? "#10b981" : "var(--surface-3)",
@@ -325,7 +325,7 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
               <button type="button" onClick={() => {
                 const next = !pantoneRequired;
                 setPantoneRequired(next);
-                if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); }
+                if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); setPantoneInStock(false); }
               }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
                 {pantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
               </button>

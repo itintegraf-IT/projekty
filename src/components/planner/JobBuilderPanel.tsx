@@ -338,7 +338,7 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                             <label style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>Pantone</label>
                             <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: bPantoneInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer" }}>
-                              <Switch checked={bPantoneInStock} onCheckedChange={(checked) => { setBPantoneInStock(checked); if (checked) { setBPantoneRequiredDate(""); setBPantoneRequired(true); } }} />
+                              <Switch checked={bPantoneInStock} onCheckedChange={(checked) => { setBPantoneInStock(checked); if (checked) { setBPantoneRequiredDate(""); setBPantoneOk(false); setBPantoneRequired(true); } }} />
                               SKLADEM
                             </label>
                           </div>
@@ -349,7 +349,7 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
                             <button type="button" onClick={() => {
                               const next = !bPantoneRequired;
                               setBPantoneRequired(next);
-                              if (!next) { setBPantoneRequiredDate(""); setBPantoneOk(false); }
+                              if (!next) { setBPantoneRequiredDate(""); setBPantoneOk(false); setBPantoneInStock(false); }
                             }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: bPantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: bPantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: bPantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
                               {bPantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
                             </button>

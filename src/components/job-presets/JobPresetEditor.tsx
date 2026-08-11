@@ -469,7 +469,7 @@ export default function JobPresetEditor({
                     <Switch checked={pantoneRequired === true} onCheckedChange={(checked) => setPantoneRequired(checked ? true : null)} />
                     Pantone potřeba
                   </label>
-                  <label className="flex items-center gap-2">
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-muted)" }}>
                     <Switch checked={pantoneInStock === true} onCheckedChange={(checked) => setPantoneInStock(checked ? true : null)} />
                     Pantone skladem
                   </label>

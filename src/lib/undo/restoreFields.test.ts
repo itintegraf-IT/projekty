@@ -8,7 +8,7 @@ const FORBIDDEN = [
 ];
 
 /**
- * Fixture se VŠEMI 43 povoleným poli na rozlišitelných hodnotách + 8 zakázaných.
+ * Fixture se VŠEMI 45 povoleným poli na rozlišitelných hodnotách + 8 zakázaných.
  * Když blockToRestoreFields nějaké povolené pole ztratí, deepEqual selže s názvem pole.
  * Zakázaná pole jsou v fixtuře jen aby se ověřila jejich filtrace.
  */
@@ -49,6 +49,8 @@ const FULL_BLOCK = {
   pantoneRequired: true,
   pantoneOk: false,
   pantoneRequiredDate: "2026-08-31T00:00:00.000Z",
+  pantoneInStock: true,
+  pantoneIssued: false,
   // barvy / lak
   barvyStatusId: 4,
   barvyStatusLabel: "Pantone 485",
@@ -139,6 +141,8 @@ test("field-inventory: blockToRestoreFields vrátí všech 45 povolených polí 
     pantoneRequired: true,
     pantoneOk: false,
     pantoneRequiredDate: "2026-08-31T00:00:00.000Z",
+    pantoneInStock: true,
+    pantoneIssued: false,
     // barvy / lak
     barvyStatusId: 4,
     barvyStatusLabel: "Pantone 485",

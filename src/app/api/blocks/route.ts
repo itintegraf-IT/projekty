@@ -256,6 +256,12 @@ export async function POST(request: NextRequest) {
         if (!grp) throw new AppError("VALIDATION_ERROR", "Neznámá split skupina.");
       }
 
+      // Tentýž invariant, jaký vynucuje PUT /api/blocks/[id]: SKLADEM nebo VYDÁNO
+      // znamená, že pantone je vyřešené — POTŘEBA se vynutí a termín se nemá kam ukládat.
+      const pantoneInStock = body.pantoneInStock ?? false;
+      const pantoneIssued = body.pantoneIssued ?? false;
+      const pantoneResolved = pantoneInStock || pantoneIssued;
+
       const newBlock = await tx.block.create({
         data: {
           orderNumber: finalOrderNumber,
@@ -295,11 +301,16 @@ export async function POST(request: NextRequest) {
           // MATERIÁL POZNÁMKA (jen obsah — autor se nepřenáší, je server-owned)
           materialNote: body.materialNote ?? null,
           // PANTONE + MATERIAL FLAGS
-          pantoneRequiredDate: parseNullableCivilDateForDb(body.pantoneRequiredDate),
+          // Stejný invariant jako v PUT /api/blocks/[id]: je-li SKLADEM nebo VYDÁNO
+          // zapnuté, pantone je „vyřešené" — pantoneRequired se vynutí na true a termín
+          // se vynuluje. Bez tohohle POST uloží stav, který PUT při první další editaci
+          // (BlockEdit.buildPayload posílá pantoneRequired natvrdo z bloku) tiše smaže —
+          // uživateli by zmizelo SKLADEM/VYDÁNO při uložení nesouvisející změny.
+          pantoneRequiredDate: pantoneResolved ? null : parseNullableCivilDateForDb(body.pantoneRequiredDate),
           pantoneOk: body.pantoneOk ?? false,
-          pantoneRequired: body.pantoneRequired ?? false,
-          pantoneInStock: body.pantoneInStock ?? false,
-          pantoneIssued: body.pantoneIssued ?? false,
+          pantoneRequired: pantoneResolved ? true : (body.pantoneRequired ?? false),
+          pantoneInStock: pantoneInStock,
+          pantoneIssued: pantoneIssued,
           materialInStock: body.materialInStock ?? false,
           materialIssued: body.materialIssued ?? false,
           // OPAKOVÁNÍ
