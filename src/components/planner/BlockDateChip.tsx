@@ -29,11 +29,10 @@ export const DEADLINE_BORDER: Record<DateChipState, string> = {
 /**
  * Jednořádkový datumový chip na kartě bloku — „D 12.8 ✓".
  *
- * Postupně nahrazuje dvouřádkový DateBadge (popisek „DATA" 8 px nad datem 11 px,
- * ~22 px výšky) — ve `showDatesFull` DateBadge zatím zůstává, ruší ho až
- * navazující task. Písmeno v textu a barevný proužek vlevo nesou stejnou
- * informaci jako to slovo, ale vejdou se do ~16 px — z uspořené výšky se platí
- * větší písmo.
+ * Nahradil dvouřádkový popiskový badge (popisek „DATA" 8 px nad datem 11 px,
+ * ~22 px výšky), zrušený v Tasku 4 (8/2026). Písmeno v textu a barevný proužek
+ * vlevo nesou stejnou informaci jako to slovo, ale vejdou se do ~16 px —
+ * z uspořené výšky se platí větší písmo.
  *
  * Rozměry se odvozují od `fontSize`, aby chip rostl se stupněm písma jako celek.
  * Svislý padding je `fontSize * 0.2` schválně, ne „hezčích" 0.26 — skutečná výška

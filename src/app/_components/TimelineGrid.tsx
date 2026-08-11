@@ -374,7 +374,7 @@ function expandPrintTimeCached(
 const MONTH_ABBR = ["Led","Úno","Bře","Dub","Kvě","Čvn","Čvc","Srp","Zář","Říj","Lis","Pro"];
 const DAY_ABBR   = ["Ne","Po","Út","St","Čt","Pá","So"];
 
-// ─── BlockCard + jeho prezentační helpery (DateBadge, MiniChip, ProductionChips,
+// ─── BlockCard + jeho prezentační helpery (BlockDateChip, MiniChip, ProductionChips,
 //     MaterialNoteAffordance, fmtDate/fmtDateShort/deadlineState/chipTextColor,
 //     FIELD_ACCENT/DEADLINE_BG/DEADLINE_BORDER) žijí v @/components/planner/BlockCard
 //     (fáze E2 dekompozice). InlineDatePicker zůstává tady — používá ho hlavní grid.
