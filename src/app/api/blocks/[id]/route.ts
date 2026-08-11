@@ -422,9 +422,18 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           ...(allowed.pantoneInStock === true && { pantoneRequiredDate: null, pantoneRequired: true }),
           ...(allowed.pantoneIssued !== undefined && { pantoneIssued: allowed.pantoneIssued as boolean }),
           ...(allowed.pantoneIssued === true && { pantoneRequiredDate: null, pantoneRequired: true }),
-          // „Pantone není potřeba" musí uklidit VŠECHNO, jinak by po vypnutí
-          // zůstal viset zapnutý SKLADEM/VYDÁNO bez viditelného čipu.
+          // Živý termín a „skladem"/„vydáno" se vylučují: kdo nastaví datum,
+          // tím říká, že se na pantone čeká. Nulová/prázdná hodnota příznaky
+          // NERUŠÍ — modal posílá null právě proto, že je zapnuté SKLADEM.
+          ...(allowed.pantoneRequiredDate !== undefined
+              && parseNullableCivilDateForDb(allowed.pantoneRequiredDate) !== null
+              && { pantoneInStock: false, pantoneIssued: false }),
+          // Výslovné „pantone není potřeba" vyhrává nad vším ostatním v témže
+          // požadavku — proto stojí AŽ NA KONCI a uklízí VŠECHNO včetně
+          // vlastního pantoneRequired (jinak by ho předchozí větev pantoneInStock/
+          // pantoneIssued === true tiše přebila zpátky na true).
           ...(allowed.pantoneRequired === false && {
+            pantoneRequired: false,
             pantoneRequiredDate: null,
             pantoneOk: false,
             pantoneInStock: false,
