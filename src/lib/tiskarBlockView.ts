@@ -25,14 +25,17 @@ export type PrintDoneSize =
  * a vejde se pruh přes celou šířku, od `ts.thresholds.micro` čtverec s háčkem,
  * pod tím karta nevykresluje obsah vůbec → `null`.
  *
- * Prahy 140 a 96 (vyšší varianty pruhu) rostou se stupněm písma, aby velké
- * tlačítko nikdy nedostala karta, které na něj nezbývá výška.
+ * Prahy 140 a 96 rostou s mřížkou (`ts.slotFactor`) — porovnávají se s
+ * `layoutHeight`, který taky roste s mřížkou, takže je to dimenzionálně
+ * správně. Velikost popisku uvnitř bar varianty naopak roste s PÍSMEM
+ * (`ts.fontFactor`) — jinak by na XL popisek „Hotovo" vyrostl jen o 12 %
+ * místo 35 % jako zbytek textu karty (nález z code review, 8/2026).
  */
 export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAULT_TS): PrintDoneSize | null {
   const big = Math.round(140 * ts.slotFactor);
   const mid = Math.round(96 * ts.slotFactor);
-  if (layoutHeight >= big) return { variant: "bar", height: 40, fontSize: Math.round(16 * ts.slotFactor) };
-  if (layoutHeight >= mid) return { variant: "bar", height: 32, fontSize: Math.round(14 * ts.slotFactor) };
+  if (layoutHeight >= big) return { variant: "bar", height: 40, fontSize: Math.round(16 * ts.fontFactor) };
+  if (layoutHeight >= mid) return { variant: "bar", height: 32, fontSize: Math.round(14 * ts.fontFactor) };
   if (layoutHeight >= ts.thresholds.full) return { variant: "bar", height: 24, fontSize: 11.5 };
   if (layoutHeight >= ts.thresholds.micro) return { variant: "square", height: 26, fontSize: 15 };
   return null;

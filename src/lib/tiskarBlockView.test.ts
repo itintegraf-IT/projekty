@@ -118,10 +118,13 @@ test("práh pruhu Hotovo sleduje práh plného layoutu daného stupně", () => {
 test("ve větším písmu je SplitChip odmítnut dřív", () => {
   const m = plannerTypeScale("M");
   const xl = plannerTypeScale("XL");
-  // Výška, kde se při M chip ještě vejde vedle pruhu Hotovo a jednoho řádku spec.
-  const h = 120;
+  // 109 px je výška, kde je rozdíl mezi stupni skutečně vidět: při M se chip
+  // ještě vejde (fitsM = true), ale XL má vyšší ts.rowHeights (spec1 i header),
+  // takže při stejné výšce karty už chipu nezbyde místo (fitsXL = false).
+  // Ověřeno spuštěním (ne odhadem) — viz task-5-report.md, oddíl Fix round 1.
+  const h = 109;
   const fitsM = splitChipFits(h, printDoneSize(h, m), 1, m);
   const fitsXL = splitChipFits(h, printDoneSize(h, xl), 1, xl);
   assert.equal(fitsM, true, "při M se chip vejde");
-  assert.ok(!fitsXL || fitsM, "větší písmo nesmí být štědřejší než menší");
+  assert.equal(fitsXL, false, "při XL se stejná karta chipu nevejde");
 });

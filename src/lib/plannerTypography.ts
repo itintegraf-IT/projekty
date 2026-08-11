@@ -49,6 +49,17 @@ export type PlannerTypeScale = {
   descOpacityTiny: number;
   /** Násobitel `slotHeight` — mřížka roste pomaleji než písmo. */
   slotFactor: number;
+  /**
+   * Surový koeficient stupně (`PLANNER_FONT_SCALES[key]`: M 1 · L 1,15 · XL 1,35).
+   * Použij pro VELIKOSTI PÍSMA (fontSize), které mají růst stejně rychle jako
+   * zbytek textu na kartě. `slotFactor` je naopak pro VÝŠKY a PRAHY porovnávané
+   * s `layoutHeight`/`slotHeight` — ty rostou pomaleji, aby mřížka nenafukovala
+   * plán do nesmyslné výšky. Záměna těchto dvou byla nález z code review
+   * (8/2026, `tiskarBlockView.ts`): `fontSize` počítaný přes `slotFactor` by na
+   * XL rostl jen o 12 % místo 35 %, takže popisek tlačítka „Hotovo" by na
+   * zvětšeném písmu vypadal nepoměrně malý — přímo proti smyslu celé etapy.
+   */
+  fontFactor: number;
   /** Prahy hustoty karty, odvozené z výšek řádků. */
   thresholds: { full: number; compact: number; tiny: number; micro: number };
   /** Od jaké výšky je pás specifikace dvouřádkový (dnes 80 px). */
@@ -92,6 +103,7 @@ export function plannerTypeScale(key: PlannerFontScale): PlannerTypeScale {
     descOpacity: 1,
     descOpacityTiny: 0.9,
     slotFactor: 1 + (s - 1) * 0.35,
+    fontFactor: s,
     thresholds: {
       full,
       compact: full - 5,
