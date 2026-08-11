@@ -1024,19 +1024,20 @@ export function BlockEdit({
                 ) : (
                   <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum" />
                 )}
-                {/* flexWrap je tu nutnost, ne kosmetika: sloupec je 1/4 mřížky, což je
-                    minmax(auto, 1fr) — track se NIKDY nesmrskne pod min-content obsahu.
-                    Bez zalomení určoval šířku sloupce tenhle řádek čtyř tlačítek (~170 px),
-                    přetlačil ostatní sloupce a EXPEDICI vytlačil pod ořez; datepicker nad
-                    ním se na tu šířku jen natáhl (width: 100 %). Se zalomením je min-content
-                    jen nejširší JEDNO tlačítko, takže sloupce zůstanou vyrovnané. */}
-                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginTop: 5 }}>
+                {/* Řádek se ZÁMĚRNĚ nezalamuje — stejně jako materiálový o sloupec vedle.
+                    Sloupec mřížky je minmax(auto, 1fr), takže se roztáhne na min-content
+                    tohohle řádku; u materiálu je to ~141 px (OK + SKLAD + VYDÁNO) a pantone
+                    se díky zkráceným popiskům „P!" / „SKL." / „VYD." vejde do ~137 px, tedy
+                    do téže šířky. Povolené zalomení tu bylo krátce vyzkoušené a je to horší
+                    volba: sloupec se sice zúží, ale čtyři tlačítka se naskládají pod sebe. */}
+                <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
                   <button type="button" onClick={() => {
                     const next = !pantoneRequired;
                     setPantoneRequired(next);
                     if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); setPantoneInStock(false); setPantoneIssued(false); }
-                  }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
-                    {pantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
+                  }} title={pantoneRequired ? "Pantone je potřeba — kliknutím zrušíte" : "Označit, že je pantone potřeba"}
+                  style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                    P!
                   </button>
                   {!pantoneInStock && !pantoneIssued && (
                     <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
