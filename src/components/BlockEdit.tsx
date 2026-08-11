@@ -1042,10 +1042,10 @@ export function BlockEdit({
                     </label>
                   )}
                   <button type="button" onClick={() => { setPantoneInStock(!pantoneInStock); if (!pantoneInStock) { setPantoneRequiredDate(""); setPantoneOk(false); setPantoneRequired(true); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneInStock ? "1px solid rgba(16,185,129,0.5)" : "1px solid var(--border)", background: pantoneInStock ? "rgba(16,185,129,0.15)" : "transparent", color: pantoneInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
-                    SKLAD
+                    SKL.
                   </button>
                   <button type="button" onClick={() => { setPantoneIssued(!pantoneIssued); if (!pantoneIssued) { setPantoneRequired(true); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneIssued ? "1px solid rgba(59,130,246,0.5)" : "1px solid var(--border)", background: pantoneIssued ? "rgba(59,130,246,0.15)" : "transparent", color: pantoneIssued ? "#3b82f6" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
-                    VYDÁNO
+                    VYD.
                   </button>
                 </div>
               </div>
