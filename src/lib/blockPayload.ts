@@ -57,6 +57,8 @@ export type BlockPayloadSource = {
   pantoneRequired?: boolean | null;
   materialInStock?: boolean | null;
   materialIssued?: boolean | null;
+  pantoneInStock?: boolean | null;
+  pantoneIssued?: boolean | null;
   recurrenceType?: string;
 };
 
@@ -111,6 +113,8 @@ export const EXPECTED_PAYLOAD_KEYS = [
   "pantoneRequired",
   "materialInStock",
   "materialIssued",
+  "pantoneInStock",
+  "pantoneIssued",
   "recurrenceType",
 ] as const;
 
@@ -151,6 +155,8 @@ export function blockToCreatePayload(
     pantoneRequired: block.pantoneRequired ?? false,
     materialInStock: block.materialInStock ?? false,
     materialIssued: block.materialIssued ?? false,
+    pantoneInStock: block.pantoneInStock ?? false,
+    pantoneIssued: block.pantoneIssued ?? false,
     recurrenceType: "NONE",
   };
   if (block.type === "ZAKAZKA") {

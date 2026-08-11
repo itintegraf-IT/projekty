@@ -40,6 +40,8 @@ const FULL_BLOCK: BlockPayloadSource = {
   pantoneRequired: true,
   materialInStock: true,
   materialIssued: true,
+  pantoneInStock: true,
+  pantoneIssued: false,
 };
 
 test("field-inventory: ZAKAZKA payload obsahuje všechna pole 1:1 (tripwire)", () => {
@@ -77,6 +79,8 @@ test("field-inventory: ZAKAZKA payload obsahuje všechna pole 1:1 (tripwire)", (
     pantoneRequired: true,
     materialInStock: true,
     materialIssued: true,
+    pantoneInStock: true,
+    pantoneIssued: false,
     recurrenceType: "NONE",
     printMinutes: 150,
   });
@@ -105,6 +109,21 @@ test("regrese #2: Pantone / SKLADEM / materialNote se NIKDY neztrácí", () => {
   assert.equal(payload.materialInStock, true);
   assert.equal(payload.materialIssued, true);
   assert.equal(payload.materialNote, "Fólie od dodavatele X");
+});
+
+test("blockToCreatePayload nese pantoneInStock i pantoneIssued (copy/paste je nesmí ztratit)", () => {
+  const payload = blockToCreatePayload({
+    orderNumber: "25-9001",
+    machine: "XL_106",
+    startTime: "2026-08-11T06:00:00.000Z",
+    endTime: "2026-08-11T09:00:00.000Z",
+    type: "ZAKAZKA",
+    pantoneRequired: true,
+    pantoneInStock: true,
+    pantoneIssued: false,
+  } as never);
+  assert.equal(payload.pantoneInStock, true);
+  assert.equal(payload.pantoneIssued, false);
 });
 
 test("split undo: opts.splitGroupId protáhne skupinu do payloadu (blok se vrátí do skupiny → 3/3)", () => {

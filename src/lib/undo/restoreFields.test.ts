@@ -82,9 +82,9 @@ test("allowlist neobsahuje žádné zakázané pole", () => {
   }
 });
 
-test("allowlist má přesně 43 položek (tripwire — nové pole Blocku se přidává vědomě)", () => {
-  assert.equal(UNDO_RESTORABLE_FIELDS.length, 43);
-  assert.equal(new Set(UNDO_RESTORABLE_FIELDS).size, 43, "duplicita v allowlistu");
+test("allowlist má přesně 45 položek (tripwire — nové pole Blocku se přidává vědomě)", () => {
+  assert.equal(UNDO_RESTORABLE_FIELDS.length, 45);
+  assert.equal(new Set(UNDO_RESTORABLE_FIELDS).size, 45, "duplicita v allowlistu");
 });
 
 test("isRestorableField pouští všechna povolená a blokuje zakázaná", () => {
@@ -100,7 +100,7 @@ test("isRestorableField pouští všechna povolená a blokuje zakázaná", () =>
   assert.equal(isRestorableField("neexistujiciSloupec"), false);
 });
 
-test("field-inventory: blockToRestoreFields vrátí všech 43 povolených polí (tripwire)", () => {
+test("field-inventory: blockToRestoreFields vrátí všech 45 povolených polí (tripwire)", () => {
   const restored = blockToRestoreFields(FULL_BLOCK);
   assert.deepEqual(restored, {
     // pozice a tiskové hodiny

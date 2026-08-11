@@ -91,7 +91,7 @@ test("Fix round 1 tripwire: konkrétní obsah průniku (nové pole se sem přid�
     "jobPresetLabel", "type", "blockVariant",
     "dataStatusLabel", "dataRequiredDate", "dataOk",
     "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock", "materialIssued",
-    "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
+    "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "pantoneInStock", "pantoneIssued",
   ]);
 });
 

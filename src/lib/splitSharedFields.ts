@@ -29,7 +29,7 @@ export const SPLIT_SHARED_FIELDS = [
   "type", "blockVariant",
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
   "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock", "materialIssued",
-  "pantoneRequiredDate", "pantoneOk", "pantoneRequired",
+  "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "pantoneInStock", "pantoneIssued",
   "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
 ] as const;
 

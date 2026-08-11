@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SERIES_EXCLUDED_FIELDS, stripSeriesPropagatedFields } from "./seriesPropagation";
 
-test("SERIES_EXCLUDED_FIELDS obsahuje právě 14 očekávaných polí", () => {
+test("SERIES_EXCLUDED_FIELDS obsahuje právě 16 očekávaných polí", () => {
   assert.deepEqual([...SERIES_EXCLUDED_FIELDS], [
     "dataRequiredDate",
     "deadlineExpedice",
@@ -14,6 +14,8 @@ test("SERIES_EXCLUDED_FIELDS obsahuje právě 14 očekávaných polí", () => {
     "materialIssued",
     "materialInStock",
     "pantoneRequired",
+    "pantoneInStock",
+    "pantoneIssued",
     "obalka",
     "vnitrky",
     "tiskoveArchy",

@@ -65,7 +65,7 @@ const EDIT_TRACKED_FIELDS = [
   "orderNumber","type","blockVariant","jobPresetId","description","locked","deadlineExpedice",
   "dataStatusId","dataStatusLabel","dataRequiredDate","dataOk","materialStatusId","materialStatusLabel",
   "materialRequiredDate","materialOk","materialNote","materialInStock","materialIssued","pantoneRequired",
-  "pantoneRequiredDate","pantoneOk","barvyStatusId","barvyStatusLabel","lakStatusId","lakStatusLabel",
+  "pantoneRequiredDate","pantoneOk","pantoneInStock","pantoneIssued","barvyStatusId","barvyStatusLabel","lakStatusId","lakStatusLabel",
   "specifikace","obalka","vnitrky","tiskoveArchy","serie",
 ] as const;
 

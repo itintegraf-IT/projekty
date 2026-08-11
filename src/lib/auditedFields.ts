@@ -15,7 +15,8 @@
 export const AUDITED_FIELDS = [
   "dataStatusLabel", "dataRequiredDate", "dataOk",
   "materialStatusLabel", "materialRequiredDate", "materialOk", "materialNote",
-  "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "materialInStock", "materialIssued",
+  "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "pantoneInStock", "pantoneIssued",
+  "materialInStock", "materialIssued",
   "deadlineExpedice",
   "expediceNote", "doprava",
   "blockVariant",

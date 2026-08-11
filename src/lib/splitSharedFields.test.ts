@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SPLIT_SHARED_FIELDS } from "./splitSharedFields";
 
-test("SPLIT_SHARED_FIELDS: má přesně 29 položek (tripwire — nové sdílené pole se přidává vědomě)", () => {
-  assert.equal(SPLIT_SHARED_FIELDS.length, 29);
-  assert.equal(new Set(SPLIT_SHARED_FIELDS).size, 29, "duplicita v seznamu");
+test("SPLIT_SHARED_FIELDS: má přesně 31 položek (tripwire — nové sdílené pole se přidává vědomě)", () => {
+  assert.equal(SPLIT_SHARED_FIELDS.length, 31);
+  assert.equal(new Set(SPLIT_SHARED_FIELDS).size, 31, "duplicita v seznamu");
 });
 
 test("SPLIT_SHARED_FIELDS: nikdy neobsahuje startTime/endTime/machine", () => {

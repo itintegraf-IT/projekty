@@ -31,6 +31,7 @@ test("Fix round 1: žádné boolean pole ze SPLIT_SHARED_FIELDS nezůstává na 
   // asserce níže na členství v SPLIT_SHARED_FIELDS hlídá, že se tenhle seznam sám nerozejde.
   const knownBooleanSplitFields = [
     "dataOk", "materialOk", "materialInStock", "materialIssued", "pantoneOk", "pantoneRequired",
+    "pantoneInStock", "pantoneIssued",
   ];
   for (const field of knownBooleanSplitFields) {
     assert.ok(

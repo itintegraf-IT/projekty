@@ -9,6 +9,8 @@
  *                                 side-effect by vynuloval *RequiredDate pole.
  * pantoneRequired:                serverový side-effect při false vynuluje
  *                                 pantoneRequiredDate i pantoneOk.
+ * pantoneInStock/pantoneIssued: per-tisk stavy pantonu, navíc serverový
+ *                                 side-effect vynuluje pantoneRequiredDate.
  *
  * Per-instance termíny se editují v sekci "Termíny série" v BlockEdit modalu
  * a ukládají se přes tlačítko "Uložit termíny série".
@@ -24,6 +26,8 @@ export const SERIES_EXCLUDED_FIELDS = [
   "materialIssued",
   "materialInStock",
   "pantoneRequired",
+  "pantoneInStock",
+  "pantoneIssued",
   "obalka",
   "vnitrky",
   "tiskoveArchy",
