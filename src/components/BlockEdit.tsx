@@ -977,8 +977,15 @@ export function BlockEdit({
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
             <SectionLabel>Výrobní sloupečky</SectionLabel>
 
-            {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | PANTONE | EXPEDICE */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+            {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | PANTONE | EXPEDICE
+                `auto-fit` místo pevných čtyř sloupců: panel je uživatelsky široký
+                200–600 px, ale sloupce MATERIÁL a PANTONE mají pod datepickerem řádek
+                tlačítek, který se nemá jak zúžit (~140 px). Čtyři takové sloupce chtějí
+                ~570 px; při užším panelu je `1fr 1fr 1fr 1fr` (tedy minmax(auto, 1fr))
+                nezmenšil, jen přetekly — a EXPEDICE, poslední v pořadí, zmizela z dohledu.
+                S `auto-fit` se řada při nedostatku místa zalomí na dva sloupce ve dvou
+                řadách: všechna čtyři pole zůstanou vidět a tlačítka na jednom řádku. */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 6 }}>
               {/* DATA */}
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA</ColLabel>
@@ -1063,8 +1070,11 @@ export function BlockEdit({
               </div>
             </div>
 
-            {/* Řádek 2: Stavy — DATA | MATERIÁL | BARVY | LAK */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 10 }}>
+            {/* Řádek 2: Stavy — DATA | MATERIÁL | BARVY | LAK
+                Týž `auto-fit` jako řádek 1, aby se obě řady lámaly ve stejnou chvíli.
+                Samotné selecty by se zúžit uměly, ale kdyby zůstaly čtyři vedle sebe
+                nad zalomeným řádkem 1, sloupečky pod sebou by přestaly lícovat. */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 6, marginTop: 10 }}>
               {/* DATA */}
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA</ColLabel>
