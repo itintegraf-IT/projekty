@@ -976,7 +976,7 @@ export function BlockCard({
             onMouseLeave={() => setBadgeHovered(false)}
           >
             <BlockDateChip
-              text={block.dataStatusId ? dataDisplayLabel : `D ${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
+              text={block.dataStatusId ? dataDisplayLabel : `D ${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
               state={dSK}
               accent={FIELD_ACCENT.DATA}
               fontSize={10}
@@ -992,24 +992,24 @@ export function BlockCard({
             />
             <MaterialNoteAffordance block={block}>
               <BlockDateChip
-                text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
+                text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
                 state={mSK}
                 accent={FIELD_ACCENT.MATERIAL}
                 fontSize={10}
                 title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                onClick={materialHandled ? undefined : (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } }}
+                onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                 onDoubleClick={canEditMat ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
               />
             </MaterialNoteAffordance>
             <BlockDateChip
-              text={`E ${block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}`}
+              text={`E ${block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}`}
               state={eSK}
               accent={FIELD_ACCENT.EXPEDICE}
               fontSize={10}
             />
             {pantoneVisible && (
               <BlockDateChip
-                text={`P ${pantoneChipText(pIcon)}`}
+                text={`P ${pantoneChipText(pIcon)}`}
                 state={pantoneStateKey as DateChipState}
                 accent={FIELD_ACCENT.PANTONE}
                 fontSize={10}
