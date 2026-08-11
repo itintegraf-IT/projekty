@@ -14,7 +14,7 @@ export function MonitorChips({ block, size }: { block: Block; size: "hero" | "qu
   const hero = size === "hero";
 
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: hero ? 6 : 5 }}>
+    <span style={{ display: "flex", flexWrap: "wrap", gap: hero ? 6 : 5 }}>
       {chips.map((c, i) => (
         <span
           key={`${c.label}-${i}`}
@@ -32,7 +32,7 @@ export function MonitorChips({ block, size }: { block: Block; size: "hero" | "qu
           {c.label}
         </span>
       ))}
-    </div>
+    </span>
   );
 }
 
