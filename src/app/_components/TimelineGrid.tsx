@@ -40,6 +40,9 @@ import {
 
 // ─── Konstanty ────────────────────────────────────────────────────────────────
 const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
+// Modulová konstanta, ne volání v default parametru — jinak by se `plannerTypeScale(...)`
+// přepočítávalo při KAŽDÉM renderu gridu (stejný vzor jako `tiskarBlockView.ts:10`).
+const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
 
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
 const HEADER_HEIGHT = 33;       // výška sticky headeru (px) — pro sticky label uvnitř dne
@@ -515,7 +518,7 @@ export default function TimelineGrid({
   queueDragItem, onQueueDrop, onQueueDragCancel, onBlockDoubleClick,
   companyDays,
   slotHeight = SLOT_HEIGHT,
-  typeScale = plannerTypeScale(DEFAULT_FONT_SCALE),
+  typeScale = DEFAULT_TS,
   daysAhead,
   daysBack,
   copiedBlockId,

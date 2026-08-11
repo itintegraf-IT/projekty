@@ -41,6 +41,38 @@ import { printDoneSize, isBlockRunningNow, splitChipFits } from "@/lib/tiskarBlo
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
 import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 
+// Modulová konstanta, ne volání v default parametru — `plannerTypeScale(...)` by se
+// jinak přepočítávalo při KAŽDÉM renderu karty (stejný vzor jako `tiskarBlockView.ts:10`).
+const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
+
+// ─── Stropy fontSize ve sdíleném jednořádkovém layoutu (MODE_TINY/MODE_MICRO_TEXT) ──
+// `typeScale.*` roste se stupněm písma, ale `thresholds.micro` (spodní hranice tohoto
+// layoutu) je 14 px pro VŠECHNY stupně — bez stropu by obsah, který v tomhle řádku má
+// vlastní pevné odsazení/rámeček (chip D/M/E/P, SpecChip „S", MiniChip), na nejnižší
+// kartě přerostl `layoutHeight`. Číslo a popis nemají žádné vlastní box-model navíc
+// (jen text), proto mají vlastní, méně přísný faktor. POZOR: stropy počítají proti
+// `layoutHeight`, ne proti `maxRenderHeight` (tím se div dál zkracuje, když na blok
+// navazuje další na stejném stroji) — u řetězících se bloků bez mezery tedy garance
+// nemusí platit, je to jen ochrana proti přerůstání VLASTNÍ výšky bloku.
+//
+// Chip/SpecChip/MiniChip: box = fontSize·lineHeight(1) + padding(2×1px) + border(2×1px)
+// = fontSize + 4. Aby se vlezl i na nejnižší kartu (layoutHeight = 14 px), musí platit
+// `fontSize + 4 ≤ layoutHeight`, tj. `fontSize ≤ layoutHeight · (1 − 4/layoutHeight)`;
+// při layoutHeight = 14 to dá F ≤ 0,714. Voleno 0,65 pro rezervu.
+const MICRO_CHIP_CAP_FACTOR = 0.65;
+// Číslo/popis: čistý text bez vlastního box-modelu — 0,7 dává na M/14px 9,8px (dnešek
+// 10, beze změny) a na XL/29px plnou velikost 16,3px (viz task-6-report.md).
+const MICRO_TEXT_CAP_FACTOR = 0.7;
+
+// ─── Ikony vedle čísla zakázky ───────────────────────────────────────────────
+// Lock/Hourglass/zelená fajfka a Clock (upozornění po termínu) byly napevno 9, resp.
+// 11 px — na M (`DEFAULT_TS.num` 13,5 px) to je poměr ~67 %, resp. ~81 % k číslu, ale
+// na XL (17,7 px) by se stejná pevná velikost smrskla na ~51 %, resp. ~62 % a ikony by
+// vedle vyrostlého čísla vypadaly zakrsle. Poměr je odvozený z DNEŠNÍCH hodnot na M,
+// aby se na M nic vizuálně nezměnilo a na L/XL rostl se stupněm stejně jako číslo.
+const NUM_ICON_RATIO_MINOR = 9 / DEFAULT_TS.num;
+const NUM_ICON_RATIO_CLOCK = 11 / DEFAULT_TS.num;
+
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 // Vizuální config bloků žije v @/lib/blockStyles (sdílený s blockShades — audit #14/C5).
 
@@ -94,7 +126,10 @@ function MiniChip({ label, accent, textColor, fontSize }: { label: string; accen
   const tc = textColor ?? accent;
   return (
     <span style={{
-      fontSize, fontWeight: 700, color: tc, lineHeight: 1.5,
+      // lineHeight 1 (ne 1,5) — chip v řádku s pevnou výškou nepotřebuje řádkovací
+      // rezervu; s 1,5 by si vynucoval nižší strop v MODE_TINY/MODE_MICRO_TEXT, než
+      // dovoluje skutečná geometrie (viz MICRO_CHIP_CAP_FACTOR výš).
+      fontSize, fontWeight: 700, color: tc, lineHeight: 1,
       background: tint(accent, 85), border: `1px solid ${tint(accent, 100)}`,
       borderRadius: 3, padding: "1px 5px", whiteSpace: "nowrap",
       display: "block",
@@ -208,7 +243,7 @@ export function BlockCard({
   pauseOverlays, contentHeight,
   calendarDrift,
   shadeParity,
-  typeScale = plannerTypeScale(DEFAULT_FONT_SCALE),
+  typeScale = DEFAULT_TS,
 }: {
   block: Block;
   top: number;
@@ -232,7 +267,8 @@ export function BlockCard({
   // Střídání odstínů — parita 0 (základní) / 1 (světlejší) pro odlišení sousedících
   // zakázek téže barvy; počítá rodič (computeShadeParity), undefined = neúčastní se.
   shadeParity?: 0 | 1;
-  /** Stupeň písma. Nepovinný kvůli DtpPanel, který kartu vykresluje bez planneru. */
+  /** Stupeň písma. Nepovinný — bez něj se karta vykreslí ve výchozím stupni M
+   * (jediný konzument je `TimelineGrid`, ale karta musí jít vykreslit i bez něj). */
   typeScale?: PlannerTypeScale;
   // Pauza (mimo provoz) uvnitř bloku, který zasahuje přes odstávku/nepracovní čas —
   // pixelové offsety (top/height) relativní k bloku, předpočítané v rodiči (má dateToY/viewStart/slotHeight).
@@ -428,18 +464,28 @@ export function BlockCard({
   // dvouřádkový popiskový badge od 60 px a kompaktní chip pod ním. Sloučeno: chip
   // nese stejnou informaci, vejde se do menší výšky a zbylé místo platí větší písmo.
   const showDates = !isTiskar && MODE_FULL && block.type !== "UDRZBA";
-  // Pás specifikace (SpecBand). Práh snížen z 80 px na celý MODE_FULL (≥48 px) —
-  // při výchozím přiblížení má hodinová zakázka 52 px a plánovač na ní spec
-  // dřív neviděl vůbec. V tiskařském režimu práh ZŮSTÁVÁ na 80 px: karta má
-  // overflow:hidden a pás vykreslený před tlačítkem Hotovo by ho na nízké kartě
-  // vytlačil pod ořez (regrese 3. 8. 2026) — tlačítko má přednost. Tiskaři pod
-  // 80 px zbývá svislý proužek, resp. značka „S" v jednořádkových režimech.
+  // Pás specifikace (SpecBand). Práh v M zůstal historicky na `MODE_FULL` (≥46 px na M
+  // při výchozím přiblížení) — dřív, na nezvětšeném písmu, plánovač spec na hodinové
+  // zakázce neviděl vůbec. V tiskařském režimu má `showSpec` VLASTNÍ, přísnější práh
+  // `typeScale.tiskarSpecMin` (obecně `typeScale.*`, dřív jen na M rovno 80 px): karta má
+  // overflow:hidden a pás vykreslený před tlačítkem Hotovo by ho na nízké kartě vytlačil
+  // pod ořez (regrese 3. 8. 2026) — tlačítko má přednost. Tiskaři pod `tiskarSpecMin`
+  // zbývá svislý proužek, resp. značka „S" v jednořádkových režimech.
   const showSpec     = isTiskar ? layoutHeight >= typeScale.tiskarSpecMin : MODE_FULL;
   const specTwoLine  = layoutHeight >= typeScale.specTwoLine;   // pod tímto prahem se vejde jen jeden řádek s elipsou
-  const hasSpecBand  = showSpec && !!block.specifikace;
+  // Pás se smí vykreslit JEN celý — karta je flex column s overflow:hidden a SpecBand je
+  // poslední v pořadí, takže cokoliv, na co nezbude místo, se ořízne odspodu (na XL by
+  // z pásu zbyla jen vodorovná čárka). `specFitsBand` proto navíc vyžaduje, aby po řádku
+  // čísla+popisu a řádku datumů zbyl aspoň `rowHeights.spec1` px. Platí JEN pro
+  // neplánovačskou (ne-tiskařskou) větev — tiskařská má vlastní, přísnější `tiskarSpecMin`
+  // a nesmí se tímhle měnit (viz komentář výš, regrese 3. 8. 2026).
+  const specFitsBand = layoutHeight >= typeScale.thresholds.full + typeScale.rowHeights.spec1;
+  const hasSpecBand  = showSpec && !!block.specifikace && (isTiskar || specFitsBand);
   const specRows: 0 | 1 | 2 = hasSpecBand ? (specTwoLine ? 2 : 1) : 0;
-  // Značka „S" místo pásu — jen v jednořádkových režimech, které mají řádek chipů.
-  const hasSpecChip  = !hasSpecBand && !!block.specifikace && (MODE_COMPACT || MODE_TINY || MODE_MICRO_TEXT);
+  // Značka „S" místo pásu — v jednořádkových režimech VŽDY (tam pás nemá kam jít), a nově
+  // i v MODE_FULL, když `hasSpecBand` vyšlo false (nevejde se celý pás) — buď se ukáže
+  // celý pás, nebo jen značka s textem v tooltipu, nikdy uříznutý zbytek pásu.
+  const hasSpecChip  = !hasSpecBand && !!block.specifikace && (MODE_FULL || MODE_COMPACT || MODE_TINY || MODE_MICRO_TEXT);
   // Popis za číslem zakázky. Zobrazujeme v celém FULL módu (≥thresholds.full), ne až
   // od vyššího prahu — jinak bloky těsně nad thresholds.full (typicky 2–2,5h při
   // odzoomu) neukazovaly popis, zatímco menší COMPACT/TINY bloky ho ukazují. Číslo
@@ -449,7 +495,10 @@ export function BlockCard({
   const showDesc   = MODE_FULL && layoutHeight >= typeScale.thresholds.full;
   // Počet řádků popisu — v úzkém pásmu (thresholds.full × 1–1,4) přesně 1 řádek (víc
   // se nevejde vedle datového řádku), nad tím roste s výškou bloku a řádkovou výškou
-  // popisu daného stupně (M dává stejné hodnoty jako dřívější napevno zapsané 66/13px).
+  // popisu daného stupně. Pro M se hodnoty od dřívějších napevno zapsaných 66/13px
+  // NEshodují přesně — liší se při výšce 65 a 94 px a od 107 px výš dává nový vzorec
+  // soustavně o 1 řádek méně (dělitel teď sedí na skutečnou výšku řádku popisu, ne na
+  // odhad). Jde o věcné zlepšení, ne regresi — jen to není bezezbytkově „stejné".
   const descLineClamp = layoutHeight < typeScale.thresholds.full * 1.4
     ? 1
     : Math.max(2, Math.floor((layoutHeight - typeScale.thresholds.full - 7) / Math.round(typeScale.desc * 1.3)));
@@ -771,9 +820,9 @@ export function BlockCard({
                 <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               </>}
               <span style={{ fontSize: typeScale.num * 0.92, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
-                {isPrintDone && <span style={{ marginLeft: 4, fontSize: 9, color: "#22c55e", fontWeight: 700 }}>✓</span>}
-                {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={11} strokeWidth={2.5} color="#f59e0b" /></span>}
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
+                {isPrintDone && <span style={{ marginLeft: 4, fontSize: typeScale.num * NUM_ICON_RATIO_MINOR, color: "#22c55e", fontWeight: 700 }}>✓</span>}
+                {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={Math.round(typeScale.num * NUM_ICON_RATIO_CLOCK)} strokeWidth={2.5} color="#f59e0b" /></span>}
               </span>
               {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -821,20 +870,20 @@ export function BlockCard({
       })()}
 
       {/* ── MODE_TINY + MICRO_TEXT: jednořádkový layout — [D chip][M chip][E chip] · číslo · popis.
-          Sdílený pro obě úzká pásma (14–43 px): chipy dodání dat/materiálu/expedice mají přednost,
-          popis se uřízne elipsou, když nezbude místo. Půlhodinový blok v nadhledu (14–23 px) tak
-          neztratí D/M/E chipy — dřív MICRO_TEXT ukazoval jen popis bez chipů. ── */}
+          Sdílený pro obě úzká pásma (`thresholds.micro`–`thresholds.compact`, na M 14–43 px, roste
+          se stupněm): chipy dodání dat/materiálu/expedice mají přednost, popis se uřízne elipsou,
+          když nezbude místo. Půlhodinový blok v nadhledu (`thresholds.micro`–`thresholds.tiny`, na M
+          14–21 px) tak neztratí D/M/E chipy — dřív MICRO_TEXT ukazoval jen popis bez chipů. ── */}
       {(MODE_TINY || MODE_MICRO_TEXT) && (() => {
         const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         // Všechny fontSize v tomhle sdíleném řádku, které mají VLASTNÍ pevné
         // odsazení/rámeček (chip, SpecChip „S", MiniChip), MUSÍ být stropované
-        // Math.min(typeScale.X, layoutHeight * F) — thresholds.micro je 14 px pro
-        // VŠECHNY stupně, ale písmo se stupněm roste, takže bez stropu by na
-        // nejnižší kartě přeteklo (strop se NEODSTRAŇUJ, i kdyby vypadal "zbytečný").
+        // `MICRO_CHIP_CAP_FACTOR` (odvození u definice konstanty výš v souboru) —
+        // strop se NEODSTRAŇUJ, i kdyby vypadal "zbytečný".
         const chipStyle = (stateKey: DateChipState, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
-          fontSize: Math.min(typeScale.chip, layoutHeight * 0.65), fontWeight: 600,
+          fontSize: Math.min(typeScale.chip, layoutHeight * MICRO_CHIP_CAP_FACTOR), fontWeight: 600,
           color: stateKey === "empty" ? "#fff" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
           borderTop: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
@@ -851,9 +900,10 @@ export function BlockCard({
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, ...contentBoxFlex, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
-              {/* Značka specifikace i tady — bez ní by karta 14–43 px neukázala
-                  ani pás, ani „S", ani proužek (proužek je potlačen hasSpecChip). */}
-              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={Math.min(typeScale.specChip, layoutHeight * 0.65)} />}
+              {/* Značka specifikace i tady — bez ní by karta v tomhle pásmu (`thresholds.micro`–
+                  `thresholds.compact`) neukázala ani pás, ani „S", ani proužek (proužek je
+                  potlačen hasSpecChip). */}
+              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={Math.min(typeScale.specChip, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={{
                     ...chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
@@ -890,12 +940,12 @@ export function BlockCard({
                 )}
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
-              <span style={{ fontSize: Math.min(typeScale.num * 0.92, layoutHeight * 0.7), fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={8} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
+              <span style={{ fontSize: Math.min(typeScale.num * 0.92, layoutHeight * MICRO_TEXT_CAP_FACTOR), fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
               </span>
               {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
-                  <span style={{ fontSize: Math.min(typeScale.desc * 0.9, layoutHeight * 0.7), fontWeight: 400, color: s.textSub, opacity: typeScale.descOpacityTiny, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                  <span style={{ fontSize: Math.min(typeScale.desc * 0.9, layoutHeight * MICRO_TEXT_CAP_FACTOR), fontWeight: 400, color: s.textSub, opacity: typeScale.descOpacityTiny, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
                     {block.description}
                   </span>
                 </span>
@@ -913,9 +963,9 @@ export function BlockCard({
             <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
               {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
                 <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
-                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * 0.45)} />}
-                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * 0.45)} />}
-                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * 0.45)} />}
+                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
+                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
+                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
                   {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                     <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
                   )}
@@ -944,7 +994,7 @@ export function BlockCard({
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
               {block.orderNumber}
-              {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
+              {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.85 }}><Lock size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
             </span>
             {showDesc && block.description && (
               <span style={{
@@ -961,6 +1011,8 @@ export function BlockCard({
           {/* Pravá část: status chips + série + split */}
           {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
+              {/* Náhrada za pás specifikace, když se v MODE_FULL nevejde celý (viz hasSpecChip výš). */}
+              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={Math.min(typeScale.specChip, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={typeScale.mini} />}
               {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={typeScale.mini} />}
               {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={typeScale.mini} />}

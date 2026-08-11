@@ -6,14 +6,21 @@ import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
  * Zvýrazněná specifikace na kartě bloku (připomínka plánovače, 8/2026).
  *
  * Do 8/2026 to byl poslední řádek karty v barvě popisu s průhledností 82 %,
- * navíc až od výšky 80 px — u zakázek kratších než ~1,5 h ho plánovač neviděl
- * vůbec. Nově má tři podoby podle toho, kolik místa v kartě zbývá:
+ * navíc až od pevné výšky 80 px — u zakázek kratších než ~1,5 h ho plánovač
+ * neviděl vůbec. Nově má tři podoby podle toho, kolik místa v kartě zbývá.
+ * Prahy jsou od etapy „čitelnost timeline" (8/2026) odvozené z `typeScale`
+ * (`src/lib/plannerTypography.ts`), ne napevno zapsané — čísla níž jsou
+ * příklad pro výchozí stupeň M, na L/XL rostou spolu s písmem:
  *
- * | Výška bloku | Podoba |
- * | ----------- | ------ |
- * | ≥ 80 px     | `SpecBand` přes dva řádky |
- * | 48–79 px    | `SpecBand` na jeden řádek s elipsou |
- * | < 48 px     | `SpecChip` — čtvereček „S" v řádku chipů, text v tooltipu |
+ * | Výška bloku (M)                                | Podoba |
+ * | ----------------------------------------------- | ------ |
+ * | ≥ `thresholds.full + rowHeights.spec1` (M ~67px) | `SpecBand` — celý pás (2 řádky od `specTwoLine`, jinak 1 s elipsou) |
+ * | < `thresholds.full + rowHeights.spec1`           | `SpecChip` — čtvereček „S" v řádku chipů, text v tooltipu |
+ *
+ * `SpecBand` se NIKDY nekreslí uříznutý — karta je flex column s `overflow:
+ * hidden` a pás je poslední v pořadí, takže cokoliv, na co by nezbylo místo,
+ * by se ořízlo odspodu (viz `BlockCard.tsx`, `specFitsBand`). Buď se ukáže
+ * celý, nebo se nahradí značkou „S".
  *
  * Barvy jsou pevné literály z `blockStyles` (ne CSS tokeny) — vnitřek bloku je
  * barevný gradient stejný ve světlém i tmavém motivu, takže tokeny vázané na
@@ -47,8 +54,9 @@ export function SpecBand({ text, twoLine, fontSize }: { text: string; twoLine: b
 
 /**
  * Zkratka specifikace pro karty, kam se pás nevejde. Půlhodinová zakázka má
- * i při maximálním přiblížení jen 26 px — text tam neexistuje způsob, jak
- * zobrazit, takže zbývá nepřehlédnutelná značka a tooltip.
+ * i při maximálním přiblížení jen `effectiveSlotHeight` px (na M 26 px, roste
+ * s vyšším stupněm) — text tam nejde zobrazit, takže zbývá nepřehlédnutelná
+ * značka a tooltip.
  */
 export function SpecChip({ text, fontSize }: { text: string; fontSize: number }) {
   return (
