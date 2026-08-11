@@ -21,9 +21,11 @@ export type PrintDoneSize =
 
 /**
  * Rozměr tlačítka Hotovo pro danou výšku bloku (`layoutHeight` z BlockCard).
- * Prahy navazují na layout režimy karty: od `ts.thresholds.full` je plný layout
- * a vejde se pruh přes celou šířku, od `ts.thresholds.micro` čtverec s háčkem,
- * pod tím karta nevykresluje obsah vůbec → `null`.
+ * Prahy navazují na layout režimy karty, ale NEjsou s nimi totožné: pruh (bar
+ * 24) potřebuje nad sebou první řádek karty i svoje vlastní odsazení, takže
+ * jeho práh je vlastní hodnota `PRINT_BAR_24_MIN_ROOM_PX` nad `ts.rowHeights.header`
+ * (viz konstanta níž) — ne rovnou `ts.thresholds.full`. Od `ts.thresholds.micro`
+ * je čtverec s háčkem, pod tím karta nevykresluje obsah vůbec → `null`.
  *
  * Prahy 140 a 96 rostou s mřížkou (`ts.slotFactor`) — porovnávají se s
  * `layoutHeight`, který taky roste s mřížkou, takže je to dimenzionálně
@@ -31,12 +33,26 @@ export type PrintDoneSize =
  * (`ts.fontFactor`) — jinak by na XL popisek „Hotovo" vyrostl jen o 12 %
  * místo 35 % jako zbytek textu karty (nález z code review, 8/2026).
  */
+
+/**
+ * Kolik místa nad sebou potřebuje pruh Hotovo (varianta `bar`, výška 24) navíc
+ * k prvnímu řádku karty (`ts.rowHeights.header`): 2 px paddingTop + 24 px
+ * výška pruhu. Práh svázaný jen s `ts.thresholds.full` tuhle rezervu nepočítal
+ * a na stupních M a L nestačil — pruh se do karty vešel jen zčásti a spodní
+ * okraj se oříznul (nález review, 8/2026; menší sourozenec regrese tlačítka
+ * Hotovo z 3. 8. 2026).
+ */
+const PRINT_BAR_24_MIN_ROOM_PX = 26;
+
 export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAULT_TS): PrintDoneSize | null {
   const big = Math.round(140 * ts.slotFactor);
   const mid = Math.round(96 * ts.slotFactor);
+  // Nikdy pod ts.thresholds.full, ale ani pod tím, co pruh reálně potřebuje —
+  // viz PRINT_BAR_24_MIN_ROOM_PX výš.
+  const barThreshold = Math.max(ts.thresholds.full, ts.rowHeights.header + PRINT_BAR_24_MIN_ROOM_PX);
   if (layoutHeight >= big) return { variant: "bar", height: 40, fontSize: Math.round(16 * ts.fontFactor) };
   if (layoutHeight >= mid) return { variant: "bar", height: 32, fontSize: Math.round(14 * ts.fontFactor) };
-  if (layoutHeight >= ts.thresholds.full) return { variant: "bar", height: 24, fontSize: 11.5 };
+  if (layoutHeight >= barThreshold) return { variant: "bar", height: 24, fontSize: 11.5 };
   if (layoutHeight >= ts.thresholds.micro) return { variant: "square", height: 26, fontSize: 15 };
   return null;
 }

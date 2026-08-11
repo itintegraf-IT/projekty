@@ -12,15 +12,20 @@ import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
  * (`src/lib/plannerTypography.ts`), ne napevno zapsané — čísla níž jsou
  * příklad pro výchozí stupeň M, na L/XL rostou spolu s písmem:
  *
- * | Výška bloku (M)                                | Podoba |
- * | ----------------------------------------------- | ------ |
- * | ≥ `thresholds.full + rowHeights.spec1` (M ~67px) | `SpecBand` — celý pás (2 řádky od `specTwoLine`, jinak 1 s elipsou) |
- * | < `thresholds.full + rowHeights.spec1`           | `SpecChip` — čtvereček „S" v řádku chipů, text v tooltipu |
+ * | Výška bloku (M)                                        | Podoba |
+ * | ------------------------------------------------------- | ------ |
+ * | ≥ `thresholds.full + rowHeights.spec1/spec2`* (M ~67/~80px) | `SpecBand` — celý pás (2 řádky od `specTwoLine`, jinak 1 s elipsou) |
+ * | < prahu výš                                              | `SpecChip` — čtvereček „S" v řádku chipů, text v tooltipu |
  *
- * `SpecBand` se NIKDY nekreslí uříznutý — karta je flex column s `overflow:
- * hidden` a pás je poslední v pořadí, takže cokoliv, na co by nezbylo místo,
- * by se ořízlo odspodu (viz `BlockCard.tsx`, `specFitsBand`). Buď se ukáže
- * celý, nebo se nahradí značkou „S".
+ * *práh počítá s `rowHeights.spec2` místo `spec1`, když je pás dvouřádkový
+ * (`layoutHeight >= specTwoLine`) — jednořádkový a dvouřádkový pás mají jinou výšku.
+ *
+ * `SpecBand` se NEkreslí uříznutý, pokud má popis zakázky jeden řádek — karta je
+ * flex column s `overflow: hidden` a pás je poslední v pořadí, takže cokoliv, na
+ * co by nezbylo místo, by se ořízlo odspodu (viz `BlockCard.tsx`, `specFitsBand`).
+ * U víceřádkového popisu (`descLineClamp` > 1) na vysoké kartě ale `specFitsBand`
+ * nepočítá se zvednutým prvním řádkem, takže se pás výjimečně oříznout MŮŽE (nález
+ * review, 8/2026). Jinak platí: buď se ukáže celý, nebo se nahradí značkou „S".
  *
  * Barvy jsou pevné literály z `blockStyles` (ne CSS tokeny) — vnitřek bloku je
  * barevný gradient stejný ve světlém i tmavém motivu, takže tokeny vázané na

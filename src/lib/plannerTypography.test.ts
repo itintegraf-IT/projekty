@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   DEFAULT_FONT_SCALE,
   PLANNER_FONT_SCALE_KEYS,
+  PLANNER_FONT_SCALES,
   effectiveSlotHeight,
   isPlannerFontScale,
   plannerTypeScale,
@@ -13,8 +14,11 @@ const TODAY = { full: 48, compact: 44, tiny: 24, micro: 14 };
 // Maximální přiblížení: slotHeight 26 px na 30 minut (ZoomSlider max).
 const MAX_ZOOM = 26;
 
-test("stupně jsou M, L, XL a výchozí je M", () => {
-  assert.deepEqual([...PLANNER_FONT_SCALE_KEYS], ["M", "L", "XL"]);
+test("PLANNER_FONT_SCALE_KEYS odpovídá klíčům PLANNER_FONT_SCALES a výchozí je M", () => {
+  // Porovnává se s Object.keys(PLANNER_FONT_SCALES), ne s ručně psaným literálem —
+  // kdyby někdo přidal stupeň do PLANNER_FONT_SCALES a zapomněl na PLANNER_FONT_SCALE_KEYS,
+  // tenhle test to chytí (nález review, 8/2026: dřív porovnával dva ručně psané zdroje pravdy).
+  assert.deepEqual([...PLANNER_FONT_SCALE_KEYS], Object.keys(PLANNER_FONT_SCALES));
   assert.equal(DEFAULT_FONT_SCALE, "M");
 });
 

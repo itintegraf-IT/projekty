@@ -13,17 +13,19 @@ test("printDoneSize: 96–139 px = pruh 32 px", () => {
   assert.deepEqual(printDoneSize(96),  { variant: "bar", height: 32, fontSize: 14 });
 });
 
-test("printDoneSize: 48–95 px = pruh 24 px (spodní hranice MODE_FULL)", () => {
+test("printDoneSize: 50–95 px = pruh 24 px (práh pruhu, ne MODE_FULL)", () => {
+  // Spodní mez posunuta z 48 na 50: práh pruhu už není ts.thresholds.full (46),
+  // ale rowHeights.header + 26 px rezervy, kterou pruh reálně potřebuje
+  // (nález review 8/2026 — na 46–49 px se pruh do karty nevešel celý).
   assert.deepEqual(printDoneSize(95), { variant: "bar", height: 24, fontSize: 11.5 });
-  assert.deepEqual(printDoneSize(48), { variant: "bar", height: 24, fontSize: 11.5 });
+  assert.deepEqual(printDoneSize(50), { variant: "bar", height: 24, fontSize: 11.5 });
 });
 
-test("printDoneSize: 14–45 px = čtverec 26 px", () => {
-  // Horní mez posunuta z 47 na 45: stupeň M teď čte práh plného layoutu
-  // z ts.thresholds.full (46, viz plannerTypography.ts), ne z napevno
-  // zapsaných 48 — Task 1 tuhle hranici legitimně zpřesnil o 2 px dolů,
-  // takže výška 46/47 je od 8/2026 správně "bar" (menší, 24 px), ne "square".
-  assert.deepEqual(printDoneSize(45), { variant: "square", height: 26, fontSize: 15 });
+test("printDoneSize: 14–49 px = čtverec 26 px", () => {
+  // Horní mez posunuta z 45 na 49: čtverec teď platí až do těsně pod prahem
+  // pruhu (50, viz test výš) — na M už to není ts.thresholds.full (46), protože
+  // pruh na 46–49 px reálně nemá kam se vejít (oprava nálezu review 8/2026).
+  assert.deepEqual(printDoneSize(49), { variant: "square", height: 26, fontSize: 15 });
   assert.deepEqual(printDoneSize(14), { variant: "square", height: 26, fontSize: 15 });
 });
 
@@ -104,14 +106,42 @@ test("bez stupně se rozpočet chová jako dnes (stupeň M)", () => {
   assert.deepEqual(printDoneSize(20), printDoneSize(20, plannerTypeScale("M")));
 });
 
-test("práh pruhu Hotovo sleduje práh plného layoutu daného stupně", () => {
-  // Karta o výšce těsně pod prahem plného layoutu nesmí dostat pruh přes
-  // celou šířku — nevejde se a vytlačil by obsah pod ořez.
+test("práh pruhu Hotovo garantuje, že se pruh do karty vejde (oprava nálezu review 8/2026)", () => {
+  // Hranice se posunula z ts.thresholds.full: na M/L se do prahu plného layoutu
+  // pruh nevešel celý (potřebuje nad sebou první řádek karty i svoje vlastní
+  // odsazení, dohromady rowHeights.header + 26 px) a spodní okraj se ořízl —
+  // menší sourozenec regrese tlačítka Hotovo z 3. 8. 2026. Hodnoty dopočítané
+  // z plannerTypography.ts (M 50 / L 52 / XL 57, viz final-fix-report.md).
+  const expectedBarThreshold = { M: 50, L: 52, XL: 57 } as const;
   for (const key of ["M", "L", "XL"] as const) {
     const ts = plannerTypeScale(key);
-    const justBelow = ts.thresholds.full - 1;
-    assert.equal(printDoneSize(justBelow, ts)?.variant, "square", `${key}: pod prahem čtverec`);
-    assert.equal(printDoneSize(ts.thresholds.full, ts)?.variant, "bar", `${key}: na prahu pruh`);
+    const barThreshold = expectedBarThreshold[key];
+    assert.equal(printDoneSize(barThreshold - 1, ts)?.variant, "square", `${key}: pod prahem čtverec`);
+    assert.equal(printDoneSize(barThreshold, ts)?.variant, "bar", `${key}: na prahu pruh`);
+    assert.ok(
+      barThreshold >= ts.rowHeights.header + 26,
+      `${key}: práh ${barThreshold} musí zaručit prostor pro pruh (potřeba ${ts.rowHeights.header + 26})`
+    );
+  }
+});
+
+test("pruh 24 px se vždy vejde pod první řádek karty — hlídá vazbu napřímo pro M/L/XL", () => {
+  // Přímý strážce geometrie z NÁLEZU 1: kdykoliv printDoneSize vrátí variantu
+  // bar o výšce 24, layoutHeight musí mít rezervu na první řádek karty
+  // (rowHeights.header) i na odsazení a výšku pruhu (2 px paddingTop + 24 px
+  // výška = 26 px). Právě absence takového testu pustila vadu, kdy byl práh
+  // pruhu svázaný jen s thresholds.full a pruh se na M/L do karty nevešel.
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    for (let h = ts.thresholds.micro; h <= 200; h++) {
+      const size = printDoneSize(h, ts);
+      if (size?.variant === "bar" && size.height === 24) {
+        assert.ok(
+          h >= ts.rowHeights.header + 26,
+          `${key} @ ${h}px: pruh 24 se nevejde pod první řádek (potřeba ${ts.rowHeights.header + 26})`
+        );
+      }
+    }
   }
 });
 

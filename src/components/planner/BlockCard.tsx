@@ -475,11 +475,18 @@ export function BlockCard({
   const specTwoLine  = layoutHeight >= typeScale.specTwoLine;   // pod tímto prahem se vejde jen jeden řádek s elipsou
   // Pás se smí vykreslit JEN celý — karta je flex column s overflow:hidden a SpecBand je
   // poslední v pořadí, takže cokoliv, na co nezbude místo, se ořízne odspodu (na XL by
-  // z pásu zbyla jen vodorovná čárka). `specFitsBand` proto navíc vyžaduje, aby po řádku
-  // čísla+popisu a řádku datumů zbyl aspoň `rowHeights.spec1` px. Platí JEN pro
+  // z pásu zbyla jen vodorovná čárka). `specFitsBand` proto vyžaduje, aby po řádku
+  // čísla+popisu a řádku datumů zbyla aspoň skutečná výška pásu — `rowHeights.spec2`,
+  // když je pás dvouřádkový (`specTwoLine`), jinak `rowHeights.spec1`. Platí JEN pro
   // neplánovačskou (ne-tiskařskou) větev — tiskařská má vlastní, přísnější `tiskarSpecMin`
   // a nesmí se tímhle měnit (viz komentář výš, regrese 3. 8. 2026).
-  const specFitsBand = layoutHeight >= typeScale.thresholds.full + typeScale.rowHeights.spec1;
+  //
+  // POZOR — záruka „pás se nikdy nevykreslí uříznutý" platí jen pro jednořádkový popis
+  // (`descLineClamp === 1`). Víceřádkový popis na vysoké kartě zvedne první řádek nad
+  // `rowHeights.header`, což `specFitsBand` nepočítá — u téhle kombinace se pás výjimečně
+  // oříznout MŮŽE (nález review, 8/2026). Dopočítat i tenhle případ by znamenalo přepsat
+  // výpočet výšky prvního řádku, proto zůstává jako známá výjimka, ne oprava.
+  const specFitsBand = layoutHeight >= typeScale.thresholds.full + (specTwoLine ? typeScale.rowHeights.spec2 : typeScale.rowHeights.spec1);
   const hasSpecBand  = showSpec && !!block.specifikace && (isTiskar || specFitsBand);
   const specRows: 0 | 1 | 2 = hasSpecBand ? (specTwoLine ? 2 : 1) : 0;
   // Značka „S" místo pásu — v jednořádkových režimech VŽDY (tam pás nemá kam jít), a nově
@@ -632,7 +639,7 @@ export function BlockCard({
           Fixní pozice top:4/right:4 — když je zároveň přítomný 📝 badge tiskařských
           poznámek (stejný roh), ten se odsune níž (viz jeho `top` níž), aby nekolidovaly.
           zIndex 4 — nad content (2–3), pod drag/resize stavy (5–20) i paste marker (25).
-          Pod MODE_TINY (layoutHeight < 24, „micro tečky") se nezobrazuje vůbec —
+          Pod MODE_TINY (layoutHeight < typeScale.thresholds.tiny, „micro tečky") se nezobrazuje vůbec —
           na bloku bez jakéhokoliv textového obsahu by badge jen kolidoval s okrajem. */}
       {isPastDeadline && (MODE_FULL || MODE_COMPACT || MODE_TINY) && (
         <span
