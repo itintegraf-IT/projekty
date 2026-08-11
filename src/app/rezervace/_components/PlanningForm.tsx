@@ -68,6 +68,7 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
   );
   const [pantoneOk, setPantoneOk] = useState<boolean>(Boolean(existing?.pantoneOk));
   const [pantoneRequired, setPantoneRequired] = useState<boolean>(Boolean(existing?.pantoneRequired));
+  const [pantoneInStock, setPantoneInStock] = useState<boolean>(Boolean(existing?.pantoneInStock));
   const [barvyStatusId, setBarvyStatusId] = useState<string>(
     existing?.barvyStatusId !== undefined && existing.barvyStatusId !== null
       ? String(existing.barvyStatusId) : ""
@@ -152,9 +153,11 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
         materialInStock,
         materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
         materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
-        pantoneRequiredDate: pantoneRequired ? (pantoneRequiredDate || null) : null,
+        pantoneRequiredDate: (pantoneRequired && !pantoneInStock) ? (pantoneRequiredDate || null) : null,
         pantoneOk,
         pantoneRequired,
+        pantoneInStock,
+        pantoneIssued: false,
         barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
         barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
         lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
@@ -292,8 +295,32 @@ export default function PlanningForm({ reservation, onPrepared }: Props) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
           {/* Pantone */}
           <div>
-            <label style={labelStyle}>Pantone</label>
-            <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum…" asButton />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>Pantone</label>
+              <label style={{
+                display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600,
+                color: pantoneInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer",
+              }}>
+                <div
+                  onClick={() => { setPantoneInStock(!pantoneInStock); if (!pantoneInStock) { setPantoneRequiredDate(""); setPantoneRequired(true); } }}
+                  style={{
+                    width: 32, height: 18, borderRadius: 9,
+                    background: pantoneInStock ? "#10b981" : "var(--surface-3)",
+                    cursor: "pointer", position: "relative", transition: "background 150ms ease-out", flexShrink: 0,
+                  }}
+                >
+                  <div style={{
+                    position: "absolute", top: 2, left: pantoneInStock ? 15 : 2, width: 14, height: 14,
+                    borderRadius: "50%", background: "#fff", transition: "left 150ms ease-out",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                  }} />
+                </div>
+                SKLADEM
+              </label>
+            </div>
+            <div style={{ opacity: pantoneInStock ? 0.4 : 1, pointerEvents: pantoneInStock ? "none" : "auto" }}>
+              <DatePickerField value={pantoneInStock ? "" : pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum…" asButton />
+            </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6 }}>
               <button type="button" onClick={() => {
                 const next = !pantoneRequired;

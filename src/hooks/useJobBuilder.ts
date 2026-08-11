@@ -41,6 +41,8 @@ export type QueueItem = {
   materialRequiredDate: string | null;
   materialInStock: boolean;
   materialIssued: boolean;
+  pantoneInStock: boolean;
+  pantoneIssued: boolean;
   pantoneRequiredDate: string | null;
   pantoneOk: boolean;
   pantoneRequired: boolean;
@@ -120,6 +122,8 @@ export function reservationToQueueItem(r: ReservationQueueItem): QueueItem {
     materialRequiredDate: typeof p.materialRequiredDate === "string" ? p.materialRequiredDate : null,
     materialInStock: Boolean(p.materialInStock),
     materialIssued: Boolean(p.materialIssued),
+    pantoneInStock: Boolean(p.pantoneInStock),
+    pantoneIssued: Boolean(p.pantoneIssued),
     pantoneRequiredDate: typeof p.pantoneRequiredDate === "string" ? p.pantoneRequiredDate : null,
     pantoneOk: Boolean(p.pantoneOk),
     pantoneRequired: Boolean(p.pantoneRequired),
@@ -177,6 +181,7 @@ export function useJobBuilder({
   const [bMaterialStatusId, setBMaterialStatusId]         = useState<string>("");
   const [bMaterialRequiredDate, setBMaterialRequiredDate] = useState<string>("");
   const [bMaterialInStock, setBMaterialInStock]           = useState(false);
+  const [bPantoneInStock, setBPantoneInStock]             = useState(false);
   const [bPantoneRequiredDate, setBPantoneRequiredDate]   = useState<string>("");
   const [bPantoneOk, setBPantoneOk]                       = useState(false);
   const [bPantoneRequired, setBPantoneRequired]           = useState(false);
@@ -294,6 +299,7 @@ export function useJobBuilder({
       materialInStock: bMaterialInStock,
       pantoneRequired: bPantoneRequired,
       pantoneRequiredDate: bPantoneRequiredDate,
+      pantoneInStock: bPantoneInStock,
       barvyStatusId: bBarvyStatusId,
       lakStatusId: bLakStatusId,
       deadlineExpedice: bDeadlineExpedice,
@@ -319,6 +325,7 @@ export function useJobBuilder({
     setBMaterialInStock(next.materialInStock);
     setBPantoneRequiredDate(next.pantoneRequiredDate);
     setBPantoneRequired(next.pantoneRequired);
+    setBPantoneInStock(next.pantoneInStock ?? false);
     setBBarvyStatusId(next.barvyStatusId);
     setBLakStatusId(next.lakStatusId);
     setBDeadlineExpedice(next.deadlineExpedice);
@@ -337,6 +344,7 @@ export function useJobBuilder({
     setBMaterialInStock(next.materialInStock);
     setBPantoneRequiredDate(next.pantoneRequiredDate);
     setBPantoneRequired(next.pantoneRequired);
+    setBPantoneInStock(next.pantoneInStock ?? false);
     setBBarvyStatusId(next.barvyStatusId);
     setBLakStatusId(next.lakStatusId);
     setBDeadlineExpedice(next.deadlineExpedice);
@@ -355,6 +363,7 @@ export function useJobBuilder({
     setBPantoneRequiredDate("");
     setBPantoneOk(false);
     setBPantoneRequired(false);
+    setBPantoneInStock(false);
     setBBarvyStatusId("");
     setBLakStatusId("");
     setBSpecifikace("");
@@ -400,6 +409,8 @@ export function useJobBuilder({
         pantoneRequiredDate: bPantoneRequiredDate || null,
         pantoneOk: bPantoneOk,
         pantoneRequired: bPantoneRequired,
+        pantoneInStock: bPantoneInStock,
+        pantoneIssued: false,
         barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
         barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
         lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
@@ -439,6 +450,8 @@ export function useJobBuilder({
       pantoneRequiredDate: bPantoneRequiredDate || null,
       pantoneOk: bPantoneOk,
       pantoneRequired: bPantoneRequired,
+      pantoneInStock: bPantoneInStock,
+      pantoneIssued: false,
       barvyStatusId: bBarvyStatusId ? Number(bBarvyStatusId) : null,
       barvyStatusLabel: findLabel(bBarvyOpts, bBarvyStatusId),
       lakStatusId: bLakStatusId ? Number(bLakStatusId) : null,
@@ -633,6 +646,7 @@ export function useJobBuilder({
     bMaterialStatusId, setBMaterialStatusId,
     bMaterialRequiredDate, setBMaterialRequiredDate,
     bMaterialInStock, setBMaterialInStock,
+    bPantoneInStock, setBPantoneInStock,
     bPantoneRequiredDate, setBPantoneRequiredDate,
     bPantoneOk, setBPantoneOk,
     bPantoneRequired, setBPantoneRequired,

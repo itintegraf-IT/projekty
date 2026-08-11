@@ -38,6 +38,7 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
     bMaterialStatusId, setBMaterialStatusId,
     bMaterialRequiredDate, setBMaterialRequiredDate,
     bMaterialInStock, setBMaterialInStock,
+    bPantoneInStock, setBPantoneInStock,
     bPantoneRequiredDate, setBPantoneRequiredDate,
     bPantoneOk, setBPantoneOk,
     bPantoneRequired, setBPantoneRequired,
@@ -334,8 +335,16 @@ export function JobBuilderPanel({ jb, isDark }: { jb: UseJobBuilderReturn; isDar
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                         {/* Pantone — datepicker + potřeba/OK vedle sebe */}
                         <div>
-                          <label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block", fontWeight: 500 }}>Pantone</label>
-                          <DatePickerField value={bPantoneRequiredDate} onChange={(v) => { setBPantoneRequiredDate(v); if (v) setBPantoneRequired(true); }} placeholder="Datum…" />
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                            <label style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 500 }}>Pantone</label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: bPantoneInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer" }}>
+                              <Switch checked={bPantoneInStock} onCheckedChange={(checked) => { setBPantoneInStock(checked); if (checked) { setBPantoneRequiredDate(""); setBPantoneRequired(true); } }} />
+                              SKLADEM
+                            </label>
+                          </div>
+                          <div style={{ opacity: bPantoneInStock ? 0.4 : 1, pointerEvents: bPantoneInStock ? "none" : "auto" }}>
+                            <DatePickerField value={bPantoneRequiredDate} onChange={(v) => { setBPantoneRequiredDate(v); if (v) setBPantoneRequired(true); }} placeholder="Datum…" />
+                          </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
                             <button type="button" onClick={() => {
                               const next = !bPantoneRequired;
