@@ -34,6 +34,10 @@ export const DEADLINE_BORDER: Record<DateChipState, string> = {
  * to slovo, ale vejdou se do ~16 px — z uspořené výšky se platí větší písmo.
  *
  * Rozměry se odvozují od `fontSize`, aby chip rostl se stupněm písma jako celek.
+ * Svislý padding je `fontSize * 0.2` schválně, ne „hezčích" 0.26 — skutečná výška
+ * řádku (2× padding + fontSize + 2px hran) musí odpovídat vzorci `chip * 1.6`
+ * v `plannerTypography.ts`, který z ní odvozuje práh plného layoutu; 0.26 by ho
+ * u stupně XL podhodnotil o 1,6 px přesně tam, kde má hodinový blok rezervu jen 1 px.
  */
 export function BlockDateChip({
   text, state, accent, fontSize,
@@ -70,7 +74,7 @@ export function BlockDateChip({
         borderBottom: `1px solid ${border}`,
         borderLeft: `2px solid ${accent}`,
         borderRadius: 4,
-        padding: `${Math.round(fontSize * 0.26)}px ${Math.round(fontSize * 0.55)}px`,
+        padding: `${Math.round(fontSize * 0.2)}px ${Math.round(fontSize * 0.55)}px`,
         whiteSpace: "nowrap",
         flexShrink: 0,
         lineHeight: 1,
