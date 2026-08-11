@@ -1024,7 +1024,13 @@ export function BlockEdit({
                 ) : (
                   <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum" />
                 )}
-                <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+                {/* flexWrap je tu nutnost, ne kosmetika: sloupec je 1/4 mřížky, což je
+                    minmax(auto, 1fr) — track se NIKDY nesmrskne pod min-content obsahu.
+                    Bez zalomení určoval šířku sloupce tenhle řádek čtyř tlačítek (~170 px),
+                    přetlačil ostatní sloupce a EXPEDICI vytlačil pod ořez; datepicker nad
+                    ním se na tu šířku jen natáhl (width: 100 %). Se zalomením je min-content
+                    jen nejširší JEDNO tlačítko, takže sloupce zůstanou vyrovnané. */}
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginTop: 5 }}>
                   <button type="button" onClick={() => {
                     const next = !pantoneRequired;
                     setPantoneRequired(next);
