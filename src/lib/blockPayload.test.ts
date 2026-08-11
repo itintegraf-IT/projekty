@@ -111,7 +111,7 @@ test("regrese #2: Pantone / SKLADEM / materialNote se NIKDY neztrácí", () => {
   assert.equal(payload.materialNote, "Fólie od dodavatele X");
 });
 
-test("blockToCreatePayload nese pantoneInStock i pantoneIssued (copy/paste je nesmí ztratit)", () => {
+test("blockToCreatePayload doplní pantoneInStock i pantoneIssued jako false, když je zdroj nemá", () => {
   // Zdrojový objekt pantoneInStock/pantoneIssued VYNECHÁVÁ — obě pole jsou v
   // BlockPayloadSource volitelná, takže tohle zároveň ověřuje výchozí `?? false`,
   // ne jen prosté prokopírování hodnoty ze zdroje.

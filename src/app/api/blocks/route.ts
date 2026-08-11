@@ -256,8 +256,16 @@ export async function POST(request: NextRequest) {
         if (!grp) throw new AppError("VALIDATION_ERROR", "Neznámá split skupina.");
       }
 
-      // Tentýž invariant, jaký vynucuje PUT /api/blocks/[id]: SKLADEM nebo VYDÁNO
-      // znamená, že pantone je vyřešené — POTŘEBA se vynutí a termín se nemá kam ukládat.
+      // SKLADEM nebo VYDÁNO znamená, že pantone je vyřešené — POTŘEBA se vynutí
+      // a termín se nemá kam ukládat. Bez toho by vznikl blok s příznakem, ale bez
+      // POTŘEBA, kterému by první uložení modalu příznak tiše smazalo.
+      //
+      // POZOR na rozdíl proti PUT /api/blocks/[id]: u rozporného těla
+      // { pantoneInStock: true, pantoneRequired: false } rozhodne každá cesta jinak —
+      // POST dá přednost příznaku (SKLADEM přežije, POTŘEBA se zapne), PUT dá přednost
+      // výslovnému „pantone není potřeba" a vynuluje všechno. Obojí je záměr: POST
+      // zakládá nový blok, kde je příznak jediná skutečná informace, kdežto na PUT je
+      // vypnutí POTŘEBY vědomý příkaz uživatele. Z UI ten pár neposílá nikdo.
       const pantoneInStock = body.pantoneInStock ?? false;
       const pantoneIssued = body.pantoneIssued ?? false;
       const pantoneResolved = pantoneInStock || pantoneIssued;
