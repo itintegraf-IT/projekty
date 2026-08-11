@@ -46,9 +46,12 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
   }
 
   // Štítek se zobrazí za stejné podmínky jako v BlockCard (požadováno, má termín,
-  // nebo je už odklepnuto) — samotné `pantoneRequired` je jen jedna ze tří cest tam.
-  if (block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk) {
-    chips.push({ label: "PANTONE", tone: block.pantoneOk ? "ok" : "wait" });
+  // je odklepnuto, nebo je skladem/vydáno). Připravenost = odklepnuto NEBO skladem
+  // NEBO vydáno — táž logika jako pantoneHandled v BlockCard.tsx; kdyby se rozešly,
+  // Monitor a plán by o téže zakázce tvrdily dvě různé věci (nález I5).
+  if (block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk || block.pantoneInStock || block.pantoneIssued) {
+    const pantoneReady = block.pantoneOk || block.pantoneInStock || block.pantoneIssued;
+    chips.push({ label: "PANTONE", tone: pantoneReady ? "ok" : "wait" });
   }
 
   // Nestandardní varianta zakázky (POZASTAVENO = výrobní stopka) — v plánu je sytě
