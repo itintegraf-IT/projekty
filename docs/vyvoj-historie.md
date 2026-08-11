@@ -2,6 +2,54 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Čitelnost timeline — velikost písma v blocích (12. 8. 2026)
+
+Plánovači hlásili, že písmo v kartách bloků na timeline je na promítací tabuli
+nečitelné. Zoom slider přitom problém neřešil — měnil jen `slotHeight` (výšku
+mřížky), text v kartě rostl s ním jen nepřímo a málo. Do 8/2026 bylo písmo
+v `BlockCard.tsx` zapsané natvrdo v pixelech (48 výskytů `fontSize`) a prahy
+hustoty karty (`MODE_FULL`/`COMPACT`/`TINY`/`MICRO`) natvrdo jako čísla
+48/44/24/14 — zvětšit jedno bez druhého by content karty prostě oříznulo.
+
+**Z pohledu uživatele.** V hlavičce planneru přibyl přepínač `M · L · XL`, hned
+za zoom sliderem — stavebně kopie sousední skupiny `30d · 60d · 90d`
+(`FontScaleSwitch`). Nastavení se ukládá do `localStorage`
+(`ig-planner-font-scale`), ne na server — je to vlastnost OBRAZOVKY, ne
+uživatele: počítač u promítací tabule se nastaví jednou na XL a zůstane tak bez
+ohledu na to, kdo se zrovna přihlásí. Vzorem je přepínač motivu (`next-themes`),
+ne šířka bočního panelu, která se pamatuje per uživatel.
+
+**Odkud se vzalo místo.** Karta dřív nesla dvouřádkový `DateBadge` (popisek
+„DATA" nad datem). Zrušen a nahrazen jednořádkovým `BlockDateChip` — týž tvar,
+jaký už dřív používal kompaktní režim karty. Uvolněný řádek šel do většího písma.
+`DateBadge` jako komponenta zanikla úplně (commit `e37e896a`).
+
+**Jediný zdroj pravdy: `src/lib/plannerTypography.ts`.** Čistá funkce
+`plannerTypeScale(key)` vrací velikosti písma pro každý prvek karty i prahy
+hustoty — ty se POČÍTAJÍ z písma, nezapisují se ručně. Strážný test
+`plannerTypography.test.ts` hlídá, že hodinová zakázka zůstane v plném layoutu
+a půlhodinová aspoň jednořádková ve všech třech stupních.
+
+**Gotchy pro budoucí údržbu:**
+
+- **Dva různé koeficienty, snadno zaměnitelné.** `fontFactor` (M 1 · L 1,15 ·
+  XL 1,35) je pro velikosti PÍSMA. `slotFactor` (M 1 · L 1,053 · XL 1,123) je pro
+  VÝŠKY mřížky — roste pomaleji, aby zvětšené písmo nenafouklo timeline do
+  nesmyslné výšky. Záměna byla reálný nález z code review: `fontSize` počítaný
+  přes `slotFactor` by na XL rostl jen o 12 % místo 35 %.
+- **Jednořádkový layout (`MODE_TINY`/`MODE_MICRO_TEXT`) písmo stropuje** —
+  `Math.min(typeScale.X, layoutHeight * F)` — protože práh `micro` je pevných
+  14 px pro všechny stupně, ale samotné písmo se stupněm dál roste.
+- **`src/lib/tiskarBlockView.ts` drží druhou nezávislou kopii** výškového
+  rozpočtu karty (rozhoduje o tlačítku „Hotovo" a značce rozdělené zakázky).
+  Musela se parametrizovat týmž stupněm, jinak by se vrátila regrese z
+  3. 8. 2026, kdy tiskaři propadlo tlačítko Hotovo pod ořez.
+- **Pás specifikace se nově vykreslí jen, když se vejde celý** — jinak padá na
+  značku „S" s tooltipem, místo aby se dřív ořezával na proužek.
+
+Spec: `docs/superpowers/specs/2026-08-11-citelnost-timeline-velikost-pisma-design.md`
+Plán: `docs/superpowers/plans/2026-08-11-citelnost-timeline-velikost-pisma.md`
+
 ## Fronta Monitoru — specifikace a chipy (11. 8. 2026)
 
 Řádek fronty byl jednořádkový — číslo zakázky, šedý popis, čas startu — a neukazoval

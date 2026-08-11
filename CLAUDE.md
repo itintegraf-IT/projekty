@@ -126,6 +126,7 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 - **Focus**: neodstraňovat viditelný focus ring; globální `:focus-visible` používá `--ring`.
 - **Tailwind v4**: `@import "tailwindcss"`; dynamické třídy nepodporuje → inline style.
 - **Clipboard**: vždy `copyTextToClipboard` (`src/lib/clipboardCopy.ts`), nikdy přímo `navigator.clipboard.*` (prod běží přes HTTP → crash).
+- **Velikost písma v planneru** vždy přes `src/lib/plannerTypography.ts` (`plannerTypeScale`), nikdy napevno zapsaný `fontSize` v kartě bloku ani na časové ose. Prahy hustoty (`full`/`compact`/`tiny`/`micro`) se z písma POČÍTAJÍ — kdo přidá do karty nový prvek, musí ověřit, že se vejde i ve stupni XL (hlídá strážný test `plannerTypography.test.ts`). Dva různé koeficienty: `fontFactor` pro písmo, `slotFactor` pro výšky mřížky — nezaměňovat. `src/lib/tiskarBlockView.ts` je na týchž hodnotách závislý a nesmí se rozejít.
 
 ## Klíčové soubory (index — detail čti v kódu)
 
