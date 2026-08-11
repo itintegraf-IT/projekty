@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
 import { RESERVATION_FLIP_VARIANT, type BlockVariant } from "@/lib/blockVariants";
 import {
@@ -56,6 +56,15 @@ import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
 import { OrderSearchSheet } from "@/components/OrderSearchSheet";
 import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 import { useJobBuilder, type ReservationQueueItem } from "@/hooks/useJobBuilder";
+import { FontScaleSwitch } from "@/components/planner/FontScaleSwitch";
+import {
+  DEFAULT_FONT_SCALE,
+  FONT_SCALE_STORAGE_KEY,
+  effectiveSlotHeight,
+  isPlannerFontScale,
+  plannerTypeScale,
+  type PlannerFontScale,
+} from "@/lib/plannerTypography";
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
@@ -245,6 +254,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (z) setSlotHeight(Math.max(3, Math.min(26, Number(z))));
   }, []);
 
+  // Velikost písma — vázaná na ZAŘÍZENÍ, ne na uživatele (viz FontScaleSwitch).
+  // Stav se inicializuje na výchozí a localStorage se čte až v useEffect níž:
+  // čtení v lazy inicializátoru useState by znamenalo, že server vyrenderuje
+  // jinou velikost než klient, a vznikla by chyba hydratace. Krátké přeblesknutí
+  // výchozí velikosti při načtení je stejné chování, jaké má dnes zoom.
+  const [fontScale, setFontScale] = useState<PlannerFontScale>(DEFAULT_FONT_SCALE);
+  useEffect(() => {
+    const stored = localStorage.getItem(FONT_SCALE_STORAGE_KEY);
+    if (isPlannerFontScale(stored)) setFontScale(stored);
+  }, []);
+  function handleFontScaleChange(next: PlannerFontScale) {
+    setFontScale(next);
+    localStorage.setItem(FONT_SCALE_STORAGE_KEY, next);
+  }
+  const typeScale = useMemo(() => plannerTypeScale(fontScale), [fontScale]);
+  // Mřížka roste jen zčásti. VŠECHNA geometrie používá tuhle hodnotu; surový
+  // `slotHeight` zůstává jen pro slider a pro uloženou preferenci `zoom`.
+  const gridSlotHeight = useMemo(() => effectiveSlotHeight(slotHeight, typeScale), [slotHeight, typeScale]);
+
   // Ref pro debounced ukládání preferencí na server
   const prefsSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -275,8 +303,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const el = scrollRef.current;
     if (el) {
       const centerY = el.scrollTop + el.clientHeight / 2;
-      // yToDate inline: viewStart + (y / slotHeight * 30 min)
-      const anchorDate = new Date(viewStart.getTime() + (centerY / slotHeight) * 30 * 60000);
+      // yToDate inline: viewStart + (y / gridSlotHeight * 30 min)
+      const anchorDate = new Date(viewStart.getTime() + (centerY / gridSlotHeight) * 30 * 60000);
       zoomAnchorMs.current = anchorDate.getTime();
     }
     setSlotHeight(newHeight);
@@ -286,10 +314,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const anchorMs = zoomAnchorMs.current;
     const el = scrollRef.current;
     if (anchorMs === null || !el) return;
-    const newY = dateToY(new Date(anchorMs), viewStart, slotHeight);
+    const newY = dateToY(new Date(anchorMs), viewStart, gridSlotHeight);
     el.scrollTop = newY - el.clientHeight / 2;
     zoomAnchorMs.current = null;
-  }, [slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gridSlotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Načtení preferencí po mount — nejprve z localStorage (lazy initializers), pak přepíše server
   useEffect(() => {
@@ -760,7 +788,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         setDaysAhead(-diffDays + 5);
       } else {
         // Blok je v aktuálním rozsahu — scrollni přímo
-        const y = dateToY(blockTime, viewStart, slotHeight);
+        const y = dateToY(blockTime, viewStart, gridSlotHeight);
         scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
         setSelectedBlock(block);
       }
@@ -846,7 +874,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // na daysBack state, přesně jako viewStart výš; jinak by se cíl scrollu
     // počítal vůči jinému řádku 0, než jaký ve skutečnosti kreslí TimelineGrid.
     const newViewStart = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -effectiveDaysBack), 0, 0);
-    const y = dateToY(new Date(target), newViewStart, slotHeight);
+    const y = dateToY(new Date(target), newViewStart, gridSlotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     if (pendingSelectBlock.current) {
       setSelectedBlock(pendingSelectBlock.current);
@@ -879,7 +907,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       // vůbec nespustil. Scrollujeme rovnou, jako to dělal původní kód, a
       // pendingScrollMs pro jistotu vynulujeme, ať ho efekt nezpracuje podruhé.
       pendingScrollMs.current = null;
-      const y = dateToY(new Date(block.startTime), viewStart, slotHeight);
+      const y = dateToY(new Date(block.startTime), viewStart, gridSlotHeight);
       scrollRef.current.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     } else {
       // Voláno z Monitoru — timeline se teprve mountuje, doscrolluje ji
@@ -898,10 +926,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (new Date(partner.startTime) < viewStart) {
       handleJumpToOutOfRange(partner);
     } else {
-      const y = dateToY(new Date(partner.startTime), viewStart, slotHeight);
+      const y = dateToY(new Date(partner.startTime), viewStart, gridSlotHeight);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     }
-  }, [blocks, viewStart, slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [blocks, viewStart, gridSlotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Bloky mimo rozsah (v minulosti) odpovídající aktuálnímu hledání
   const outOfRangeBlocks = filterText.trim()
@@ -940,7 +968,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         pendingSelectBlock.current = block;
         setDaysAhead(-diffDays + 5);
       } else {
-        const y = dateToY(blockTime, viewStart, slotHeight);
+        const y = dateToY(blockTime, viewStart, gridSlotHeight);
         scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
         setSelectedBlock(block);
       }
@@ -978,7 +1006,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   function handleScrollToNow() {
-    const y = dateToY(new Date(), viewStart, slotHeight);
+    const y = dateToY(new Date(), viewStart, gridSlotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
   }
 
@@ -996,7 +1024,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       pendingScrollMs.current = d.getTime();
       setDaysAhead(-diffDays + 3);
     } else {
-      const y = dateToY(d, viewStart, slotHeight);
+      const y = dateToY(d, viewStart, gridSlotHeight);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 100), behavior: "smooth" });
     }
   }
@@ -2227,7 +2255,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
       removeFromQueue();
       setDraggingQueueItem(null);
-      const y = dateToY(startTime, viewStart, slotHeight);
+      const y = dateToY(startTime, viewStart, gridSlotHeight);
       scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
     } catch (error) {
       console.error("Queue drop block creation failed", error);
@@ -2872,6 +2900,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             Dnes
           </Button>
           <ZoomSlider value={slotHeight} onChange={handleZoomChange} />
+          <FontScaleSwitch value={fontScale} onChange={handleFontScaleChange} />
           <div
             role="group"
             aria-label="Rozsah plánování ve dnech"
@@ -3083,7 +3112,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onQueueDragCancel={() => setDraggingQueueItem(null)}
             onBlockDoubleClick={handleBlockDoubleClick}
             companyDays={companyDays}
-            slotHeight={slotHeight}
+            slotHeight={gridSlotHeight}
             copiedBlockId={copiedBlock?.id ?? null}
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
             onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); }}
