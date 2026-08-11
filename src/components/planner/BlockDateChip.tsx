@@ -29,9 +29,11 @@ export const DEADLINE_BORDER: Record<DateChipState, string> = {
 /**
  * Jednořádkový datumový chip na kartě bloku — „D 12.8 ✓".
  *
- * Nahradil dvouřádkový DateBadge (popisek „DATA" 8 px nad datem 11 px, ~22 px
- * výšky). Písmeno v textu a barevný proužek vlevo nesou stejnou informaci jako
- * to slovo, ale vejdou se do ~16 px — z uspořené výšky se platí větší písmo.
+ * Postupně nahrazuje dvouřádkový DateBadge (popisek „DATA" 8 px nad datem 11 px,
+ * ~22 px výšky) — ve `showDatesFull` DateBadge zatím zůstává, ruší ho až
+ * navazující task. Písmeno v textu a barevný proužek vlevo nesou stejnou
+ * informaci jako to slovo, ale vejdou se do ~16 px — z uspořené výšky se platí
+ * větší písmo.
  *
  * Rozměry se odvozují od `fontSize`, aby chip rostl se stupněm písma jako celek.
  * Svislý padding je `fontSize * 0.2` schválně, ne „hezčích" 0.26 — skutečná výška
@@ -58,7 +60,7 @@ export function BlockDateChip({
 }) {
   const bg     = customBg ?? DEADLINE_BG[state];
   const border = customBorder ?? DEADLINE_BORDER[state];
-  const color  = customTextColor ?? (state === "empty" ? "#fff" : "rgba(255,255,255,0.92)");
+  const color  = customTextColor ?? (state === "empty" ? "#fff" : "rgba(255,255,255,0.90)");
   return (
     <span
       title={title}

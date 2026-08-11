@@ -787,7 +787,7 @@ export function BlockCard({
               {!isTiskar && <>
                 <BlockDateChip
                   text={block.dataStatusId ? dataDisplayLabel : `D ${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
-                  state={dStateKey as DateChipState}
+                  state={dStateKey}
                   accent={FIELD_ACCENT.DATA}
                   fontSize={10}
                   title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
@@ -808,7 +808,7 @@ export function BlockCard({
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <BlockDateChip
                     text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
-                    state={mStateKey as DateChipState}
+                    state={mStateKey}
                     accent={FIELD_ACCENT.MATERIAL}
                     fontSize={10}
                     title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
@@ -818,14 +818,14 @@ export function BlockCard({
                 </MaterialNoteAffordance>
                 <BlockDateChip
                   text={`E ${block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}`}
-                  state={eStateKey as DateChipState}
+                  state={eStateKey}
                   accent={FIELD_ACCENT.EXPEDICE}
                   fontSize={10}
                 />
                 {pantoneVisible && (
                   <BlockDateChip
                     text={`P ${pantoneChipText(pIcon)}`}
-                    state={pantoneStateKey as DateChipState}
+                    state={pantoneStateKey}
                     accent={FIELD_ACCENT.PANTONE}
                     fontSize={10}
                     title={pantoneEffectiveState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
@@ -1105,7 +1105,7 @@ export function BlockCard({
           <div style={{ padding: "0 7px 3px", display: "flex", gap: 4, flexShrink: 0, overflow: "hidden", alignItems: "center" }}>
             <BlockDateChip
               text={block.dataStatusId ? dataDisplayLabel : `D ${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
-              state={dSK as DateChipState}
+              state={dSK}
               accent={FIELD_ACCENT.DATA}
               fontSize={10}
               customBg={block.dataStatusId && dataAccent !== s.accentBar ? dataAccent : undefined}
@@ -1117,7 +1117,7 @@ export function BlockCard({
             <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
               <BlockDateChip
                 text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
-                state={mSK as DateChipState}
+                state={mSK}
                 accent={FIELD_ACCENT.MATERIAL}
                 fontSize={10}
                 onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
@@ -1126,14 +1126,14 @@ export function BlockCard({
             </MaterialNoteAffordance>
             <BlockDateChip
               text={`E ${block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}`}
-              state={eSK as DateChipState}
+              state={eSK}
               accent={FIELD_ACCENT.EXPEDICE}
               fontSize={10}
             />
             {pantoneVisible && (
               <BlockDateChip
                 text={`P ${pantoneChipText(pIcon)}`}
-                state={pantoneStateKey as DateChipState}
+                state={pantoneStateKey}
                 accent={FIELD_ACCENT.PANTONE}
                 fontSize={10}
                 title={pantoneEffectiveState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
