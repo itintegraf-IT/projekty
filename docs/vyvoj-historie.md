@@ -2,6 +2,74 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Fronta Monitoru — specifikace a chipy (11. 8. 2026)
+
+Řádek fronty byl jednořádkový — číslo zakázky, šedý popis, čas startu — a neukazoval
+tiskaři nic z toho, čím se na stroji reálně seřizuje. Velká karta vlevo přitom svoje
+chipy (OBÁLKA/VNITŘKY, tiskové archy, série, data, materiál, PANTONE, varianta) i
+amber pás specifikace už měla. Tři změny to sjednotily.
+
+### Klíčová rozhodnutí
+
+- **Pravidla chipů mají teď jedno místo.** `buildMonitorChips` (`src/lib/monitorChips.ts`)
+  je čistá funkce vytažená doslova z privátní `HeroChips`, která dřív žila přímo
+  v `MonitorView.tsx`. Pokryto 8 testy v `monitorChips.test.ts`. Důvod, proč je to
+  funkce v `lib`, a ne logika v JSX: pravidlo materiálové připravenosti
+  (`materialInStock || materialIssued || materialOk`) už jednou selhalo — nález I5,
+  kdy Monitor hlásil „čeká" na materiál, který plán ukazoval zeleně. Pravidla s touhle
+  historií patří pod testy, ne do markupu.
+- **Jeden renderer pro obě strany obrazovky.** `MonitorChips.tsx`
+  (`{ block, size: "hero" | "queue" }`) používá velká karta i řádek fronty, takže se
+  nemůžou rozejít. `size` mění **jen rozměry** (hero: 12px / padding 5px 10px; queue:
+  11px / padding 3px 7px), nikdy sadu chipů, pořadí ani tóny.
+- **Root je `<span>`, ne `<div>`.** Řádek fronty je `<button>`, který podle HTML
+  specifikace povoluje jen phrasing content — `<div>` root by byl neplatné HTML.
+  `MonitorChips` proto má kořenový `<span style={{ display: "flex" }}>`. Zachyceno
+  až v review, ne v plánu.
+- **`MonitorQueue.tsx`: řádek se stal flex column.** Nahoře původní řádek (číslo,
+  popis, čas), pod ním amber pás specifikace, pod tím chipy. Řádek zůstal `<button>`
+  (klik přetáhne zakázku na velkou kartu — vědomé přebití pořadí plánovače tiskařem)
+  a jeho props se nezměnily.
+
+### `SpecBand` z plánu se záměrně nepoužil znovu
+
+`src/components/planner/SpecBand.tsx` má natvrdo zadrátované rozměry karty v plánu
+(10px font, `zIndex: 2` kvůli gradientu bloku) — natáhnout ho na třetí velikost by
+z něj udělalo komponentu, kterou nikdo nepřečte. Fronta si kreslí vlastní pás ze
+sdíleného literálu `SPEC_HIGHLIGHT` (`src/lib/blockStyles.ts`), stejně jako to už
+dělala velká karta Monitoru. **Sdílená pravda je barva, ne rozměry.**
+
+### Další rozhodnutí
+
+- **Sada chipů: úplně všechny**, záměrně — stejná sada a pořadí jako na velké kartě
+  (OBÁLKA → VNITŘKY → tiskové archy → série → data → materiál → PANTONE → varianta).
+  Většina zakázek nemá vyplněná všechna pole, takže řádky v praxi na plnou sadu
+  nenabobtnají. Zúžení sady je levné rozhodnutí na později z reálného provozu —
+  hádat se o něm dopředu nad prázdnými poli není.
+- **Dokončená zakázka ztlumí i amber pás** — stávající `opacity: 0.5` pokrývá celý
+  řádek. Hotová zakázka nemá na stroj křičet stejně nahlas jako ta, co se právě tiskne.
+- **Zakázka bez `specifikace` nevykreslí pás ani prázdnou mezeru navíc** — řádek je
+  flex column s `gap: 7`, takže falsy větev nevykreslí vůbec nic.
+- **Čtyři layoutové varianty byly porovnány předem** (plná karta / kompakt s pásem
+  na horním řádku / rozbalené jen nejbližší N / amber lišta po straně). Vyhrála „plná
+  karta" — fronta stroje má denně jen 4–8 zakázek, takže úspora místa u hustší
+  varianty nevyváží ztrátu čitelnosti — a drží se tím jeden vizuální vzor napříč
+  aplikací: amber pás v plánu, na velké kartě i ve frontě znamená totéž.
+
+### Ověření
+
+Celá test suite zelená (954 testů, z toho 8 nových), `tsc --noEmit`/`lint`/`build`
+čisté. Proklikáno na datech `prisma/seed-monitor.ts` jako role `TISKAR` v dark
+i light módu: pás a chipy se vykreslí, zakázka bez specifikace nemá pás ani mezeru,
+`Pozastaveno` je červený chip, chybějící data i objednané archy čtou v amber tónu
+„čeká", dokončená zakázka je ztlumená i s pásem, zakázka na velké kartě má ve frontě
+zelený obrys a chipy velké karty jsou po extrakci beze změny.
+
+### Klíčové soubory
+
+`src/lib/monitorChips.ts` (+ testy) · `src/components/monitor/MonitorChips.tsx` ·
+`src/components/monitor/MonitorQueue.tsx`.
+
 ## Monitor u stroje — domovská obrazovka tiskaře (10. 8. 2026)
 
 Tiskař u stroje viděl **stejnou plánovací timeline jako plánovač** a musel v ní svou
