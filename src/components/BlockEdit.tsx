@@ -977,8 +977,15 @@ export function BlockEdit({
           <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
             <SectionLabel>Výrobní sloupečky</SectionLabel>
 
-            {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | PANTONE | EXPEDICE */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+            {/* Řádek 1: Datumy + OK — DATA | MATERIÁL | PANTONE | EXPEDICE
+                `minmax(0, 1fr)` místo holého `1fr`: holé `1fr` je minmax(AUTO, 1fr),
+                takže se track nikdy nesmrskne pod min-content obsahu. Sloupce MATERIÁL
+                a PANTONE mají pod datepickerem řádek tlačítek (~135 px), takže si
+                vynutily šířku, přetlačily mřížku a EXPEDICI — poslední v pořadí —
+                vytlačily mimo panel (panel je 200–600 px, výchozí 320 → čtvrtina 68 px).
+                S `minmax(0, …)` jsou sloupce vždy přesně čtvrtinové a lícují s řádkem 2;
+                cenou je, že se řádky tlačítek musí umět zalomit (viz `flexWrap` níže). */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
               {/* DATA */}
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA</ColLabel>
@@ -996,7 +1003,10 @@ export function BlockEdit({
                 ) : (
                   <DatePickerField value={materialRequiredDate} onChange={setMaterialRequiredDate} placeholder="Datum" />
                 )}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
+                {/* flexWrap je protiváha k `minmax(0, 1fr)` výš: sloupec už se kvůli
+                    tomuhle řádku neroztáhne, takže se řádek musí umět zalomit sám —
+                    jinak by tlačítka přetekla do sousedního sloupce. */}
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 5 }}>
                   {!materialInStock && !materialIssued && (
                     <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: materialOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
                       <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: materialOk ? "var(--success)" : "transparent", border: materialOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
@@ -1024,13 +1034,11 @@ export function BlockEdit({
                 ) : (
                   <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum" />
                 )}
-                {/* Řádek se ZÁMĚRNĚ nezalamuje — stejně jako materiálový o sloupec vedle.
-                    Sloupec mřížky je minmax(auto, 1fr), takže se roztáhne na min-content
-                    tohohle řádku; u materiálu je to ~141 px (OK + SKLAD + VYDÁNO) a pantone
-                    se díky zkráceným popiskům „P!" / „SKL." / „VYD." vejde do ~137 px, tedy
-                    do téže šířky. Povolené zalomení tu bylo krátce vyzkoušené a je to horší
-                    volba: sloupec se sice zúží, ale čtyři tlačítka se naskládají pod sebe. */}
-                <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+                {/* Zalomení je protiváha k `minmax(0, 1fr)` výš — stejně jako u materiálu.
+                    Zkrácené popisky „P!" / „SKL." / „VYD." drží řádek na ~137 px, takže
+                    se na širším panelu vejde na jeden řádek a zalomí se až tam, kde by
+                    jinak přetekl do sousedního sloupce. */}
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, marginTop: 5 }}>
                   <button type="button" onClick={() => {
                     const next = !pantoneRequired;
                     setPantoneRequired(next);
@@ -1064,7 +1072,7 @@ export function BlockEdit({
             </div>
 
             {/* Řádek 2: Stavy — DATA | MATERIÁL | BARVY | LAK */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6, marginTop: 10 }}>
               {/* DATA */}
               <div style={{ opacity: !canEditData ? 0.45 : 1, pointerEvents: !canEditData ? "none" : "auto" }}>
                 <ColLabel>DATA</ColLabel>
