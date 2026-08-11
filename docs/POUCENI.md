@@ -252,3 +252,38 @@ datum nasazení), nikdy `MIN()` nad nimi.
 dostávala správný vstup — záměna byla o patro výš, ve volajícím. Kde se logika
 takhle rozpadá mezi funkci a její napojení, patří strážný test nad zdrojákem
 volajícího (vzor `revisionWiring.test.ts`); ověřit ho mutací, jinak hlídá vzduch.
+
+---
+
+## P16 — Testovací seed musí zapisovat přes tytéž serializační helpery jako aplikace
+
+**Co se stalo (11. 8. 2026):** Fronta Monitoru dostala chipy a mezi nimi tiskové
+archy a sérii. `buildMonitorChips` sáhla na `Block.tiskoveArchy` a `Block.serie`
+a vypsala je rovnou jako popisek chipu. Jenže ty dva sloupce nejsou lidský text —
+ukládají se jako JSON pole labelů (`'["1. TA","5. TA"]'`), jak popisuje hlavička
+`src/lib/productionTags.ts`. Všechny tři zápisové cesty jdou přes
+`serializeProductionTags`, všichni ostatní čtenáři před zobrazením formátují.
+Monitor byl jediný, kdo sloupec tiskl doslova — tiskaři by u stroje svítil chip
+`["1. TA","5. TA"]`.
+
+Vada se zdědila z `HeroChips` na velké kartě (nasazeno 10. 8.), ale tahle etapa
+ji násobila do každého řádku fronty a zabetonovala pod nové testy.
+
+**Proč to neodhalil proklik:** `prisma/seed-monitor.ts` psal holé labely
+(`tiskoveArchy: arch3.label`) — tvar, jaký aplikace nikdy nezapíše. Na seedu
+chip vypadal správně (`3. TA`), takže položka kontrolního seznamu „MON-2404 má
+OBÁLKA + archy + sérii" prošla. Stejný špatný tvar převzala i testovací fixture
+v plánu, takže ani testy nemohly nic chytit — obojí měřilo neexistující realitu.
+
+**Pravidlo:** Seed je testovací dvojník produkčních dat, ne volný zápis do
+tabulky. Každý sloupec, který aplikace zapisuje přes helper (serializace,
+normalizace, výpočet), musí seed zapisovat **týmž helperem**. Seed, který píše
+tvar, jaký žádná zápisová cesta nevyrobí, neochrání nic — naopak dává prokliku
+i testům falešné zelené světlo, a to tím spolehlivěji, čím pečlivěji se podle
+něj ověřuje. Než se nový sloupec objeví v seedu: `grep` zápisové cesty a použij,
+co používají ony.
+
+**Druhá půlka:** Chybu nenašly ani testy, ani proklik, ani review jednotlivých
+tasků — až závěrečné review celé větve, které si dohledalo, jak se sloupec
+zapisuje jinde v aplikaci. Když nová komponenta čte sloupec, který dosud četl
+někdo jiný, patří do review otázka „jak to čtou ostatní a proč jinak než já".
