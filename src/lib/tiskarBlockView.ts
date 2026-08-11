@@ -5,6 +5,10 @@
  * PrintDoneButton i BlockCard na ní jen staví a samy nic nepočítají.
  */
 
+import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "./plannerTypography";
+
+const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
+
 /**
  * Podoba tlačítka Hotovo.
  * `bar` a `square` vrací printDoneSize() podle výšky bloku v plánu;
@@ -17,30 +21,29 @@ export type PrintDoneSize =
 
 /**
  * Rozměr tlačítka Hotovo pro danou výšku bloku (`layoutHeight` z BlockCard).
- * Prahy navazují na layout režimy karty: od 48 px je MODE_FULL a vejde se pruh
- * přes celou šířku, 14–47 px jsou COMPACT/TINY/MICRO (čtverec s háčkem),
- * pod 14 px karta nevykresluje obsah vůbec → `null`.
+ * Prahy navazují na layout režimy karty: od `ts.thresholds.full` je plný layout
+ * a vejde se pruh přes celou šířku, od `ts.thresholds.micro` čtverec s háčkem,
+ * pod tím karta nevykresluje obsah vůbec → `null`.
+ *
+ * Prahy 140 a 96 (vyšší varianty pruhu) rostou se stupněm písma, aby velké
+ * tlačítko nikdy nedostala karta, které na něj nezbývá výška.
  */
-export function printDoneSize(layoutHeight: number): PrintDoneSize | null {
-  if (layoutHeight >= 140) return { variant: "bar", height: 40, fontSize: 16 };
-  if (layoutHeight >= 96)  return { variant: "bar", height: 32, fontSize: 14 };
-  if (layoutHeight >= 48)  return { variant: "bar", height: 24, fontSize: 11.5 };
-  if (layoutHeight >= 14)  return { variant: "square", height: 26, fontSize: 15 };
+export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAULT_TS): PrintDoneSize | null {
+  const big = Math.round(140 * ts.slotFactor);
+  const mid = Math.round(96 * ts.slotFactor);
+  if (layoutHeight >= big) return { variant: "bar", height: 40, fontSize: Math.round(16 * ts.slotFactor) };
+  if (layoutHeight >= mid) return { variant: "bar", height: 32, fontSize: Math.round(14 * ts.slotFactor) };
+  if (layoutHeight >= ts.thresholds.full) return { variant: "bar", height: 24, fontSize: 11.5 };
+  if (layoutHeight >= ts.thresholds.micro) return { variant: "square", height: 26, fontSize: 15 };
   return null;
 }
 
 // ── Výškový rozpočet karty v tiskařském režimu ────────────────────────────────
 // Karta je flex column s `overflow: hidden`, takže co se nevejde, to se ořízne.
 // Tlačítko Hotovo má přednost před SplitChipem — tiskař musí mít vždy čím
-// odklepnout tisk. Hodnoty odpovídají skutečným stylům v BlockCard/SplitChip
-// (změřeno v prohlížeči 3. 8. 2026); jsou to horní odhady, ne přesná typografie.
+// odklepnout tisk. Výšky řádků 1 a spec pásu se od 8/2026 berou ze stupně
+// písma (`ts.rowHeights`, `plannerTypography.ts`), ne z napevno zapsaných čísel.
 
-/** Řádek 1 karty: paddingTop 5 + řádek 12 px/1.2 + paddingBottom 3. */
-const HEADER_ROW_PX = 23;
-/** Pás specifikace (SpecBand) na jeden řádek: 13 px textu + 4 padding + 3 pod. */
-const SPEC_ROW_1_PX = 20;
-/** Pás specifikace přes dva řádky: 26 px textu + 4 padding + 3 pod. */
-const SPEC_ROW_2_PX = 33;
 /** SplitChip včetně marginTop 6, borderu a paddingu. */
 const SPLIT_CHIP_PX = 25;
 /** Odsazení kolem pruhu Hotovo: paddingTop 2 + paddingBottom 5. */
@@ -51,16 +54,19 @@ const PRINT_BAR_PADDING_PX = 7;
  *
  * Bez této brzdy skončil na hodinovém bloku (52 px) se split partnerem celý
  * zelený pruh Hotovo mimo kartu a tiskař neměl jak potvrdit tisk — regrese
- * zachycená před nasazením 3. 8. 2026.
+ * zachycená před nasazením 3. 8. 2026. Výšky řádků se od 8/2026 berou ze stupně
+ * písma (`ts.rowHeights`), ne z napevno zapsaných čísel — jinak by se ta regrese
+ * při zvětšení písma vrátila.
  */
 export function splitChipFits(
   layoutHeight: number,
   printDone: PrintDoneSize | null,
-  specRows: 0 | 1 | 2
+  specRows: 0 | 1 | 2,
+  ts: PlannerTypeScale = DEFAULT_TS
 ): boolean {
   const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
-  const specReserve = specRows === 2 ? SPEC_ROW_2_PX : specRows === 1 ? SPEC_ROW_1_PX : 0;
-  const used = HEADER_ROW_PX + specReserve + barReserve;
+  const specReserve = specRows === 2 ? ts.rowHeights.spec2 : specRows === 1 ? ts.rowHeights.spec1 : 0;
+  const used = ts.rowHeights.header + specReserve + barReserve;
   return layoutHeight - used >= SPLIT_CHIP_PX;
 }
 

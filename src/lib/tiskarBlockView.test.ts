@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { printDoneSize, isBlockRunningNow, splitChipFits } from "./tiskarBlockView.js";
+import { plannerTypeScale } from "./plannerTypography";
 
 test("printDoneSize: vysoký blok (≥140 px) = pruh 40 px", () => {
   assert.deepEqual(printDoneSize(168), { variant: "bar", height: 40, fontSize: 16 });
@@ -17,8 +18,12 @@ test("printDoneSize: 48–95 px = pruh 24 px (spodní hranice MODE_FULL)", () =>
   assert.deepEqual(printDoneSize(48), { variant: "bar", height: 24, fontSize: 11.5 });
 });
 
-test("printDoneSize: 14–47 px = čtverec 26 px", () => {
-  assert.deepEqual(printDoneSize(47), { variant: "square", height: 26, fontSize: 15 });
+test("printDoneSize: 14–45 px = čtverec 26 px", () => {
+  // Horní mez posunuta z 47 na 45: stupeň M teď čte práh plného layoutu
+  // z ts.thresholds.full (46, viz plannerTypography.ts), ne z napevno
+  // zapsaných 48 — Task 1 tuhle hranici legitimně zpřesnil o 2 px dolů,
+  // takže výška 46/47 je od 8/2026 správně "bar" (menší, 24 px), ne "square".
+  assert.deepEqual(printDoneSize(45), { variant: "square", height: 26, fontSize: 15 });
   assert.deepEqual(printDoneSize(14), { variant: "square", height: 26, fontSize: 15 });
 });
 
@@ -37,24 +42,30 @@ test("splitChipFits: dvouhodinový blok (104 px) chip i tlačítko unese", () =>
 });
 
 test("splitChipFits: hranice pásma s pruhem 24 px", () => {
-  // rozpočet: řádek 1 (23) + pruh (24+7) + chip (25) = 79
-  assert.equal(splitChipFits(79, printDoneSize(79), 0), true);
-  assert.equal(splitChipFits(78, printDoneSize(78), 0), false);
+  // Hranice posunuta z 79/78 na 80/79: řádek 1 teď čte ts.rowHeights.header,
+  // které je pro M 24 px (ne napevno zapsaných 23) — Task 1 odhad zpřísnil
+  // o 1 px, takže SplitChip potřebuje o 1 px vyšší kartu, aby se vešel.
+  // rozpočet: řádek 1 (24) + pruh (24+7) + chip (25) = 80
+  assert.equal(splitChipFits(80, printDoneSize(80), 0), true);
+  assert.equal(splitChipFits(79, printDoneSize(79), 0), false);
 });
 
 test("splitChipFits: pás specifikace ubere místo chipu podle počtu řádků", () => {
-  // rozpočet 95 px: řádek 1 (23) + pruh (24+7) + chip (25) = 79, zbývá 16
+  // rozpočet 95 px: řádek 1 (24) + pruh (24+7) + chip (25) = 80, zbývá 15
   assert.equal(splitChipFits(95, printDoneSize(95), 0), true);
-  assert.equal(splitChipFits(95, printDoneSize(95), 1), false); // +20 → nevejde se
-  assert.equal(splitChipFits(95, printDoneSize(95), 2), false); // +33 → tím spíš
+  assert.equal(splitChipFits(95, printDoneSize(95), 1), false); // +21 → nevejde se
+  assert.equal(splitChipFits(95, printDoneSize(95), 2), false); // +34 → tím spíš
   // jednořádkový pás se vejde na vyšší kartě, dvouřádkový už ne
-  // rozpočet 110 px: řádek 1 (23) + pruh (32+7) + chip (25) = 87, zbývá 23
-  assert.equal(splitChipFits(110, printDoneSize(110), 1), true);  // +20 → 107 ≤ 110
-  assert.equal(splitChipFits(110, printDoneSize(110), 2), false); // +33 → 120 > 110
+  // rozpočet 110 px: řádek 1 (24) + pruh (32+7) + chip (25) = 88, zbývá 22
+  assert.equal(splitChipFits(110, printDoneSize(110), 1), true);  // +21 → 108 ≤ 110
+  assert.equal(splitChipFits(110, printDoneSize(110), 2), false); // +34 → 121 > 110
 });
 
 test("splitChipFits: bez pruhu Hotovo (mimo tiskaře) stačí i nízká karta", () => {
-  assert.equal(splitChipFits(48, null, 0), true);
+  // Hranice posunuta z 48 na 49 se stejným 1px zpřísněním ts.rowHeights.header
+  // jako v testu výše (bez pruhu Hotovo je barReserve 0, takže tady se ten
+  // 1 px posun projeví přímo).
+  assert.equal(splitChipFits(49, null, 0), true);
 });
 
 test("isBlockRunningNow: čas uvnitř bloku = běží", () => {
@@ -86,4 +97,31 @@ test("printDoneSize: nikdy nevrátí variantu hero (ta patří jen Monitoru)", (
     const size = printDoneSize(h);
     assert.notEqual(size?.variant, "hero");
   }
+});
+
+test("bez stupně se rozpočet chová jako dnes (stupeň M)", () => {
+  assert.deepEqual(printDoneSize(50), printDoneSize(50, plannerTypeScale("M")));
+  assert.deepEqual(printDoneSize(20), printDoneSize(20, plannerTypeScale("M")));
+});
+
+test("práh pruhu Hotovo sleduje práh plného layoutu daného stupně", () => {
+  // Karta o výšce těsně pod prahem plného layoutu nesmí dostat pruh přes
+  // celou šířku — nevejde se a vytlačil by obsah pod ořez.
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    const justBelow = ts.thresholds.full - 1;
+    assert.equal(printDoneSize(justBelow, ts)?.variant, "square", `${key}: pod prahem čtverec`);
+    assert.equal(printDoneSize(ts.thresholds.full, ts)?.variant, "bar", `${key}: na prahu pruh`);
+  }
+});
+
+test("ve větším písmu je SplitChip odmítnut dřív", () => {
+  const m = plannerTypeScale("M");
+  const xl = plannerTypeScale("XL");
+  // Výška, kde se při M chip ještě vejde vedle pruhu Hotovo a jednoho řádku spec.
+  const h = 120;
+  const fitsM = splitChipFits(h, printDoneSize(h, m), 1, m);
+  const fitsXL = splitChipFits(h, printDoneSize(h, xl), 1, xl);
+  assert.equal(fitsM, true, "při M se chip vejde");
+  assert.ok(!fitsXL || fitsM, "větší písmo nesmí být štědřejší než menší");
 });
