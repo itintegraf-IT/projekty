@@ -60,22 +60,33 @@ git push origin michal
 Pokud vznikne merge konflikt, řešit ho mimo server. Po vyřešení znovu spustit
 build a teprve potom pushnout `michal`.
 
-Kontrola, že `michal` obsahuje vše z `Vojta`:
+Kontrola, že `michal` obsahuje vše z `Vojta` — **na Macu VŽDY přes `git ls-remote`**:
 
 ```bash
-git fetch origin --prune
-git merge-base --is-ancestor origin/Vojta origin/michal
-git rev-list --left-right --count origin/Vojta...origin/michal
+git ls-remote origin | grep -iE 'refs/heads/(michal|Vojta)$'
 ```
 
-Správný výsledek:
+Obě větve musí mít **stejný SHA**:
 
 ```text
-0    <nejake-cislo>
+f6ecb245…  refs/heads/Vojta
+f6ecb245…  refs/heads/michal
 ```
 
-První číslo `0` znamená, že `origin/michal` nechybí žádný commit z
-`origin/Vojta`.
+**Gotcha — lokální kontrola přes `origin/michal` na Macu LŽE** (naráženo 11. 8. 2026).
+Souborový systém macOS je case-insensitive, takže `.git/refs/remotes/origin/michal`
+a `.git/refs/remotes/origin/Michal` jsou **jeden a týž soubor**. Michal má vlastní
+větev s velkým `M`, takže každý `git fetch` přepíše lokální referenci na deploy
+větev jeho commitem. Tyhle dva příkazy proto na Macu dávají nesmyslný výsledek,
+i když je push naprosto v pořádku:
+
+```bash
+git merge-base --is-ancestor origin/Vojta origin/michal    # selže i při správném stavu
+git rev-list --left-right --count origin/Vojta...origin/michal   # vrátí třeba "540	0"
+```
+
+`git ls-remote` se ptá serveru přímo a lokální refy neřeší, takže je imunní.
+Na serveru (krok 4) je kontrola v pořádku — Linux je case-sensitive.
 
 ## 4. Kontrola serveru před deployem
 
@@ -409,7 +420,8 @@ Po deployi v aplikaci ověřit:
 
 1. ☐ Lokálně: `npm run build`, `npm run lint`, všechny testy zelené
 2. ☐ Při změnách v API/schema/planneru: subagent audit diffu `origin/michal..origin/Vojta` na rizika ztráty/posunu dat
-3. ☐ Merge `Vojta → michal` lokálně (fast-forward), push origin michal
+3. ☐ Merge `Vojta → michal` lokálně (fast-forward), push origin michal, ověřit
+   shodu SHA přes `git ls-remote` (na Macu NIKDY přes `origin/michal` — viz gotcha v kroku 3)
 4. ☐ SSH na server, git status čistý, fetch + `git log origin/michal -5` ukazuje nový HEAD
 5. ☐ **`mysqldump` záloha** s ověřením (velikost, `CREATE TABLE Block`, řádky)
 6. ☐ **PRE snapshot** uložený do `~/backups/snapshot_PRE_*.txt`
