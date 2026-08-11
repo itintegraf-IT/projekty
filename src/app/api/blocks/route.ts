@@ -298,6 +298,8 @@ export async function POST(request: NextRequest) {
           pantoneRequiredDate: parseNullableCivilDateForDb(body.pantoneRequiredDate),
           pantoneOk: body.pantoneOk ?? false,
           pantoneRequired: body.pantoneRequired ?? false,
+          pantoneInStock: body.pantoneInStock ?? false,
+          pantoneIssued: body.pantoneIssued ?? false,
           materialInStock: body.materialInStock ?? false,
           materialIssued: body.materialIssued ?? false,
           // OPAKOVÁNÍ

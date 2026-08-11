@@ -89,6 +89,8 @@ export type Block = {
   pantoneRequiredDate: string | null;
   pantoneOk: boolean;
   pantoneRequired: boolean;
+  pantoneInStock: boolean;
+  pantoneIssued: boolean;
   // Výrobní sloupečky — BARVY
   barvyStatusId: number | null;
   barvyStatusLabel: string | null;

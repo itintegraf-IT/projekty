@@ -88,6 +88,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         pantoneRequiredDate: body.pantoneRequiredDate,
         pantoneOk: body.pantoneOk,
         pantoneRequired: body.pantoneRequired,
+        pantoneInStock: body.pantoneInStock,
+        pantoneIssued: body.pantoneIssued,
         materialInStock: body.materialInStock,
         materialIssued: body.materialIssued,
       };
@@ -413,9 +415,20 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           }),
           ...(allowed.pantoneOk !== undefined && { pantoneOk: allowed.pantoneOk as boolean }),
           ...(allowed.pantoneRequired !== undefined && { pantoneRequired: allowed.pantoneRequired as boolean }),
+          // PANTONE IN STOCK / ISSUED — zrcadlo materiálu: příznak nuluje termín
+          // a zapíná pantoneRequired, jinak by stav zůstal na kartě neviditelný
+          // (čip se řídí právě tím příznakem).
+          ...(allowed.pantoneInStock !== undefined && { pantoneInStock: allowed.pantoneInStock as boolean }),
+          ...(allowed.pantoneInStock === true && { pantoneRequiredDate: null, pantoneRequired: true }),
+          ...(allowed.pantoneIssued !== undefined && { pantoneIssued: allowed.pantoneIssued as boolean }),
+          ...(allowed.pantoneIssued === true && { pantoneRequiredDate: null, pantoneRequired: true }),
+          // „Pantone není potřeba" musí uklidit VŠECHNO, jinak by po vypnutí
+          // zůstal viset zapnutý SKLADEM/VYDÁNO bez viditelného čipu.
           ...(allowed.pantoneRequired === false && {
             pantoneRequiredDate: null,
             pantoneOk: false,
+            pantoneInStock: false,
+            pantoneIssued: false,
           }),
           // MATERIAL IN STOCK (pokud materialInStock=true, vynulovat materialRequiredDate)
           ...(allowed.materialInStock !== undefined && { materialInStock: allowed.materialInStock as boolean }),
