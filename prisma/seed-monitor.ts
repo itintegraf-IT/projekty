@@ -21,6 +21,7 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { SLOT_MS } from "../src/lib/timeSlots";
+import { serializeProductionTags } from "../src/lib/productionTags";
 
 const prisma = new PrismaClient();
 
@@ -122,7 +123,7 @@ async function seed() {
     description: "Katalog jaro 2026 — Alimpex",
     specifikace: "B2 · 4/4 · 130 g natíraný lesk · disperzní lak",
     obalka: true,
-    tiskoveArchy: arch3.label, serie: serie2.label,
+    tiskoveArchy: serializeProductionTags([arch3.label]), serie: serializeProductionTags([serie2.label]),
     barvyStatusId: barvy.id, barvyStatusLabel: barvy.label,
     lakStatusId: lak.id, lakStatusLabel: lak.label,
     pantoneRequired: true, pantoneOk: false,
@@ -134,7 +135,7 @@ async function seed() {
     ...ready, orderNumber: "MON-2405", machine: MAIN,
     description: "Leták Kincl — jarní akce",
     specifikace: "A5 · 4/4 · 135 g NL",
-    vnitrky: true, tiskoveArchy: arch3.label,
+    vnitrky: true, tiskoveArchy: serializeProductionTags([arch3.label]),
   });
 
   // ── ZAČÍNÁ ZÍTRA — na téhle se testuje potvrzení na dvě kliknutí ──
@@ -142,7 +143,7 @@ async function seed() {
     ...ready, orderNumber: "MON-2406", machine: MAIN,
     description: "Krabičky Zentiva — šarže 340",
     specifikace: "GC2 350 g · 4/0 · výsek + lepení",
-    tiskoveArchy: arch8.label,
+    tiskoveArchy: serializeProductionTags([arch8.label]),
   });
 
   // ── POZASTAVENO — musí být na kartě vidět červeným štítkem ──
@@ -165,7 +166,7 @@ async function seed() {
     ...ready, orderNumber: "MON-2404", machine: OTHER,
     description: "Katalog jaro 2026 — Alimpex (vnitřky)",
     specifikace: "B2 · 4/4 · 130 g natíraný lesk",
-    vnitrky: true, tiskoveArchy: arch3.label, serie: serie2.label,
+    vnitrky: true, tiskoveArchy: serializeProductionTags([arch3.label]), serie: serializeProductionTags([serie2.label]),
     printCompletedAt: at(-0.5 * H - 9 * MIN), printCompletedByUsername: "tiskar",
     splitGroupId: group.id,
   });
@@ -175,7 +176,7 @@ async function seed() {
     ...ready, orderNumber: "MON-2409", machine: OTHER,
     description: "Etikety IML — Alimpex jogurt 400 g",
     specifikace: "IML · 5/0 · PP 60 µm",
-    tiskoveArchy: arch8.label,
+    tiskoveArchy: serializeProductionTags([arch8.label]),
   });
 
   // Pojistka: než cokoli zapíšeme, ověříme obě pravidla aplikace na vlastních

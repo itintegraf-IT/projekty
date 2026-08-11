@@ -97,7 +97,7 @@ function QueueSection({
               </span>
             </span>
 
-            {b.specifikace && (
+            {b.specifikace?.trim() && (
               // Amber pás jako na kartě bloku v plánu i na velké kartě Monitoru.
               // Barvy jsou záměrně stejné literály (SPEC_HIGHLIGHT), aby stejná
               // informace vypadala všude stejně; pás si nese vlastní pozadí, takže

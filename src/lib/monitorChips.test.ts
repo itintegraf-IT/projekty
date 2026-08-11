@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildMonitorChips } from "./monitorChips.js";
+import { serializeProductionTags } from "./productionTags.js";
 import type { Block } from "../app/_components/TimelineGrid.js";
 
 function mk(over: Partial<Block> = {}): Block {
@@ -36,8 +37,8 @@ test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série �
   const chips = buildMonitorChips(mk({
     obalka: true,
     vnitrky: true,
-    tiskoveArchy: "3 archy",
-    serie: "2. série",
+    tiskoveArchy: serializeProductionTags(["3. TA"]),
+    serie: serializeProductionTags(["2. série"]),
     dataStatusLabel: "Data OK",
     dataOk: true,
     materialStatusLabel: "Skladem",
@@ -45,9 +46,31 @@ test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série �
     pantoneOk: true,
     blockVariant: "POZASTAVENO",
   }));
-  assert.deepEqual(chips.map((c) => c.label), [
-    "OBÁLKA", "VNITŘKY", "3 archy", "2. série", "Data OK", "Skladem", "PANTONE", "Pozastaveno",
+  assert.deepEqual(chips, [
+    { label: "OBÁLKA", tone: "brand" },
+    { label: "VNITŘKY", tone: "brand" },
+    { label: "3 TA", tone: "plain" },
+    { label: "2 série", tone: "plain" },
+    { label: "Data OK", tone: "ok" },
+    { label: "Skladem", tone: "ok" },
+    { label: "PANTONE", tone: "ok" },
+    { label: "Pozastaveno", tone: "danger" },
   ]);
+});
+
+test("buildMonitorChips: archy a série se formátují z JSON pole, ne syrově", () => {
+  const chips = buildMonitorChips(mk({
+    tiskoveArchy: '["1. TA","5. TA"]',
+    serie: '["2. série"]',
+  }));
+  assert.deepEqual(chips, [
+    { label: "1, 5 TA", tone: "plain" },
+    { label: "2 série", tone: "plain" },
+  ]);
+});
+
+test("buildMonitorChips: neparsovatelná hodnota chip nedělá (stejně jako karta v plánu)", () => {
+  assert.deepEqual(buildMonitorChips(mk({ tiskoveArchy: "3. TA", serie: null })), []);
 });
 
 test("buildMonitorChips: materiál je připravený i když je jen vydaný (nález I5)", () => {

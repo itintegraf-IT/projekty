@@ -11,13 +11,17 @@ amber pás specifikace už měla. Tři změny to sjednotily.
 
 ### Klíčová rozhodnutí
 
-- **Pravidla chipů mají teď jedno místo.** `buildMonitorChips` (`src/lib/monitorChips.ts`)
-  je čistá funkce vytažená doslova z privátní `HeroChips`, která dřív žila přímo
-  v `MonitorView.tsx`. Pokryto 8 testy v `monitorChips.test.ts`. Důvod, proč je to
-  funkce v `lib`, a ne logika v JSX: pravidlo materiálové připravenosti
-  (`materialInStock || materialIssued || materialOk`) už jednou selhalo — nález I5,
-  kdy Monitor hlásil „čeká" na materiál, který plán ukazoval zeleně. Pravidla s touhle
-  historií patří pod testy, ne do markupu.
+- **Pravidla chipů mají teď jedno místo PRO MONITOR** (velká karta i fronta).
+  `buildMonitorChips` (`src/lib/monitorChips.ts`) je čistá funkce vytažená doslova
+  z privátní `HeroChips`, která dřív žila přímo v `MonitorView.tsx`. Pokryto testy
+  v `monitorChips.test.ts`. Důvod, proč je to funkce v `lib`, a ne logika v JSX:
+  pravidlo materiálové připravenosti (`materialInStock || materialIssued ||
+  materialOk`) už jednou selhalo — nález I5, kdy Monitor hlásil „čeká" na materiál,
+  který plán ukazoval zeleně. Pravidla s touhle historií patří pod testy, ne do
+  markupu. **Není to jediné místo v celé aplikaci** — `BlockCard.tsx` v plánu si
+  stejná pravidla (materiál, PANTONE) počítá inline, vlastní kopií, a tahle funkce
+  ji nenahrazuje. Obě strany dnes souhlasí jen shodou; kdo mění pravidlo tady, musí
+  ho ručně promítnout i do `BlockCard.tsx`.
 - **Jeden renderer pro obě strany obrazovky.** `MonitorChips.tsx`
   (`{ block, size: "hero" | "queue" }`) používá velká karta i řádek fronty, takže se
   nemůžou rozejít. `size` mění **jen rozměry** (hero: 12px / padding 5px 10px; queue:
@@ -29,7 +33,11 @@ amber pás specifikace už měla. Tři změny to sjednotily.
 - **`MonitorQueue.tsx`: řádek se stal flex column.** Nahoře původní řádek (číslo,
   popis, čas), pod ním amber pás specifikace, pod tím chipy. Řádek zůstal `<button>`
   (klik přetáhne zakázku na velkou kartu — vědomé přebití pořadí plánovače tiskařem)
-  a jeho props se nezměnily.
+  a jeho props se nezměnily. Dvě drobné úpravy stejného řádku byly záměrné, ne
+  vedlejší efekt: padding `11px 12px` → `10px 12px` (o chlup víc místa pro tři
+  vodorovně natěsnané řádky obsahu) a zarovnání horního řádku `center` → `baseline`
+  (číslo zakázky, popis a čas mají různou velikost písma; `baseline` je zarovná
+  vizuálně přirozeněji než `center`).
 
 ### `SpecBand` z plánu se záměrně nepoužil znovu
 

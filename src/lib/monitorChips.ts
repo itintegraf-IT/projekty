@@ -1,14 +1,20 @@
 import type { Block } from "@/app/_components/TimelineGrid";
 import { VARIANT_CONFIG } from "@/lib/blockVariants";
+import { compactTagChip } from "@/lib/productionTags";
 
 export type MonitorChipTone = "brand" | "ok" | "wait" | "plain" | "danger";
 export type MonitorChip = { label: string; tone: MonitorChipTone };
 
 /**
- * Výrobní a stavové štítky zakázky na Monitoru — jediný zdroj pravdy pro velkou
- * kartu i frontu. Kdyby měla každá strana vlastní kopii, první oprava pravidel
- * (jako nález I5 níže) by se promítla jen na jedno místo a Monitor by o téže
- * zakázce tvrdil dvě různé věci na jedné obrazovce.
+ * Výrobní a stavové štítky zakázky na Monitoru (velká karta + fronta) — jediný
+ * zdroj pravdy PRO MONITOR. Kdyby měla každá strana vlastní kopii, první oprava
+ * pravidel (jako nález I5 níže) by se promítla jen na jedno místo a Monitor by
+ * o téže zakázce tvrdil dvě různé věci na jedné obrazovce.
+ *
+ * Pozor: `BlockCard.tsx` v plánu si stejná pravidla (materiál, PANTONE) počítá
+ * inline, vlastní kopií — tahle funkce ji nenahrazuje ani nevynucuje. Obě strany
+ * dnes souhlasí, ale je to jen shoda, ne záruka; kdo mění pravidlo tady, musí ho
+ * ručně promítnout i do `BlockCard.tsx` (viz nález I5, kde se to jednou rozešlo).
  *
  * Čistá funkce v `lib`, ne logika uvnitř JSX: pravidla jsou netriviální a už se
  * jednou rozešla, takže je chceme mít pod testy (stejný vzor jako `monitorView.ts`).
@@ -18,8 +24,15 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
 
   if (block.obalka) chips.push({ label: "OBÁLKA", tone: "brand" });
   if (block.vnitrky) chips.push({ label: "VNITŘKY", tone: "brand" });
-  if (block.tiskoveArchy) chips.push({ label: block.tiskoveArchy, tone: "plain" });
-  if (block.serie) chips.push({ label: block.serie, tone: "plain" });
+
+  // `tiskoveArchy`/`serie` se v DB ukládají jako JSON pole labelů (`'["1. TA","5. TA"]'`),
+  // ne jako hotový text — `compactTagChip` je jediný sdílený formátovač (stejný,
+  // jaký používá karta bloku v plánu). Syrový sloupec se NIKDY nevypisuje přímo,
+  // jinak by chip na produkčních datech ukazoval doslovný JSON.
+  const archyLabel = compactTagChip(block.tiskoveArchy);
+  if (archyLabel) chips.push({ label: archyLabel, tone: "plain" });
+  const serieLabel = compactTagChip(block.serie);
+  if (serieLabel) chips.push({ label: serieLabel, tone: "plain" });
 
   if (block.dataStatusLabel) {
     chips.push({ label: block.dataStatusLabel, tone: block.dataOk ? "ok" : "wait" });

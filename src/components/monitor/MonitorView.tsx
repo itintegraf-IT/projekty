@@ -269,7 +269,7 @@ export function MonitorView({
                   {card.block.description ?? ""}
                 </div>
 
-                {card.block.specifikace && (
+                {card.block.specifikace?.trim() && (
                   // Amber pás jako na kartě bloku v plánu (SpecBand, 8/2026) — specifikace
                   // je to, podle čeho tiskař u stroje seřizuje, a jako šedý text ji
                   // přehlédne. Barvy jsou záměrně stejné literály jako v plánu
