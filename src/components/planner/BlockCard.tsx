@@ -661,7 +661,12 @@ export function BlockCard({
             padding: "1px 5px",
             zIndex: 4,
             userSelect: "none",
-            pointerEvents: "none",
+            // POZOR: `pointerEvents: "none"` tu být NESMÍ — vypnutý hit-test znamená,
+            // že prvek nikdy nedostane hover, a tím pádem se NIKDY neukáže nativní
+            // bublina z `title` výš. Štítek pak jen svítí a nevysvětlí proč.
+            // Tažení bloku to nerozbije: kořenový `onMouseDown` karty necheckuje
+            // `e.target` a gridové handlery se řídí `closest("[data-block]")`, což
+            // ze štítku uvnitř karty najde blok stejně jako z karty samotné.
             whiteSpace: "nowrap",
           }}
         >
@@ -701,7 +706,9 @@ export function BlockCard({
             padding: "1px 5px",
             zIndex: 4,
             userSelect: "none",
-            pointerEvents: "none",
+            // Bez hit-testu by se nikdy neukázala nápověda z `title` výš — a právě
+            // ta je u téhle značky to podstatné: vysvětluje rozdíl mezi vědomým
+            // odložením a skutečnou neshodou s kalendářem. Viz deadline štítek výš.
             whiteSpace: "nowrap",
           }}
         >
@@ -1307,7 +1314,10 @@ export function BlockCard({
             position: "absolute", right: 2, top: "50%", transform: "translateY(-50%)",
             width: 3, height: "55%", minHeight: 8, maxHeight: 22,
             borderRadius: 2, background: "rgba(251,191,36,0.8)",
-            pointerEvents: "none",
+            // Bez hit-testu se nápověda „Obsahuje specifikaci" nikdy neukáže. Právě
+            // tady na ní záleží nejvíc: tenhle proužek je poslední záchrana na
+            // kartách, kde se text specifikace ani zkráceně nevejde, takže bublina
+            // je jediná cesta, jak se plánovač doví, že tam nějaká je.
           }}
         />
       )}
