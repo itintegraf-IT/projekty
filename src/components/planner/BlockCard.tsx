@@ -997,8 +997,8 @@ export function BlockCard({
                 accent={FIELD_ACCENT.MATERIAL}
                 fontSize={10}
                 title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                onClick={materialHandled ? undefined : () => toggleField("materialOk", block.materialOk)}
-                onDoubleClick={canEditMat ? (e) => { e.stopPropagation(); onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
+                onClick={materialHandled ? undefined : (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } }}
+                onDoubleClick={canEditMat ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
               />
             </MaterialNoteAffordance>
             <BlockDateChip
@@ -1016,8 +1016,8 @@ export function BlockCard({
                 title={pantoneEffectiveState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                 customBg={block.pantoneIssued ? DEADLINE_BG.issued : undefined}
                 customBorder={block.pantoneIssued ? DEADLINE_BORDER.issued : undefined}
-                onClick={pantoneHandled ? undefined : () => toggleField("pantoneOk", block.pantoneOk)}
-                onDoubleClick={canEditMat ? (e) => { e.stopPropagation(); onInlineDatePick?.(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
+                onClick={pantoneHandled ? undefined : (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } }}
+                onDoubleClick={canEditMat ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick?.(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
               />
             )}
           </div>
