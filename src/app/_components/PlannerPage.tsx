@@ -3113,6 +3113,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onBlockDoubleClick={handleBlockDoubleClick}
             companyDays={companyDays}
             slotHeight={gridSlotHeight}
+            typeScale={typeScale}
             copiedBlockId={copiedBlock?.id ?? null}
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
             onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); }}

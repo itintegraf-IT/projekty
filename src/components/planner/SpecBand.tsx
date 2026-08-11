@@ -20,7 +20,7 @@ import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
  * motiv by tu kontrast rozbily.
  */
 
-export function SpecBand({ text, twoLine }: { text: string; twoLine: boolean }) {
+export function SpecBand({ text, twoLine, fontSize }: { text: string; twoLine: boolean; fontSize: number }) {
   return (
     <div style={{ padding: "0 6px 3px", flexShrink: 0, position: "relative", zIndex: 2 }}>
       <div
@@ -30,7 +30,7 @@ export function SpecBand({ text, twoLine }: { text: string; twoLine: boolean }) 
           color: SPEC_HIGHLIGHT.text,
           borderRadius: 3,
           padding: "2px 6px",
-          fontSize: 10,
+          fontSize,
           fontWeight: 700,
           lineHeight: 1.3,
           letterSpacing: "0.01em",
@@ -50,7 +50,7 @@ export function SpecBand({ text, twoLine }: { text: string; twoLine: boolean }) 
  * i při maximálním přiblížení jen 26 px — text tam neexistuje způsob, jak
  * zobrazit, takže zbývá nepřehlédnutelná značka a tooltip.
  */
-export function SpecChip({ text }: { text: string }) {
+export function SpecChip({ text, fontSize }: { text: string; fontSize: number }) {
   return (
     <span
       title={text}
@@ -60,7 +60,7 @@ export function SpecChip({ text }: { text: string }) {
         color: SPEC_HIGHLIGHT.text,
         borderRadius: 3,
         padding: "1px 4px",
-        fontSize: 9,
+        fontSize,
         fontWeight: 800,
         lineHeight: 1.2,
         letterSpacing: "0.04em",

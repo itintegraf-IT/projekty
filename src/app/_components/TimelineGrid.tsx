@@ -30,6 +30,7 @@ import { SHIFT_HOURS } from "@/lib/shifts";
 import { ShiftEdgeHandles } from "@/components/planner/ShiftEdgeHandles";
 import { findSplitPartner, hasUnconfirmedReservation } from "@/lib/splitHelpers";
 import { BlockCard } from "@/components/planner/BlockCard";
+import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -208,6 +209,8 @@ interface TimelineGridProps {
   onBlockDoubleClick?: (block: Block) => void;
   companyDays?: CompanyDay[];
   slotHeight?: number;
+  /** Stupeň písma. Nepovinný — bez něj se karta chová jako při výchozím M. */
+  typeScale?: PlannerTypeScale;
   daysAhead?: number;
   daysBack?: number;
   copiedBlockId?: number | null;
@@ -512,6 +515,7 @@ export default function TimelineGrid({
   queueDragItem, onQueueDrop, onQueueDragCancel, onBlockDoubleClick,
   companyDays,
   slotHeight = SLOT_HEIGHT,
+  typeScale = plannerTypeScale(DEFAULT_FONT_SCALE),
   daysAhead,
   daysBack,
   copiedBlockId,
@@ -2130,6 +2134,7 @@ export default function TimelineGrid({
                       onSplitChipClick={onSplitChipClick}
                       calendarDrift={driftMap.get(block.id)}
                       shadeParity={shadeParityByBlockId.get(block.id)}
+                      typeScale={typeScale}
                     />
                   );
                 })}

@@ -39,6 +39,7 @@ import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { printDoneSize, isBlockRunningNow, splitChipFits } from "@/lib/tiskarBlockView";
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
+import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 
 // ─── BlockCard ─────────────────────────────────────────────────────────────────
 // Vizuální config bloků žije v @/lib/blockStyles (sdílený s blockShades — audit #14/C5).
@@ -89,11 +90,11 @@ function chipTextColor(colorKey: string | null | undefined): string | null {
   return BADGE_TEXT_OVERRIDES[colorKey] ?? null;
 }
 
-function MiniChip({ label, accent, textColor }: { label: string; accent: string; textColor?: string }) {
+function MiniChip({ label, accent, textColor, fontSize }: { label: string; accent: string; textColor?: string; fontSize: number }) {
   const tc = textColor ?? accent;
   return (
     <span style={{
-      fontSize: 9, fontWeight: 700, color: tc, lineHeight: 1.5,
+      fontSize, fontWeight: 700, color: tc, lineHeight: 1.5,
       background: tint(accent, 85), border: `1px solid ${tint(accent, 100)}`,
       borderRadius: 3, padding: "1px 5px", whiteSpace: "nowrap",
       display: "block",
@@ -207,6 +208,7 @@ export function BlockCard({
   pauseOverlays, contentHeight,
   calendarDrift,
   shadeParity,
+  typeScale = plannerTypeScale(DEFAULT_FONT_SCALE),
 }: {
   block: Block;
   top: number;
@@ -230,6 +232,8 @@ export function BlockCard({
   // Střídání odstínů — parita 0 (základní) / 1 (světlejší) pro odlišení sousedících
   // zakázek téže barvy; počítá rodič (computeShadeParity), undefined = neúčastní se.
   shadeParity?: 0 | 1;
+  /** Stupeň písma. Nepovinný kvůli DtpPanel, který kartu vykresluje bez planneru. */
+  typeScale?: PlannerTypeScale;
   // Pauza (mimo provoz) uvnitř bloku, který zasahuje přes odstávku/nepracovní čas —
   // pixelové offsety (top/height) relativní k bloku, předpočítané v rodiči (má dateToY/viewStart/slotHeight).
   pauseOverlays?: { key: string; top: number; height: number }[];
@@ -319,7 +323,7 @@ export function BlockCard({
     : { flex: 1 };
 
   // Velikost tlačítka Hotovo (jen tiskařský režim) — pravidla v tiskarBlockView.ts
-  const printDone = printDoneSize(layoutHeight);
+  const printDone = printDoneSize(layoutHeight, typeScale);
   const togglePrintDone = () => {
     if (!onPrintComplete) return;
     setPrintPending(true);
@@ -415,10 +419,10 @@ export function BlockCard({
   // Výškové mody (vzájemně se vylučují). Řídí se layoutHeight (výška prvního print segmentu,
   // pokud blok segmenty má) — u bloku s pauzou uprostřed se obsah vejde do tiskové části
   // a nepropadne do vizuální pauzy uprostřed bloku.
-  const MODE_FULL    = layoutHeight >= 48;                              // plný layout (od ~1h při zoom=26)
-  const MODE_COMPACT = !MODE_FULL && layoutHeight >= 44 && block.type !== "UDRZBA";
-  const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && layoutHeight >= 24; // micro tečky
-  const MODE_MICRO_TEXT = !MODE_FULL && !MODE_COMPACT && !MODE_TINY && layoutHeight >= 14; // 14–23 px: sdílí TINY řádek (D/M/E chipy + číslo + popis)
+  const MODE_FULL    = layoutHeight >= typeScale.thresholds.full;        // plný layout (od ~1h při zoom=26)
+  const MODE_COMPACT = !MODE_FULL && layoutHeight >= typeScale.thresholds.compact && block.type !== "UDRZBA";
+  const MODE_TINY    = !MODE_FULL && !MODE_COMPACT && layoutHeight >= typeScale.thresholds.tiny; // micro tečky
+  const MODE_MICRO_TEXT = !MODE_FULL && !MODE_COMPACT && !MODE_TINY && layoutHeight >= typeScale.thresholds.micro; // sdílí TINY řádek (D/M/E chipy + číslo + popis)
   // Výškové prahy pro FULL mode
   // Jeden jednořádkový chip pro celý plný layout. Do 8/2026 tu byly DVĚ podoby —
   // dvouřádkový popiskový badge od 60 px a kompaktní chip pod ním. Sloučeno: chip
@@ -430,20 +434,25 @@ export function BlockCard({
   // overflow:hidden a pás vykreslený před tlačítkem Hotovo by ho na nízké kartě
   // vytlačil pod ořez (regrese 3. 8. 2026) — tlačítko má přednost. Tiskaři pod
   // 80 px zbývá svislý proužek, resp. značka „S" v jednořádkových režimech.
-  const showSpec     = isTiskar ? layoutHeight >= 80 : MODE_FULL;
-  const specTwoLine  = layoutHeight >= 80;   // pod 80 px se vejde jen jeden řádek s elipsou
+  const showSpec     = isTiskar ? layoutHeight >= typeScale.tiskarSpecMin : MODE_FULL;
+  const specTwoLine  = layoutHeight >= typeScale.specTwoLine;   // pod tímto prahem se vejde jen jeden řádek s elipsou
   const hasSpecBand  = showSpec && !!block.specifikace;
   const specRows: 0 | 1 | 2 = hasSpecBand ? (specTwoLine ? 2 : 1) : 0;
   // Značka „S" místo pásu — jen v jednořádkových režimech, které mají řádek chipů.
   const hasSpecChip  = !hasSpecBand && !!block.specifikace && (MODE_COMPACT || MODE_TINY || MODE_MICRO_TEXT);
-  // Popis za číslem zakázky. Zobrazujeme v celém FULL módu (≥48px), ne až od 66px —
-  // jinak bloky v pásmu 48–65px (typicky 2–2,5h při odzoomu) neukazovaly popis,
-  // zatímco menší COMPACT/TINY bloky ho ukazují. Číslo zakázky výšku řádku určuje,
-  // takže 1řádkový popis v tomto pásmu nestojí žádný prostor navíc.
-  const showDesc   = MODE_FULL && layoutHeight >= 48;
-  // Počet řádků popisu — v úzkém pásmu (48–65px) přesně 1 řádek (víc se nevejde vedle
-  // datového řádku), od 66px roste s výškou bloku (13px/řádek).
-  const descLineClamp = layoutHeight < 66 ? 1 : Math.max(2, Math.floor((layoutHeight - 55) / 13));
+  // Popis za číslem zakázky. Zobrazujeme v celém FULL módu (≥thresholds.full), ne až
+  // od vyššího prahu — jinak bloky těsně nad thresholds.full (typicky 2–2,5h při
+  // odzoomu) neukazovaly popis, zatímco menší COMPACT/TINY bloky ho ukazují. Číslo
+  // zakázky výšku řádku určuje, takže 1řádkový popis v tomto pásmu nestojí žádný
+  // prostor navíc. `layoutHeight >= typeScale.thresholds.full` je redundantní s
+  // MODE_FULL (implikace platí vždy), ponecháno kvůli čitelnosti podmínky.
+  const showDesc   = MODE_FULL && layoutHeight >= typeScale.thresholds.full;
+  // Počet řádků popisu — v úzkém pásmu (thresholds.full × 1–1,4) přesně 1 řádek (víc
+  // se nevejde vedle datového řádku), nad tím roste s výškou bloku a řádkovou výškou
+  // popisu daného stupně (M dává stejné hodnoty jako dřívější napevno zapsané 66/13px).
+  const descLineClamp = layoutHeight < typeScale.thresholds.full * 1.4
+    ? 1
+    : Math.max(2, Math.floor((layoutHeight - typeScale.thresholds.full - 7) / Math.round(typeScale.desc * 1.3)));
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const glow = s.glow;
@@ -585,7 +594,7 @@ export function BlockCard({
             right: 4,
             background: "#b91c1c",
             color: "#fff",
-            fontSize: 9,
+            fontSize: typeScale.badge,
             fontWeight: 800,
             lineHeight: 1,
             borderRadius: 4,
@@ -630,7 +639,7 @@ export function BlockCard({
             right: 4,
             background: "#f59e0b",
             color: "#1f2937",
-            fontSize: 9,
+            fontSize: typeScale.badge,
             fontWeight: 800,
             lineHeight: 1,
             borderRadius: 4,
@@ -709,13 +718,13 @@ export function BlockCard({
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
               {/* Na nízké kartě se pás specifikace nevejde — zbývá značka na začátku
                   řádku (flexShrink 0, takže ji popis nikdy nevytlačí) a text v tooltipu. */}
-              {hasSpecChip && <SpecChip text={block.specifikace!} />}
+              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={typeScale.specChip} />}
               {!isTiskar && <>
                 <BlockDateChip
                   text={block.dataStatusId ? dataDisplayLabel : `D ${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                   state={dStateKey}
                   accent={FIELD_ACCENT.DATA}
-                  fontSize={10}
+                  fontSize={typeScale.chip}
                   title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
                   customBg={block.dataStatusId && dataAccent !== s.accentBar ? dataAccent : undefined}
                   customBorder={block.dataStatusId && dataAccent !== s.accentBar ? dataAccent : undefined}
@@ -736,7 +745,7 @@ export function BlockCard({
                     text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
                     state={mStateKey}
                     accent={FIELD_ACCENT.MATERIAL}
-                    fontSize={10}
+                    fontSize={typeScale.chip}
                     title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
                     onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
@@ -746,14 +755,14 @@ export function BlockCard({
                   text={`E ${block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}`}
                   state={eStateKey}
                   accent={FIELD_ACCENT.EXPEDICE}
-                  fontSize={10}
+                  fontSize={typeScale.chip}
                 />
                 {pantoneVisible && (
                   <BlockDateChip
                     text={`P ${pantoneChipText(pIcon)}`}
                     state={pantoneStateKey}
                     accent={FIELD_ACCENT.PANTONE}
-                    fontSize={10}
+                    fontSize={typeScale.chip}
                     title={pantoneEffectiveState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                     onClick={block.pantoneRequiredDate && !pantoneHandled ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactPanTimerRef.current) clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = setTimeout(() => { compactPanTimerRef.current = null; toggleField("pantoneOk", block.pantoneOk); }, 350); } else { toggleField("pantoneOk", block.pantoneOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactPanTimerRef.current) { clearTimeout(compactPanTimerRef.current); compactPanTimerRef.current = null; } onInlineDatePick(block.id, "pantone", block.pantoneRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
@@ -761,14 +770,14 @@ export function BlockCard({
                 )}
                 <div style={{ width: 1, height: 12, background: "var(--border)", flexShrink: 0 }} />
               </>}
-              <span style={{ fontSize: 11, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
+              <span style={{ fontSize: typeScale.num * 0.92, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={9} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
                 {isPrintDone && <span style={{ marginLeft: 4, fontSize: 9, color: "#22c55e", fontWeight: 700 }}>✓</span>}
                 {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={11} strokeWidth={2.5} color="#f59e0b" /></span>}
               </span>
               {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
-                  <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                  <span style={{ fontSize: typeScale.desc * 0.9, fontWeight: 400, color: s.textSub, opacity: typeScale.descOpacityTiny, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
                     {block.description}
                   </span>
                 </span>
@@ -786,11 +795,11 @@ export function BlockCard({
             <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
               {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                 <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
-                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
-                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
-                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
+                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={typeScale.mini} />}
+                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={typeScale.mini} />}
+                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={typeScale.mini} />}
                   {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                    <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
+                    <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.4, color: s.textSub, flexShrink: 0 }}>↻</span>
                   )}
                 </div>
               )}
@@ -820,7 +829,7 @@ export function BlockCard({
         const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const chipStyle = (stateKey: DateChipState, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
-          fontSize: 9, fontWeight: 600,
+          fontSize: typeScale.chip, fontWeight: 600,
           color: stateKey === "empty" ? "#fff" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
           borderTop: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
@@ -839,7 +848,7 @@ export function BlockCard({
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
               {/* Značka specifikace i tady — bez ní by karta 14–43 px neukázala
                   ani pás, ani „S", ani proužek (proužek je potlačen hasSpecChip). */}
-              {hasSpecChip && <SpecChip text={block.specifikace!} />}
+              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={typeScale.specChip} />}
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={{
                     ...chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
@@ -876,12 +885,12 @@ export function BlockCard({
                 )}
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
-              <span style={{ fontSize: 10, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
+              <span style={{ fontSize: Math.min(typeScale.num * 0.92, layoutHeight * 0.7), fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={8} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={9} strokeWidth={2} /></span>}
               </span>
               {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
-                  <span style={{ fontSize: 9, fontWeight: 400, color: s.textSub, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
+                  <span style={{ fontSize: Math.min(typeScale.desc * 0.9, layoutHeight * 0.7), fontWeight: 400, color: s.textSub, opacity: typeScale.descOpacityTiny, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1, flexShrink: 1 }}>
                     {block.description}
                   </span>
                 </span>
@@ -899,14 +908,14 @@ export function BlockCard({
             <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
               {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
                 <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
-                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
-                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
-                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
+                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={typeScale.mini} />}
+                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={typeScale.mini} />}
+                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={typeScale.mini} />}
                   {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                    <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
+                    <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
                   )}
                   {(splitTotal ?? 0) > 1 && (
-                    <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
+                    <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
                   )}
                 </div>
               )}
@@ -925,7 +934,7 @@ export function BlockCard({
           {/* Levá část: číslo + popis */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 6, flex: 1, minWidth: 0, overflow: "hidden" }}>
             <span style={{
-              fontSize: 12, fontWeight: 700, color: s.textPrimary,
+              fontSize: typeScale.num, fontWeight: 800, color: s.textPrimary,
               lineHeight: 1.2, flexShrink: 0, maxWidth: "60%",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}>
@@ -934,7 +943,7 @@ export function BlockCard({
             </span>
             {showDesc && block.description && (
               <span style={{
-                fontSize: 10, fontWeight: 400, color: s.textSub, opacity: 0.75, lineHeight: 1.3,
+                fontSize: typeScale.desc, fontWeight: 400, color: s.textSub, opacity: typeScale.descOpacity, lineHeight: 1.3,
                 overflow: "hidden", display: "-webkit-box",
                 WebkitLineClamp: descLineClamp, WebkitBoxOrient: "vertical",
                 whiteSpace: "pre-wrap",
@@ -947,14 +956,14 @@ export function BlockCard({
           {/* Pravá část: status chips + série + split */}
           {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-              {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} />}
-              {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} />}
-              {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} />}
+              {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={typeScale.mini} />}
+              {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={typeScale.mini} />}
+              {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={typeScale.mini} />}
               {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                <span style={{ fontSize: 8, opacity: 0.4, color: s.textSub }}>↻</span>
+                <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.4, color: s.textSub }}>↻</span>
               )}
               {(splitTotal ?? 0) > 1 && (
-                <span style={{ fontSize: 8, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
+                <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
               )}
             </div>
           )}
@@ -979,7 +988,7 @@ export function BlockCard({
               text={block.dataStatusId ? dataDisplayLabel : `D ${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
               state={dSK}
               accent={FIELD_ACCENT.DATA}
-              fontSize={10}
+              fontSize={typeScale.chip}
               title={dataDeadlineState === "earlyStart" ? "Start zakázky před dodáním dat" : undefined}
               customBg={block.dataStatusId && dataAccent !== s.accentBar ? dataAccent : undefined}
               customBorder={block.dataStatusId && dataAccent !== s.accentBar ? dataAccent : undefined}
@@ -995,7 +1004,7 @@ export function BlockCard({
                 text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
                 state={mSK}
                 accent={FIELD_ACCENT.MATERIAL}
-                fontSize={10}
+                fontSize={typeScale.chip}
                 title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
                 onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                 onDoubleClick={canEditMat ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
@@ -1005,14 +1014,14 @@ export function BlockCard({
               text={`E ${block.deadlineExpedice ? fmtDateShort(block.deadlineExpedice) : "—"}`}
               state={eSK}
               accent={FIELD_ACCENT.EXPEDICE}
-              fontSize={10}
+              fontSize={typeScale.chip}
             />
             {pantoneVisible && (
               <BlockDateChip
                 text={`P ${pantoneChipText(pIcon)}`}
                 state={pantoneStateKey as DateChipState}
                 accent={FIELD_ACCENT.PANTONE}
-                fontSize={10}
+                fontSize={typeScale.chip}
                 title={pantoneEffectiveState === "earlyStart" ? "Start zakázky před dodáním pantonu" : undefined}
                 customBg={block.pantoneIssued ? DEADLINE_BG.issued : undefined}
                 customBorder={block.pantoneIssued ? DEADLINE_BORDER.issued : undefined}
@@ -1025,7 +1034,7 @@ export function BlockCard({
       })()}
 
       {/* ── Řádek 3: Specifikace — zvýrazněný amber pás ── */}
-      {hasSpecBand && <SpecBand text={block.specifikace!} twoLine={specTwoLine} />}
+      {hasSpecBand && <SpecBand text={block.specifikace!} twoLine={specTwoLine} fontSize={typeScale.spec} />}
 
 
       {/* Hotovo tlačítko pro TISKAR (FULL mode) — pruh přes celou šířku karty.
@@ -1046,7 +1055,7 @@ export function BlockCard({
 
       {/* SplitChip — jen pro TISKAR, MODE_FULL. Zobrazí se jen když na něj po
           tlačítku Hotovo zbylo místo, ať v kartě nevisí useknutý proužek. */}
-      {MODE_FULL && splitPartner && splitChipFits(layoutHeight, printDone, specRows) && (() => {
+      {MODE_FULL && splitPartner && splitChipFits(layoutHeight, printDone, specRows, typeScale) && (() => {
         const { state, time } = getSplitChipState(splitPartner);
         return (
           <SplitChip
