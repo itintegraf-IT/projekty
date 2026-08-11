@@ -1552,6 +1552,14 @@ export default function TimelineGrid({
   const multiAnchor = isMultiDrag ? (blocks.find(b => b.id === dragPreview!.blockId) ?? null) : null;
   const multiDelta  = multiAnchor ? dragPreview!.top - dateToY(new Date(multiAnchor.startTime), viewStart, slotHeight) : 0;
 
+  // Které sloupce nese „Skladem"/„Vydáno" pro právě otevřený čip inline datepickeru.
+  // DATA nemá ani jedno → null → tlačítka se v InlineDatePickeru nevykreslí.
+  const inlinePickerFlagFields =
+    inlinePicker?.field === "material" ? { inStock: "materialInStock", issued: "materialIssued" } as const
+    : inlinePicker?.field === "pantone" ? { inStock: "pantoneInStock", issued: "pantoneIssued" } as const
+    : null;
+  const inlinePickerBlock = inlinePicker ? blocks.find((b) => b.id === inlinePicker.blockId) : undefined;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, cursor: dragPreview ? "grabbing" : "default" }}>
       {header}
@@ -2293,7 +2301,7 @@ export default function TimelineGrid({
         }} />
       )}
 
-      {/* Inline datepicker pro double-click na DATA/MAT badge */}
+      {/* Inline datepicker pro double-click na DATA/MAT/PANTONE badge */}
       {inlinePicker && (
         <InlineDatePicker
           x={inlinePicker.x}
@@ -2306,11 +2314,14 @@ export default function TimelineGrid({
             if (!block) return;
             const f = inlinePicker.field;
             const field = f === "material" ? "materialRequiredDate" : f === "pantone" ? "pantoneRequiredDate" : "dataRequiredDate";
+            // Nastavení termínu vypíná „skladem"/„vydáno" — nemá smysl mít oboje.
+            const body: Record<string, unknown> = { [field]: dateStr };
+            if (inlinePickerFlagFields) { body[inlinePickerFlagFields.inStock] = false; body[inlinePickerFlagFields.issued] = false; }
             try {
               const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(f === "material" ? { [field]: dateStr, materialInStock: false, materialIssued: false } : { [field]: dateStr }),
+                body: JSON.stringify(body),
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
@@ -2320,17 +2331,17 @@ export default function TimelineGrid({
               callbacksRef.current.onError?.("Nepodařilo se uložit datum.");
             }
           }}
-          sklademActive={inlinePicker.field === "material" && !!blocks.find((b) => b.id === inlinePicker.blockId)?.materialInStock}
-          vydanoActive={inlinePicker.field === "material" && !!blocks.find((b) => b.id === inlinePicker.blockId)?.materialIssued}
-          onPickSkladem={inlinePicker.field === "material" ? async () => {
+          sklademActive={!!inlinePickerFlagFields && !!inlinePickerBlock?.[inlinePickerFlagFields.inStock]}
+          vydanoActive={!!inlinePickerFlagFields && !!inlinePickerBlock?.[inlinePickerFlagFields.issued]}
+          onPickSkladem={inlinePickerFlagFields ? async () => {
             const current = blocks.find((b) => b.id === inlinePicker.blockId);
-            const nextValue = !current?.materialInStock;
+            const nextValue = !current?.[inlinePickerFlagFields.inStock];
             setInlinePicker(null);
             try {
               const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ materialInStock: nextValue }),
+                body: JSON.stringify({ [inlinePickerFlagFields.inStock]: nextValue }),
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
@@ -2340,15 +2351,15 @@ export default function TimelineGrid({
               callbacksRef.current.onError?.("Nepodařilo se uložit.");
             }
           } : undefined}
-          onPickVydano={inlinePicker.field === "material" ? async () => {
+          onPickVydano={inlinePickerFlagFields ? async () => {
             const current = blocks.find((b) => b.id === inlinePicker.blockId);
-            const nextValue = !current?.materialIssued;
+            const nextValue = !current?.[inlinePickerFlagFields.issued];
             setInlinePicker(null);
             try {
               const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ materialIssued: nextValue }),
+                body: JSON.stringify({ [inlinePickerFlagFields.issued]: nextValue }),
               });
               if (!res.ok) throw new Error(`HTTP ${res.status}`);
               const updated = await res.json();
