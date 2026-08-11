@@ -1261,7 +1261,7 @@ export default function TimelineGrid({
         idx > 0 ? <div key={`hgap-${idx}`} style={{ width: TIME_COL_W, flexShrink: 0, borderLeft: "1px solid var(--border)", borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", color: "var(--text-muted)", textTransform: "uppercase" }}>ČAS</span>
         </div> : null,
-        <div key={machine} style={{ flex: 1, padding: "8px 12px", color: "var(--text)", display: "flex", alignItems: "center", gap: 8 }} className="text-xs font-bold">
+        <div key={machine} style={{ flex: 1, padding: "8px 12px", color: "var(--text)", display: "flex", alignItems: "center", gap: 8, fontSize: typeScale.machineHead }} className="font-bold">
           <span>{machine.replace("_", "\u00a0")}</span>
           {canEdit && driftCount > 0 && (
             <>
@@ -1725,7 +1725,7 @@ export default function TimelineGrid({
                   paddingLeft: 8,
                 }}
               >
-                <span style={{ fontSize: 9, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
+                <span style={{ fontSize: typeScale.rail, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
                   {m.label}
                 </span>
               </div>
@@ -1763,7 +1763,7 @@ export default function TimelineGrid({
                           justifyContent: "center",
                         }}
                       >
-                        <span style={{ fontSize: 9, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
+                        <span style={{ fontSize: typeScale.rail, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
                           {m.label}
                         </span>
                       </div>
