@@ -8,10 +8,10 @@ import { findSplitPartner, getSplitChipState } from "@/lib/splitHelpers";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
 import { MonitorQueue } from "@/components/monitor/MonitorQueue";
+import { MonitorChips } from "@/components/monitor/MonitorChips";
 import { machineLabel, MACHINES } from "@/lib/machines";
 import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
 import { formatPragueTime } from "@/lib/dateUtils";
-import { VARIANT_CONFIG } from "@/lib/blockVariants";
 
 type Props = {
   blocks: Block[];
@@ -292,7 +292,7 @@ export function MonitorView({
                   </div>
                 )}
 
-                <HeroChips block={card.block} />
+                <MonitorChips block={card.block} size="hero" />
 
                 {card.kind === "completed" ? (
                   <div style={{ fontSize: 20, fontWeight: 700, color: "var(--success)" }}>
@@ -462,65 +462,6 @@ export function MonitorView({
           />
         </div>
       </div>
-    </div>
-  );
-}
-
-/** Výrobní a stavové štítky velké karty. */
-function HeroChips({ block }: { block: Block }) {
-  const chips: { label: string; tone: "brand" | "ok" | "wait" | "plain" | "danger" }[] = [];
-  if (block.obalka) chips.push({ label: "OBÁLKA", tone: "brand" });
-  if (block.vnitrky) chips.push({ label: "VNITŘKY", tone: "brand" });
-  if (block.tiskoveArchy) chips.push({ label: block.tiskoveArchy, tone: "plain" });
-  if (block.serie) chips.push({ label: block.serie, tone: "plain" });
-  if (block.dataStatusLabel) chips.push({ label: block.dataStatusLabel, tone: block.dataOk ? "ok" : "wait" });
-  // Připravenost materiálu = na skladě NEBO vydáno NEBO potvrzeno — stejná
-  // logika jako BlockCard (jinak Monitor hlásí „čeká" na to, co je v plánu zelené).
-  if (block.materialStatusLabel) {
-    const materialReady = block.materialInStock || block.materialIssued || block.materialOk;
-    chips.push({ label: block.materialStatusLabel, tone: materialReady ? "ok" : "wait" });
-  }
-  // Štítek se zobrazí za stejné podmínky jako v BlockCard (požadováno, má termín,
-  // nebo je už odklepnuto) — samotné `pantoneRequired` je jen jedna ze tří cest tam.
-  if (block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk) {
-    chips.push({ label: "PANTONE", tone: block.pantoneOk ? "ok" : "wait" });
-  }
-  // Nestandardní varianta zakázky (POZASTAVENO = výrobní stopka) — v plánu je
-  // sytě červená, na Monitoru se dřív neukazovala vůbec (nález I5).
-  if (block.blockVariant && block.blockVariant !== "STANDARD") {
-    chips.push({
-      label: VARIANT_CONFIG[block.blockVariant].label,
-      tone: block.blockVariant === "POZASTAVENO" ? "danger" : "plain",
-    });
-  }
-
-  if (chips.length === 0) return null;
-
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-      {chips.map((c, i) => (
-        <span
-          key={`${c.label}-${i}`}
-          style={{
-            fontSize: 12, fontWeight: 600, letterSpacing: "0.02em",
-            borderRadius: 6, padding: "5px 10px", whiteSpace: "nowrap",
-            background:
-              c.tone === "ok"     ? "color-mix(in oklab, var(--success) 22%, transparent)"
-              : c.tone === "wait"   ? "color-mix(in oklab, var(--warning) 22%, transparent)"
-              : c.tone === "brand"  ? "var(--brand)"
-              : c.tone === "danger" ? "var(--danger)"
-              : "var(--surface-3)",
-            color:
-              c.tone === "ok"     ? "var(--success)"
-              : c.tone === "wait"   ? "var(--warning)"
-              : c.tone === "brand"  ? "var(--brand-contrast)"
-              : c.tone === "danger" ? "white"
-              : "var(--text)",
-          }}
-        >
-          {c.label}
-        </span>
-      ))}
     </div>
   );
 }
