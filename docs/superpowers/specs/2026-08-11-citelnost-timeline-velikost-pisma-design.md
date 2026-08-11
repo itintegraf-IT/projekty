@@ -162,36 +162,42 @@ Jako nová standalone komponenta `src/components/planner/FontScaleSwitch.tsx`
 (named export) — do `PlannerPage.tsx` se nic inline nepřidává, soubor je
 u limitu `max-lines`.
 
-### Perzistence — vyžaduje zásah do API route
+### Perzistence — na zařízení, ne na uživatele
 
-`savePreference("font-scale", ...)` projde přes `PUT /api/me/preferences`, jenže
-ta route má allowlist a **přijímá výhradně číselné hodnoty**
-(`route.ts:50-56`):
+Nastavení se ukládá **výhradně do `localStorage`** pod klíčem
+`ig-planner-font-scale`. Na server se neposílá nic.
 
-```ts
-const ALLOWED_NUMERIC_KEYS = new Set(["zoom", "aside-width", "dtp-panel-width"]);
-if (!ALLOWED_NUMERIC_KEYS.has(key)) throw new AppError("VALIDATION_ERROR", …);
-if (isNaN(Number(value)))          throw new AppError("VALIDATION_ERROR", …);
-```
+Vzorem je přepínač motivu (`ThemeToggle.tsx`, přes `next-themes`), který je
+také jen lokální — **ne** šířka bočního panelu ani dnešní zoom, které přes
+`savePreference` putují do tabulky `UserPreference` a následují uživatele mezi
+počítači.
 
-Uložit `"XL"` by tedy skončilo chybou 400 nadvakrát. Route se rozšíří o druhý,
-stejně přísný allowlist pro výčtové klíče:
+Důvod je věcný: velikost písma je vlastnost **obrazovky, na kterou se člověk
+dívá**, ne toho člověka. Týž plánovač chce na 27" monitoru u stolu něco jiného
+než na 13" notebooku a něco úplně jiného na tabuli. Kdyby se stupeň vázal na
+uživatele, nastavení XL na projekčním počítači před poradou by mu přeplo
+i notebook — a musel by to přepínat tam a zpět pořád dokola. Takhle se počítač
+u tabule nastaví jednou na XL a zůstane tak bez ohledu na to, kdo se na něm
+přihlásí; totéž platí pro kioskové terminály u strojů.
 
-```ts
-const ALLOWED_ENUM_KEYS: Record<string, ReadonlySet<string>> = {
-  "font-scale": new Set(["M", "L", "XL"]),
-};
-```
+Cenou je, že kdo pracuje na dvou počítačích, nastaví si to dvakrát. U nastavení
+vázaného na velikost obrazovky je to správné chování, ne nedostatek.
 
-Validace zůstává striktní — neznámý klíč i neznámá hodnota končí
-`VALIDATION_ERROR`. Ukládat stupeň jako číselný index se zamítá: v DB by pak
-byla neprůhledná `"2"`.
+**Důsledky pro rozsah práce:**
 
-Načtení v `PlannerPage` kopíruje vzor `zoom` (ř. 300-320) včetně zápisu do
-`localStorage` jako `ig-planner-font-scale`. Neznámá hodnota → `DEFAULT_FONT_SCALE`.
+- **`/api/me/preferences` se nedotýkáme.** Route má allowlist klíčů a přijímá
+  výhradně číselné hodnoty (`route.ts:50-56`), takže uložit `"XL"` by skončilo
+  chybou 400 nadvakrát. Tím, že na server nic neposíláme, celá tahle
+  komplikace mizí — žádný nový allowlist, žádná změna sdílené route.
+- **Žádná migrace ani změna schématu.**
+- Neznámá nebo poškozená hodnota v `localStorage` → `DEFAULT_FONT_SCALE`.
 
-**Žádná migrace ani změna schématu** — `UserPreference` je generická
-key/value tabulka a už existuje.
+Načtení kopíruje vzor dnešního zoomu (`PlannerPage.tsx:242-246`): stav se
+inicializuje na `DEFAULT_FONT_SCALE` a `localStorage` se čte až v `useEffect`.
+Znamená to krátké přeblesknutí výchozí velikosti při načtení stránky — **stejné
+chování, jaké má dnes zoom**, takže nezavádíme novou třídu problému. Čtení
+v lazy inicializátoru `useState` se záměrně nepoužívá: server by vyrenderoval
+jinou velikost než klient a vznikla by chyba hydratace.
 
 ### Cesta props
 
