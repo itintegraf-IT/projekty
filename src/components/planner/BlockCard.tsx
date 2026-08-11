@@ -828,8 +828,13 @@ export function BlockCard({
         const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
         const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
+        // Všechny fontSize v tomhle sdíleném řádku, které mají VLASTNÍ pevné
+        // odsazení/rámeček (chip, SpecChip „S", MiniChip), MUSÍ být stropované
+        // Math.min(typeScale.X, layoutHeight * F) — thresholds.micro je 14 px pro
+        // VŠECHNY stupně, ale písmo se stupněm roste, takže bez stropu by na
+        // nejnižší kartě přeteklo (strop se NEODSTRAŇUJ, i kdyby vypadal "zbytečný").
         const chipStyle = (stateKey: DateChipState, fieldAccent: string, clickable: boolean): React.CSSProperties => ({
-          fontSize: typeScale.chip, fontWeight: 600,
+          fontSize: Math.min(typeScale.chip, layoutHeight * 0.65), fontWeight: 600,
           color: stateKey === "empty" ? "#fff" : "rgba(255,255,255,0.90)",
           background: DEADLINE_BG[stateKey] ?? DEADLINE_BG.neutral,
           borderTop: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderRight: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`, borderBottom: `1px solid ${DEADLINE_BORDER[stateKey] ?? DEADLINE_BORDER.neutral}`,
@@ -848,7 +853,7 @@ export function BlockCard({
             <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0, overflow: "hidden", maxWidth: (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) ? "58%" : undefined }}>
               {/* Značka specifikace i tady — bez ní by karta 14–43 px neukázala
                   ani pás, ani „S", ani proužek (proužek je potlačen hasSpecChip). */}
-              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={typeScale.specChip} />}
+              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={Math.min(typeScale.specChip, layoutHeight * 0.65)} />}
               {!isTiskar && block.type !== "UDRZBA" && <>
                 <span style={{
                     ...chipStyle(dStateKey, FIELD_ACCENT.DATA, dataCanToggle),
@@ -908,9 +913,9 @@ export function BlockCard({
             <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
               {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
                 <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
-                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={typeScale.mini} />}
-                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={typeScale.mini} />}
-                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={typeScale.mini} />}
+                  {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * 0.45)} />}
+                  {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * 0.45)} />}
+                  {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * 0.45)} />}
                   {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
                     <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
                   )}
