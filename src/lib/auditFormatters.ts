@@ -25,6 +25,8 @@ export const FIELD_LABELS: Record<string, string> = {
   pantoneRequiredDate: "Pantone datum",
   pantoneOk: "Pantone OK",
   pantoneRequired: "Pantone potřeba",
+  pantoneInStock: "Pantone skladem",
+  pantoneIssued: "Pantone vydán",
   // Barvy/lak nejsou v AUDITED_FIELDS běžné editace (historický dluh), ale JSOU
   // v SPLIT_SHARED_FIELDS, takže se mohou objevit v SPLIT_PROPAGATE řádcích.
   barvyStatusId: "Barvy stav ID",
@@ -62,7 +64,8 @@ export function fmtAuditVal(val: string | null, field: string | null): string {
   // k pantoneRequired („je Pantone vůbec potřeba"). Bez téhle větve se řádek
   // v historii vykreslil jako syrové true/false (doplněno 8/2026).
   if (field === "dataOk" || field === "materialOk" || field === "pantoneOk" || field === "pantoneRequired") return val === "true" ? "✓ OK" : "✗ Ne";
-  if (field === "materialInStock" || field === "materialIssued") return val === "true" ? "✓ Ano" : "✗ Ne";
+  if (field === "materialInStock" || field === "materialIssued"
+   || field === "pantoneInStock" || field === "pantoneIssued") return val === "true" ? "✓ Ano" : "✗ Ne";
   if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
     return formatCivilDate(val);
   }

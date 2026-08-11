@@ -10,6 +10,7 @@
 export const BLOCK_BOOLEAN_COLUMNS = [
   "locked", "dataOk", "materialOk", "obalka", "vnitrky",
   "materialInStock", "materialIssued", "pantoneRequired", "pantoneOk",
+  "pantoneInStock", "pantoneIssued",
   "scheduleBypassed",
 ] as const;
 

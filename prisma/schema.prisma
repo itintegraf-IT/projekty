@@ -130,6 +130,8 @@ model Block {
   pantoneRequired                             Boolean      @default(false)
   pantoneOk                                   Boolean      @default(false)
   pantoneRequiredDate                         DateTime?
+  pantoneInStock                              Boolean      @default(false)
+  pantoneIssued                               Boolean      @default(false)
   reservationId                               Int?
   jobPresetId                                 Int?
   jobPresetLabel                              String?
@@ -227,6 +229,7 @@ model JobPreset {
   materialInStock                Boolean?
   pantoneRequired                Boolean?
   pantoneRequiredDateOffsetDays  Int?
+  pantoneInStock                 Boolean?
   barvyStatusId                  Int?
   lakStatusId                    Int?
   deadlineExpediceOffsetDays     Int?
