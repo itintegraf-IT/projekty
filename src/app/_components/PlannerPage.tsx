@@ -2080,6 +2080,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       pantoneRequiredDate: item.pantoneRequiredDate || null,
       pantoneOk: item.pantoneOk,
       pantoneRequired: item.pantoneRequired ?? false,
+      // pantoneInStock se posílá stejně jako materialInStock o pár řádků výš — server si
+      // při zapnutí sám vynuluje termín a zapne pantoneRequired. pantoneIssued se sem
+      // záměrně NEPŘIDÁVÁ (stejně jako materialIssued o pár řádků výš) — z fronty vzniká
+      // vždy nový blok, takže „vydáno" nikdy není true a sloupec má na serveru default false.
+      pantoneInStock: item.pantoneInStock ?? false,
       barvyStatusId: item.barvyStatusId,
       barvyStatusLabel: item.barvyStatusLabel,
       lakStatusId: item.lakStatusId,
