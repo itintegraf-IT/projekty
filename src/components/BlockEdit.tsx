@@ -579,7 +579,7 @@ export function BlockEdit({
     setMaterialInStock(next.materialInStock);
     setPantoneRequired(next.pantoneRequired);
     setPantoneRequiredDate(next.pantoneRequiredDate);
-    setPantoneInStock(next.pantoneInStock ?? false);
+    setPantoneInStock(next.pantoneInStock);
     setBarvyStatusId(next.barvyStatusId);
     setLakStatusId(next.lakStatusId);
     setDeadlineExpedice(next.deadlineExpedice);
@@ -598,7 +598,7 @@ export function BlockEdit({
     setMaterialInStock(next.materialInStock);
     setPantoneRequired(next.pantoneRequired);
     setPantoneRequiredDate(next.pantoneRequiredDate);
-    setPantoneInStock(next.pantoneInStock ?? false);
+    setPantoneInStock(next.pantoneInStock);
     setBarvyStatusId(next.barvyStatusId);
     setLakStatusId(next.lakStatusId);
     setDeadlineExpedice(next.deadlineExpedice);

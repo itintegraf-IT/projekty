@@ -31,6 +31,7 @@ type PatchBody = {
   materialInStock?: unknown;
   pantoneRequired?: unknown;
   pantoneRequiredDateOffsetDays?: unknown;
+  pantoneInStock?: unknown;
   barvyStatusId?: unknown;
   lakStatusId?: unknown;
   deadlineExpediceOffsetDays?: unknown;
@@ -176,6 +177,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       patch.pantoneRequired = parsed;
     }
 
+    if (body.pantoneInStock !== undefined) {
+      const parsed = parseNullableBool(body.pantoneInStock);
+      if (parsed === undefined) return NextResponse.json({ error: "Neplatná hodnota pro pantoneInStock." }, { status: 400 });
+      patch.pantoneInStock = parsed;
+    }
+
     const merged = { ...existing, ...patch };
     if (!merged.appliesToZakazka && !merged.appliesToRezervace) {
       return NextResponse.json({ error: "Preset musí být povolen alespoň pro zakázku nebo rezervaci." }, { status: 400 });
@@ -185,6 +192,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     }
     if (merged.materialInStock === true && merged.materialRequiredDateOffsetDays !== null) {
       return NextResponse.json({ error: "Materiál skladem nelze kombinovat s datumovým offsetem materiálu." }, { status: 400 });
+    }
+    if (merged.pantoneInStock === true && merged.pantoneRequiredDateOffsetDays !== null) {
+      return NextResponse.json({ error: 'Preset nemůže mít zároveň „pantone skladem“ a offset termínu pantonu.' }, { status: 400 });
     }
     if (!presetHasConfiguredValues(merged)) {
       return NextResponse.json({ error: "Preset musí mít alespoň jedno nastavené pole." }, { status: 400 });

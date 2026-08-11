@@ -13,6 +13,7 @@ function emptyDraft(): JobPresetDraftValues {
     materialInStock: false,
     pantoneRequired: false,
     pantoneRequiredDate: "",
+    pantoneInStock: false,
     barvyStatusId: "",
     lakStatusId: "",
     deadlineExpedice: "",
@@ -40,6 +41,7 @@ function presetSkeleton(overrides: Partial<JobPreset> = {}): JobPreset {
     materialInStock: null,
     pantoneRequired: null,
     pantoneRequiredDateOffsetDays: null,
+    pantoneInStock: null,
     barvyStatusId: null,
     lakStatusId: null,
     deadlineExpediceOffsetDays: null,
@@ -272,6 +274,28 @@ test("jobPresetId is always overwritten", () => {
   );
   assert.equal(result.next.jobPresetId, 42);
   assert.equal(result.next.jobPresetLabel, "New preset");
+});
+
+test("applyJobPresetToDraft: pantoneInStock z presetu se aplikuje a nepřepíše vyplněný termín", () => {
+  const draft = emptyDraft();
+  draft.pantoneRequiredDate = "2026-08-20";
+  const result = applyJobPresetToDraft(
+    draft,
+    presetSkeleton({ pantoneInStock: true }),
+    "ZAKAZKA"
+  );
+  assert.equal(result.next.pantoneInStock, true);
+  assert.equal(result.next.pantoneRequiredDate, "2026-08-20", "vyplněný termín se nikdy nemaže (Variant A)");
+});
+
+test("applyJobPresetToDraft: pantoneInStock v presetu blokuje dopočet termínu z offsetu", () => {
+  const result = applyJobPresetToDraft(
+    emptyDraft(),
+    presetSkeleton({ pantoneInStock: true, pantoneRequiredDateOffsetDays: 3 }),
+    "ZAKAZKA"
+  );
+  assert.equal(result.next.pantoneInStock, true);
+  assert.equal(result.next.pantoneRequiredDate, "", "skladem znamená, že se termín nedopočítává");
 });
 
 test("planner workflow: paste + change preset preserves all dates", () => {

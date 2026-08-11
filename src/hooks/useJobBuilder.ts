@@ -76,6 +76,7 @@ function emptyPresetDraft(type: string): JobPresetDraftValues {
     materialInStock: false,
     pantoneRequired: false,
     pantoneRequiredDate: "",
+    pantoneInStock: false,
     barvyStatusId: "",
     lakStatusId: "",
     deadlineExpedice: "",
@@ -325,7 +326,7 @@ export function useJobBuilder({
     setBMaterialInStock(next.materialInStock);
     setBPantoneRequiredDate(next.pantoneRequiredDate);
     setBPantoneRequired(next.pantoneRequired);
-    setBPantoneInStock(next.pantoneInStock ?? false);
+    setBPantoneInStock(next.pantoneInStock);
     setBBarvyStatusId(next.barvyStatusId);
     setBLakStatusId(next.lakStatusId);
     setBDeadlineExpedice(next.deadlineExpedice);
@@ -344,7 +345,7 @@ export function useJobBuilder({
     setBMaterialInStock(next.materialInStock);
     setBPantoneRequiredDate(next.pantoneRequiredDate);
     setBPantoneRequired(next.pantoneRequired);
-    setBPantoneInStock(next.pantoneInStock ?? false);
+    setBPantoneInStock(next.pantoneInStock);
     setBBarvyStatusId(next.barvyStatusId);
     setBLakStatusId(next.lakStatusId);
     setBDeadlineExpedice(next.deadlineExpedice);

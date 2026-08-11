@@ -24,6 +24,7 @@ export type JobPreset = {
   materialInStock: boolean | null;
   pantoneRequired: boolean | null;
   pantoneRequiredDateOffsetDays: number | null;
+  pantoneInStock: boolean | null;
   barvyStatusId: number | null;
   lakStatusId: number | null;
   deadlineExpediceOffsetDays: number | null;
@@ -41,10 +42,7 @@ export type JobPresetDraftValues = {
   materialInStock: boolean;
   pantoneRequired: boolean;
   pantoneRequiredDate: string;
-  // Volitelné: preset zatím pantoneInStock nenese (přidá se v samostatném tasku),
-  // pole je tu jen pro BlockEdit reset/snapshot roundtrip — ostatní volající
-  // (useJobBuilder, testy) ho nemusí vyplňovat.
-  pantoneInStock?: boolean;
+  pantoneInStock: boolean;
   barvyStatusId: string;
   lakStatusId: string;
   deadlineExpedice: string;
@@ -67,6 +65,7 @@ export type JobPresetUpsertInput = {
   materialInStock: boolean | null;
   pantoneRequired: boolean | null;
   pantoneRequiredDateOffsetDays: number | null;
+  pantoneInStock: boolean | null;
   barvyStatusId: number | null;
   lakStatusId: number | null;
   deadlineExpediceOffsetDays: number | null;
@@ -145,8 +144,15 @@ export function applyJobPresetToDraft(
     next.pantoneRequired = preset.pantoneRequired;
   }
 
-  // pantoneRequiredDate fill: jen když prázdné
-  if (preset.pantoneRequiredDateOffsetDays !== null && current.pantoneRequiredDate === "") {
+  // pantoneInStock: aplikovat z presetu
+  if (preset.pantoneInStock !== null && current.pantoneInStock !== preset.pantoneInStock) {
+    next.pantoneInStock = preset.pantoneInStock;
+    // „skladem" znamená, že pantone je potřeba — jinak by stav zůstal neviditelný
+    if (preset.pantoneInStock) next.pantoneRequired = true;
+  }
+
+  // pantoneRequiredDate fill: jen když prázdné a preset nehlásí pantoneInStock
+  if (!next.pantoneInStock && preset.pantoneRequiredDateOffsetDays !== null && current.pantoneRequiredDate === "") {
     const value = resolvePresetDateOffset(preset.pantoneRequiredDateOffsetDays) ?? "";
     next.pantoneRequiredDate = value;
     // Setting a date implies pantone is required (existing behavior)
@@ -201,7 +207,8 @@ export function buildPresetInputFromDraft(
     materialRequiredDateOffsetDays: draft.materialInStock ? null : dateStrToOffsetDays(draft.materialRequiredDate),
     materialInStock: draft.materialInStock ? true : null,
     pantoneRequired: draft.pantoneRequired ? true : null,
-    pantoneRequiredDateOffsetDays: dateStrToOffsetDays(draft.pantoneRequiredDate),
+    pantoneRequiredDateOffsetDays: draft.pantoneInStock ? null : dateStrToOffsetDays(draft.pantoneRequiredDate),
+    pantoneInStock: draft.pantoneInStock ? true : null,
     barvyStatusId: draft.barvyStatusId ? Number(draft.barvyStatusId) : null,
     lakStatusId: draft.lakStatusId ? Number(draft.lakStatusId) : null,
     deadlineExpediceOffsetDays: dateStrToOffsetDays(draft.deadlineExpedice),
@@ -224,6 +231,7 @@ type PresetConfigShape = {
   materialInStock?: boolean | null;
   pantoneRequired?: boolean | null;
   pantoneRequiredDateOffsetDays?: number | null;
+  pantoneInStock?: boolean | null;
   barvyStatusId?: number | null;
   lakStatusId?: number | null;
   deadlineExpediceOffsetDays?: number | null;
@@ -241,6 +249,7 @@ export function presetHasConfiguredValues(preset: PresetConfigShape): boolean {
     preset.materialInStock,
     preset.pantoneRequired,
     preset.pantoneRequiredDateOffsetDays,
+    preset.pantoneInStock,
     preset.barvyStatusId,
     preset.lakStatusId,
     preset.deadlineExpediceOffsetDays,
@@ -268,7 +277,9 @@ export function summarizeJobPreset(
   if (preset.lakStatusId !== null) {
     parts.push(`Lak${resolveLabel ? `: ${resolveLabel("LAK", preset.lakStatusId) ?? "vybráno"}` : ""}`);
   }
-  if (preset.pantoneRequired === true) {
+  if (preset.pantoneInStock === true) {
+    parts.push("Pantone: skladem");
+  } else if (preset.pantoneRequired === true) {
     parts.push("Pantone");
   }
   if (preset.specifikace) {

@@ -29,6 +29,7 @@ type UpsertBody = {
   materialInStock?: unknown;
   pantoneRequired?: unknown;
   pantoneRequiredDateOffsetDays?: unknown;
+  pantoneInStock?: unknown;
   barvyStatusId?: unknown;
   lakStatusId?: unknown;
   deadlineExpediceOffsetDays?: unknown;
@@ -114,6 +115,7 @@ function normalizeBody(body: UpsertBody) {
     materialInStock: parseNullableBool(body.materialInStock),
     pantoneRequired: parseNullableBool(body.pantoneRequired),
     pantoneRequiredDateOffsetDays: parseNullableInt(body.pantoneRequiredDateOffsetDays),
+    pantoneInStock: parseNullableBool(body.pantoneInStock),
     barvyStatusId: parseNullableInt(body.barvyStatusId),
     lakStatusId: parseNullableInt(body.lakStatusId),
     deadlineExpediceOffsetDays: parseNullableInt(body.deadlineExpediceOffsetDays),
@@ -121,7 +123,7 @@ function normalizeBody(body: UpsertBody) {
 
   if (!name) return { error: "Název presetu je povinný." } as const;
   if (machineConstraint === undefined) return { error: "Neplatné omezení stroje." } as const;
-  if (normalized.dataStatusId === undefined || normalized.dataRequiredDateOffsetDays === undefined || normalized.materialStatusId === undefined || normalized.materialRequiredDateOffsetDays === undefined || normalized.materialInStock === undefined || normalized.pantoneRequired === undefined || normalized.pantoneRequiredDateOffsetDays === undefined || normalized.barvyStatusId === undefined || normalized.lakStatusId === undefined || normalized.deadlineExpediceOffsetDays === undefined) {
+  if (normalized.dataStatusId === undefined || normalized.dataRequiredDateOffsetDays === undefined || normalized.materialStatusId === undefined || normalized.materialRequiredDateOffsetDays === undefined || normalized.materialInStock === undefined || normalized.pantoneRequired === undefined || normalized.pantoneRequiredDateOffsetDays === undefined || normalized.pantoneInStock === undefined || normalized.barvyStatusId === undefined || normalized.lakStatusId === undefined || normalized.deadlineExpediceOffsetDays === undefined) {
     return { error: "Některá číselná nebo boolean pole presetů mají neplatný formát." } as const;
   }
   if (!appliesToZakazka && !appliesToRezervace) {
@@ -132,6 +134,9 @@ function normalizeBody(body: UpsertBody) {
   }
   if (normalized.materialInStock === true && normalized.materialRequiredDateOffsetDays !== null) {
     return { error: "Materiál skladem nelze kombinovat s datumovým offsetem materiálu." } as const;
+  }
+  if (normalized.pantoneInStock === true && normalized.pantoneRequiredDateOffsetDays !== null) {
+    return { error: 'Preset nemůže mít zároveň „pantone skladem“ a offset termínu pantonu.' } as const;
   }
   if (!presetHasConfiguredValues(normalized)) {
     return { error: "Preset musí mít alespoň jedno nastavené pole." } as const;
