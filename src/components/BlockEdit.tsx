@@ -41,6 +41,7 @@ function emptyPresetDraft(type: string): JobPresetDraftValues {
     materialInStock: false,
     pantoneRequired: false,
     pantoneRequiredDate: "",
+    pantoneInStock: false,
     barvyStatusId: "",
     lakStatusId: "",
     deadlineExpedice: "",
@@ -193,6 +194,8 @@ export function BlockEdit({
   );
   const [pantoneOk, setPantoneOk] = useState(block.pantoneOk);
   const [pantoneRequired, setPantoneRequired] = useState(block.pantoneRequired ?? false);
+  const [pantoneInStock, setPantoneInStock]   = useState(block.pantoneInStock ?? false);
+  const [pantoneIssued, setPantoneIssued]     = useState(block.pantoneIssued ?? false);
   // BARVY
   const [barvyStatusId, setBarvyStatusId] = useState<string>(block.barvyStatusId?.toString() ?? "");
 
@@ -550,6 +553,7 @@ export function BlockEdit({
       materialInStock,
       pantoneRequired,
       pantoneRequiredDate,
+      pantoneInStock,
       barvyStatusId,
       lakStatusId,
       deadlineExpedice,
@@ -575,6 +579,7 @@ export function BlockEdit({
     setMaterialInStock(next.materialInStock);
     setPantoneRequired(next.pantoneRequired);
     setPantoneRequiredDate(next.pantoneRequiredDate);
+    setPantoneInStock(next.pantoneInStock ?? false);
     setBarvyStatusId(next.barvyStatusId);
     setLakStatusId(next.lakStatusId);
     setDeadlineExpedice(next.deadlineExpedice);
@@ -593,6 +598,7 @@ export function BlockEdit({
     setMaterialInStock(next.materialInStock);
     setPantoneRequired(next.pantoneRequired);
     setPantoneRequiredDate(next.pantoneRequiredDate);
+    setPantoneInStock(next.pantoneInStock ?? false);
     setBarvyStatusId(next.barvyStatusId);
     setLakStatusId(next.lakStatusId);
     setDeadlineExpedice(next.deadlineExpedice);
@@ -621,8 +627,10 @@ export function BlockEdit({
       materialInStock,
       materialIssued,
       pantoneRequired,
-      pantoneRequiredDate: pantoneRequiredDate || null,
+      pantoneRequiredDate: (pantoneInStock || pantoneIssued) ? null : (pantoneRequiredDate || null),
       pantoneOk,
+      pantoneInStock,
+      pantoneIssued,
       barvyStatusId: barvyStatusId ? parseInt(barvyStatusId) : null,
       barvyStatusLabel: barvyStatusId ? resolveLabel(barvyOpts, barvyStatusId) : null,
       lakStatusId: lakStatusId ? parseInt(lakStatusId) : null,
@@ -1009,22 +1017,36 @@ export function BlockEdit({
               {/* PANTONE */}
               <div style={{ opacity: !canEditMat ? 0.45 : 1, pointerEvents: !canEditMat ? "none" : "auto" }}>
                 <ColLabel>Pantone</ColLabel>
-                <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum" />
+                {pantoneIssued ? (
+                  <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.3)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#3b82f6" }}>Vydáno ➜</div>
+                ) : pantoneInStock ? (
+                  <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#10b981" }}>Skladem ✓</div>
+                ) : (
+                  <DatePickerField value={pantoneRequiredDate} onChange={(v) => { setPantoneRequiredDate(v); if (v) setPantoneRequired(true); }} placeholder="Datum" />
+                )}
                 <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
                   <button type="button" onClick={() => {
                     const next = !pantoneRequired;
                     setPantoneRequired(next);
-                    if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); }
+                    if (!next) { setPantoneRequiredDate(""); setPantoneOk(false); setPantoneInStock(false); setPantoneIssued(false); }
                   }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneRequired ? "1px solid rgba(168,85,247,0.5)" : "1px solid var(--border)", background: pantoneRequired ? "rgba(168,85,247,0.15)" : "transparent", color: pantoneRequired ? "#a855f7" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
                     {pantoneRequired ? "⚠ POTŘEBA" : "POTŘEBA"}
                   </button>
-                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
-                    <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: pantoneOk ? "var(--success)" : "transparent", border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
-                      {pantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    </div>
-                    <input type="checkbox" checked={pantoneOk} onChange={(e) => setPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
-                    OK
-                  </label>
+                  {!pantoneInStock && !pantoneIssued && (
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: pantoneOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
+                      <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: pantoneOk ? "var(--success)" : "transparent", border: pantoneOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
+                        {pantoneOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <input type="checkbox" checked={pantoneOk} onChange={(e) => setPantoneOk(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0 }} />
+                      OK
+                    </label>
+                  )}
+                  <button type="button" onClick={() => { setPantoneInStock(!pantoneInStock); if (!pantoneInStock) { setPantoneRequiredDate(""); setPantoneOk(false); setPantoneRequired(true); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneInStock ? "1px solid rgba(16,185,129,0.5)" : "1px solid var(--border)", background: pantoneInStock ? "rgba(16,185,129,0.15)" : "transparent", color: pantoneInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                    SKLAD
+                  </button>
+                  <button type="button" onClick={() => { setPantoneIssued(!pantoneIssued); if (!pantoneIssued) { setPantoneRequired(true); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: pantoneIssued ? "1px solid rgba(59,130,246,0.5)" : "1px solid var(--border)", background: pantoneIssued ? "rgba(59,130,246,0.15)" : "transparent", color: pantoneIssued ? "#3b82f6" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                    VYDÁNO
+                  </button>
                 </div>
               </div>
               {/* EXPEDICE */}

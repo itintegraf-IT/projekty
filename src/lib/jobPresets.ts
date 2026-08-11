@@ -41,6 +41,10 @@ export type JobPresetDraftValues = {
   materialInStock: boolean;
   pantoneRequired: boolean;
   pantoneRequiredDate: string;
+  // Volitelné: preset zatím pantoneInStock nenese (přidá se v samostatném tasku),
+  // pole je tu jen pro BlockEdit reset/snapshot roundtrip — ostatní volající
+  // (useJobBuilder, testy) ho nemusí vyplňovat.
+  pantoneInStock?: boolean;
   barvyStatusId: string;
   lakStatusId: string;
   deadlineExpedice: string;
