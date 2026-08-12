@@ -33,7 +33,7 @@ test("každá velikost písma roste s vyšším stupněm", () => {
   const m = plannerTypeScale("M");
   const l = plannerTypeScale("L");
   const xl = plannerTypeScale("XL");
-  for (const key of ["num", "desc", "chip", "spec", "mini", "badge", "rail", "machineHead"] as const) {
+  for (const key of ["num", "desc", "chip", "spec", "mini", "badge", "rail", "machineHead", "production", "noteBadge", "splitChip", "pauseLabel", "driftBadge"] as const) {
     assert.ok(l[key] > m[key], `${key}: L (${l[key]}) musí být větší než M (${m[key]})`);
     assert.ok(xl[key] > l[key], `${key}: XL (${xl[key]}) musí být větší než L (${l[key]})`);
   }
@@ -93,6 +93,30 @@ test("stupeň M nemění mřížku, vyšší stupně ji zvětší celočíselně
       assert.equal(v, Math.trunc(v), `${key} @ ${zoom}: ${v} není celé číslo`);
       assert.ok(v >= 3, `${key} @ ${zoom}: mřížka nesmí spadnout pod 3 px`);
     }
+  }
+});
+
+test("nová pole reprodukují na M dnešní napevno zapsané velikosti", () => {
+  // Na výchozím stupni se nesmí změnit nic — tahle pole jen nahrazují
+  // literály, které v komponentách byly. Hodnoty odpovídají průzkumu:
+  // ProductionChips 8, badge poznámek 10, SplitChip 10, popisek pauzy 10,
+  // pruh driftu a tlačítko Přepočítat 10.
+  const m = plannerTypeScale("M");
+  assert.equal(m.production, 8);
+  assert.equal(m.noteBadge, 10);
+  assert.equal(m.splitChip, 10);
+  assert.equal(m.pauseLabel, 10);
+  assert.equal(m.driftBadge, 10);
+});
+
+test("nová pole rostou koeficientem PÍSMA, ne mřížky", () => {
+  for (const key of PLANNER_FONT_SCALE_KEYS) {
+    const ts = plannerTypeScale(key);
+    assert.equal(ts.production, 8 * ts.fontFactor, `${key}: production`);
+    assert.equal(ts.noteBadge, 10 * ts.fontFactor, `${key}: noteBadge`);
+    assert.equal(ts.splitChip, 10 * ts.fontFactor, `${key}: splitChip`);
+    assert.equal(ts.pauseLabel, 10 * ts.fontFactor, `${key}: pauseLabel`);
+    assert.equal(ts.driftBadge, 10 * ts.fontFactor, `${key}: driftBadge`);
   }
 });
 

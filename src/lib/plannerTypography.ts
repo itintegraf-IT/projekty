@@ -44,6 +44,16 @@ export type PlannerTypeScale = {
   rail: number;
   /** Hlavička sloupce stroje. */
   machineHead: number;
+  /** Produkční chip OBÁLKA / VNITŘKY / tiskové archy · série. */
+  production: number;
+  /** Badge počtu tiskařských poznámek „📝 N" v rohu karty. */
+  noteBadge: number;
+  /** Pilulka rozdělené zakázky (SplitChip). */
+  splitChip: number;
+  /** Popisek „⏸ PAUZA — mimo provoz" uvnitř bloku přes odstávku. */
+  pauseLabel: number;
+  /** Pruh „⚠ N nesedí na kalendář" a tlačítko „Přepočítat" v hlavičce stroje. */
+  driftBadge: number;
   /** Krytí popisu. V novém layoutu plný kontrast, v jednořádkových režimech utlumený. */
   descOpacity: number;
   descOpacityTiny: number;
@@ -100,6 +110,11 @@ export function plannerTypeScale(key: PlannerFontScale): PlannerTypeScale {
     badge: 9 * s,
     rail: 9 * s,
     machineHead: 12 * s,
+    production: 8 * s,
+    noteBadge: 10 * s,
+    splitChip: 10 * s,
+    pauseLabel: 10 * s,
+    driftBadge: 10 * s,
     descOpacity: 1,
     descOpacityTiny: 0.9,
     slotFactor: 1 + (s - 1) * 0.35,
