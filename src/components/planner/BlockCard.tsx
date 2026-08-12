@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
-import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, descLineClampFor } from "@/lib/tiskarBlockView";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, descLineClampFor, MIN_CARD_CONTENT_HEIGHT_PX } from "@/lib/tiskarBlockView";
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
 import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 
@@ -64,14 +64,11 @@ const MICRO_CHIP_CAP_FACTOR = 0.65;
 // 10, beze změny) a na XL/29px plnou velikost 16,3px (viz task-6-report.md).
 const MICRO_TEXT_CAP_FACTOR = 0.7;
 
-// Spodní podlaha pro `layoutHeight` (px) — pod ní se nevykreslí vůbec nic (ani tlačítko
-// Hotovo, ani číslo zakázky), viz `thresholds.micro`. Platila dřív jen pro `height`
-// (fyzická výška karty); `contentHeight` (výška prvního print segmentu u bloku přes
-// odstávku) stejnou podlahu neměl a mohl klesnout na jednotky px (jeden slot 30 min
-// při nízkém zoomu) — task 5c, rozhodnutí majitele 12. 8. 2026. POZOR: řídí jen
-// rozhodování o layout modu a vnitřní content box (`contentBoxFlex`), NIKDY fyzickou
-// geometrii divu (ta jde z `clampedHeight`/`maxRenderHeight`, viz komentář u `layoutHeight`).
-const MIN_CARD_CONTENT_HEIGHT_PX = 20;
+// `MIN_CARD_CONTENT_HEIGHT_PX` (spodní podlaha `layoutHeight`, pod ní se nevykreslí
+// vůbec nic — ani tlačítko Hotovo, ani číslo zakázky, viz `thresholds.micro`) žije
+// jako SDÍLENÝ export v `tiskarBlockView.ts`, ne tady — `printDoneSize` (dolní mez
+// čtverce) na téže hodnotě staví a duplicitní literál by se mohl rozejít (task 5c
+// review, 12. 8. 2026). Import výš.
 
 // ─── Ikony vedle čísla zakázky ───────────────────────────────────────────────
 // Lock/Hourglass/zelená fajfka a Clock (upozornění po termínu) byly napevno 9, resp.

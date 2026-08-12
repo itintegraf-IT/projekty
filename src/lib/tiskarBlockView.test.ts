@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, tiskarDescClampsToOneLine, descLineClampFor, PRINT_BAR_PADDING_PX } from "./tiskarBlockView.js";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, tiskarDescClampsToOneLine, descLineClampFor, PRINT_BAR_PADDING_PX, MIN_CARD_CONTENT_HEIGHT_PX } from "./tiskarBlockView.js";
 import { plannerTypeScale } from "./plannerTypography";
 
 test("printDoneSize: vysoký blok (≥140 px) = pruh 40 px", () => {
@@ -529,5 +529,27 @@ test("STRÁŽNÝ TEST 5b — tlačítko Hotovo se vždy vejde do karty (kromě s
         assert.notEqual(size?.variant, "square", `${key} @ ${h}px: MODE_FULL vrátil square — v plném layoutu se square nekreslí`);
       }
     }
+  }
+});
+
+// ── STRÁŽNÝ TEST — task 5c review ────────────────────────────────────────────
+test("STRÁŽNÝ TEST 5c — printDoneSize na hranici MIN_CARD_CONTENT_HEIGHT_PX nikdy nepřeroste svůj vlastní box, pro všechny tři stupně písma", () => {
+  // `MIN_CARD_CONTENT_HEIGHT_PX` je od task 5c (12. 8. 2026, review) JEDINÝ export
+  // sdílený mezi dolní mezí čtverce tady (`printDoneSize`) a podlahou `layoutHeight`
+  // v `BlockCard.tsx` (`clampedHeight`/`clampedContentHeight`) — dřív dva nezávislé
+  // literály `20`, které se kryly jen náhodou. Tenhle test ověřuje PŘESNĚ tu vazbu:
+  // když BlockCard podlahuje kartu/segment na `MIN_CARD_CONTENT_HEIGHT_PX`, tlačítko,
+  // které `printDoneSize` pro tuhle výšku vrátí, se do ní musí vejít (`<=`), ne jen
+  // "skoro". Kdyby někdo zítra zvedl dolní mez čtverce (např. `Math.max(24, …)` kvůli
+  // stížnosti na dotykový cíl) bez úpravy na straně BlockCard, propadne se to tady —
+  // přesně třída havárie z 3. 8. 2026 (karta bez viditelného tlačítka Hotovo).
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    const size = printDoneSize(MIN_CARD_CONTENT_HEIGHT_PX, ts);
+    assert.notEqual(size, null, `${key}: MIN_CARD_CONTENT_HEIGHT_PX (${MIN_CARD_CONTENT_HEIGHT_PX}px) nesmí vrátit null — jinak by karta na schválené dolní mezi neměla vůbec žádné tlačítko`);
+    assert.ok(
+      size!.height <= MIN_CARD_CONTENT_HEIGHT_PX,
+      `${key}: printDoneSize(${MIN_CARD_CONTENT_HEIGHT_PX}).height = ${size!.height} přerůstá vlastní podlahu ${MIN_CARD_CONTENT_HEIGHT_PX}px`
+    );
   }
 });

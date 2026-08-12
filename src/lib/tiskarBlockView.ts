@@ -31,6 +31,19 @@ export type PrintDoneSize =
 export const PRINT_BAR_PADDING_PX = 7;
 
 /**
+ * Spodní podlaha (px), pod kterou karta/tlačítko nesmí klesnout — SDÍLENÁ mezi
+ * dvěma nezávislými místy, která ji dřív držela jako dva samostatné literály `20`:
+ * dolní mez čtverce `square` tady níž (`printDoneSize`) a podlaha `layoutHeight`
+ * (`clampedHeight`/`contentHeight`) v `BlockCard.tsx`. Do task 5c (12. 8. 2026, review)
+ * se kryly jen NÁHODOU — kdyby někdo zvýšil stranu čtverce (např. kvůli stížnosti na
+ * dotykový cíl) bez úpravy podlahy v `BlockCard.tsx`, tlačítko by se do vlastního boxu
+ * přestalo vejít, přesně třída havárie z 3. 8. 2026. Jeden export = jedna pravda;
+ * `STRÁŽNÝ TEST 5c` v `tiskarBlockView.test.ts` ověřuje, že `printDoneSize` na
+ * hranici téhle podlahy vždycky vrátí výšku `<=` ní.
+ */
+export const MIN_CARD_CONTENT_HEIGHT_PX = 20;
+
+/**
  * Rozměr tlačítka Hotovo pro danou výšku bloku (`layoutHeight` z BlockCard).
  *
  * **Práh varianty `bar` MUSÍ zůstat `ts.thresholds.full`** — přesně na hranici,
@@ -61,12 +74,12 @@ export const PRINT_BAR_PADDING_PX = 7;
  * obsah vůbec → `null`.
  *
  * **Čtverec (`square`) se od 8/2026 (task 5b, rozhodnutí majitele 12. 8. 2026)
- * přizpůsobuje výšce karty, ale nikdy neklesne pod 20 px.** Dřív byl napevno
- * `height: 26` bez ohledu na `layoutHeight` — varianta se ale kreslí od
- * `ts.thresholds.micro` (na M 14 px), takže na spodním konci pásma byl
- * čtverec o 12 px vyšší než karta a `overflow: hidden` ho oříznul. Rozměr se
- * teď dopočítává (`Math.max(20, Math.min(26, layoutHeight - 2))`) — na velmi
- * nízké kartě je přijatelnější mírný přesah (tlačítko se u stroje mačká
+ * přizpůsobuje výšce karty, ale nikdy neklesne pod `MIN_CARD_CONTENT_HEIGHT_PX`
+ * (20 px).** Dřív byl napevno `height: 26` bez ohledu na `layoutHeight` — varianta
+ * se ale kreslí od `ts.thresholds.micro` (na M 14 px), takže na spodním konci pásma
+ * byl čtverec o 12 px vyšší než karta a `overflow: hidden` ho oříznul. Rozměr se
+ * teď dopočítává (`Math.max(MIN_CARD_CONTENT_HEIGHT_PX, Math.min(26, layoutHeight - 2))`)
+ * — na velmi nízké kartě je přijatelnější mírný přesah (tlačítko se u stroje mačká
  * prstem, netrefitelný cíl je horší volba). Písmo uvnitř roste úměrně
  * (`15 × squareSide / 26`), ne napevno — jinak by na nejnižší kartě text
  * přerostl zmenšený čtverec.
@@ -82,7 +95,7 @@ export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAU
     return { variant: "bar", height, fontSize: 11.5 };
   }
   if (layoutHeight >= ts.thresholds.micro) {
-    const squareSide = Math.max(20, Math.min(26, layoutHeight - 2));
+    const squareSide = Math.max(MIN_CARD_CONTENT_HEIGHT_PX, Math.min(26, layoutHeight - 2));
     return { variant: "square", height: squareSide, fontSize: 15 * squareSide / 26 };
   }
   return null;

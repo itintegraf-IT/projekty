@@ -78,6 +78,14 @@ const EDIT_TRACKED_FIELDS = [
   "specifikace","obalka","vnitrky","tiskoveArchy","serie",
 ] as const;
 
+// Výchozí/maximální výška slotu (px, surové `slotHeight` PŘED `effectiveSlotHeight`
+// — viz `plannerTypography.ts`) — dřív magické číslo `26` na třech místech
+// (`useState` init + horní mez dvou clampů zoomu). Je to i produkčně viditelná
+// hodnota: `gridSlotHeight` na ni pevně drží TISKAŘE bez zoom slideru (task 5c,
+// review 12. 8. 2026), takže „výchozí" tu znamená totéž co „jediná hodnota, kterou
+// kdy tiskař uvidí" — ne jen dočasný stav před načtením preference.
+const DEFAULT_SLOT_HEIGHT = 26;
+
 // POST tělo pro vložení kopie bloku (single i group paste) — jedna cesta, aby se
 // request flagy nerozešly mezi handlePasteWithTarget a handleGroupPasteWithTarget.
 function buildPasteBody(src: Block, machine: string, newStart: Date, newEnd: Date, bypass: boolean) {
@@ -248,15 +256,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [daysBack, setDaysBack]   = useState(3);
 
   // Zoom — kotva pro scroll při změně zoomu
-  const [slotHeight, setSlotHeight] = useState<number>(26);
+  const [slotHeight, setSlotHeight] = useState<number>(DEFAULT_SLOT_HEIGHT);
   useEffect(() => {
     // TISKAR nemá zoom slider (viz `{!isTiskar && <ZoomSlider …>}` níž) — nemá tedy
-    // jak zoom vrátit, kdyby zdědil malou hodnotu ze zařízení. Zůstává na výchozí
-    // výšce (26) a uloženou hodnotu ignoruje úplně (task 5c, rozhodnutí majitele
-    // 12. 8. 2026) — jednosměrná past nahlášená z produkce (kiosk terminál).
+    // jak zoom vrátit, kdyby zdědil malou hodnotu ze zařízení. `gridSlotHeight` níž
+    // (JEDINÝ vynucovací bod) ho drží na `DEFAULT_SLOT_HEIGHT` bez ohledu na to, co
+    // tenhle stav drží — tenhle guard je tu navíc jen proto, aby `slotHeight` u
+    // TISKARE zůstal interně konzistentní s tím, co se reálně vykresluje (žádná
+    // matoucí hodnota v DevTools), ne proto, že by byl sám o sobě nutný k opravě
+    // pasti (task 5c, rozhodnutí majitele 12. 8. 2026 + review) — jednosměrná past
+    // nahlášená z produkce (kiosk terminál).
     if (isTiskar) return;
     const z = localStorage.getItem("ig-planner-zoom");
-    if (z) setSlotHeight(Math.max(3, Math.min(26, Number(z))));
+    if (z) setSlotHeight(Math.max(3, Math.min(DEFAULT_SLOT_HEIGHT, Number(z))));
   }, [isTiskar]);
 
   // Velikost písma — vázaná na ZAŘÍZENÍ, ne na uživatele (viz FontScaleSwitch).
@@ -277,7 +289,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const typeScale = useMemo(() => plannerTypeScale(fontScale), [fontScale]);
   // Mřížka roste jen zčásti. VŠECHNA geometrie používá tuhle hodnotu; surový
   // `slotHeight` zůstává jen pro slider a pro uloženou preferenci `zoom`.
-  const gridSlotHeight = useMemo(() => effectiveSlotHeight(slotHeight, typeScale), [slotHeight, typeScale]);
+  //
+  // JEDINÝ vynucovací bod pravidla „TISKAR nemá zoom slider, tedy zoom nedědí" (task 5c
+  // review, 12. 8. 2026): dřív ho drželo souběžně TŘI nezávislých hlídačů čtení/zápisu
+  // `slotHeight` (localStorage efekt, server-preference efekt, save-preference efekt) —
+  // budoucí zdroj zoomu (kolečko myši, „vejít se do dne", kioskový URL parametr), který
+  // by zavolal `setSlotHeight` bez vědomí o TISKAŘI, by past tiše vrátil. Ternárka tady
+  // je odolná vůči TOMUHLE i budoucím zdrojům současně — nezáleží, ODKUD `slotHeight`
+  // dostal špatnou hodnotu, `gridSlotHeight` (jediné, co geometrie/BlockCard skutečně
+  // čte) ji pro TISKAŘE vždycky přepíše na `DEFAULT_SLOT_HEIGHT`. Tři efekty výš/níž
+  // zůstávají jako druhá, nezávislá vrstva (state hygiena — `slotHeight` u TISKARE
+  // reálně zůstává 26, ne jen jeho vykreslení), ne jako jediná obrana.
+  const gridSlotHeight = useMemo(
+    () => effectiveSlotHeight(isTiskar ? DEFAULT_SLOT_HEIGHT : slotHeight, typeScale),
+    [slotHeight, typeScale, isTiskar]
+  );
 
   // Ref pro debounced ukládání preferencí na server
   const prefsSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -345,8 +371,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       .then((prefs: Record<string, string>) => {
         // TISKAR: stejná past jako u localStorage výš — účtová preference by mohla
         // zdědit malý zoom od jiné role na tomtéž zařízení a tiskař ho nemá jak vrátit.
+        // Guard tu navíc brání ZÁPISU do (sdíleného, kioskového) `localStorage` —
+        // bez něj by se poškozená serverová preference mohla otisknout do zařízení
+        // a odsud dál nakazit i JINOU roli, která se na stejném kiosku přihlásí příště.
         if (prefs["zoom"] && !isTiskar) {
-          const v = Math.max(3, Math.min(26, Number(prefs["zoom"])));
+          const v = Math.max(3, Math.min(DEFAULT_SLOT_HEIGHT, Number(prefs["zoom"])));
           setSlotHeight(v);
           localStorage.setItem("ig-planner-zoom", String(v));
         }
