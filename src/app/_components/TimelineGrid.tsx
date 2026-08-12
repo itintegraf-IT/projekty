@@ -45,7 +45,6 @@ const SLOT_HEIGHT = 26;         // px na 30 min (1 hod = 52 px)
 const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
 
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
-const HEADER_HEIGHT = 33;       // výška sticky headeru (px) — pro sticky label uvnitř dne
 const TIME_COL_W = 72;          // šířka sloupce s časy (px)
 const VIEW_DAYS_BACK = 3;
 const VIEW_DAYS_AHEAD = 30;
@@ -1402,8 +1401,15 @@ export default function TimelineGrid({
 
   type HalfHourMark = { y: number; label: string; isFullHour: boolean; isLabel: boolean; key: string };
   const halfHourMarkers: HalfHourMark[] = [];
-  // Kolik slotů (po 30 min) přeskočit mezi viditelnými štítky
-  const labelStep = slotHeight >= 14 ? 1 : slotHeight >= 7 ? 2 : slotHeight >= 4 ? 4 : 8;
+  // Kolik slotů (po 30 min) přeskočit mezi viditelnými štítky.
+  // Popisky se ředí podle velikosti SVÉHO písma, ne podle holé výšky slotu.
+  // Jinak se osa při vyšším stupni zahustí právě tehdy, když uživatel chtěl
+  // větší a přehlednější popisky. Práh 5 px je dnešní minimum na stupni M.
+  const minLabelPitch = typeScale.rail + 5;
+  const labelStep = slotHeight >= minLabelPitch ? 1
+    : slotHeight * 2 >= minLabelPitch ? 2
+    : slotHeight * 4 >= minLabelPitch ? 4
+    : 8;
 
   const blockedOverlays: Record<string, BlockedOverlay[]> = { XL_105: [], XL_106: [] };
 
@@ -1608,7 +1614,7 @@ export default function TimelineGrid({
                 {/* Sticky label — drží se viditelnosti celý den při scrollování */}
                 <div style={{
                   position: "sticky",
-                  top: HEADER_HEIGHT,
+                  top: 0,
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
