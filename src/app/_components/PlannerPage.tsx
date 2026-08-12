@@ -2818,6 +2818,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           <Button variant="outline" size="sm" onClick={handleScrollToNow} className="h-8 text-xs theme-transition-fast" style={{ borderColor: "var(--border)", background: "var(--surface-2)", color: "var(--text-muted)" }}>
             Dnes
           </Button>
+          <FontScaleSwitch value={fontScale} onChange={handleFontScaleChange} />
           <ThemeToggle />
           <button onClick={handleLogout} style={{ padding: "3px 10px", fontSize: 11, borderRadius: 6, background: "transparent", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: "pointer" }}>
             Odhlásit
