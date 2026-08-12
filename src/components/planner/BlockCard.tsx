@@ -143,15 +143,17 @@ function MiniChip({ label, accent, textColor, fontSize }: { label: string; accen
 // Fragment (bez wrapperu) — lze vložit do flex clusteru i absolutního kontejneru.
 // V praxi je nastavené vždy jen jedno (OBÁLKA nebo VNITŘKY nebo TA); série se
 // spojí za tiskové archy. abbreviated = zkrácené OB./VN. pro krátké bloky.
-function ProductionChips({ obalka, vnitrky, tiskoveArchy, serie, abbreviated }: {
-  obalka?: boolean; vnitrky?: boolean; tiskoveArchy?: string | null; serie?: string | null; abbreviated?: boolean;
+function ProductionChips({ obalka, vnitrky, tiskoveArchy, serie, abbreviated, fontSize }: {
+  obalka?: boolean; vnitrky?: boolean; tiskoveArchy?: string | null; serie?: string | null; abbreviated?: boolean; fontSize: number;
 }) {
   const typeChip = formatProductionTypeChip(tiskoveArchy, serie);
   if (!obalka && !vnitrky && !typeChip) return null;
   // clamp = na krátkých blocích (abbreviated) dlouhý TA·série chip zkrátit ellipsis,
   // aby nikdy nevytlačil číslo zakázky (nejdůležitější info na bloku).
+  // maxWidth odvozený z fontSize (16.5× — při 8 px dá dnešních 132), ať roste
+  // se stupněm písma stejně jako zbytek chipu.
   const pill = (bg: string, fg: string, text: string, clamp?: boolean) => (
-    <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: "0.04em", padding: "2px 6px", borderRadius: 5, background: bg, color: fg, lineHeight: 1, whiteSpace: "nowrap", flexShrink: clamp ? 1 : 0, ...(clamp ? { maxWidth: 132, overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>{text}</span>
+    <span style={{ fontSize, fontWeight: 900, letterSpacing: "0.04em", padding: "2px 6px", borderRadius: 5, background: bg, color: fg, lineHeight: 1, whiteSpace: "nowrap", flexShrink: clamp ? 1 : 0, ...(clamp ? { maxWidth: fontSize * 16.5, overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>{text}</span>
   );
   const C = PRODUCTION_CHIP_COLORS;
   return (
@@ -743,7 +745,14 @@ export function BlockCard({
               right: 4,
               background: "#f59e0b",
               color: "#1f2937",
-              fontSize: 10,
+              // Strop je nutný: tenhle badge se kreslí bezpodmínečně ve VŠECH
+              // hustotách (podmínka `hasTiskarNotes` výš není vázaná na žádný
+              // MODE_*), takže na nejnižší kartě (layoutHeight 14 px, box 14 px
+              // posazený 7 px od horní hrany) přetéká už dnes. Bez stropu by
+              // růst písma na L/XL přetečení jen zhoršil (viz MICRO_CHIP_CAP_FACTOR
+              // výš — stejný princip jako u ostatních chipů vázaných na geometrii,
+              // ne na hustotu).
+              fontSize: Math.min(typeScale.noteBadge, layoutHeight * MICRO_CHIP_CAP_FACTOR),
               fontWeight: 700,
               lineHeight: 1,
               padding: "2px 6px",
@@ -843,7 +852,7 @@ export function BlockCard({
             {(block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
               <>
                 <div style={{ flex: 1, minWidth: 6 }} />
-                <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} abbreviated />
+                <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} abbreviated fontSize={typeScale.production} />
               </>
             )}
             <div style={{ flex: 1, minWidth: 6 }} />
@@ -868,6 +877,7 @@ export function BlockCard({
                     state={state}
                     time={time}
                     onClick={() => onSplitChipClick?.(splitPartner.id)}
+                    fontSize={typeScale.splitChip}
                   />
                 );
               })()}
@@ -962,7 +972,7 @@ export function BlockCard({
             {(block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
               <>
                 <div style={{ flex: 1, minWidth: 6 }} />
-                <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} abbreviated />
+                <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} abbreviated fontSize={typeScale.production} />
               </>
             )}
             <div style={{ flex: 1, minWidth: 6 }} />
@@ -1134,6 +1144,7 @@ export function BlockCard({
             state={state}
             time={time}
             onClick={() => onSplitChipClick?.(splitPartner.id)}
+            fontSize={typeScale.splitChip}
           />
         );
       })()}
@@ -1145,7 +1156,7 @@ export function BlockCard({
           chip doleva o šířku handle (right:26), aby nezakrýval úchyt pro zkrácení/prodloužení. */}
       {MODE_FULL && (block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
         <div style={{ position: "absolute", right: (!block.locked && !isTiskar) ? 26 : 6, bottom: isTiskar ? 32 : 4, display: "flex", gap: 5, zIndex: 4, pointerEvents: "none" }}>
-          <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} />
+          <ProductionChips obalka={block.obalka} vnitrky={block.vnitrky} tiskoveArchy={block.tiskoveArchy} serie={block.serie} fontSize={typeScale.production} />
         </div>
       )}
 
@@ -1193,8 +1204,12 @@ export function BlockCard({
           pointerEvents: "none",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
+          {/* Bez stropu záměrně — kreslí se JEN v segmentu vysokém aspoň 40 px
+              (podmínka `seg.height >= 40` níž), takže i na XL má vždycky dost
+              místa. Nedoplňovat MICRO_CHIP_CAP_FACTOR strop, jaký má badge
+              poznámek výš — tam ho vyžaduje geometrie, tady žádná mez chybí. */}
           {seg.height >= 40 && (
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: "rgba(203,213,225,0.85)", background: "rgba(2,6,23,0.6)", padding: "1px 8px", borderRadius: 6 }}>
+            <span style={{ fontSize: typeScale.pauseLabel, fontWeight: 700, letterSpacing: 1, color: "rgba(203,213,225,0.85)", background: "rgba(2,6,23,0.6)", padding: "1px 8px", borderRadius: 6 }}>
               ⏸ PAUZA — mimo provoz
             </span>
           )}

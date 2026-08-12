@@ -7,9 +7,10 @@ type Props = {
   state: "waiting" | "done";
   time: Date;
   onClick: () => void;
+  fontSize: number;
 };
 
-export function SplitChip({ partnerMachine, state, time, onClick }: Props) {
+export function SplitChip({ partnerMachine, state, time, onClick, fontSize }: Props) {
   const dotColor   = state === "done" ? "var(--success, #34c759)" : "var(--warning, #ff9500)";
   const haloColor  = state === "done" ? "rgba(52,199,89,0.18)"    : "rgba(255,149,0,0.18)";
   const statusLabel = state === "done" ? "hotovo" : "čeká";
@@ -32,7 +33,7 @@ export function SplitChip({ partnerMachine, state, time, onClick }: Props) {
         background: "rgba(255,255,255,0.65)",
         border: "1px solid rgba(0,0,0,0.08)",
         borderRadius: 999,
-        fontSize: 10,
+        fontSize,
         fontWeight: 600,
         color: "#1c1c1e",
         backdropFilter: "blur(8px)",
