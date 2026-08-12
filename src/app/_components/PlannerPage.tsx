@@ -250,9 +250,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Zoom — kotva pro scroll při změně zoomu
   const [slotHeight, setSlotHeight] = useState<number>(26);
   useEffect(() => {
+    // TISKAR nemá zoom slider (viz `{!isTiskar && <ZoomSlider …>}` níž) — nemá tedy
+    // jak zoom vrátit, kdyby zdědil malou hodnotu ze zařízení. Zůstává na výchozí
+    // výšce (26) a uloženou hodnotu ignoruje úplně (task 5c, rozhodnutí majitele
+    // 12. 8. 2026) — jednosměrná past nahlášená z produkce (kiosk terminál).
+    if (isTiskar) return;
     const z = localStorage.getItem("ig-planner-zoom");
     if (z) setSlotHeight(Math.max(3, Math.min(26, Number(z))));
-  }, []);
+  }, [isTiskar]);
 
   // Velikost písma — vázaná na ZAŘÍZENÍ, ne na uživatele (viz FontScaleSwitch).
   // Stav se inicializuje na výchozí a localStorage se čte až v useEffect níž:
@@ -338,7 +343,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     fetch("/api/me/preferences")
       .then((r) => r.json())
       .then((prefs: Record<string, string>) => {
-        if (prefs["zoom"]) {
+        // TISKAR: stejná past jako u localStorage výš — účtová preference by mohla
+        // zdědit malý zoom od jiné role na tomtéž zařízení a tiskař ho nemá jak vrátit.
+        if (prefs["zoom"] && !isTiskar) {
           const v = Math.max(3, Math.min(26, Number(prefs["zoom"])));
           setSlotHeight(v);
           localStorage.setItem("ig-planner-zoom", String(v));
@@ -357,9 +364,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         }
       })
       .catch(() => {}); // tiché selhání — localStorage hodnoty z lazy initializerů zůstanou
-  }, []);
+  }, [isTiskar]);
 
-  useEffect(() => { savePreference("zoom", String(slotHeight)); }, [slotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
+  // TISKAR zoom nemění (žádný slider), takže by tenhle efekt jen opakovaně zapisoval
+  // výchozí hodnotu zpátky do localStorage i na server preferenci — beze smyslu,
+  // navíc by to při každém mountu volalo API. Viz past popsaná u efektů výš.
+  useEffect(() => { if (!isTiskar) savePreference("zoom", String(slotHeight)); }, [slotHeight, isTiskar]);
 
   // Resizable aside
   const [asideWidth, setAsideWidth] = useState<number>(320);

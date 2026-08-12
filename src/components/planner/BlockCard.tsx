@@ -64,6 +64,15 @@ const MICRO_CHIP_CAP_FACTOR = 0.65;
 // 10, beze změny) a na XL/29px plnou velikost 16,3px (viz task-6-report.md).
 const MICRO_TEXT_CAP_FACTOR = 0.7;
 
+// Spodní podlaha pro `layoutHeight` (px) — pod ní se nevykreslí vůbec nic (ani tlačítko
+// Hotovo, ani číslo zakázky), viz `thresholds.micro`. Platila dřív jen pro `height`
+// (fyzická výška karty); `contentHeight` (výška prvního print segmentu u bloku přes
+// odstávku) stejnou podlahu neměl a mohl klesnout na jednotky px (jeden slot 30 min
+// při nízkém zoomu) — task 5c, rozhodnutí majitele 12. 8. 2026. POZOR: řídí jen
+// rozhodování o layout modu a vnitřní content box (`contentBoxFlex`), NIKDY fyzickou
+// geometrii divu (ta jde z `clampedHeight`/`maxRenderHeight`, viz komentář u `layoutHeight`).
+const MIN_CARD_CONTENT_HEIGHT_PX = 20;
+
 // ─── Ikony vedle čísla zakázky ───────────────────────────────────────────────
 // Lock/Hourglass/zelená fajfka a Clock (upozornění po termínu) byly napevno 9, resp.
 // 11 px — na M (`DEFAULT_TS.num` 13,5 px) to je poměr ~67 %, resp. ~81 % k číslu, ale
@@ -344,10 +353,13 @@ export function BlockCard({
   // jeden štítek, dvě různá sdělení. Rozlišení je sdílené s detailem bloku a s pruhem
   // nad strojem (`calendarDriftUi.ts`), ať se ta tři místa nerozejdou.
   const isParked = !!calendarDrift && isParkedDrift(calendarDrift.reason);
-  const clampedHeight = Math.max(height, 20);
+  const clampedHeight = Math.max(height, MIN_CARD_CONTENT_HEIGHT_PX);
+  // `contentHeight` dostává STEJNOU podlahu jako `height` výš — bez ní se pojistka proti
+  // nevykreslení obejde přes bloky s pauzou (viz MIN_CARD_CONTENT_HEIGHT_PX výš).
+  const clampedContentHeight = contentHeight != null ? Math.max(contentHeight, MIN_CARD_CONTENT_HEIGHT_PX) : undefined;
   // Layout mody se řídí výškou prvního print segmentu (obsah se má vejít do tiskové části,
   // ne propadnout do pauzy) — pro bloky bez segmentů (99 % plánu) je to prostě clampedHeight.
-  const layoutHeight  = contentHeight ?? clampedHeight;
+  const layoutHeight  = clampedContentHeight ?? clampedHeight;
 
   // Obsah úzkých layoutů (COMPACT / TINY / MICRO) je svisle vycentrovaný. U bloku
   // s pauzou by ho `flex: 1` roztáhl přes CELOU kartu a vycentroval do jejího středu
@@ -356,8 +368,8 @@ export function BlockCard({
   // `contentHeight` (výška PRVNÍHO tiskového úseku) se do té chvíle používala jen
   // na volbu layoutu, ne na jeho umístění — záměr „obsah nesmí propadnout do pauzy"
   // tak byl provedený z půlky. Bloky bez pauzy (99 % plánu) se chovají beze změny.
-  const contentBoxFlex: React.CSSProperties = contentHeight != null
-    ? { height: contentHeight, flexGrow: 0, flexShrink: 0 }
+  const contentBoxFlex: React.CSSProperties = clampedContentHeight != null
+    ? { height: clampedContentHeight, flexGrow: 0, flexShrink: 0 }
     : { flex: 1 };
 
   // Velikost tlačítka Hotovo (jen tiskařský režim) — pravidla v tiskarBlockView.ts
