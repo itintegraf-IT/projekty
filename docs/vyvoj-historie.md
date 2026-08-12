@@ -50,6 +50,81 @@ a půlhodinová aspoň jednořádková ve všech třech stupních.
 Spec: `docs/superpowers/specs/2026-08-11-citelnost-timeline-velikost-pisma-design.md`
 Plán: `docs/superpowers/plans/2026-08-11-citelnost-timeline-velikost-pisma.md`
 
+### Dotažení — prvky, které se stupněm nerostly, a ztracené tlačítko „Hotovo" (12. 8. 2026)
+
+Devět commitů navazujících na přepínač výš. Testy 977 → 995, nic nenasazeno.
+
+**Co se doškálovalo a proč.** Drobné štítky karty (`ProductionChips`, badge
+tiskařských poznámek, popisek pauzy, `SplitChip`) i pruh driftu a tlačítko
+„Přepočítat" v hlavičce stroje měly `fontSize` napevno v pixelech — rostly
+o 0 %, zatímco číslo zakázky vedle nich o 35 % (stupeň XL). Přidána pole
+`production`/`noteBadge`/`splitChip`/`pauseLabel`/`driftBadge` do
+`plannerTypeScale` (`da41f2a4`) a navázána (`65b8673b`, `b4e9dfe4`); ikony
+a značky v jednořádkovém layoutu dostaly strop spolu s číslem, aby ho
+nepřerostly (`40d442a6`).
+
+**Tiskaři se vrátila pilulka rozdělené zakázky.** Po zvětšení `SplitChip`
+s písmem se v pásmu 46–79 px (M) nevešla na svoje dosavadní spodní místo —
+po zavedení stupňů karta v tomhle pásmu spadla do plného layoutu, ale
+výškový rozpočet pilulku propustil až od 80 px. Zbyla jen neklikatelná
+textová značka „✂1/2". Nebyla to kosmetika: pilulka nese klik, kterým
+tiskař přeskočí na navazující blok téže zakázky na druhém stroji. Oprava
+(`f4a66de2` + `d12dd5c0`) přidala záložní umístění v Řádku 1
+(`splitChipFitsInHeaderRow`) a nahradila napevno zapsaný `SPLIT_CHIP_PX`
+(dřív 25 px pro všechny stupně) výpočtem ze skutečného box modelu
+`SplitChip.tsx`.
+
+**Čtvercové tlačítko „Hotovo" — vada nebyla teoretická.** Původní měření
+došlo k závěru, že tiskař na problematické pásmo (nejnižší karty) nedosáhne,
+protože nemá zoom slider. Nezávislé ověření našlo dvě cesty, kterými se tam
+přesto dostal: `localStorage` zařízení i serverová preference účtu (`/api/me/preferences`)
+se pro každou roli četly stejně a při každém mountu se zpětně zapisovaly —
+tiskař tak mohl zdědit malý zoom od jiné role na tomtéž zařízení a neměl ho
+čím vrátit (žádný slider). Druhá cesta: výška obsahu karty u bloku přes
+odstávku obcházela podlahu 20 px a mohla vyjít na nulu. Obojí opraveno
+(`9d62360b` + `3855931f`, dále `d571b35b` + `d994de46`), viz rozhodnutí
+majitele 1–3 níž.
+
+**Sticky hlavička — ověřeno v prohlížeči, ne dopočtem.** Konstanta
+`HEADER_HEIGHT = 33` v `TimelineGrid.tsx` byla **smazána** (`efef0876`).
+Hlavička stroje není potomkem scrollovacího kontejneru, ale jeho sourozenec
+— `top: 0` zarovná štítek dne přesně pod ni, bez odsazení. Stejný commit
+doladil i ředění popisků časové osy (`labelStep`) podle stupně jejich písma
+(`typeScale.rail` + 5 px rezerva na M), protože se s větším písmem na L/XL
+popisky natěsnaly víc, než je čitelné — ověřeno v prohlížeči přes Playwright,
+že se rastr hodinových/půlhodinových čar po změně nerozpadl.
+
+**Rozhodnutí majitele (12. 8. 2026):**
+
+1. Čtvercové tlačítko „Hotovo" se zmenšuje podle výšky karty, ale **nikdy
+   pod 20 px** (`MIN_CARD_CONTENT_HEIGHT_PX`). Na velmi nízké kartě je
+   přijatelnější mírný přesah než netrefitelný cíl — tlačítko se u stroje
+   mačká prstem.
+2. Prázdná karta u bloku přes odstávku se **opravuje** (podlaha 20 px
+   i pro `contentHeight`), ne odkládá.
+3. Zoom tiskaře je **vynucen na výchozí hodnotu**. Role, která zoom nemá
+   jak měnit, ho nemá proč ani dědit.
+4. Když se popis nevejde na jeden řádek, **ustoupí popis, ne pás
+   specifikace**. Tiskař potřebuje specifikaci a tlačítko víc než dlouhý
+   popis; popis zůstává v tooltipu a na Monitoru u stroje.
+
+**Známá omezení (vědomě přijatá, neopravují se):**
+
+> Ořez chipu Pantone. Při stupni XL se na obrazovkách do 1366 px ořízne
+> čtvrtý datumový chip; od 1600 px se vejde. Řádek chipů se záměrně
+> nezalamuje. Řešení odloženo (rozhodl Vojta 12. 8. 2026).
+
+> Rozpočty chránící tlačítko „Hotovo" jsou bezvýhradné jen v ose VÝŠKY.
+> Pravý shluk chipů v Řádku 1 má `flexWrap: "wrap"` a v žádném rozpočtu
+> není: jedno zalomení stojí +15,0 / +16,2 / +17,8 px (M/L/XL) proti
+> rezervě 1,50 / 1,44 / 1,36 px. U tiskaře je sloupec stroje široký kolem
+> 1250 px, takže je to dnes prakticky nedosažitelné — ale je to táž třída
+> havárie, jen řízená šířkou místo výšky.
+
+> Tiskař bez pásu specifikace, stupeň M, výška karty 64,5–65,5 px: spodní
+> hrana pruhu „Hotovo" překročí obsahový box o 0,1–1,1 px. Ořeže se
+> odsazení pruhu, ne tlačítko. Neopravuje se.
+
 ## Fronta Monitoru — specifikace a chipy (11. 8. 2026)
 
 Řádek fronty byl jednořádkový — číslo zakázky, šedý popis, čas startu — a neukazoval

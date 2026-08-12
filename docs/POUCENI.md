@@ -287,3 +287,33 @@ co používají ony.
 tasků — až závěrečné review celé větve, které si dohledalo, jak se sloupec
 zapisuje jinde v aplikaci. Když nová komponenta čte sloupec, který dosud četl
 někdo jiný, patří do review otázka „jak to čtou ostatní a proč jinak než já".
+
+---
+
+## P17 — Review nad diffem nenajde vadu, kterou způsobí součinnost dvou modulů
+
+**Co se stalo (12. 8. 2026):** Oprava v `tiskarBlockView.ts` zvedla práh pruhu
+„Hotovo" ze 46 na 50 px — sama o sobě správná, prošla scoped re-review. Jenže
+`BlockCard.tsx` překlápí kartu do plného layoutu už při 46 px a v plném
+layoutu kreslí **výhradně pruhovou** variantu tlačítka. V pásmu 46–49 px tak
+tiskař nedostal žádné tlačítko. Našel to až průzkumný agent, který se neptal
+„co se v diffu změnilo", ale „za jakých podmínek se který prvek vykreslí".
+
+**Pravidlo:** U změny prahu, konstanty nebo výčtové hodnoty, kterou čte jiný
+modul, dohledat všechny konzumenty a projít celý obor hodnot. U prahů napsat
+strážný test, který projede celý rozsah a tvrdí, co má platit.
+
+---
+
+## P18 — Závěr „vada je teoretická" musí být doložený, ne pravděpodobný
+
+**Co se stalo (12. 8. 2026):** Měření u čtvercového tlačítka „Hotovo" došlo
+k závěru, že tiskař na problematické pásmo nedosáhne, protože nemá zoom
+slider. Nezávislé ověření našlo dvě cesty: `localStorage` zařízení i
+serverová preference účtu se čtou pro každou roli a zpětně zapisují při
+každém mountu (tiskař tak zdědí cizí zoom natrvalo a nemá ho čím vrátit),
+a výška obsahu karty u bloku přes odstávku obcházela podlahu 20 px.
+
+**Pravidlo:** Když závěr stojí na provozním předpokladu, který kód
+nevynucuje, není to závěr — je to domněnka. Buď ten předpoklad vynuť v kódu,
+nebo vadu považuj za reálnou.
