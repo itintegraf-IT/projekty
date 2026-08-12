@@ -327,6 +327,45 @@ test("specBandFits: bez tlačítka Hotovo (mimo tiskaře) stačí i nižší kar
   assert.equal(specBandFits(57, null, 2, m), false);
 });
 
+test("specBandFits: sweep 0–220 px po 0,5 px — nezávislý geometrický model ze SpecBand.tsx/BlockCard.tsx, M/L/XL, specRows 1 i 2", () => {
+  // Stejný vzor jako fuzz test `splitChipFitsInHeaderRow` výš: geometrie
+  // poskládaná NEZÁVISLE přímo z komponent, ne přes `ts.rowHeights`:
+  //   - Řádek 1 (`BlockCard.tsx`, paddingTop 5 + paddingBottom 3 = 8) +
+  //     jednořádkové číslo/popis (`ts.num × 1,2` / `ts.desc × 1,3`) — jen
+  //     jednořádkový popis, viz výhrada v docstringu `specBandFits`.
+  //   - Pás specifikace (`SpecBand.tsx`): vnější `padding: "0 6px 3px"` (0+3
+  //     svisle) + vnitřní `padding: "2px 6px"` (2+2 svisle) + `ts.spec × 1,3 ×
+  //     počet řádků`. Review 12. 8. 2026: číslo ze zadání (task-5b-brief.md,
+  //     část B) vzniklo z modelu, který `padding-bottom: 3px` vynechal — proto
+  //     vycházelo užší, chybné pásmo, než jaké `specBandFits` doopravdy chrání.
+  //   - Pruh Hotovo: `printDone.height` + `BlockCard.tsx` padding "2px 7px 5px"
+  //     (top 2 + bottom 5 = 7, číselně `PRINT_BAR_PADDING_PX`).
+  //
+  // Tolerance kryje zbytkovou, drobnou optimističnost `ts.rowHeights.header`/
+  // `.spec2` proti tomuhle nezaokrouhlenému modelu (review 12. 8. 2026: celkem
+  // 0,50 / 0,56 / 0,64 px na M/L/XL) — NE chybu geometrie.
+  const TOLERANCE_PX = 0.7;
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    for (let h = 0; h <= 220; h += 0.5) {
+      for (const specRows of [1, 2] as const) {
+        const printDone = printDoneSize(h, ts);
+        const fits = specBandFits(h, printDone, specRows, ts);
+        if (!fits) continue;
+
+        const row1 = 8 + Math.max(ts.num * 1.2, ts.desc * 1.3);
+        const specBox = (0 + 3) + (2 + 2) + ts.spec * 1.3 * specRows;
+        const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
+
+        assert.ok(
+          row1 + specBox + barReserve <= h + TOLERANCE_PX,
+          `${key} @ ${h}px specRows=${specRows}: fits=true, ale nezávislý model (řádek1 ${row1.toFixed(2)} + pás ${specBox.toFixed(2)} + pruh ${barReserve}) přerůstá kartu (${h}px)`
+        );
+      }
+    }
+  }
+});
+
 // ── STRÁŽNÝ TEST — task 5b, část C ───────────────────────────────────────────
 test("STRÁŽNÝ TEST 5b — tlačítko Hotovo se vždy vejde do karty (kromě schválené dolní meze 20 px u čtverce); v MODE_FULL nikdy square ani null (incident 3. 8. 2026)", () => {
   // Pro všechny tři stupně písma a výšky 0–200 px po 0,5 px ověřuje dvě věci:
@@ -353,12 +392,35 @@ test("STRÁŽNÝ TEST 5b — tlačítko Hotovo se vždy vejde do karty (kromě s
           size.height + ts.rowHeights.header + PRINT_BAR_PADDING_PX <= h,
           `${key} @ ${h}px: pruh (${size.height}) se nevejde pod první řádek`
         );
+        // Koeficient písma pruhu 40 px MUSÍ jít přes `ts.fontFactor` — review
+        // 12. 8. 2026 vsadil devět mutací do produkčního kódu a záměna
+        // `fontFactor`/`slotFactor` (jmenovaná třída chyby projektu, viz
+        // `plannerTypography.ts`) prošla beze změny přes celou dřívější sadu,
+        // protože žádná aserce mimo M (kde je `fontFactor` roven jedné) na
+        // `fontSize` nesahala.
+        if (size.height === 40) {
+          assert.equal(size.fontSize, Math.round(16 * ts.fontFactor), `${key} @ ${h}px: fontSize pruhu 40 px`);
+        }
       } else if (size?.variant === "square") {
         const fits = size.height <= h - 2;
         assert.ok(
           fits || size.height === APPROVED_SQUARE_FLOOR_PX,
           `${key} @ ${h}px: čtverec (${size.height}) se nevejde a není na schválené dolní mezi ${APPROVED_SQUARE_FLOOR_PX}px`
         );
+        // Dolní mez je POVINNÁ, ne jen povolená — bez týhle aserce by zrušení
+        // `Math.max(20, …)` v implementaci propadlo beze stopy (na 14 px by
+        // čtverec spadl na 12 px, přesně netrefitelný cíl, který majitel
+        // odmítl) a `fits` výš by ho i tak propustila (12 ≤ 12).
+        assert.ok(
+          size.height >= APPROVED_SQUARE_FLOOR_PX,
+          `${key} @ ${h}px: čtverec (${size.height}) je POD schválenou dolní mezí ${APPROVED_SQUARE_FLOOR_PX}px`
+        );
+        // Koeficient písma čtverce MUSÍ růst s `size.height`, NE s `ts.fontFactor`
+        // navíc — review 12. 8. 2026: mutace `fontSize: 15 * side / 26 *
+        // ts.fontFactor` (záměna/duplicitní koeficient) prošla beze změny přes
+        // celou dřívější sadu, protože žádná aserce na `fontSize` mimo dva body
+        // na M (kde je `ts.fontFactor` roven jedné) nesahala.
+        assert.equal(size.fontSize, 15 * size.height / 26, `${key} @ ${h}px: fontSize čtverce`);
       }
 
       if (h >= ts.thresholds.full) {

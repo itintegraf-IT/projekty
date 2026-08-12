@@ -146,6 +146,24 @@ export function splitChipFits(
  * Stejný rozpočet jako `splitChipFits` (Řádek 1 + pás + pruh Hotovo), jen bez
  * rezervy pro SplitChip navíc — tady se ptáme, jestli se vejde pás SAMOTNÝ
  * spolu s tlačítkem, ne jestli po nich zbyde místo na něco dalšího.
+ *
+ * **Záruka platí jen pro JEDNOŘÁDKOVÝ popis** (`descLineClamp === 1`) — přesně
+ * stejná, dřív zdokumentovaná mezera jako u `specFitsBand` v `BlockCard.tsx`
+ * (komentář kolem ř. 486–490 tam), jen s JINÝM důsledkem. `ts.rowHeights.header`
+ * použité tady je odhad Řádku 1 pro jednořádkový popis; víceřádkový popis
+ * (`descLineClamp >= 2`, nastává, jakmile `layoutHeight >= thresholds.full ×
+ * 1,4` — na M od 64,4 px, tedy prakticky v CELÉM pásmu, kde se pás specifikace
+ * u tiskaře vůbec kreslí, viz `tiskarSpecMin`) zvedne Řádek 1 v DOM o cca
+ * 12,4 px nad tenhle odhad. Funkce to nepočítá a `true` tak může vyjít, i
+ * když se tlačítko Hotovo ve skutečnosti neveje — přepočet (review 12. 8. 2026)
+ * dává přetečení pruhu o ~12,9 px na M / ~14,7 px na L / ~17,1 px na XL.
+ *
+ * Je to PŘEDEXISTUJÍCÍ mezera (funkce ji nezavádí, jen ji nezavírá) a VĚDOMĚ
+ * NEOPRAVENÁ — dopočítat víceřádkový popis by znamenalo přepsat odhad výšky
+ * Řádku 1, a cena je zmizení pásu specifikace ze širokého pásma výšek. Jestli
+ * má `specBandFits` zohledňovat `descLineClamp`, je rozhodnutí majitele, ne
+ * tichá oprava odsud. Kdo tuhle funkci používá, ať s touhle mezerou počítá,
+ * ne aby ji objevil znovu.
  */
 export function specBandFits(
   layoutHeight: number,
