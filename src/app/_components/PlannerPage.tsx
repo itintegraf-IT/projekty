@@ -265,6 +265,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (isPlannerFontScale(stored)) setFontScale(stored);
   }, []);
   function handleFontScaleChange(next: PlannerFontScale) {
+    captureScrollAnchor();
     setFontScale(next);
     localStorage.setItem(FONT_SCALE_STORAGE_KEY, next);
   }
@@ -299,14 +300,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   const zoomAnchorMs = useRef<number | null>(null); // ms od epochy = datum středu viewportu
 
-  function handleZoomChange(newHeight: number) {
+  // Zachytí datum, na které aktuálně ukazuje střed viewportu, do zoomAnchorMs — MUSÍ se
+  // zavolat na začátku každého handleru, který mění gridSlotHeight (zoom slider i stupeň
+  // písma — effectiveSlotHeight se odvozuje z obou), jinak useLayoutEffect níž proběhne
+  // s prázdnou kotvou a scrollTop v pixelech začne po přepočtu znamenat jiný čas —
+  // uživateli ujede pohled (nahlášeno 12.8.2026 u přepínače velikosti písma, kde tahle
+  // kotva chyběla úplně).
+  function captureScrollAnchor() {
     const el = scrollRef.current;
-    if (el) {
-      const centerY = el.scrollTop + el.clientHeight / 2;
-      // yToDate inline: viewStart + (y / gridSlotHeight * 30 min)
-      const anchorDate = new Date(viewStart.getTime() + (centerY / gridSlotHeight) * 30 * 60000);
-      zoomAnchorMs.current = anchorDate.getTime();
-    }
+    if (!el) return;
+    const centerY = el.scrollTop + el.clientHeight / 2;
+    // yToDate inline: viewStart + (y / gridSlotHeight * 30 min)
+    const anchorDate = new Date(viewStart.getTime() + (centerY / gridSlotHeight) * 30 * 60000);
+    zoomAnchorMs.current = anchorDate.getTime();
+  }
+
+  function handleZoomChange(newHeight: number) {
+    captureScrollAnchor();
     setSlotHeight(newHeight);
   }
 

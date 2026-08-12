@@ -993,8 +993,12 @@ export function BlockCard({
           paddingTop: 5, paddingBottom: 3, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 9, paddingRight: hasTiskarNotes ? 44 : 9, display: "flex", alignItems: "flex-start",
           gap: 4, minWidth: 0, flexShrink: 0,
         }}>
-          {/* Levá část: číslo + popis */}
+          {/* Levá část: značka specifikace (je-li) + číslo + popis */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 6, flex: 1, minWidth: 0, overflow: "hidden" }}>
+            {/* Značka specifikace vlevo, stejně jako v COMPACT/TINY/MICRO_TEXT — dřív byla
+                v pravém shluku a na kartách, kde padly do FULL layoutu (~1,5h zakázka),
+                „S" najednou naskočilo vpravo, zatímco jinde je vlevo (nález 12.8.2026). */}
+            {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={typeScale.specChip} />}
             <span style={{
               fontSize: typeScale.num, fontWeight: 800, color: s.textPrimary,
               lineHeight: 1.2, flexShrink: 0, maxWidth: "60%",
@@ -1015,11 +1019,14 @@ export function BlockCard({
               </span>
             )}
           </div>
-          {/* Pravá část: status chips + série + split */}
-          {(hasNoteRow || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
+          {/* Pravá část: status chips + série + split. „S" se odsud přesunula vlevo (viz výš) —
+              proto tenhle shluk NESMÍ dál vycházet z `hasNoteRow` (ten je true i jen díky
+              `block.specifikace`, kterou už tenhle shluk nekreslí, a taky díky
+              `dataStatusLabel`, který tu nikdy nebyl) — vlastní podmínka přesně podle toho,
+              co se uvnitř skutečně vykresluje, jinak by tu po přesunu „S" mohl zůstat
+              prázdný `<div>`. */}
+          {(block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.recurrenceType !== "NONE" || block.recurrenceParentId !== null || (splitTotal ?? 0) > 1) && (
             <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap", flexShrink: 0 }}>
-              {/* Náhrada za pás specifikace, když se v MODE_FULL nevejde celý (viz hasSpecChip výš). */}
-              {hasSpecChip && <SpecChip text={block.specifikace!} fontSize={Math.min(typeScale.specChip, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
               {block.materialStatusLabel && <MiniChip label={block.materialStatusLabel} accent={matAccent}   textColor={matText   ?? undefined} fontSize={typeScale.mini} />}
               {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={typeScale.mini} />}
               {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={typeScale.mini} />}
