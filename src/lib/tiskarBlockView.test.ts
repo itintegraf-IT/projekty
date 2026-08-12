@@ -19,8 +19,10 @@ test("printDoneSize: 55–95 px (M) = pruh, výška dopočítaná stropem 24 px"
   // opravy). Výška nejnižšího stupně pruhu se dopočítává z dostupného místa
   // (min(24, layoutHeight - rowHeights.header - PRINT_BAR_PADDING_PX)) — na M
   // dosáhne stropu 24 px až od 55 (46-24-7=15 … 55-24-7=24).
-  assert.deepEqual(printDoneSize(95), { variant: "bar", height: 24, fontSize: 11.5 });
-  assert.deepEqual(printDoneSize(55), { variant: "bar", height: 24, fontSize: 11.5 });
+  // fontSize task 9 (12. 8. 2026): min(round(11.5×fontFactor), height-6) — na M
+  // (fontFactor 1) je round(11.5)=12, ale height-6=18 ho na 24px pruhu nestropuje.
+  assert.deepEqual(printDoneSize(95), { variant: "bar", height: 24, fontSize: 12 });
+  assert.deepEqual(printDoneSize(55), { variant: "bar", height: 24, fontSize: 12 });
 });
 
 test("printDoneSize: 46–54 px (M) = pruh s dopočítanou nižší výškou (dřív mezera bez tlačítka)", () => {
@@ -29,9 +31,12 @@ test("printDoneSize: 46–54 px (M) = pruh s dopočítanou nižší výškou (d�
   // v MODE_FULL vůbec nekreslí (BlockCard.tsx:1115 kreslí bar jen pro
   // MODE_FULL, square jen pro COMPACT/TINY). Výsledkem byla karta bez
   // JAKÉHOKOLIV tlačítka Hotovo — přesně havárie z 3. 8. 2026, ve druhém kole.
-  assert.deepEqual(printDoneSize(46), { variant: "bar", height: 15, fontSize: 11.5 });
-  assert.deepEqual(printDoneSize(50), { variant: "bar", height: 19, fontSize: 11.5 });
-  assert.deepEqual(printDoneSize(54), { variant: "bar", height: 23, fontSize: 11.5 });
+  // fontSize task 9 (12. 8. 2026): min(round(11.5×fontFactor), height-6) — na
+  // samém dolním okraji pásma (height 15) stropuje height-6=9; od height 18
+  // (layoutHeight 49) už stropuje round(11.5)=12.
+  assert.deepEqual(printDoneSize(46), { variant: "bar", height: 15, fontSize: 9 });
+  assert.deepEqual(printDoneSize(50), { variant: "bar", height: 19, fontSize: 12 });
+  assert.deepEqual(printDoneSize(54), { variant: "bar", height: 23, fontSize: 12 });
 });
 
 test("printDoneSize: 14–45 px (M) = čtverec, dopočítaný z výšky karty se stropem 26 a dolní mezí 20 px", () => {
@@ -49,6 +54,13 @@ test("printDoneSize: 14–45 px (M) = čtverec, dopočítaný z výšky karty se
 });
 
 test("printDoneSize: pod 14 px se tlačítko nekreslí", () => {
+  // Obrana do hloubky, ne dosažitelný stav (task 9, 12. 8. 2026): `printDoneSize`
+  // je čistá funkce a `thresholds.micro` (14) je pořád její vlastní veřejná
+  // hranice, ale JEDINÝ konzument `BlockCard.tsx` podlahuje `layoutHeight` na
+  // `MIN_CARD_CONTENT_HEIGHT_PX` (20 px) ještě PŘED voláním — z komponenty tedy
+  // volání s `layoutHeight < 14` dnes nepřijde. Test zůstává, protože kontrakt
+  // funkce (`layoutHeight < thresholds.micro` → `null`) platí bez ohledu na
+  // to, kdo ji volá dnes.
   assert.equal(printDoneSize(13), null);
   assert.equal(printDoneSize(0), null);
 });
@@ -551,5 +563,45 @@ test("STRÁŽNÝ TEST 5c — printDoneSize na hranici MIN_CARD_CONTENT_HEIGHT_PX
       size!.height <= MIN_CARD_CONTENT_HEIGHT_PX,
       `${key}: printDoneSize(${MIN_CARD_CONTENT_HEIGHT_PX}).height = ${size!.height} přerůstá vlastní podlahu ${MIN_CARD_CONTENT_HEIGHT_PX}px`
     );
+  }
+});
+
+// ── STRÁŽNÝ TEST — task 9 (12. 8. 2026, závěrečná kontrola) ─────────────────
+test("STRÁŽNÝ TEST 9 — fontSize dopočítaného nejnižšího stupně pruhu roste s písmem A nikdy nepřeroste vlastní pruh, pro všechny tři stupně písma", () => {
+  // Pásmo `layoutHeight ∈ [ts.thresholds.full; round(96×ts.slotFactor))` vracelo
+  // do task 9 `fontSize: 11.5` NAPEVNO, zatímco sousední větve (32/40 px) rostou
+  // přes `Math.round(N × ts.fontFactor)` — docstring funkce výš přitom bez
+  // výhrady tvrdí, že popisek uvnitř bar varianty roste s písmem (nález review
+  // 8/2026). Sweep hlídá OBĚ regrese, ke kterým by se dalo tiše vrátit:
+  //   1) návrat k pevné hodnotě (fontSize by přestal záviset na `ts.fontFactor`),
+  //   2) zrušení stropu `height - 6` (popisek by na dopočítané výšce pruhu mohl
+  //      přerůst svůj vlastní box — pruh tu na rozdíl od 32/40px větví NEMÁ
+  //      pevnou výšku, dopočítává se z dostupného místa).
+  const APPROVED_MIN_FONT_SIZE_PX = 9; // dolní okraj M pásma (46px) — ověřeno dopočtem, task-9-report.md
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    const mid = Math.round(96 * ts.slotFactor);
+    let sawBand = false;
+    for (let h = ts.thresholds.full; h < mid; h += 0.5) {
+      const size = printDoneSize(h, ts);
+      assert.equal(size?.variant, "bar", `${key} @ ${h}px: očekávaná varianta "bar" v pásmu dopočítaného pruhu`);
+      if (size?.variant !== "bar") continue;
+      sawBand = true;
+
+      const expected = Math.min(Math.round(11.5 * ts.fontFactor), size.height - 6);
+      assert.equal(size.fontSize, expected, `${key} @ ${h}px: fontSize dopočítaného pruhu neodpovídá min(round(11.5×fontFactor), height-6)`);
+
+      assert.ok(
+        size.fontSize <= size.height - 6,
+        `${key} @ ${h}px: popisek (${size.fontSize}) nemá rezervu 6px do vlastního pruhu (${size.height})`
+      );
+      assert.ok(
+        size.fontSize >= APPROVED_MIN_FONT_SIZE_PX,
+        `${key} @ ${h}px: popisek (${size.fontSize}) je pod schválenou dolní mezí ${APPROVED_MIN_FONT_SIZE_PX}px`
+      );
+    }
+    // Sanitní kontrola testu samotného: pásmo nesmí být prázdné, jinak sweep
+    // výš neověřil nic (stejný vzor jako sanitní kontroly u jiných testů výš).
+    assert.ok(sawBand, `${key}: sweep nenašel žádnou výšku v pásmu dopočítaného pruhu — test by byl bezzubý`);
   }
 });

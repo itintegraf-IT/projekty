@@ -92,7 +92,17 @@ export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAU
   if (layoutHeight >= mid) return { variant: "bar", height: 32, fontSize: Math.round(14 * ts.fontFactor) };
   if (layoutHeight >= barThreshold) {
     const height = Math.min(24, layoutHeight - ts.rowHeights.header - PRINT_BAR_PADDING_PX);
-    return { variant: "bar", height, fontSize: 11.5 };
+    // Strop `height - 6` je nutný ve stejném smyslu jako u čtverce níž: pruh v
+    // tomhle pásmu má DOPOČÍTANOU výšku z dostupného místa (viz `height` výš),
+    // takže popisek nesmí přerůst vlastní pruh. Bez stropu by na M těsně nad
+    // `barThreshold` (height 15 px) 12 px popisek do 15px pruhu ještě vešel, ale
+    // na kartě jen o pár pixelů nižší už ne — a `overflow: hidden` by ho oříznul,
+    // stejná třída chyby jako u čtverce (task 5b). Nález review 8/2026 (viz
+    // docstring funkce výš): tahle větev dřív vracela `fontSize: 11.5` napevno,
+    // zatímco sousední větve (32/40 px) rostou s `ts.fontFactor` — rozešlo se to
+    // s vlastním docstringem funkce, který růst s písmem slibuje bez výhrady.
+    // STRÁŽNÝ TEST 9 (`tiskarBlockView.test.ts`) hlídá obě věci napříč M/L/XL.
+    return { variant: "bar", height, fontSize: Math.min(Math.round(11.5 * ts.fontFactor), height - 6) };
   }
   if (layoutHeight >= ts.thresholds.micro) {
     const squareSide = Math.max(MIN_CARD_CONTENT_HEIGHT_PX, Math.min(26, layoutHeight - 2));

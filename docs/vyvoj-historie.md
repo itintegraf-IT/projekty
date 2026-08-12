@@ -52,7 +52,7 @@ Plán: `docs/superpowers/plans/2026-08-11-citelnost-timeline-velikost-pisma.md`
 
 ### Dotažení — prvky, které se stupněm nerostly, a ztracené tlačítko „Hotovo" (12. 8. 2026)
 
-Devět commitů navazujících na přepínač výš. Testy 977 → 995, nic nenasazeno.
+13 kódových commitů + 1 dokumentační navazujících na přepínač výš. Testy 977 → 995, nic nenasazeno.
 
 **Co se doškálovalo a proč.** Drobné štítky karty (`ProductionChips`, badge
 tiskařských poznámek, popisek pauzy, `SplitChip`) i pruh driftu a tlačítko
@@ -84,6 +84,19 @@ tiskař tak mohl zdědit malý zoom od jiné role na tomtéž zařízení a nem�
 odstávku obcházela podlahu 20 px a mohla vyjít na nulu. Obojí opraveno
 (`9d62360b` + `3855931f`, dále `d571b35b` + `d994de46`), viz rozhodnutí
 majitele 1–3 níž.
+
+**Popis ustupuje pásu specifikace, ne naopak.** `specBandFits` (task 5b) jen
+doufala, že Řádek 1 zůstane jednořádkový, kdykoli se u tiskaře kreslí pás
+specifikace — sázka platila jen NÁHODOU, protože `descLineClamp` mohl vyjít
+`>= 2` prakticky v celém pásmu, kde se pás kreslí, a Řádek 1 v DOM pak přerostl
+odhad o ~12 px i s rizikem, že pruh Hotovo přeteče. Rozhodnutí majitele (bod 4
+níž): ustupuje popis (zůstává v tooltipu a na Monitoru u stroje), ne pás.
+`tiskarDescClampsToOneLine` vynutila jednořádkový popis u tiskaře s `ZAKAZKA`
+a pásem specifikace (`ae6e3d6c`); review Tasku 5d ale zjistilo, že samotná
+booleovská politika mutaci „smaž volání v `BlockCard.tsx`" nechytila — zbyl by
+platný, tiše regresní kód. Druhé kolo vytáhlo CELÝ vzorec `descLineClampFor`
+(žádná záložní větev vedle volání) a zúžilo ho na `ZAKAZKA`, protože pruh
+Hotovo se pro REZERVACE/UDRZBA vůbec nekreslí (`64eff14d`).
 
 **Sticky hlavička — ověřeno v prohlížeči, ne dopočtem.** Konstanta
 `HEADER_HEIGHT = 33` v `TimelineGrid.tsx` byla **smazána** (`efef0876`).

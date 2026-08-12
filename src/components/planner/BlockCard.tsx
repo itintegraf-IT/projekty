@@ -59,6 +59,13 @@ const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
 // = fontSize + 4. Aby se vlezl i na nejnižší kartu (layoutHeight = 14 px), musí platit
 // `fontSize + 4 ≤ layoutHeight`, tj. `fontSize ≤ layoutHeight · (1 − 4/layoutHeight)`;
 // při layoutHeight = 14 to dá F ≤ 0,714. Voleno 0,65 pro rezervu.
+// POZOR (task 9, 12. 8. 2026): odvození počítá proti 14 px, ale `layoutHeight` má od
+// zavedení `MIN_CARD_CONTENT_HEIGHT_PX` (20 px, viz import výš) podlahu 20 — 14 px už
+// v `BlockCard` reálně nenastane. Strop 0,65 je tak dnes přísnější, než je nutné (na
+// dosažitelné podlaze 20 px dovolí max 13 px, zatímco přesná mez `F ≤ 1 − 4/20 = 0,8`
+// by dovolila až 16 px), ne špatný — jen počítaný proti stavu, který je teď
+// nedosažitelný. Neopravuje se: zpřísnění nic nekazí, 20 px je i tak jediná reálná
+// spodní hranice a odvození výš zůstává platné i s rezervou navíc.
 const MICRO_CHIP_CAP_FACTOR = 0.65;
 // Číslo/popis: čistý text bez vlastního box-modelu — 0,7 dává na M/14px 9,8px (dnešek
 // 10, beze změny) a na XL/29px plnou velikost 16,3px (viz task-6-report.md).
@@ -773,9 +780,12 @@ export function BlockCard({
               color: "#1f2937",
               // Strop je nutný: tenhle badge se kreslí bezpodmínečně ve VŠECH
               // hustotách (podmínka `hasTiskarNotes` výš není vázaná na žádný
-              // MODE_*), takže na nejnižší kartě (layoutHeight 14 px, box 14 px
-              // posazený 7 px od horní hrany) přetéká už dnes. Bez stropu by
-              // růst písma na L/XL přetečení jen zhoršil (viz MICRO_CHIP_CAP_FACTOR
+              // MODE_*). Odvození stropu (MICRO_CHIP_CAP_FACTOR výš) počítá proti
+              // nejnižší teoretické kartě (layoutHeight 14 px) — od zavedení
+              // `MIN_CARD_CONTENT_HEIGHT_PX` (20 px) je to dnes nedosažitelný stav,
+              // takže badge v reálném provozu nepřetéká; strop zůstává jako obrana
+              // do hloubky, ne jako řešení skutečného přetečení. Bez stropu by
+              // růst písma na L/XL případné přetečení jen zhoršil (viz MICRO_CHIP_CAP_FACTOR
               // výš — stejný princip jako u ostatních chipů vázaných na geometrii,
               // ne na hustotu).
               fontSize: Math.min(typeScale.noteBadge, layoutHeight * MICRO_CHIP_CAP_FACTOR),
