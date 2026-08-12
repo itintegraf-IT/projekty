@@ -46,6 +46,26 @@ const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
 
 const DATE_COL_W = 44;          // šířka sloupce s datem (px)
 const TIME_COL_W = 72;          // šířka sloupce s časy (px)
+
+/**
+ * Barva popisku času na ose — celá hodina `--text`, půlhodina `--text-muted`.
+ *
+ * Půlhodina brala do 12. 8. 2026 `color-mix(--border 85%)`. `--border` je token
+ * pro ČÁRY, ne pro text: ve světlém režimu je to světle šedá a na skoro bílém
+ * pozadí osy z popisku nezbylo nic (nahlásil Vojta). V tmavém režimu je
+ * `--border` bílá na 10 %, takže tam vada tolik nebila do očí a přežila.
+ *
+ * Je to táž třída chyby, jakou už projekt jednou opravoval u `--info` — viz
+ * poznámka u jeho definice v `globals.css`. Barvu písma odvozuj jen z tokenů,
+ * které jsou pro text udržované (`--text`, `--text-muted`).
+ *
+ * Helper existuje proto, že týž výraz byl zkopírovaný na DVOU osách (hlavní
+ * vlevo a mezi strojovými sloupci) — takhle nejde opravit jen jedna z nich.
+ * POZOR: vodorovné ČÁRY mřížky níž na `--border` zůstávají, tam ten token patří.
+ */
+function railLabelColor(isFullHour: boolean): string {
+  return isFullHour ? "var(--text)" : "var(--text-muted)";
+}
 const VIEW_DAYS_BACK = 3;
 const VIEW_DAYS_AHEAD = 30;
 
@@ -1731,7 +1751,7 @@ export default function TimelineGrid({
                   paddingLeft: 8,
                 }}
               >
-                <span style={{ fontSize: typeScale.rail, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
+                <span style={{ fontSize: typeScale.rail, lineHeight: 1, color: railLabelColor(m.isFullHour), fontWeight: m.isFullHour ? 500 : 400 }}>
                   {m.label}
                 </span>
               </div>
@@ -1769,7 +1789,7 @@ export default function TimelineGrid({
                           justifyContent: "center",
                         }}
                       >
-                        <span style={{ fontSize: typeScale.rail, lineHeight: 1, color: m.isFullHour ? "var(--text-muted)" : "color-mix(in oklab, var(--border) 85%, transparent)", fontWeight: m.isFullHour ? 500 : 400 }}>
+                        <span style={{ fontSize: typeScale.rail, lineHeight: 1, color: railLabelColor(m.isFullHour), fontWeight: m.isFullHour ? 500 : 400 }}>
                           {m.label}
                         </span>
                       </div>
