@@ -71,7 +71,17 @@ export type PlannerTypeScale = {
    */
   fontFactor: number;
   /** Prahy hustoty karty, odvozené z výšek řádků. */
-  thresholds: { full: number; compact: number; tiny: number; micro: number };
+  thresholds: {
+    full: number; compact: number; tiny: number; micro: number;
+    /**
+     * Od jaké výšky smí mít popis v Řádku 1 (MODE_FULL) víc než jeden řádek
+     * (`descLineClampFor`, `tiskarBlockView.ts`) — dřív napevno `full × 1,4`
+     * zapsané inline v `BlockCard.tsx`, přesunuto sem task 5d (12. 8. 2026)
+     * spolu s celým výpočtem `descLineClampFor`, ať se prahové číslo drží
+     * vedle ostatních velikostí, ne rozeseté v komponentě.
+     */
+    descMultiline: number;
+  };
   /** Od jaké výšky je pás specifikace dvouřádkový (dnes 80 px). */
   specTwoLine: number;
   /** Od jaké výšky vidí pás specifikace tiskař (dnes 80 px — má přednost tlačítko Hotovo). */
@@ -127,6 +137,7 @@ export function plannerTypeScale(key: PlannerFontScale): PlannerTypeScale {
       // Nejnižší režim ukazuje pouhé číslo — nezvětšuje se, jinak by karta
       // pod ním neukázala vůbec nic.
       micro: 14,
+      descMultiline: full * 1.4,
     },
     specTwoLine: Math.round(80 * s),
     tiskarSpecMin: Math.round(80 * s),

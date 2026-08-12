@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
-import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, tiskarDescClampsToOneLine } from "@/lib/tiskarBlockView";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, descLineClampFor } from "@/lib/tiskarBlockView";
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
 import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 
@@ -518,25 +518,16 @@ export function BlockCard({
   // prostor navíc. `layoutHeight >= typeScale.thresholds.full` je redundantní s
   // MODE_FULL (implikace platí vždy), ponecháno kvůli čitelnosti podmínky.
   const showDesc   = MODE_FULL && layoutHeight >= typeScale.thresholds.full;
-  // Počet řádků popisu — v úzkém pásmu (thresholds.full × 1–1,4) přesně 1 řádek (víc
-  // se nevejde vedle datového řádku), nad tím roste s výškou bloku a řádkovou výškou
-  // popisu daného stupně. Pro M se hodnoty od dřívějších napevno zapsaných 66/13px
-  // NEshodují přesně — liší se při výšce 65 a 94 px a od 107 px výš dává nový vzorec
-  // soustavně o 1 řádek méně (dělitel teď sedí na skutečnou výšku řádku popisu, ne na
-  // odhad). Jde o věcné zlepšení, ne regresi — jen to není bezezbytkově „stejné".
-  //
-  // U TISKAŘE s pásem specifikace na kartě (`hasSpecBand`, spočítané VÝŠ, ať je
-  // závislost přímá, ne oklikou) popis ustupuje na 1 řádek bez ohledu na výšku
-  // karty — rozhodnutí majitele (task 5d, 12. 8. 2026): tiskař potřebuje
-  // specifikaci a tlačítko Hotovo víc než dlouhý popis (ten zůstává dostupný
-  // v tooltipu). Tím se zároveň VYNUCUJE jednořádkový předpoklad, na kterém
-  // `specBandFits` počítá Řádek 1 — viz `tiskarDescClampsToOneLine`
-  // (`tiskarBlockView.ts`) pro celé zdůvodnění a `specBandFits`ův docstring.
-  const descLineClamp = tiskarDescClampsToOneLine(isTiskar, hasSpecBand)
-    ? 1
-    : layoutHeight < typeScale.thresholds.full * 1.4
-      ? 1
-      : Math.max(2, Math.floor((layoutHeight - typeScale.thresholds.full - 7) / Math.round(typeScale.desc * 1.3)));
+  // Počet řádků popisu (`descLineClampFor`, `tiskarBlockView.ts` — jediné
+  // místo, které vzorec počítá, ať jde pokrýt testem). U TISKAŘE s pásem
+  // specifikace na kartě (`hasSpecBand`, spočítané VÝŠ, ať je závislost přímá,
+  // ne oklikou) a jen pro `ZAKAZKA` (tlačítko Hotovo se kreslí jen pro ni)
+  // ustupuje popis na 1 řádek bez ohledu na výšku karty — rozhodnutí majitele
+  // (task 5d, 12. 8. 2026): tiskař potřebuje specifikaci a tlačítko Hotovo víc
+  // než dlouhý popis. Ten zůstává dostupný v `title` (hover) a plný na
+  // Monitoru u stroje (dvouřádkový, 24 px) — na dotykovém kiosku hover
+  // nenastane, Monitor je tam skutečná záchrana, ne tooltip.
+  const descLineClamp = descLineClampFor(layoutHeight, typeScale, { isTiskar, hasSpecBand, blockType: block.type });
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const glow = s.glow;
@@ -1048,13 +1039,19 @@ export function BlockCard({
               {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.85 }}><Lock size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
             </span>
             {showDesc && block.description && (
-              <span style={{
-                fontSize: typeScale.desc, fontWeight: 400, color: s.textSub, opacity: typeScale.descOpacity, lineHeight: 1.3,
-                overflow: "hidden", display: "-webkit-box",
-                WebkitLineClamp: descLineClamp, WebkitBoxOrient: "vertical",
-                whiteSpace: "pre-wrap",
-                flex: 1, minWidth: 0,
-              }}>
+              <span
+                // title jen když je popis useknutý na 1 řádek (typicky tiskař s pásem
+                // specifikace, task 5d) — nulový vliv na geometrii, ale bez něj plný text
+                // na kartě nemá u myši žádného nosiče. Nespoléhat na tohle u tiskaře na
+                // dotykovém kiosku (hover tam nenastane) — skutečná záchrana je Monitor.
+                title={descLineClamp === 1 ? block.description : undefined}
+                style={{
+                  fontSize: typeScale.desc, fontWeight: 400, color: s.textSub, opacity: typeScale.descOpacity, lineHeight: 1.3,
+                  overflow: "hidden", display: "-webkit-box",
+                  WebkitLineClamp: descLineClamp, WebkitBoxOrient: "vertical",
+                  whiteSpace: "pre-wrap",
+                  flex: 1, minWidth: 0,
+                }}>
                 {block.description}
               </span>
             )}

@@ -158,13 +158,26 @@ export function splitChipFits(
  * **Rozhodnutí majitele (task 5d, 12. 8. 2026): ustupuje POPIS, ne pás.**
  * Tiskař potřebuje specifikaci (to je to, co má tisknout) a tlačítko Hotovo
  * (jediná cesta, jak odklepne tisk) víc než dlouhý popis. Předpoklad je teď
- * VYNUCENÝ na straně volajícího, ne jen doufaný: `BlockCard.tsx` omezuje
- * `descLineClamp` na `1`, kdykoliv `isTiskar && hasSpecBand`, přes pomocnou
- * funkci `tiskarDescClampsToOneLine` (níž v tomhle souboru) — `hasSpecBand` se
- * tam počítá (a musí počítat) DŘÍV, než se `descLineClamp` použije, aby
- * závislost byla přímá, ne oklikou. Dokud volající tenhle kontrakt dodržuje,
- * je záruka bezvýhradná — žádná známá mezera nezbývá (ověřeno sweepem, viz
- * `specBandFits: sweep…` testy v `tiskarBlockView.test.ts`).
+ * VYNUCENÝ na straně volajícího, ne jen doufaný: `BlockCard.tsx` volá
+ * `descLineClampFor` (níž v tomhle souboru), která pro `ZAKAZKA` s
+ * `isTiskar && hasSpecBand` vrátí `1` bez výjimky — `hasSpecBand` se
+ * tam počítá (a musí počítat) DŘÍV, než se výsledek použije, aby
+ * závislost byla přímá, ne oklikou.
+ *
+ * **Bezvýhradná je ale JEN v ose VÝŠKY** (`layoutHeight`) — mimo ni zbývají
+ * dvě mezery, obě NAMĚŘENÉ, obě VĚDOMĚ NEOPRAVENÉ (review 12. 8. 2026):
+ * 1. **Šířka.** Pravý shluk chipů v Řádku 1 (`BlockCard.tsx`, kolem ř. 1069)
+ *    má `flexWrap: "wrap"` a v rozpočtu tady není vůbec — nejmenší naměřená
+ *    rezerva pod tlačítkem je 1,50/1,44/1,36 px (M/L/XL), zatímco JEDNO
+ *    zalomení shluku (dlouhé D/M/E/P chipy, badge poznámek) by stálo
+ *    +15,0/+16,2/+17,8 px. Stejná třída havárie jako přetečení výšky, jen
+ *    řízená ŠÍŘKOU karty. Neopraveno záměrně — sloupec stroje u tiskaře je
+ *    široký ~1250 px, takže je to dnes prakticky nedosažitelné.
+ * 2. **Rámeček karty.** Karta má `box-sizing: border-box` a rámeček 1–2,5 px
+ *    (zamčená 1,5 px, ve výběru 2,5 px), ale rozpočet měří proti
+ *    `layoutHeight`, které rámeček zahrnuje. Dnes to pohlcuje spodní
+ *    odsazení pruhu Hotovo (5 px, `PRINT_BAR_PADDING_PX`) — je to nevyslovená
+ *    rezerva, na kterou se výška spoléhá, ne samostatně počítaná záruka.
  */
 export function specBandFits(
   layoutHeight: number,
@@ -184,22 +197,57 @@ export function specBandFits(
  * Rozhodnutí majitele (task 5d, 12. 8. 2026): NE — ustupuje popis, ne pás.
  * Tiskař potřebuje specifikaci (to je to, co má tisknout) a tlačítko Hotovo
  * (jediná cesta, jak odklepne tisk) víc než dlouhý popis; ten se u tiskaře
- * zkrátí na jeden řádek elipsou a zůstane dostupný v tooltipu (`BlockCard.tsx`
- * kreslí popis, tahle funkce jen rozhoduje POČET řádků).
+ * zkrátí na jeden řádek elipsou. Zůstává dostupný jen v atributu `title`
+ * (hover) a plný, dvouřádkový na **Monitoru** u stroje — na dotykovém
+ * kiosku hover nenastane, `title` tam nikdo nepřečte (review 12. 8. 2026,
+ * viz `descLineClampFor`); Monitor je proto skutečná záchrana pro tiskaře,
+ * ne tooltip. `BlockCard.tsx` kreslí popis, tahle funkce jen rozhoduje POČET
+ * řádků.
  *
- * Volající (`BlockCard.tsx`, `descLineClamp`) tím VYNUCUJE jednořádkový
- * předpoklad, na kterém `specBandFits` výš počítá Řádek 1
+ * **Omezeno na `ZAKAZKA`** — pruh Hotovo se kreslí jen pro `ZAKAZKA`
+ * (`BlockCard.tsx`), takže u REZERVACE/UDRZBA není co chránit. Bez tyhle
+ * podmínky by rezervace/údržba se specifikací přišly o řádky popisu bez
+ * bezpečnostního důvodu (review 12. 8. 2026, nález 4).
+ *
+ * Volající (`BlockCard.tsx`, přes `descLineClampFor`) tím VYNUCUJE
+ * jednořádkový předpoklad, na kterém `specBandFits` výš počítá Řádek 1
  * (`ts.rowHeights.header`) — do téhle opravy to byla jen NADĚJE (viz historie
  * v docstringu `specBandFits`): dvouřádkový popis mohl Řádek 1 v DOM zvednout
  * nad odhad a pruh Hotovo přetéct. Rozpočet teď říká pravdu, ne se jen stává
  * konzervativnějším.
  *
  * `hasSpecBand` (volající strana) MUSÍ být spočítaná DŘÍV, než se použije
- * výsledek týhle funkce pro `descLineClamp` — jinak by závislost šla oklikou
- * a pořadí by nebylo z kódu čitelné.
+ * výsledek týhle funkce — jinak by závislost šla oklikou a pořadí by nebylo
+ * z kódu čitelné.
  */
-export function tiskarDescClampsToOneLine(isTiskar: boolean | undefined, hasSpecBand: boolean): boolean {
-  return !!isTiskar && hasSpecBand;
+export function tiskarDescClampsToOneLine(isTiskar: boolean | undefined, hasSpecBand: boolean, blockType: string): boolean {
+  return !!isTiskar && hasSpecBand && blockType === "ZAKAZKA";
+}
+
+/**
+ * Kolik řádků smí mít popis v Řádku 1 karty (MODE_FULL)?
+ *
+ * JEDINÉ místo, které vzorec `Math.max(2, Math.floor(...))` počítá — dřív žil
+ * inline v `BlockCard.tsx` a nešel pokrýt testem. Review 12. 8. 2026: dřívější
+ * extrakce (jen booleovské rozhodnutí `tiskarDescClampsToOneLine`) mutační
+ * test nechytila na páté z pěti vsazených chyb — smazání volání v
+ * `BlockCard.tsx` nechalo platný, tiše regresní kód (starý inline vzorec vedle
+ * něj). `BlockCard.tsx` teď volá TUHLE funkci a nic víc, žádná záložní větev
+ * vedle volání — smazání volání znamená chybějící proměnnou (chyba typové
+ * kontroly), ne tichou regresi.
+ *
+ * Práh `× 1,4` (`ts.thresholds.descMultiline`) se přestěhoval do
+ * `plannerTypography.ts` k ostatním prahům — je to číslo stejné povahy jako
+ * `thresholds.full`/`compact`/`tiny`, jen dřív žilo osamocené v komponentě.
+ */
+export function descLineClampFor(
+  layoutHeight: number,
+  ts: PlannerTypeScale,
+  opts: { isTiskar?: boolean; hasSpecBand: boolean; blockType: string }
+): number {
+  if (tiskarDescClampsToOneLine(opts.isTiskar, opts.hasSpecBand, opts.blockType)) return 1;
+  if (layoutHeight < ts.thresholds.descMultiline) return 1;
+  return Math.max(2, Math.floor((layoutHeight - ts.thresholds.full - 7) / Math.round(ts.desc * 1.3)));
 }
 
 /**
@@ -231,23 +279,30 @@ const HEADER_ROW_PADDING_PX = 8;
  * `Math.max` to zohlední.
  *
  * SKUTEČNÝ obor volání z `BlockCard.tsx` (`showSplitChipInHeader`) je ŠIRŠÍ,
- * než by se čekalo, a `descLineClamp` v něm NENÍ vždy 1 (ověřeno přepočtem,
- * krok 0,5 px, `specRows` odvozené z reálné cesty `hasSpecBand` u tiskaře —
- * `tiskarSpecMin` a `specTwoLine` mají STEJNÝ vzorec `round(80·s)`, takže
- * `specRows` u tiskaře přeskakuje rovnou z 0 na 2, `specRows === 1` se v praxi
- * nikdy nevolá):
+ * než by se čekalo (ověřeno přepočtem, krok 0,5 px, `specRows` odvozené z
+ * reálné cesty `hasSpecBand` u tiskaře — `tiskarSpecMin` a `specTwoLine` mají
+ * STEJNÝ vzorec `round(80·s)`, takže `specRows` u tiskaře přeskakuje rovnou
+ * z 0 na 2, `specRows === 1` se v praxi nikdy nevolá):
  *   - M: 58–79,5 px bez pásu specifikace; s pásem 92–95,5 a 100–121,5 px.
  *   - L: 60–83,5 px bez pásu; s pásem 98–100,5 a 106–129,5 px.
  *   - XL: 62–88,5 px bez pásu; s pásem 105–107,5 a 113–139,5 px.
- * Pásma s pásem specifikace leží nad `thresholds.full × 1,4` (M ~64,4 px),
- * kde `descLineClamp` v `BlockCard.tsx` je už 2, výš i 3–5 — TOHLE funkce
- * ve svém vzorci nepočítá vůbec.
  *
- * Tlačítku Hotovo to navzdory tomu neškodí: kdykoliv je popis víceřádkový,
- * jeho skutečná výška (`desc × 1,3 × descLineClamp`) už PŘED pilulkou
- * přerůstá box pilulky (ověřeno stejným přepočtem) — Řádek 1 je v těch
- * pásmech ve skutečné DOM vyšší, než `ts.rowHeights.header` navrhuje, ale
- * o tolik víc, kolik by tam přidat sám popis BEZ pilulky. Pilulka na tenhle
+ * **OPRAVENO task 5d (12. 8. 2026):** v pásmech S PÁSEM specifikace (výš)
+ * `descLineClamp` dřív NEBYL vždy 1 — teď JE, vždycky, u tiskaře s `ZAKAZKA`
+ * (`descLineClampFor` vynucuje 1 řádek, viz její docstring). Funkce je tam
+ * teď BEZPEČNĚJŠÍ, než tenhle odstavec dřív tvrdil: Řádek 1 v těch pásmech
+ * nemůže přerůst `ts.rowHeights.header` vůbec, takže argument níž („i
+ * víceřádkový popis pilulce neškodí") se na ně už nevztahuje — je to tam
+ * triviálně bezpečné, ne shodou okolností bezpečné.
+ *
+ * V pásmech BEZ pásu specifikace (`hasSpecBand` false — mimo `ZAKAZKA` u
+ * tiskaře, nebo mimo tiskaře úplně) `descLineClamp` (`descLineClampFor`)
+ * dál NENÍ vždy 1 a platí původní argument: tohle funkce ve svém vzorci
+ * nepočítá vůbec, ale tlačítku Hotovo to navzdory tomu neškodí — kdykoliv je
+ * popis víceřádkový, jeho skutečná výška (`desc × 1,3 × descLineClamp`) už
+ * PŘED pilulkou přerůstá box pilulky (ověřeno stejným přepočtem) — Řádek 1 je
+ * v těch pásmech ve skutečné DOM vyšší, než `ts.rowHeights.header` navrhuje,
+ * ale o tolik víc, kolik by tam přidat sám popis BEZ pilulky. Pilulka na tenhle
  * již existující (a už dřív zdokumentovaný, viz komentář u `specFitsBand`
  * v `BlockCard.tsx`) rozjezd nic nepřidává navíc. Je to STEJNÁ třída
  * neopravované mezery jako `hasSpecBand` bypass `specFitsBand` u tiskaře
