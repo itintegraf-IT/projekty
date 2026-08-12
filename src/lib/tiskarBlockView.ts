@@ -19,7 +19,7 @@ const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
  */
 export type PrintDoneSize =
   | { variant: "bar";    height: number; fontSize: number }
-  | { variant: "square"; height: 26;     fontSize: number }
+  | { variant: "square"; height: number; fontSize: number }
   | { variant: "hero";   height: number; fontSize: number };
 
 /**
@@ -59,6 +59,17 @@ export const PRINT_BAR_PADDING_PX = 7;
  *
  * Od `ts.thresholds.micro` je čtverec s háčkem, pod tím karta nevykresluje
  * obsah vůbec → `null`.
+ *
+ * **Čtverec (`square`) se od 8/2026 (task 5b, rozhodnutí majitele 12. 8. 2026)
+ * přizpůsobuje výšce karty, ale nikdy neklesne pod 20 px.** Dřív byl napevno
+ * `height: 26` bez ohledu na `layoutHeight` — varianta se ale kreslí od
+ * `ts.thresholds.micro` (na M 14 px), takže na spodním konci pásma byl
+ * čtverec o 12 px vyšší než karta a `overflow: hidden` ho oříznul. Rozměr se
+ * teď dopočítává (`Math.max(20, Math.min(26, layoutHeight - 2))`) — na velmi
+ * nízké kartě je přijatelnější mírný přesah (tlačítko se u stroje mačká
+ * prstem, netrefitelný cíl je horší volba). Písmo uvnitř roste úměrně
+ * (`15 × squareSide / 26`), ne napevno — jinak by na nejnižší kartě text
+ * přerostl zmenšený čtverec.
  */
 export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAULT_TS): PrintDoneSize | null {
   const big = Math.round(140 * ts.slotFactor);
@@ -70,7 +81,10 @@ export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAU
     const height = Math.min(24, layoutHeight - ts.rowHeights.header - PRINT_BAR_PADDING_PX);
     return { variant: "bar", height, fontSize: 11.5 };
   }
-  if (layoutHeight >= ts.thresholds.micro) return { variant: "square", height: 26, fontSize: 15 };
+  if (layoutHeight >= ts.thresholds.micro) {
+    const squareSide = Math.max(20, Math.min(26, layoutHeight - 2));
+    return { variant: "square", height: squareSide, fontSize: 15 * squareSide / 26 };
+  }
   return null;
 }
 
@@ -115,6 +129,33 @@ export function splitChipFits(
   const specReserve = specRows === 2 ? ts.rowHeights.spec2 : specRows === 1 ? ts.rowHeights.spec1 : 0;
   const used = ts.rowHeights.header + specReserve + barReserve;
   return layoutHeight - used >= splitChipPx(ts);
+}
+
+/**
+ * Vejde se pás specifikace (SpecBand) do karty U TISKAŘE, aniž by vytlačil
+ * tlačítko Hotovo pod ořez?
+ *
+ * `hasSpecBand` v `BlockCard.tsx` u tiskaře donedávna kontrolu vejití
+ * ZÁMĚRNĚ obcházela (`isTiskar || specFitsBand`) — pás se ukázal, kdykoliv
+ * `showSpec` bylo true, bez ohledu na to, jestli po Řádku 1 a pásu zbylo
+ * místo na tlačítko. Tlačítko má přednost před vším ostatním obsahem karty
+ * (havárie 3. 8. 2026, kdy tiskař neměl čím odklepnout tisk) — pás
+ * specifikace proto u tiskaře musí ustoupit, když by tlačítko nezůstalo celé
+ * (rozhodnutí majitele, task 5b, 12. 8. 2026).
+ *
+ * Stejný rozpočet jako `splitChipFits` (Řádek 1 + pás + pruh Hotovo), jen bez
+ * rezervy pro SplitChip navíc — tady se ptáme, jestli se vejde pás SAMOTNÝ
+ * spolu s tlačítkem, ne jestli po nich zbyde místo na něco dalšího.
+ */
+export function specBandFits(
+  layoutHeight: number,
+  printDone: PrintDoneSize | null,
+  specRows: 1 | 2,
+  ts: PlannerTypeScale = DEFAULT_TS
+): boolean {
+  const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
+  const specReserve = specRows === 2 ? ts.rowHeights.spec2 : ts.rowHeights.spec1;
+  return ts.rowHeights.header + specReserve + barReserve <= layoutHeight;
 }
 
 /**

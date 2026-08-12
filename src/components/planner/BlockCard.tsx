@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
-import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow } from "@/lib/tiskarBlockView";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits } from "@/lib/tiskarBlockView";
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
 import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 
@@ -489,7 +489,13 @@ export function BlockCard({
   // oříznout MŮŽE (nález review, 8/2026). Dopočítat i tenhle případ by znamenalo přepsat
   // výpočet výšky prvního řádku, proto zůstává jako známá výjimka, ne oprava.
   const specFitsBand = layoutHeight >= typeScale.thresholds.full + (specTwoLine ? typeScale.rowHeights.spec2 : typeScale.rowHeights.spec1);
-  const hasSpecBand  = showSpec && !!block.specifikace && (isTiskar || specFitsBand);
+  // U tiskaře platí VLASTNÍ, přísnější kontrola (`specBandFits`, `tiskarBlockView.ts`):
+  // pás nesmí vytlačit tlačítko Hotovo pod ořez (havárie 3. 8. 2026, tlačítko má
+  // přednost před vším ostatním obsahem karty). Do task 5b (12. 8. 2026) tahle větev
+  // kontrolu vejití ZÁMĚRNĚ obcházela (`isTiskar || specFitsBand`) — u ZAKÁZKY s
+  // vyplněnou specifikací proto uměl být pruh „Hotovo" oříznutý (task-5b-brief.md, část B).
+  const hasSpecBand  = showSpec && !!block.specifikace
+    && (isTiskar ? specBandFits(layoutHeight, printDone, specTwoLine ? 2 : 1, typeScale) : specFitsBand);
   const specRows: 0 | 1 | 2 = hasSpecBand ? (specTwoLine ? 2 : 1) : 0;
   // SplitChip pro TISKAŘE, když se na spodní umístění (pod pásem specifikace/
   // tlačítkem Hotovo) nevejde — Task 6, fix „mizející pilulka" po zvětšení
