@@ -143,9 +143,31 @@ const HEADER_ROW_PADDING_PX = 8;
  *
  * Řádek 1 může narůst NAD `ts.rowHeights.header` jen do výšky pilulky — pokud
  * by číslo/popis samo o sobě bylo vyšší (víceřádkový popis na vysoké kartě),
- * `Math.max` to zohlední, ale tahle funkce se stejně volá jen v úzkém pásmu pod
- * `splitChipFits`, kde na víceřádkový popis typicky není místo (`descLineClamp`
- * je tam 1).
+ * `Math.max` to zohlední.
+ *
+ * SKUTEČNÝ obor volání z `BlockCard.tsx` (`showSplitChipInHeader`) je ŠIRŠÍ,
+ * než by se čekalo, a `descLineClamp` v něm NENÍ vždy 1 (ověřeno přepočtem,
+ * krok 0,5 px, `specRows` odvozené z reálné cesty `hasSpecBand` u tiskaře —
+ * `tiskarSpecMin` a `specTwoLine` mají STEJNÝ vzorec `round(80·s)`, takže
+ * `specRows` u tiskaře přeskakuje rovnou z 0 na 2, `specRows === 1` se v praxi
+ * nikdy nevolá):
+ *   - M: 58–79,5 px bez pásu specifikace; s pásem 92–95,5 a 100–121,5 px.
+ *   - L: 60–83,5 px bez pásu; s pásem 98–100,5 a 106–129,5 px.
+ *   - XL: 62–88,5 px bez pásu; s pásem 105–107,5 a 113–139,5 px.
+ * Pásma s pásem specifikace leží nad `thresholds.full × 1,4` (M ~64,4 px),
+ * kde `descLineClamp` v `BlockCard.tsx` je už 2, výš i 3–5 — TOHLE funkce
+ * ve svém vzorci nepočítá vůbec.
+ *
+ * Tlačítku Hotovo to navzdory tomu neškodí: kdykoliv je popis víceřádkový,
+ * jeho skutečná výška (`desc × 1,3 × descLineClamp`) už PŘED pilulkou
+ * přerůstá box pilulky (ověřeno stejným přepočtem) — Řádek 1 je v těch
+ * pásmech ve skutečné DOM vyšší, než `ts.rowHeights.header` navrhuje, ale
+ * o tolik víc, kolik by tam přidat sám popis BEZ pilulky. Pilulka na tenhle
+ * již existující (a už dřív zdokumentovaný, viz komentář u `specFitsBand`
+ * v `BlockCard.tsx`) rozjezd nic nepřidává navíc. Je to STEJNÁ třída
+ * neopravované mezery jako `hasSpecBand` bypass `specFitsBand` u tiskaře
+ * (samostatný nález, viz `task-6-report.md`) — mimo kontrakt téhle funkce,
+ * ne regrese Task 6.
  */
 export function splitChipFitsInHeaderRow(
   layoutHeight: number,

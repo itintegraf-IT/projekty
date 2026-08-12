@@ -182,16 +182,18 @@ test("STRÁŽNÝ TEST — v plném layoutu se NIKDY nesmí vrátit square ani nu
   }
 });
 
-test("splitChipFits: na L/XL roste chip s písmem — hranice M (25 px) na L/XL už nestačí", () => {
-  // Task 6: SPLIT_CHIP_PX byl napevno 25 px pro všechny stupně, i po Task 5,
-  // kdy SplitChip dostal `fontSize={typeScale.splitChip}` a na L/XL vyrostl.
-  // Rozpočet tak byl podhodnocený — propouštěl chip, který se ve skutečnosti
-  // nevešel. Na hranici, kde M chip ještě vejde (80 px, viz test výš), musí
-  // L/XL potřebovat víc místa.
+test("splitChipFits: na L/XL roste chip s písmem — DISKRIMINAČNÍ test proti staré napevno zapsané konstantě", () => {
+  // Task 6 review (nález 1): 80 px na L/XL vychází `false` i se STAROU napevno
+  // zapsanou konstantou SPLIT_CHIP_PX=25 (na L zbývá 23 px, na XL 20 px — pod
+  // oběma prahy) — ten test tedy neprokazoval, že oprava vůbec něco dělá.
+  // L @ 82 px a XL @ 85 px jsou vybrané schválně JAKO PROTIPŘÍKLAD: se starou
+  // konstantou 25 px vychází `splitChipFits` `true` (zbývá přesně 25 px), s
+  // novou, ze stupně písma dopočítanou konstantou (L 26,65 px, XL 28,85 px)
+  // vychází `false` — spadnou proti starému kódu, projdou proti novému.
   const l = plannerTypeScale("L");
   const xl = plannerTypeScale("XL");
-  assert.equal(splitChipFits(80, printDoneSize(80, l), 0, l), false, "L @ 80 px (M hranice) se ještě nevejde");
-  assert.equal(splitChipFits(80, printDoneSize(80, xl), 0, xl), false, "XL @ 80 px (M hranice) se ještě nevejde");
+  assert.equal(splitChipFits(82, printDoneSize(82, l), 0, l), false, "L @ 82 px: se starou konstantou 25 by vyšlo true (zbývá přesně 25 px)");
+  assert.equal(splitChipFits(85, printDoneSize(85, xl), 0, xl), false, "XL @ 85 px: se starou konstantou 25 by vyšlo true (zbývá přesně 25 px)");
 });
 
 test("splitChipFitsInHeaderRow: M @ 46 px (přesná hranice MODE_FULL) — na pilulku v řádku 1 není místo", () => {
@@ -221,26 +223,57 @@ test("splitChipFitsInHeaderRow: XL @ 60 px — ani řádek 1 nemá místo, tlač
   assert.equal(splitChipFitsInHeaderRow(60, printDoneSize(60, xl), 0, xl), false);
 });
 
-test("splitChipFitsInHeaderRow: nikdy nepovolí přerůst přes hranici karty (fuzz M/L/XL)", () => {
-  // Přímý strážce geometrie, obdoba testu pro `printDoneSize` výš: kdykoliv
-  // funkce vrátí true, musí platit, že řádek 1 s pilulkou + rezerva
-  // specifikace + rezerva pruhu Hotovo se do layoutHeight reálně vejdou.
+test("splitChipFitsInHeaderRow: nikdy nepovolí přerůst přes hranici karty — nezávislý geometrický model (BlockCard.tsx / SpecBand.tsx / SplitChip.tsx)", () => {
+  // Review nález 2: předchozí verze tohohle testu přepočítávala TÝŽ výraz,
+  // jaký `splitChipFitsInHeaderRow` počítá uvnitř (`Math.max(ts.rowHeights.header,
+  // 8 + 2 + 6 + splitChip×1,1) + specReserve + barReserve <= h`) — to je
+  // tautologie, spadnout nemůže, ať je funkce rozbitá jakkoliv.
+  //
+  // Tady je místo toho geometrie poskládaná NEZÁVISLE, přímo z komponent,
+  // které Řádek 1 doopravdy vykreslují — ne z `tiskarBlockView.ts`:
+  //   - `ts.num × 1,2` — číslo zakázky (`BlockCard.tsx`, řádek s číslem:
+  //     `fontSize: typeScale.num, lineHeight: 1.2`)
+  //   - `ts.desc × 1,3` — jednořádkový popis (`BlockCard.tsx`: `fontSize:
+  //     typeScale.desc, lineHeight: 1.3`) — jen jako další kandidát do `max`,
+  //     ne dopočet víceřádkového `descLineClamp` (ten je mimo kontrakt téhle
+  //     funkce, viz její docstring)
+  //   - box pilulky BEZ marginTopu — `SplitChip.tsx`: rámeček 1+1 (`border:
+  //     "1px solid …"`), padding `"3px 8px 3px 6px"` (3+3 svisle), `fontSize`,
+  //     `lineHeight: 1.1`. Vestavěný `marginTop: 6` tady záměrně NENÍ — v
+  //     `BlockCard.tsx` ho na tomhle místě ruší wrapper `marginTop: -6`.
+  //   - pás specifikace — skutečný box `SpecBand.tsx`: vnější `padding: "0 6px
+  //     3px"` (0+3 svisle) + vnitřní `padding: "2px 6px"` (2+2 svisle) +
+  //     `fontSize × 1,3 × počet řádků` (`lineHeight: 1.3`, `WebkitLineClamp`).
+  //   - pruh Hotovo — `printDone.height` + odsazení z `BlockCard.tsx`
+  //     (`padding: "2px 7px 5px"` kolem `<PrintDoneButton>`, tj. top 2 +
+  //     bottom 5 = 7). Číselně stejné jako `PRINT_BAR_PADDING_PX`, ale
+  //     odvozené přímo z JSX, ne importované ze SUT.
+  //
+  // Tolerance 0,5 px kryje `Math.round(ts.rowHeights.header)` uvnitř funkce
+  // (zaokrouhlení proti tomuhle nezávislému, nezaokrouhlenému modelu) — ne
+  // chybu geometrie.
+  const ROUNDING_TOLERANCE_PX = 0.5;
   for (const key of ["M", "L", "XL"] as const) {
     const ts = plannerTypeScale(key);
-    for (let h = ts.thresholds.full; h <= 200; h++) {
+    for (let h = ts.thresholds.full; h <= 200; h += 0.5) {
       for (const specRows of [0, 1, 2] as const) {
         const printDone = printDoneSize(h, ts);
         const fits = splitChipFitsInHeaderRow(h, printDone, specRows, ts);
-        if (fits) {
-          const chipContentHeight = 2 + 6 + ts.splitChip * 1.1;
-          const headerRowWithChip = Math.max(ts.rowHeights.header, 8 + chipContentHeight);
-          const specReserve = specRows === 2 ? ts.rowHeights.spec2 : specRows === 1 ? ts.rowHeights.spec1 : 0;
-          const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
-          assert.ok(
-            headerRowWithChip + specReserve + barReserve <= h,
-            `${key} @ ${h}px specRows=${specRows}: fits=true, ale obsah přerůstá kartu`
-          );
-        }
+        if (!fits) continue;
+
+        const numHeight = ts.num * 1.2;
+        const descHeight = ts.desc * 1.3;
+        const pillBoxHeight = 2 + 6 + ts.splitChip * 1.1;
+        const row1 = 8 + Math.max(numHeight, descHeight, pillBoxHeight);
+
+        const specBoxHeight = specRows === 0 ? 0 : (0 + 3) + (2 + 2) + ts.spec * 1.3 * (specRows === 2 ? 2 : 1);
+
+        const barReserve = printDone?.variant === "bar" ? printDone.height + 7 : 0;
+
+        assert.ok(
+          row1 + specBoxHeight + barReserve <= h + ROUNDING_TOLERANCE_PX,
+          `${key} @ ${h}px specRows=${specRows}: fits=true, ale nezávislý model (řádek1 ${row1.toFixed(2)} + spec ${specBoxHeight.toFixed(2)} + pruh ${barReserve}) přerůstá kartu (${h}px)`
+        );
       }
     }
   }
