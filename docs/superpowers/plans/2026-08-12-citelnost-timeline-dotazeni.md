@@ -144,6 +144,8 @@ Očekávání: PASS.
 
 `src/lib/tiskarBlockView.ts` — varianty `bar 24` (dnes `fontSize: 11.5`) a `square` (dnes `15`) přepiš na `Math.round(11.5 * ts.fontFactor * 10) / 10` resp. `Math.round(15 * ts.fontFactor)`. Uprav i JSDoc na ř. 29-32, který dnes tvrdí, že velikost popisku roste s písmem — po téhle změně to bude platit pro všechny čtyři varianty, dnes jen pro dvě.
 
+`src/app/_components/TimelineGrid.tsx` — v hlavičce stroje jsou další dva prvky s napevno zapsanou velikostí, které závěrečné review přehlédlo a controller je našel až při dodatečném ověřování plánu: **pruh „⚠ N nesedí na kalendář"** a **tlačítko „Přepočítat"**, oba `fontSize: 10`. Sedí přímo vedle názvu stroje, který nově roste na 16,2 px při `XL`. Použij pro ně `typeScale.noteBadge` (týž řád velikosti). **Barvy u nich nech být** — jsou to pevné literály `#f59e0b` / `#1f2937` / `#fff` a mají zůstat, protože musí držet kontrast v obou motivech nezávisle na pozadí hlavičky.
+
 **POZOR na `ProductionChips`:** má parametr `abbreviated` a u dlouhého chipu `maxWidth: 132` s elipsou. Ta šířka je v pixelech a s rostoucím písmem přestane stačit — odvoď ji taky z písma (např. `fontSize * 16`) a napiš do reportu, jak ti vyšla pro M a XL.
 
 - [ ] **Krok 6: Ověřit**
@@ -176,13 +178,11 @@ Nález M7. V jednořádkovém layoutu má číslo zakázky strop `Math.min(typeS
 - Consumes: `MICRO_CHIP_CAP_FACTOR`, `NUM_ICON_RATIO_MINOR` — existující konstanty v `BlockCard.tsx`.
 - Produces: nic.
 
-- [ ] **Krok 1: Najít místa**
+- [ ] **Krok 1: Najít místo**
 
-```bash
-grep -n "NUM_ICON_RATIO_MINOR" src/components/planner/BlockCard.tsx
-```
+Controller to už dohledal: `NUM_ICON_RATIO_MINOR` je definovaný na `BlockCard.tsx:73` jako `9 / DEFAULT_TS.num` a používá se na čtyřech místech — ř. 830 a 831 (kompaktní layout), **ř. 951 (jednořádkový layout, větev začínající na ř. 884)** a ř. 1008 (plný layout).
 
-Zajímají tě jen výskyty uvnitř jednořádkového layoutu (větev kolem `MODE_TINY || MODE_MICRO_TEXT`), ne v plném a kompaktním — tam je karta dost vysoká a strop by byl mrtvý kód.
+Měníš **jen ř. 951**. V kompaktním a plném layoutu je karta dost vysoká na to, aby strop nikdy nezabral, takže by tam byl mrtvý kód — a mrtvý strop pod komentářem o stropování je přesně ten druh matoucí věci, který v minulé etapě stál review jeden nález.
 
 - [ ] **Krok 2: Zavést stropovanou velikost čísla jako proměnnou**
 
@@ -227,18 +227,31 @@ Dva nálezy, oba v `TimelineGrid.tsx`, oba vznikly tím, že se pevná konstanta
 - Consumes: `typeScale.machineHead`, `typeScale.rail` — existující.
 - Produces: nic.
 
-- [ ] **Krok 1: Odvodit výšku hlavičky z písma**
+- [ ] **Krok 1: Výšku hlavičky MĚŘIT, ne počítat**
 
-`HEADER_HEIGHT` je modulová konstanta, ale nově musí záviset na stupni. Nahraď ji funkcí nebo výrazem uvnitř komponenty, kde je `typeScale` k dispozici:
+Původní verze tohoto plánu předepisovala vzorec `16 + typeScale.machineHead * 1.2`. **Je špatně a nepoužívej ho.** Hlavička stroje totiž není jen text: když má stroj bloky nesedící na kalendář, přibude do ní pruh „⚠ N nesedí na kalendář" a tlačítko „Přepočítat" (`TimelineGrid.tsx` kolem ř. 1264-1290), obojí s `lineHeight: 1.4` a vlastním odsazením. Hlavička je tedy vyšší, když je co přepočítat, a nižší, když ne — a to žádný vzorec z velikosti písma nezachytí. Právě proto je dnešní konstanta 33 vedle napočítaných ~30,4 px: byla nastavená na variantu s pruhem.
+
+Nahraď konstantu **skutečně změřenou výškou**:
 
 ```tsx
-  // Výška sticky hlavičky stroje = padding 8+8 + řádek textu. Musí růst se
-  // stupněm písma, jinak se sticky datumový štítek zasune pod hlavičku
-  // (při XL o ~2,4 px).
-  const headerHeight = Math.round(16 + typeScale.machineHead * 1.2);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(33); // 33 = dnešní konstanta jako výchozí
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setHeaderHeight(Math.ceil(entry.contentRect.height));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 ```
 
-Dopočet pro kontrolu: `M` → 16 + 14,4 = 30,4 → 30; `XL` → 16 + 19,44 = 35,4 → 35. Použij `headerHeight` na ř. 1611 místo `HEADER_HEIGHT`. Starou konstantu smaž, pokud ji nikdo jiný nepoužívá — ověř grepem.
+`headerRef` pověs na kontejner sticky hlavičky (ten, jehož výšku dnes konstanta 33 popisuje — najdi ho podle toho, že v něm je `<span>ČAS</span>` a bloky s názvy strojů) a `headerHeight` použij na ř. 1611 místo `HEADER_HEIGHT`. Starou konstantu smaž, až ověříš grepem, že ji nikdo jiný nepoužívá.
+
+Měření je tu správná volba, ne lenost: výška závisí na stupni písma, na přítomnosti pruhu s driftem a na délce názvu stroje. Kterýkoliv vzorec by se dřív nebo později rozešel se skutečností — přesně jako ta dnešní třiatřicítka.
+
+**Pokud by se ukázalo, že `ResizeObserver` v tomhle místě způsobuje překreslovací smyčku** (sticky prvek uvnitř pozorovaného kontejneru), zastav se a nahlas to — raději necháme konstantu a zvětšíme ji o rezervu, než abychom do timeline zavlekli smyčku.
 
 - [ ] **Krok 2: Navázat ředění popisků na velikost jejich písma**
 
@@ -290,11 +303,9 @@ Nálezy M12, M14, M15. Všechny tři jsou úzké případy, u kterých je potře
 
 Při stupni `M` byl blok o výšce 46–47 px dřív v kompaktním režimu, který kreslil klikatelnou pilulku rozdělené zakázky (partner, stav, proklik). Nově je v plném layoutu, kde `splitChipFits(46, bar24, 0)` vrací `false`, takže pilulka zmizí a zůstane jen textové `✂1/2`.
 
-Nejdřív **ověř, jestli ten stav nastane**: při jakém zoomu má blok 46–47 px a existuje taková kombinace u reálné délky zakázky? Napiš to do reportu. Půlhodinová zakázka má při `M` výšku `slotHeight`, hodinová `2 × slotHeight` — hledej celočíselné `slotHeight` v rozsahu 3–26, které dá 46 nebo 47.
+**Tenhle případ je POTVRZENĚ REÁLNÝ, ne teoretický** — controller to dopočítal při ověřování plánu: při stupni `M` a `slotHeight` 23 má hodinová zakázka přesně 46 px. Je to jediná taková kombinace (47 px nevyjde, protože hodinový blok je vždy sudý násobek výšky slotu), ale zoom 23 je běžná hodnota. Nezdržuj se tedy ověřováním, jestli stav nastává, a rovnou ho oprav.
 
-Pokud stav nenastane (žádná kombinace nevyjde), zapiš to do reportu a **dál nic neměň** — nález je teoretický.
-
-Pokud nastane, oprav to tak, že se pilulka vykreslí i v plném layoutu, když se vejde. Neměň `splitChipFits` — ta chrání tlačítko „Hotovo" a její rozpočet je správný. Místo toho v `BlockCard.tsx` ověř, jestli se v plném layoutu pilulka vůbec pokouší vykreslit, a případně uprav podmínku tak, aby v pásmu, kde se vejde, byla.
+Oprav to tak, že se pilulka vykreslí i v plném layoutu, když se vejde. Neměň `splitChipFits` — ta chrání tlačítko „Hotovo" a její rozpočet je správný. Místo toho v `BlockCard.tsx` ověř, jestli se v plném layoutu pilulka vůbec pokouší vykreslit, a případně uprav podmínku tak, aby v pásmu, kde se vejde, byla.
 
 - [ ] **Krok 2: M14 — oříznutí čtvrtého chipu na úzkém sloupci**
 
