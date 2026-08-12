@@ -13,46 +13,63 @@ const DEFAULT_TS = plannerTypeScale(DEFAULT_FONT_SCALE);
  * Podoba tlačítka Hotovo.
  * `bar` a `square` vrací printDoneSize() podle výšky bloku v plánu;
  * `hero` si sestavuje Monitor sám — v kartě bloku se nikdy nepoužije.
+ * `bar.height` je od oprav 8/2026 spojité číslo (ne jen 40/32/24) — na nízkých
+ * kartách se nejnižší stupeň pruhu dopočítává z dostupného místa, viz
+ * `printDoneSize` níž.
  */
 export type PrintDoneSize =
-  | { variant: "bar";    height: 40 | 32 | 24; fontSize: number }
-  | { variant: "square"; height: 26;           fontSize: number }
-  | { variant: "hero";   height: number;       fontSize: number };
+  | { variant: "bar";    height: number; fontSize: number }
+  | { variant: "square"; height: 26;     fontSize: number }
+  | { variant: "hero";   height: number; fontSize: number };
+
+/**
+ * Odsazení kolem pruhu Hotovo: paddingTop 2 + paddingBottom 5. Sdílené se
+ * `splitChipFits` (deklarace je fyzicky níž, ale JS moduly se vyhodnocují
+ * shora dolů PŘED prvním voláním exportované funkce, takže pořadí konstant
+ * v souboru na běhové chování nemá vliv).
+ */
+export const PRINT_BAR_PADDING_PX = 7;
 
 /**
  * Rozměr tlačítka Hotovo pro danou výšku bloku (`layoutHeight` z BlockCard).
- * Prahy navazují na layout režimy karty, ale NEjsou s nimi totožné: pruh (bar
- * 24) potřebuje nad sebou první řádek karty i svoje vlastní odsazení, takže
- * jeho práh je vlastní hodnota `PRINT_BAR_24_MIN_ROOM_PX` nad `ts.rowHeights.header`
- * (viz konstanta níž) — ne rovnou `ts.thresholds.full`. Od `ts.thresholds.micro`
- * je čtverec s háčkem, pod tím karta nevykresluje obsah vůbec → `null`.
+ *
+ * **Práh varianty `bar` MUSÍ zůstat `ts.thresholds.full`** — přesně na hranici,
+ * kde se karta přepne do plného layoutu (`MODE_FULL` v `BlockCard.tsx`). Plný
+ * layout vykresluje tlačítko Hotovo JEN pro variantu `bar` (`BlockCard.tsx`,
+ * u `MODE_FULL && printDone?.variant === "bar"`) — variantu `square` kreslí
+ * výhradně kompaktní a jednořádkové layouty. Kdyby práh `bar` ležel nad
+ * `ts.thresholds.full` (jako dřív, `Math.max(full, header+26)`), vzniklo by
+ * pásmo, kde je karta už v plném layoutu, ale `printDoneSize` by pořád vracela
+ * `square` — a tiskař by na kartě neměl VŮBEC žádné tlačítko. Přesně tahle
+ * havárie nastala 3. 8. 2026 (a znovu, hůř, při předchozí opravě 8/2026, kdy
+ * práh dostal rezervu na výšku pruhu a rozešel se s `MODE_FULL`).
+ *
+ * Aby se na nízkých kartách (těsně nad `ts.thresholds.full`) pruh do karty
+ * reálně vešel, NEzvyšuje se práh, ale zmenšuje se PRUH: nejnižší stupeň bar
+ * varianty (dřív napevno 24 px) se dopočítává z toho, co po prvním řádku karty
+ * (`ts.rowHeights.header`) a jeho odsazení (`PRINT_BAR_PADDING_PX`) reálně
+ * zbývá, se stropem 24 px. Vyšší stupně (32 a 40) mají místa vždycky dost,
+ * ty se neupravují.
  *
  * Prahy 140 a 96 rostou s mřížkou (`ts.slotFactor`) — porovnávají se s
  * `layoutHeight`, který taky roste s mřížkou, takže je to dimenzionálně
  * správně. Velikost popisku uvnitř bar varianty naopak roste s PÍSMEM
  * (`ts.fontFactor`) — jinak by na XL popisek „Hotovo" vyrostl jen o 12 %
  * místo 35 % jako zbytek textu karty (nález z code review, 8/2026).
+ *
+ * Od `ts.thresholds.micro` je čtverec s háčkem, pod tím karta nevykresluje
+ * obsah vůbec → `null`.
  */
-
-/**
- * Kolik místa nad sebou potřebuje pruh Hotovo (varianta `bar`, výška 24) navíc
- * k prvnímu řádku karty (`ts.rowHeights.header`): 2 px paddingTop + 24 px
- * výška pruhu. Práh svázaný jen s `ts.thresholds.full` tuhle rezervu nepočítal
- * a na stupních M a L nestačil — pruh se do karty vešel jen zčásti a spodní
- * okraj se oříznul (nález review, 8/2026; menší sourozenec regrese tlačítka
- * Hotovo z 3. 8. 2026).
- */
-const PRINT_BAR_24_MIN_ROOM_PX = 26;
-
 export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAULT_TS): PrintDoneSize | null {
   const big = Math.round(140 * ts.slotFactor);
   const mid = Math.round(96 * ts.slotFactor);
-  // Nikdy pod ts.thresholds.full, ale ani pod tím, co pruh reálně potřebuje —
-  // viz PRINT_BAR_24_MIN_ROOM_PX výš.
-  const barThreshold = Math.max(ts.thresholds.full, ts.rowHeights.header + PRINT_BAR_24_MIN_ROOM_PX);
+  const barThreshold = ts.thresholds.full;
   if (layoutHeight >= big) return { variant: "bar", height: 40, fontSize: Math.round(16 * ts.fontFactor) };
   if (layoutHeight >= mid) return { variant: "bar", height: 32, fontSize: Math.round(14 * ts.fontFactor) };
-  if (layoutHeight >= barThreshold) return { variant: "bar", height: 24, fontSize: 11.5 };
+  if (layoutHeight >= barThreshold) {
+    const height = Math.min(24, layoutHeight - ts.rowHeights.header - PRINT_BAR_PADDING_PX);
+    return { variant: "bar", height, fontSize: 11.5 };
+  }
   if (layoutHeight >= ts.thresholds.micro) return { variant: "square", height: 26, fontSize: 15 };
   return null;
 }
@@ -65,8 +82,8 @@ export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAU
 
 /** SplitChip včetně marginTop 6, borderu a paddingu. */
 const SPLIT_CHIP_PX = 25;
-/** Odsazení kolem pruhu Hotovo: paddingTop 2 + paddingBottom 5. */
-const PRINT_BAR_PADDING_PX = 7;
+// PRINT_BAR_PADDING_PX (paddingTop 2 + paddingBottom 5 kolem pruhu Hotovo) je
+// deklarovaná výš, u printDoneSize — sdílí ji obě funkce.
 
 /**
  * Vejde se SplitChip do karty, aniž by vytlačil tlačítko Hotovo pod ořez?

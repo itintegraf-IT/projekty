@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { printDoneSize, isBlockRunningNow, splitChipFits } from "./tiskarBlockView.js";
+import { printDoneSize, isBlockRunningNow, splitChipFits, PRINT_BAR_PADDING_PX } from "./tiskarBlockView.js";
 import { plannerTypeScale } from "./plannerTypography";
 
 test("printDoneSize: vysoký blok (≥140 px) = pruh 40 px", () => {
@@ -13,19 +13,31 @@ test("printDoneSize: 96–139 px = pruh 32 px", () => {
   assert.deepEqual(printDoneSize(96),  { variant: "bar", height: 32, fontSize: 14 });
 });
 
-test("printDoneSize: 50–95 px = pruh 24 px (práh pruhu, ne MODE_FULL)", () => {
-  // Spodní mez posunuta z 48 na 50: práh pruhu už není ts.thresholds.full (46),
-  // ale rowHeights.header + 26 px rezervy, kterou pruh reálně potřebuje
-  // (nález review 8/2026 — na 46–49 px se pruh do karty nevešel celý).
+test("printDoneSize: 55–95 px (M) = pruh, výška dopočítaná stropem 24 px", () => {
+  // HOTFIX 8/2026: práh pruhu je zpátky ts.thresholds.full (46 na M) — přesně
+  // na hranici MODE_FULL, ne nad ní (viz test „v plném layoutu..." níž, jádro
+  // opravy). Výška nejnižšího stupně pruhu se dopočítává z dostupného místa
+  // (min(24, layoutHeight - rowHeights.header - PRINT_BAR_PADDING_PX)) — na M
+  // dosáhne stropu 24 px až od 55 (46-24-7=15 … 55-24-7=24).
   assert.deepEqual(printDoneSize(95), { variant: "bar", height: 24, fontSize: 11.5 });
-  assert.deepEqual(printDoneSize(50), { variant: "bar", height: 24, fontSize: 11.5 });
+  assert.deepEqual(printDoneSize(55), { variant: "bar", height: 24, fontSize: 11.5 });
 });
 
-test("printDoneSize: 14–49 px = čtverec 26 px", () => {
-  // Horní mez posunuta z 45 na 49: čtverec teď platí až do těsně pod prahem
-  // pruhu (50, viz test výš) — na M už to není ts.thresholds.full (46), protože
-  // pruh na 46–49 px reálně nemá kam se vejít (oprava nálezu review 8/2026).
-  assert.deepEqual(printDoneSize(49), { variant: "square", height: 26, fontSize: 15 });
+test("printDoneSize: 46–54 px (M) = pruh s dopočítanou nižší výškou (dřív mezera bez tlačítka)", () => {
+  // Přesně pásmo, které předchozí oprava (Math.max(full, header+26)) omylem
+  // vyřadila z bar varianty a nechala spadnout na square — jenže square se
+  // v MODE_FULL vůbec nekreslí (BlockCard.tsx:1115 kreslí bar jen pro
+  // MODE_FULL, square jen pro COMPACT/TINY). Výsledkem byla karta bez
+  // JAKÉHOKOLIV tlačítka Hotovo — přesně havárie z 3. 8. 2026, ve druhém kole.
+  assert.deepEqual(printDoneSize(46), { variant: "bar", height: 15, fontSize: 11.5 });
+  assert.deepEqual(printDoneSize(50), { variant: "bar", height: 19, fontSize: 11.5 });
+  assert.deepEqual(printDoneSize(54), { variant: "bar", height: 23, fontSize: 11.5 });
+});
+
+test("printDoneSize: 14–45 px (M) = čtverec 26 px", () => {
+  // Horní mez je teď přesně ts.thresholds.full - 1 (45) — čtverec platí jen
+  // v layoutech, které square skutečně kreslí (COMPACT/TINY/MICRO_TEXT).
+  assert.deepEqual(printDoneSize(45), { variant: "square", height: 26, fontSize: 15 });
   assert.deepEqual(printDoneSize(14), { variant: "square", height: 26, fontSize: 15 });
 });
 
@@ -106,40 +118,65 @@ test("bez stupně se rozpočet chová jako dnes (stupeň M)", () => {
   assert.deepEqual(printDoneSize(20), printDoneSize(20, plannerTypeScale("M")));
 });
 
-test("práh pruhu Hotovo garantuje, že se pruh do karty vejde (oprava nálezu review 8/2026)", () => {
-  // Hranice se posunula z ts.thresholds.full: na M/L se do prahu plného layoutu
-  // pruh nevešel celý (potřebuje nad sebou první řádek karty i svoje vlastní
-  // odsazení, dohromady rowHeights.header + 26 px) a spodní okraj se ořízl —
-  // menší sourozenec regrese tlačítka Hotovo z 3. 8. 2026. Hodnoty dopočítané
-  // z plannerTypography.ts (M 50 / L 52 / XL 57, viz final-fix-report.md).
-  const expectedBarThreshold = { M: 50, L: 52, XL: 57 } as const;
+test("práh pruhu Hotovo je PŘESNĚ ts.thresholds.full — HOTFIX 8/2026", () => {
+  // PŘED touto opravou tenhle test tvrdil, že práh pruhu je
+  // Math.max(ts.thresholds.full, ts.rowHeights.header + 26) — tj. AŽ NAD prahem
+  // plného layoutu na M a L. To přesně zabetonovávalo opravovanou vadu: v pásmu
+  // mezi ts.thresholds.full a tímhle vyšším prahem je karta už v MODE_FULL
+  // (BlockCard.tsx), ale printDoneSize vracela `square` — a MODE_FULL variantu
+  // `square` vůbec nekreslí (BlockCard.tsx:1115 kreslí bar jen pro MODE_FULL,
+  // square jen pro COMPACT/TINY/MICRO_TEXT). Výsledek: karta bez JAKÉHOKOLIV
+  // tlačítka Hotovo — regrese z 3. 8. 2026, v horší podobě, protože nešlo o
+  // úzké pásmo výjimky, ale o běžná zoom nastavení (hodinová zakázka na M).
+  //
+  // Oprava místo zvyšování prahu zmenšuje pruh (viz printDoneSize) — práh se
+  // tak může vrátit přesně na ts.thresholds.full, čímž se pásmo bez tlačítka
+  // zavře úplně, ne jen zúží.
   for (const key of ["M", "L", "XL"] as const) {
     const ts = plannerTypeScale(key);
-    const barThreshold = expectedBarThreshold[key];
-    assert.equal(printDoneSize(barThreshold - 1, ts)?.variant, "square", `${key}: pod prahem čtverec`);
-    assert.equal(printDoneSize(barThreshold, ts)?.variant, "bar", `${key}: na prahu pruh`);
-    assert.ok(
-      barThreshold >= ts.rowHeights.header + 26,
-      `${key}: práh ${barThreshold} musí zaručit prostor pro pruh (potřeba ${ts.rowHeights.header + 26})`
-    );
+    assert.equal(printDoneSize(ts.thresholds.full - 1, ts)?.variant, "square", `${key}: pod prahem čtverec`);
+    assert.equal(printDoneSize(ts.thresholds.full, ts)?.variant, "bar", `${key}: přesně na prahu už pruh`);
   }
 });
 
-test("pruh 24 px se vždy vejde pod první řádek karty — hlídá vazbu napřímo pro M/L/XL", () => {
-  // Přímý strážce geometrie z NÁLEZU 1: kdykoliv printDoneSize vrátí variantu
-  // bar o výšce 24, layoutHeight musí mít rezervu na první řádek karty
-  // (rowHeights.header) i na odsazení a výšku pruhu (2 px paddingTop + 24 px
-  // výška = 26 px). Právě absence takového testu pustila vadu, kdy byl práh
-  // pruhu svázaný jen s thresholds.full a pruh se na M/L do karty nevešel.
+test("pruh se vždy vejde pod první řádek karty — hlídá vazbu napřímo pro M/L/XL", () => {
+  // Přímý strážce geometrie z NÁLEZU 1, přepočítaný na dopočítanou (ne napevno
+  // 24px) výšku pruhu: kdykoliv printDoneSize vrátí variantu bar, musí platit
+  // height + rowHeights.header + PRINT_BAR_PADDING_PX <= layoutHeight — jinak
+  // by pruh přerostl kartu a spodní okraj by se ořízl (stejná třída chyby jako
+  // 3. 8. 2026, jen jinde v rozsahu výšek).
   for (const key of ["M", "L", "XL"] as const) {
     const ts = plannerTypeScale(key);
     for (let h = ts.thresholds.micro; h <= 200; h++) {
       const size = printDoneSize(h, ts);
-      if (size?.variant === "bar" && size.height === 24) {
+      if (size?.variant === "bar") {
         assert.ok(
-          h >= ts.rowHeights.header + 26,
-          `${key} @ ${h}px: pruh 24 se nevejde pod první řádek (potřeba ${ts.rowHeights.header + 26})`
+          size.height + ts.rowHeights.header + PRINT_BAR_PADDING_PX <= h,
+          `${key} @ ${h}px: pruh výšky ${size.height} se nevejde pod první řádek (${ts.rowHeights.header} + odsazení ${PRINT_BAR_PADDING_PX})`
         );
+      }
+    }
+  }
+});
+
+test("STRÁŽNÝ TEST — v plném layoutu se NIKDY nesmí vrátit square ani null (incident 3. 8. 2026)", () => {
+  // Tohle je jádro celé opravy. BlockCard.tsx přepíná do MODE_FULL přesně na
+  // layoutHeight >= ts.thresholds.full a v MODE_FULL kreslí tlačítko Hotovo
+  // JEN pro variantu `bar` (BlockCard.tsx:1115) — varianta `square` se používá
+  // výhradně mimo plný layout (MODE_COMPACT/MODE_TINY, BlockCard.tsx:862 a :984).
+  //
+  // Pokud tenhle test spadne, znamená to, že v plném layoutu existuje výška
+  // karty, na které tiskař nemá na bloku ŽÁDNÉ tlačítko k potvrzení tisku —
+  // přesně havárie z 3. 8. 2026 (a její regrese při opravě z 8/2026, která
+  // omylem zvedla práh pruhu nad ts.thresholds.full). Než cokoliv v
+  // printDoneSize/BlockCard měnit, ověřit, že tenhle test dál prochází.
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    for (let h = 0; h <= 200; h++) {
+      if (h >= ts.thresholds.full) {
+        const size = printDoneSize(h, ts);
+        assert.notEqual(size, null, `${key} @ ${h}px: MODE_FULL bez tlačítka Hotovo (null)`);
+        assert.notEqual(size?.variant, "square", `${key} @ ${h}px: MODE_FULL vrátil square — v plném layoutu se square nekreslí`);
       }
     }
   }
