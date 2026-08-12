@@ -1268,7 +1268,7 @@ export default function TimelineGrid({
               <span
                 title="Počet bloků, jejichž umístění nesedí na aktuální kalendář pracovní doby/odstávek"
                 style={{
-                  fontSize: 10, fontWeight: 700, color: "#1f2937", background: "#f59e0b",
+                  fontSize: typeScale.driftBadge, fontWeight: 700, color: "#1f2937", background: "#f59e0b",
                   borderRadius: 4, padding: "1px 6px", lineHeight: 1.4, whiteSpace: "nowrap",
                 }}
               >
@@ -1279,7 +1279,7 @@ export default function TimelineGrid({
                 onClick={(e) => { e.stopPropagation(); void handleReflowClick(machine); }}
                 disabled={reflowingMachine === machine}
                 style={{
-                  fontSize: 10, fontWeight: 600, color: "#fff",
+                  fontSize: typeScale.driftBadge, fontWeight: 600, color: "#fff",
                   background: reflowingMachine === machine ? "rgba(59,130,246,0.5)" : "#3b82f6",
                   border: "none", borderRadius: 4, padding: "2px 8px", lineHeight: 1.4,
                   cursor: reflowingMachine === machine ? "default" : "pointer", whiteSpace: "nowrap",
