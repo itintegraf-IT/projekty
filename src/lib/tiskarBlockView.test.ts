@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { printDoneSize, isBlockRunningNow, splitChipFits, PRINT_BAR_PADDING_PX } from "./tiskarBlockView.js";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, PRINT_BAR_PADDING_PX } from "./tiskarBlockView.js";
 import { plannerTypeScale } from "./plannerTypography";
 
 test("printDoneSize: vysoký blok (≥140 px) = pruh 40 px", () => {
@@ -177,6 +177,70 @@ test("STRÁŽNÝ TEST — v plném layoutu se NIKDY nesmí vrátit square ani nu
         const size = printDoneSize(h, ts);
         assert.notEqual(size, null, `${key} @ ${h}px: MODE_FULL bez tlačítka Hotovo (null)`);
         assert.notEqual(size?.variant, "square", `${key} @ ${h}px: MODE_FULL vrátil square — v plném layoutu se square nekreslí`);
+      }
+    }
+  }
+});
+
+test("splitChipFits: na L/XL roste chip s písmem — hranice M (25 px) na L/XL už nestačí", () => {
+  // Task 6: SPLIT_CHIP_PX byl napevno 25 px pro všechny stupně, i po Task 5,
+  // kdy SplitChip dostal `fontSize={typeScale.splitChip}` a na L/XL vyrostl.
+  // Rozpočet tak byl podhodnocený — propouštěl chip, který se ve skutečnosti
+  // nevešel. Na hranici, kde M chip ještě vejde (80 px, viz test výš), musí
+  // L/XL potřebovat víc místa.
+  const l = plannerTypeScale("L");
+  const xl = plannerTypeScale("XL");
+  assert.equal(splitChipFits(80, printDoneSize(80, l), 0, l), false, "L @ 80 px (M hranice) se ještě nevejde");
+  assert.equal(splitChipFits(80, printDoneSize(80, xl), 0, xl), false, "XL @ 80 px (M hranice) se ještě nevejde");
+});
+
+test("splitChipFitsInHeaderRow: M @ 46 px (přesná hranice MODE_FULL) — na pilulku v řádku 1 není místo", () => {
+  // Nejtěsnější případ: pruh Hotovo má na M @ 46 px jen dopočítanou výšku 15 px
+  // (viz printDoneSize) a řádek 1 nemá žádnou rezervu navíc — přednost má
+  // tlačítko Hotovo, textová značka „✂1/2" zůstává.
+  const m = plannerTypeScale("M");
+  assert.equal(splitChipFitsInHeaderRow(46, printDoneSize(46, m), 0, m), false);
+});
+
+test("splitChipFitsInHeaderRow: M @ 60 a 79 px — pilulka v řádku 1 se vejde (regresní pásmo z review)", () => {
+  // Přesně pásmo, kde review označilo pilulku za ztracenou: MODE_FULL, ale
+  // spodní umístění (`splitChipFits`) ji odmítne. Řádek 1 je záložní umístění.
+  const m = plannerTypeScale("M");
+  assert.equal(splitChipFits(60, printDoneSize(60, m), 0, m), false, "spodní umístění se na 60 px nevejde");
+  assert.equal(splitChipFitsInHeaderRow(60, printDoneSize(60, m), 0, m), true, "řádek 1 pilulku pojme");
+  assert.equal(splitChipFits(79, printDoneSize(79, m), 0, m), false, "spodní umístění se na 79 px nevejde");
+  assert.equal(splitChipFitsInHeaderRow(79, printDoneSize(79, m), 0, m), true, "řádek 1 pilulku pojme");
+});
+
+test("splitChipFitsInHeaderRow: XL @ 60 px — ani řádek 1 nemá místo, tlačítko Hotovo má přednost", () => {
+  // Na XL je řádek 1 i pruh Hotovo o kus vyšší než na M — na 60 px (těsně nad
+  // XL thresholds.full) nezbyde místo ani na záložní umístění v řádku 1.
+  // Ověřuje, že funkce v tomhle případě NEobětuje tlačítko Hotovo pro pilulku.
+  const xl = plannerTypeScale("XL");
+  assert.equal(splitChipFits(60, printDoneSize(60, xl), 0, xl), false);
+  assert.equal(splitChipFitsInHeaderRow(60, printDoneSize(60, xl), 0, xl), false);
+});
+
+test("splitChipFitsInHeaderRow: nikdy nepovolí přerůst přes hranici karty (fuzz M/L/XL)", () => {
+  // Přímý strážce geometrie, obdoba testu pro `printDoneSize` výš: kdykoliv
+  // funkce vrátí true, musí platit, že řádek 1 s pilulkou + rezerva
+  // specifikace + rezerva pruhu Hotovo se do layoutHeight reálně vejdou.
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    for (let h = ts.thresholds.full; h <= 200; h++) {
+      for (const specRows of [0, 1, 2] as const) {
+        const printDone = printDoneSize(h, ts);
+        const fits = splitChipFitsInHeaderRow(h, printDone, specRows, ts);
+        if (fits) {
+          const chipContentHeight = 2 + 6 + ts.splitChip * 1.1;
+          const headerRowWithChip = Math.max(ts.rowHeights.header, 8 + chipContentHeight);
+          const specReserve = specRows === 2 ? ts.rowHeights.spec2 : specRows === 1 ? ts.rowHeights.spec1 : 0;
+          const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
+          assert.ok(
+            headerRowWithChip + specReserve + barReserve <= h,
+            `${key} @ ${h}px specRows=${specRows}: fits=true, ale obsah přerůstá kartu`
+          );
+        }
       }
     }
   }

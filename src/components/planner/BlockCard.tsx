@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
-import { printDoneSize, isBlockRunningNow, splitChipFits } from "@/lib/tiskarBlockView";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow } from "@/lib/tiskarBlockView";
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
 import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 
@@ -491,6 +491,16 @@ export function BlockCard({
   const specFitsBand = layoutHeight >= typeScale.thresholds.full + (specTwoLine ? typeScale.rowHeights.spec2 : typeScale.rowHeights.spec1);
   const hasSpecBand  = showSpec && !!block.specifikace && (isTiskar || specFitsBand);
   const specRows: 0 | 1 | 2 = hasSpecBand ? (specTwoLine ? 2 : 1) : 0;
+  // SplitChip pro TISKAŘE, když se na spodní umístění (pod pásem specifikace/
+  // tlačítkem Hotovo) nevejde — Task 6, fix „mizející pilulka" po zvětšení
+  // SplitChipu s písmem. Řádek 1 nese jen neklikatelnou textovou značku
+  // „✂1/2"; v tomhle pásmu ji nahradí klikatelná pilulka, pokud se tam prokazatelně
+  // vejde (`splitChipFitsInHeaderRow`), jinak zůstává text — tlačítko Hotovo má
+  // vždy přednost. Mimo tohle pásmo (spodní pilulka se vejde, nebo není co nahrazovat)
+  // se nic nemění.
+  const showSplitChipInHeader = MODE_FULL && !!splitPartner
+    && !splitChipFits(layoutHeight, printDone, specRows, typeScale)
+    && splitChipFitsInHeaderRow(layoutHeight, printDone, specRows, typeScale);
   // Značka „S" místo pásu — v jednořádkových režimech VŽDY (tam pás nemá kam jít), a nově
   // i v MODE_FULL, když `hasSpecBand` vyšlo false (nevejde se celý pás) — buď se ukáže
   // celý pás, nebo jen značka s textem v tooltipu, nikdy uříznutý zbytek pásu.
@@ -1048,7 +1058,26 @@ export function BlockCard({
                 <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.4, color: s.textSub }}>↻</span>
               )}
               {(splitTotal ?? 0) > 1 && (
-                <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
+                showSplitChipInHeader ? (() => {
+                  const { state, time } = getSplitChipState(splitPartner!);
+                  return (
+                    // marginTop:-6 ruší vestavěné odsazení SplitChipu (`SplitChip.tsx`) —
+                    // v horizontálním shluku drobných chipů by jen zbytečně nafukovalo
+                    // Řádek 1 a ubíralo místo tlačítku Hotovo pod ním (viz
+                    // `splitChipFitsInHeaderRow`, `tiskarBlockView.ts`).
+                    <span style={{ display: "inline-flex", marginTop: -6 }}>
+                      <SplitChip
+                        partnerMachine={splitPartner!.machine}
+                        state={state}
+                        time={time}
+                        onClick={() => onSplitChipClick?.(splitPartner!.id)}
+                        fontSize={typeScale.splitChip}
+                      />
+                    </span>
+                  );
+                })() : (
+                  <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
+                )
               )}
             </div>
           )}
