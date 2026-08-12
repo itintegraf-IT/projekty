@@ -1,95 +1,61 @@
-# Čitelnost timeline — dotažení drobných nálezů — implementační plán
+# Čitelnost timeline — dotažení — implementační plán
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Dotáhnout drobné nálezy, které zůstaly po etapě velikosti písma — dokončit škálování zbylého textu na kartě, srovnat sticky hlavičku a hustotu časové osy, a ošetřit tři hraniční případy.
+**Goal:** Dotáhnout prvky, které po zavedení stupňů písma zůstaly pevné nebo se s nimi rozešly, a vrátit tiskaři pilulku rozdělené zakázky.
 
-**Architecture:** Navazuje na `src/lib/plannerTypography.ts` jako jediný zdroj pravdy. Žádný nový mechanismus nevzniká; jde o dotažení míst, která se při hlavní etapě přeskočila, a o narovnání dvou hodnot, které se s ní rozešly.
+**Architecture:** Navazuje na `src/lib/plannerTypography.ts` jako jediný zdroj pravdy. Nový mechanismus nevzniká. Dvě úlohy začínají měřením, ne opravou — u obou průzkum ukázal, že zadání může být postavené na špatném předpokladu.
 
 **Tech Stack:** Next.js 16 · React · TypeScript · Tailwind v4 · testy `node:test` + `tsx`.
 
-## Kontext
-
-Předchozí etapa (`docs/superpowers/plans/2026-08-11-citelnost-timeline-velikost-pisma.md`, 21 commitů na větvi `Vojta`) zavedla přepínač velikosti písma `M · L · XL`. Její závěrečné review vyprodukovalo 15 drobných nálezů vyhodnocených jako nepřekážející nasazení. Čtyři z nich už jsou vyřešené:
-
-| Nález | Stav |
-| --- | --- |
-| M6 tři konvence u `SpecChip` | vyřešeno — v plném layoutu prostá velikost, v jednořádkovém strop; rozdíl je účelný |
-| M10 přepnutí stupně posune scroll | opraveno (`captureScrollAnchor`, commit `6c61c69`) |
-| M11 zastaralý komentář „24" | opraveno |
-| M13 test driftu klíčů stupňů | opraveno |
-
-Tenhle plán řeší zbývajících jedenáct.
+**Spec:** `docs/superpowers/specs/2026-08-12-citelnost-timeline-dotazeni-design.md` — obsahuje výsledky průzkumu, ze kterých každé číslo v tomto plánu vychází.
 
 ## Global Constraints
 
-- **Velikosti písma výhradně přes `src/lib/plannerTypography.ts`.** Žádné nové napevno zapsané číslo. `fontFactor` je pro písmo, `slotFactor` pro výšky a prahy porovnávané s výškou bloku — nezaměňovat.
-- **Barvy uvnitř karty bloku zůstávají pevné literály** (`rgba(...)`, `color-mix(...)`), ne CSS tokeny — vnitřek bloku je gradient stejný ve světlém i tmavém motivu. Mimo kartu (osa, hlavička) platí běžné pravidlo: vždy tokeny.
-- **Žádná délka bloku se nesmí propadnout do nižší hustoty, než má dnes.** Hlídá strážný test `plannerTypography.test.ts`.
-- **`npm run build` NESPOUŠTĚT během práce** — majiteli běží dev servery sdílející složku `.next` a build je shodí. Typová kontrola přes `npx tsc --noEmit`.
-- Testy nových čistých modulů do `src/lib/*.test.ts`. Výchozí stav sady je **976 testů**.
-- Nové komponenty jako named export do vlastního souboru — `BlockCard.tsx` i `TimelineGrid.tsx` jsou nad limitem `max-lines`.
-
-## Struktura souborů
-
-| Soubor | Co se v něm mění | Task |
-| --- | --- | --- |
-| `src/lib/plannerTypography.ts` | případná nová pole velikostí (`production`, `noteBadge`, `splitChip`) | 1 |
-| `src/components/planner/BlockCard.tsx` | `ProductionChips`, badge poznámek, popisek pauzy, stropy ikon | 1, 2 |
-| `src/components/SplitChip.tsx` | velikost písma propem | 1 |
-| `src/components/planner/PrintDoneButton.tsx` / `src/lib/tiskarBlockView.ts` | velikosti písma nižších variant tlačítka | 1 |
-| `src/app/_components/TimelineGrid.tsx` | `HEADER_HEIGHT`, `labelStep` | 3 |
+- **Velikosti písma výhradně přes `src/lib/plannerTypography.ts`.** Žádné nové napevno zapsané číslo. `fontFactor` je koeficient PÍSMA (M 1 · L 1,15 · XL 1,35), `slotFactor` koeficient MŘÍŽKY (M 1 · L 1,053 · XL 1,123) — nezaměňovat.
+- **Prvek, který roste s písmem, musí mít strop odvozený od místa, kde stojí.** Tři z dosavadních vad měly týž tvar: velikost se navázala na stupeň, ale mez zůstala pevná.
+- **Barvy uvnitř karty bloku zůstávají pevné literály.** Mimo kartu (osa, hlavička) vždy CSS tokeny, nikdy hex.
+- **U každé změny prahu dohledat všechny konzumenty a projít celý obor hodnot.** Poslední vážná regrese vznikla tím, že jeden modul posunul práh a druhý vykresloval jen jednu ze dvou variant — v diffu ani jednoho z nich nebylo nic vidět.
+- **`npm run build` NESPOUŠTĚT** — majiteli běží dev servery sdílející `.next`. Typová kontrola `npx tsc --noEmit`.
+- Výchozí stav testovací sady je **978 testů**.
 
 ---
 
-### Task 1: Dotáhnout škálování zbylého textu na kartě
-
-Po hlavní etapě zůstalo na kartě několik prvků s napevno zapsanou velikostí. Při stupni `XL` jde číslo zakázky na 17,7 px, takže osmipixelový chip `OBÁLKA` vedle něj vypadá zakrsle. Nálezy M1, M2, M3, M4, M5.
+### Task 1: Nová pole velikostí v modulu
 
 **Files:**
-- Modify: `src/lib/plannerTypography.ts` — přidat pole
-- Modify: `src/components/planner/BlockCard.tsx:154` (`ProductionChips`), `:746` (badge tiskařských poznámek), popisek „⏸ PAUZA — mimo provoz"
-- Modify: `src/components/SplitChip.tsx`
-- Modify: `src/lib/tiskarBlockView.ts` (velikosti písma variant `bar 24` a `square`)
+- Modify: `src/lib/plannerTypography.ts`
 - Test: `src/lib/plannerTypography.test.ts`
 
 **Interfaces:**
-- Consumes: `PlannerTypeScale`, `plannerTypeScale` — existující.
-- Produces: nová pole `PlannerTypeScale`: `production: number`, `noteBadge: number`, `splitChip: number`, `pauseLabel: number`.
+- Produces: nová pole `PlannerTypeScale` — `production: number`, `noteBadge: number`, `splitChip: number`, `pauseLabel: number`, `driftBadge: number`.
 
 - [ ] **Krok 1: Napsat padající test**
 
-Do `src/lib/plannerTypography.test.ts` přidej k existujícímu testu monotonie nová pole. V testu „každá velikost písma roste s vyšším stupněm" rozšiř seznam klíčů:
+V `src/lib/plannerTypography.test.ts` rozšiř seznam klíčů v testu monotonie o `"production", "noteBadge", "splitChip", "pauseLabel", "driftBadge"` a přidej nový test:
 
 ```ts
-  for (const key of [
-    "num", "desc", "chip", "spec", "mini", "badge", "rail", "machineHead",
-    "production", "noteBadge", "splitChip", "pauseLabel",
-  ] as const) {
-```
-
-A přidej nový test, který hlídá, že se poměr k číslu zakázky nerozejde — právě jeho rozpad byl obsahem nálezu M1:
-
-```ts
-test("drobné štítky drží poměr k číslu zakázky napříč stupni", () => {
-  // Na M odpovídají dnešním napevno zapsaným velikostem; poměr se pak už nemění,
-  // aby při XL nevypadaly zakrsle vedle 17,7px čísla zakázky.
+test("nová pole reprodukují na M dnešní napevno zapsané velikosti", () => {
+  // Na výchozím stupni se nesmí změnit nic — tahle pole jen nahrazují
+  // literály, které v komponentách byly. Hodnoty odpovídají průzkumu:
+  // ProductionChips 8, badge poznámek 10, SplitChip 10, popisek pauzy 10,
+  // pruh driftu a tlačítko Přepočítat 10.
   const m = plannerTypeScale("M");
-  assert.equal(Math.round(m.production), 8);
-  assert.equal(Math.round(m.noteBadge), 10);
-  assert.equal(Math.round(m.splitChip), 10);
-  assert.equal(Math.round(m.pauseLabel), 10);
+  assert.equal(m.production, 8);
+  assert.equal(m.noteBadge, 10);
+  assert.equal(m.splitChip, 10);
+  assert.equal(m.pauseLabel, 10);
+  assert.equal(m.driftBadge, 10);
+});
 
+test("nová pole rostou koeficientem PÍSMA, ne mřížky", () => {
   for (const key of PLANNER_FONT_SCALE_KEYS) {
     const ts = plannerTypeScale(key);
-    for (const f of ["production", "noteBadge", "splitChip", "pauseLabel"] as const) {
-      const pomerM = m[f] / m.num;
-      const pomer = ts[f] / ts.num;
-      assert.ok(
-        Math.abs(pomer - pomerM) < 0.02,
-        `${key}/${f}: poměr k číslu ${pomer.toFixed(3)} se rozešel s M (${pomerM.toFixed(3)})`
-      );
-    }
+    assert.equal(ts.production, 8 * ts.fontFactor, `${key}: production`);
+    assert.equal(ts.noteBadge, 10 * ts.fontFactor, `${key}: noteBadge`);
+    assert.equal(ts.splitChip, 10 * ts.fontFactor, `${key}: splitChip`);
+    assert.equal(ts.pauseLabel, 10 * ts.fontFactor, `${key}: pauseLabel`);
+    assert.equal(ts.driftBadge, 10 * ts.fontFactor, `${key}: driftBadge`);
   }
 });
 ```
@@ -100,168 +66,298 @@ test("drobné štítky drží poměr k číslu zakázky napříč stupni", () =>
 node --test --import tsx src/lib/plannerTypography.test.ts
 ```
 
-Očekávání: FAIL — pole `production` a spol. neexistují.
+Očekávání: FAIL — pole neexistují.
 
-- [ ] **Krok 3: Doplnit pole do modulu**
+- [ ] **Krok 3: Doplnit pole**
 
-V `src/lib/plannerTypography.ts` přidej do typu `PlannerTypeScale` a do návratové hodnoty `plannerTypeScale`:
+Do typu `PlannerTypeScale` a do návratové hodnoty `plannerTypeScale`:
 
 ```ts
-  /** Produkční chip OBÁLKA / VNITŘKY / tiskové archy. */
+  /** Produkční chip OBÁLKA / VNITŘKY / tiskové archy · série. */
   production: number;
-  /** Badge počtu tiskařských poznámek (📝 n) v rohu karty. */
+  /** Badge počtu tiskařských poznámek „📝 N" v rohu karty. */
   noteBadge: number;
   /** Pilulka rozdělené zakázky (SplitChip). */
   splitChip: number;
   /** Popisek „⏸ PAUZA — mimo provoz" uvnitř bloku přes odstávku. */
   pauseLabel: number;
+  /** Pruh „⚠ N nesedí na kalendář" a tlačítko „Přepočítat" v hlavičce stroje. */
+  driftBadge: number;
 ```
 
-a do těla funkce:
+a do těla:
 
 ```ts
     production: 8 * s,
     noteBadge: 10 * s,
     splitChip: 10 * s,
     pauseLabel: 10 * s,
+    driftBadge: 10 * s,
 ```
 
-Násobí se `s` (tedy `fontFactor`), ne `slotFactor` — jsou to velikosti písma.
-
-- [ ] **Krok 4: Spustit test**
+- [ ] **Krok 4: Ověřit a commitnout**
 
 ```bash
 node --test --import tsx src/lib/plannerTypography.test.ts
+npx tsc --noEmit
+git add -A && git commit -m "feat(planner): pole velikostí pro drobné štítky karty a hlavičky stroje"
 ```
 
-Očekávání: PASS.
+---
 
-- [ ] **Krok 5: Nasadit v komponentách**
+### Task 2: Nasadit škálování na kartě
 
-`BlockCard.tsx` — funkce `ProductionChips` (ř. 154) dostane `fontSize` propem a volající předá `typeScale.production`; badge tiskařských poznámek (ř. 746) → `typeScale.noteBadge`; popisek pauzy → `typeScale.pauseLabel`.
+**Files:**
+- Modify: `src/components/planner/BlockCard.tsx` — `ProductionChips` (ř. 154 a 161), badge poznámek (ř. 746), popisek pauzy (ř. 1197)
+- Modify: `src/components/SplitChip.tsx` (ř. 35)
 
-`src/components/SplitChip.tsx` — přidej prop `fontSize: number`, uvnitř nahraď napevno zapsanou hodnotu, volající v `BlockCard.tsx` předá `typeScale.splitChip`.
+**Interfaces:**
+- Consumes: `typeScale.production`, `.noteBadge`, `.splitChip`, `.pauseLabel` z Tasku 1; `MICRO_CHIP_CAP_FACTOR` (existující konstanta v `BlockCard.tsx`).
 
-`src/lib/tiskarBlockView.ts` — varianty `bar 24` (dnes `fontSize: 11.5`) a `square` (dnes `15`) přepiš na `Math.round(11.5 * ts.fontFactor * 10) / 10` resp. `Math.round(15 * ts.fontFactor)`. Uprav i JSDoc na ř. 29-32, který dnes tvrdí, že velikost popisku roste s písmem — po téhle změně to bude platit pro všechny čtyři varianty, dnes jen pro dvě.
+- [ ] **Krok 1: `ProductionChips`**
 
-`src/app/_components/TimelineGrid.tsx` — v hlavičce stroje jsou další dva prvky s napevno zapsanou velikostí, které závěrečné review přehlédlo a controller je našel až při dodatečném ověřování plánu: **pruh „⚠ N nesedí na kalendář"** a **tlačítko „Přepočítat"**, oba `fontSize: 10`. Sedí přímo vedle názvu stroje, který nově roste na 16,2 px při `XL`. Použij pro ně `typeScale.noteBadge` (týž řád velikosti). **Barvy u nich nech být** — jsou to pevné literály `#f59e0b` / `#1f2937` / `#fff` a mají zůstat, protože musí držet kontrast v obou motivech nezávisle na pozadí hlavičky.
+Komponenta dostane prop `fontSize: number`, uvnitř nahradí `fontSize: 8`. **Zároveň odvoď z písma i `maxWidth`**, které je dnes napevno 132 px a používá se jen ve zkrácené variantě (`clamp`): `maxWidth: fontSize * 16.5` — při písmu 8 to dá 132, tedy dnešní hodnotu beze změny.
 
-**POZOR na `ProductionChips`:** má parametr `abbreviated` a u dlouhého chipu `maxWidth: 132` s elipsou. Ta šířka je v pixelech a s rostoucím písmem přestane stačit — odvoď ji taky z písma (např. `fontSize * 16`) a napiš do reportu, jak ti vyšla pro M a XL.
+Volající jsou tři: ř. 846 (kompaktní), ř. 965 (jednořádkový), ř. 1148 (plný). Všem předej `typeScale.production`.
 
-- [ ] **Krok 6: Ověřit**
+- [ ] **Krok 2: Badge tiskařských poznámek — se stropem**
+
+Ř. 746, dnes `fontSize: 10`. Průzkum zjistil, že se tenhle badge kreslí **bezpodmínečně ve všech hustotách** (jeho podmínka na ř. 719 není vázaná na žádný `MODE_*`), a že na nejnižší kartě (14 px) má box 14 px posazený 7 px od horní hrany, tedy **přetéká už dnes**. Zvětšení písma by to zhoršilo.
+
+Použij proto strop stejně jako u chipů:
+
+```tsx
+fontSize: Math.min(typeScale.noteBadge, layoutHeight * MICRO_CHIP_CAP_FACTOR),
+```
+
+Do komentáře napiš, že badge není vázaný na hustotu karty, a proto strop potřebuje.
+
+- [ ] **Krok 3: Popisek pauzy**
+
+Ř. 1197, dnes `fontSize: 10` → `typeScale.pauseLabel`. **Strop nepotřebuje** — kreslí se jen v segmentu vysokém aspoň 40 px (podmínka `seg.height >= 40`). Napiš to do komentáře, ať to příště nikdo „nedoplní".
+
+- [ ] **Krok 4: `SplitChip`**
+
+`src/components/SplitChip.tsx:35` — přidej komponentě prop `fontSize: number` a nahraď jím literál 10. Volající v `BlockCard.tsx` (ř. 863 kompaktní, ř. 1129 plný) předají `typeScale.splitChip`.
+
+- [ ] **Krok 5: Ověřit a commitnout**
 
 ```bash
 npx tsc --noEmit
 npx eslint src/components/planner/BlockCard.tsx src/components/SplitChip.tsx
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+git add -A && git commit -m "feat(planner): drobné štítky na kartě sledují stupeň písma"
 ```
 
-Očekávání: bez chyb, bez nových eslint nálezů, 977 testů (976 + 1 nový).
+Do reportu napiš, jaké velikosti vyjdou pro M a XL u všech čtyř prvků, a u badge poznámek navíc, od jaké výšky karty se strop přestane uplatňovat.
 
-- [ ] **Krok 7: Commit**
+---
+
+### Task 3: Hlavička stroje — pruh driftu a tlačítko
+
+**Files:**
+- Modify: `src/app/_components/TimelineGrid.tsx:1271` (pruh „⚠ N nesedí na kalendář"), `:1282` (tlačítko „Přepočítat")
+
+**Interfaces:**
+- Consumes: `typeScale.driftBadge` z Tasku 1.
+
+- [ ] **Krok 1: Nahradit obě velikosti**
+
+Oba prvky mají dnes `fontSize: 10` a sedí přímo vedle názvu stroje, který při `XL` roste na 16,2 px. Nahraď je `typeScale.driftBadge`.
+
+**Barvy nech být.** Jsou to pevné literály `#f59e0b`, `#1f2937` a `#fff` a mají zůstat — musí držet kontrast nezávisle na pozadí hlavičky v obou motivech.
+
+- [ ] **Krok 2: Ověřit dopad na výšku hlavičky**
+
+Průzkum spočítal, že výšku hlavičky dnes vždy určuje název stroje (řádkování 1,5 → 18 px při M, 24,3 při XL), zatímco pruh má 16 px a tlačítko 18 px. Po zvětšení na `driftBadge` bude pruh `10s × 1,4 + 2` a tlačítko `10s × 1,4 + 4`.
+
+Dopočítej pro M, L i XL, jestli některý z nich **přeroste název stroje** — tím by se změnila výška hlavičky a rozešla by se s konstantou, kterou řeší Task 7. Výsledek napiš do reportu jako tabulku. Pokud přeroste, **zastav se a ohlas to** místo abys pokračoval.
+
+- [ ] **Krok 3: Ověřit a commitnout**
 
 ```bash
-git add -A
-git commit -m "feat(planner): drobné štítky na kartě sledují stupeň písma"
+npx tsc --noEmit
+npx eslint src/app/_components/TimelineGrid.tsx
+node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+git add -A && git commit -m "feat(planner): pruh driftu a tlačítko Přepočítat sledují stupeň písma"
 ```
 
 ---
 
-### Task 2: Stropovat ikony v jednořádkovém layoutu
+### Task 4: Stropy v jednořádkovém layoutu
 
-Nález M7. V jednořádkovém layoutu má číslo zakázky strop `Math.min(typeScale.num * 0.92, layoutHeight * 0.7)`, ale ikony `Lock` a `Hourglass` vedle něj se počítají z `typeScale.num` bez stropu. Při `XL` a kartě 14 px vyjde číslo 9,8 px a zámek 12 px — **ikona je větší než číslo, které doprovází**.
+Průzkum opravil dvě věci proti původnímu zadání: `Clock` a zelená fajfka se v jednořádkovém layoutu **vůbec nekreslí** (jsou jen v kompaktním), zato tam **chybí stropy u značek `↻` a `✂`**, o kterých nikdo nevěděl.
 
 **Files:**
-- Modify: `src/components/planner/BlockCard.tsx` — jednořádkový layout (větev `MODE_TINY || MODE_MICRO_TEXT`)
+- Modify: `src/components/planner/BlockCard.tsx` — větev `MODE_TINY || MODE_MICRO_TEXT` (začíná ř. 884), konkrétně ikony na ř. 951 a značky na ř. 977 a 980
 
 **Interfaces:**
-- Consumes: `MICRO_CHIP_CAP_FACTOR`, `NUM_ICON_RATIO_MINOR` — existující konstanty v `BlockCard.tsx`.
-- Produces: nic.
+- Consumes: `MICRO_TEXT_CAP_FACTOR`, `NUM_ICON_RATIO_MINOR` — existující konstanty.
 
-- [ ] **Krok 1: Najít místo**
+- [ ] **Krok 1: Vytáhnout stropovanou velikost čísla do proměnné**
 
-Controller to už dohledal: `NUM_ICON_RATIO_MINOR` je definovaný na `BlockCard.tsx:73` jako `9 / DEFAULT_TS.num` a používá se na čtyřech místech — ř. 830 a 831 (kompaktní layout), **ř. 951 (jednořádkový layout, větev začínající na ř. 884)** a ř. 1008 (plný layout).
-
-Měníš **jen ř. 951**. V kompaktním a plném layoutu je karta dost vysoká na to, aby strop nikdy nezabral, takže by tam byl mrtvý kód — a mrtvý strop pod komentářem o stropování je přesně ten druh matoucí věci, který v minulé etapě stál review jeden nález.
-
-- [ ] **Krok 2: Zavést stropovanou velikost čísla jako proměnnou**
-
-V té větvi se dnes výraz `Math.min(typeScale.num * 0.92, layoutHeight * 0.7)` počítá přímo v `style`. Vytáhni ho nad `return` do proměnné, například:
+V té větvi se dnes výraz `Math.min(typeScale.num * 0.92, layoutHeight * MICRO_TEXT_CAP_FACTOR)` počítá přímo ve `style` na ř. 950. Vytáhni ho nad `return`:
 
 ```tsx
-        // Číslo i ikony vedle něj musí vycházet ze STEJNÉ velikosti, jinak je
-        // v nejnižším režimu ikona větší než číslo, které doprovází (XL @ 14 px:
-        // číslo 9,8 px, zámek 12 px).
-        const tinyNum = Math.min(typeScale.num * 0.92, layoutHeight * 0.7);
+        // Číslo i všechno, co ho doprovází, musí vycházet ze STEJNÉ velikosti.
+        // Jinak je v nejnižší hustotě ikona větší než číslo — při XL a kartě
+        // 14 px vycházel zámek 12 px proti číslu 9,8 px.
+        const tinyNum = Math.min(typeScale.num * 0.92, layoutHeight * MICRO_TEXT_CAP_FACTOR);
 ```
 
-a použij ji jak pro `fontSize` čísla, tak jako základ pro `size` ikon: `Math.round(tinyNum * NUM_ICON_RATIO_MINOR)`.
+- [ ] **Krok 2: Navázat ikony a značky na `tinyNum`**
 
-- [ ] **Krok 3: Ověřit dopočtem**
+- ř. 951 (`Lock`, `Hourglass`): `size={Math.round(tinyNum * NUM_ICON_RATIO_MINOR)}`
+- ř. 977 (`↻`) a ř. 980 (`✂`): `fontSize: tinyNum * 0.9`
 
-Do reportu napiš tabulku pro stupně M a XL a výšky karty 14, 20 a 29 px: velikost čísla, velikost ikony, a poměr ikona/číslo. Poměr musí být ve všech případech stejný jako v plném layoutu (`NUM_ICON_RATIO_MINOR`) a ikona nikdy větší než číslo.
+Značky dnes používají `typeScale.mini * 0.9` bez stropu, což při XL a kartě 14 px dá 10,6 px proti číslu 9,8 px.
+
+**Ostatních tří výskytů `NUM_ICON_RATIO_MINOR` se nedotýkej** — ř. 830 a 831 jsou kompaktní layout, ř. 1008 plný. Tam je karta dost vysoká a strop by byl mrtvý kód.
+
+- [ ] **Krok 3: Dopočítat kontrolní tabulku**
+
+Do reportu napiš tabulku pro stupně M, L a XL a výšky karty 14, 20 a 29 px: velikost čísla, velikost ikony, velikost značky. **V žádném řádku nesmí být ikona ani značka větší než číslo.**
 
 - [ ] **Krok 4: Ověřit a commitnout**
 
 ```bash
 npx tsc --noEmit
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
-git add -A
-git commit -m "fix(planner): ikony u čísla zakázky se v jednořádkovém layoutu stropují spolu s ním"
+git add -A && git commit -m "fix(planner): ikony a značky v jednořádkovém layoutu se stropují spolu s číslem"
 ```
 
 ---
 
-### Task 3: Srovnat sticky hlavičku a hustotu časové osy
+### Task 5: Čtvercové tlačítko „Hotovo" — nejdřív změřit
 
-Dva nálezy, oba v `TimelineGrid.tsx`, oba vznikly tím, že se pevná konstanta rozešla s obsahem, který se stupněm roste.
-
-**M8** — `HEADER_HEIGHT = 33` (`TimelineGrid.tsx:48`) pohání `top` sticky datumového štítku (`:1611`). Task 7 hlavní etapy odebral z hlavičky stroje třídu `text-xs`, čímž zmizel i její `line-height: 1rem`. Skutečná výška hlavičky je teď ~30,4 px při `M` a ~35,4 px při `XL`, takže se štítek při `XL` zasune ~2,4 px pod hlavičku.
-
-**M9** — `labelStep` (`TimelineGrid.tsx:1406`) ředí popisky hodin podle výšky slotu, ale nebere v potaz velikost jejich písma. Při zoomu 13 a stupni `XL` vyjde výška slotu 15 px, takže se popisky kreslí každou půlhodinu písmem 12,15 px v rozteči 15 px. Nepřekrývá se, ale je to hustší než na `M` — přesně opačný efekt, než jaký uživatel od zvětšení čeká.
+Průzkum zjistil, že `printDoneSize` vrací pro variantu `square` pevných `height: 26, fontSize: 15` nezávisle na výšce karty, zatímco karta může mít 14 px. **Než na to sáhneš, musíš zjistit, jestli je to reálná vada.**
 
 **Files:**
-- Modify: `src/app/_components/TimelineGrid.tsx:48`, `:1406`, `:1611`
+- Modify: `src/lib/tiskarBlockView.ts` (pouze pokud měření ukáže, že je zásah namístě)
+- Test: `src/lib/tiskarBlockView.test.ts`
 
 **Interfaces:**
-- Consumes: `typeScale.machineHead`, `typeScale.rail` — existující.
-- Produces: nic.
+- Consumes: `printDoneSize`, `PlannerTypeScale` — existující.
 
-- [ ] **Krok 1: Výšku hlavičky MĚŘIT, ne počítat**
+- [ ] **Krok 1: Zjistit, jaké výšky karty tiskař vůbec vidí**
 
-Původní verze tohoto plánu předepisovala vzorec `16 + typeScale.machineHead * 1.2`. **Je špatně a nepoužívej ho.** Hlavička stroje totiž není jen text: když má stroj bloky nesedící na kalendář, přibude do ní pruh „⚠ N nesedí na kalendář" a tlačítko „Přepočítat" (`TimelineGrid.tsx` kolem ř. 1264-1290), obojí s `lineHeight: 1.4` a vlastním odsazením. Hlavička je tedy vyšší, když je co přepočítat, a nižší, když ne — a to žádný vzorec z velikosti písma nezachytí. Právě proto je dnešní konstanta 33 vedle napočítaných ~30,4 px: byla nastavená na variantu s pruhem.
+Tohle je jádro úlohy. Zjisti a do reportu napiš:
 
-Nahraď konstantu **skutečně změřenou výškou**:
+1. **Má tiskař zoom slider?** Prohlédni tiskařskou hlavičku v `src/app/_components/PlannerPage.tsx` (větev `isTiskar && tiskarView === "plan"`). Průzkum tvrdí, že nemá — ověř to.
+2. **Odkud se pro něj bere výška slotu?** Sleduj `slotHeight` v `PlannerPage.tsx` — výchozí hodnota, načtení z `localStorage`, načtení ze serverové preference `zoom`. Může se u tiskaře dostat na jinou hodnotu než výchozí, když nemá slider?
+3. **Jaká je tedy nejnižší výška karty, kterou tiskař uvidí?** Nejkratší zakázka je 30 minut, tedy jeden slot. Spočítej to pro všechny tři stupně písma.
+4. **Padne ta výška do pásma, kde je čtvercové tlačítko větší než karta?** Tlačítko má 26 px.
 
-```tsx
-  const headerRef = useRef<HTMLDivElement>(null);
-  const [headerHeight, setHeaderHeight] = useState(33); // 33 = dnešní konstanta jako výchozí
-  useLayoutEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      setHeaderHeight(Math.ceil(entry.contentRect.height));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+**Pokud vyjde, že tiskař na pásmo pod 26 px nedosáhne**, zapiš to do reportu i s odůvodněním a **na kód nesahej** — vada je teoretická. Pak přeskoč na Krok 4.
+
+- [ ] **Krok 2: Přizpůsobit rozměr dostupnému místu**
+
+Jen pokud Krok 1 ukázal, že vada je reálná. Použij tentýž princip, jakým se právě opravil pruh: rozměr se přizpůsobí, tlačítko se nikdy nepřeskočí.
+
+```ts
+  const squareSide = Math.min(26, layoutHeight - 2);
 ```
 
-`headerRef` pověs na kontejner sticky hlavičky (ten, jehož výšku dnes konstanta 33 popisuje — najdi ho podle toho, že v něm je `<span>ČAS</span>` a bloky s názvy strojů) a `headerHeight` použij na ř. 1611 místo `HEADER_HEIGHT`. Starou konstantu smaž, až ověříš grepem, že ji nikdo jiný nepoužívá.
+a velikost písma úměrně (`15 × squareSide / 26`). Typ `PrintDoneSize` má u varianty `square` dnes `height: 26` jako literál — rozšiř na `number`, stejně jako se to udělalo u varianty `bar`.
 
-Měření je tu správná volba, ne lenost: výška závisí na stupni písma, na přítomnosti pruhu s driftem a na délce názvu stroje. Kterýkoliv vzorec by se dřív nebo později rozešel se skutečností — přesně jako ta dnešní třiatřicítka.
+**Pozor na použitelnost.** Tlačítko je cíl pro klik a u stroje možná pro dotyk. Pokud by adaptivní rozměr klesl pod ~20 px, **zastav se a ohlas to** — malé tlačítko je jiný druh vady než chybějící tlačítko a rozhodnutí o tom nepatří do implementace.
 
-**Pokud by se ukázalo, že `ResizeObserver` v tomhle místě způsobuje překreslovací smyčku** (sticky prvek uvnitř pozorovaného kontejneru), zastav se a nahlas to — raději necháme konstantu a zvětšíme ji o rezervu, než abychom do timeline zavlekli smyčku.
+- [ ] **Krok 3: Strážný test**
 
-- [ ] **Krok 2: Navázat ředění popisků na velikost jejich písma**
+Přidej test, který pro všechny tři stupně a výšky 0–200 px ověří, že vrácený rozměr tlačítka se vejde do karty: `size.height <= layoutHeight`. Do komentáře napiš odkaz na incident z 3. 8. 2026.
 
-Nahraď ř. 1406:
+- [ ] **Krok 4: Ověřit a commitnout**
+
+```bash
+npx tsc --noEmit
+node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+```
+
+Commituj jen tehdy, když z Kroku 1 vyšel zásah jako namístě. Jinak commitni jen zjištění do reportu a napiš do odpovědi, že se nic neměnilo.
+
+---
+
+### Task 6: Vrátit tiskaři pilulku rozdělené zakázky
+
+Průzkum ukázal, že tenhle nález je **výrazně větší, než review tvrdilo**. Před etapou kreslil kompaktní layout klikatelnou pilulku bezpodmínečně od 32 px výšky. Po etapě se karta od 46 px překlápí do plného layoutu, kde ji výškový rozpočet propustí až od 80 px. V pásmu **46–79 px** tak tiskaři zbyde jen neklikatelná textová značka `✂1/2`.
+
+Pilulka nese jméno partnerského stroje, stav (čeká / hotovo), čas — a hlavně **klik, kterým tiskař přeskočí na navazující blok na druhém stroji**.
+
+**Files:**
+- Modify: `src/components/planner/BlockCard.tsx` — podmínka renderu pilulky v plném layoutu (ř. 1129)
+
+**Interfaces:**
+- Consumes: `splitChipFits` — **NEUPRAVOVAT**, chrání tlačítko „Hotovo" a její rozpočet je správný.
+
+- [ ] **Krok 1: Zjistit, kam pilulku umístit**
+
+Prohlédni si strukturu plného layoutu a zjisti, kde v něm dnes pilulka je (ř. 1129) a proč se tam při nižší kartě nevejde. Do reportu napiš, jaké má karta v pásmu 46–79 px řádky a kolik místa v nich zbývá.
+
+Zvaž dvě cesty a v reportu doporuč jednu:
+- **(a)** pilulku v tom pásmu vykreslit na místo textové značky `✂` v pravém shluku prvního řádku — je kompaktnější a řádek už existuje;
+- **(b)** ponechat ji na dnešním místě, ale povolit ji i pod prahem rozpočtu.
+
+Cesta (b) je nebezpečná — rozpočet chrání tlačítko „Hotovo" a obcházet ho je přesně to, co vedlo k havárii z 3. 8. 2026. Pokud ji doporučíš, musíš doložit, že tlačítko zůstane celé viditelné.
+
+- [ ] **Krok 2: Implementovat doporučenou cestu**
+
+Textová značka `✂1/2` se v tom pásmu nahradí pilulkou, ne zdvojí — nesmí být obojí najednou.
+
+- [ ] **Krok 3: Ověřit dopočtem**
+
+Do reportu napiš tabulku pro stupně M, L a XL a výšky 46, 60, 79, 80 a 104 px: co se vykreslí (pilulka / textová značka / nic), a jestli je v téže kartě pořád vidět celé tlačítko „Hotovo".
+
+- [ ] **Krok 4: Ověřit a commitnout**
+
+```bash
+npx tsc --noEmit
+node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+git add -A && git commit -m "fix(tiskar): pilulka rozdělené zakázky i na nižších kartách"
+```
+
+---
+
+### Task 7: Časová osa a sticky hlavička — obojí přes prohlížeč
+
+Obě části téhle úlohy **nelze uzavřít dopočtem**. Vyžadují běžící aplikaci.
+
+**Files:**
+- Modify: `src/app/_components/TimelineGrid.tsx:48` (`HEADER_HEIGHT`), `:1406` (`labelStep`), `:1611` (použití konstanty)
+
+**Interfaces:**
+- Consumes: `typeScale.rail`, `typeScale.machineHead` — existující.
+
+- [ ] **Krok 1: Ověřit, jestli má sticky hlavička mít odstup vůbec**
+
+Průzkum zjistil, že hlavička **není uvnitř scrollovacího kontejneru** — je to jeho sourozenec. Sticky štítek dne s `top: HEADER_HEIGHT` si tedy rezervuje 33 px pod hlavičkou, ačkoliv s nulou by se zarovnal přesně pod ni. Není jasné, jestli je odstup záměr nebo pozůstatek po starší struktuře.
+
+**Ověř to v prohlížeči.** Nastav dočasně `top: 0` a porovnej se současným stavem: kde se štítek dne zastaví při scrollování, překrývá se s hlavičkou, nebo je pod ní mezera? Do reportu vlož obojí pozorování.
+
+Pokud je odstup zbytečný, **konstantu smaž** a použij `top: 0`. To je lepší výsledek než ji opravovat.
+
+- [ ] **Krok 2: Pokud je odstup záměrný, odvodit ho z písma**
+
+Průzkum dopočítal, že výšku hlavičky vždy určuje název stroje s řádkováním 1,5: `M` 18 px, `XL` 24,3 px, plus svislé odsazení 16 px a spodní hranice 1 px. Tedy `machineHead * 1.5 + 17` → `M` 35, `XL` 41,3. Dnešní konstanta 33 je tedy o 2 px vedle už na `M`.
+
+`ResizeObserver` **nepoužívej** — výška je deterministická a v projektu by to byl první výskyt.
+
+- [ ] **Krok 3: Navázat ředění popisků osy na velikost jejich písma**
+
+Dnešní `labelStep = slotHeight >= 14 ? 1 : slotHeight >= 7 ? 2 : slotHeight >= 4 ? 4 : 8` nebere v potaz, že písmo popisků roste. Naměřené hustoty:
+
+| Stupeň | Nejtěsnější případ | Rezerva |
+| --- | --- | --- |
+| M | výška slotu 14 | 5 px |
+| L | výška slotu 14 | 3,65 px |
+| XL | výška slotu 7 (zoom 6) | **1,85 px** |
+| XL | výška slotu 15 (zoom 13) | **2,85 px** |
+
+Nahraď podmínku tak, aby požadovala aspoň 5 px volného místa mezi popisky:
 
 ```tsx
-  // Popisky se ředí tak, aby mezi nimi zbylo aspoň 5 px volného místa. Práh
-  // musí vycházet z velikosti PÍSMA popisku, ne z holé výšky slotu — jinak se
-  // při vyšším stupni osa zahustí právě ve chvíli, kdy uživatel chtěl větší
-  // a přehlednější popisky.
+  // Popisky se ředí podle velikosti SVÉHO písma, ne podle holé výšky slotu.
+  // Jinak se osa při vyšším stupni zahustí právě tehdy, když uživatel chtěl
+  // větší a přehlednější popisky. Práh 5 px je dnešní minimum na stupni M.
   const minLabelPitch = typeScale.rail + 5;
   const labelStep = slotHeight >= minLabelPitch ? 1
     : slotHeight * 2 >= minLabelPitch ? 2
@@ -269,72 +365,56 @@ Nahraď ř. 1406:
     : 8;
 ```
 
-Dopočet pro kontrolu: `M` (`rail` 9) → práh 14, tedy shodné s dnešním chováním; `XL` (`rail` 12,15) → práh 17,15, takže při výšce slotu 15 se popisky ředí po dvou místo po jedné.
+Ověř dopočtem, že pro `M` (`rail` 9 → práh 14) vyjdou přesně dnešní hodnoty. Tabulku pro všechny tři stupně a dosažitelné výšky slotu napiš do reportu.
 
-- [ ] **Krok 3: Ověřit dopočtem**
+- [ ] **Krok 4: Ověřit rastr v prohlížeči**
 
-Do reportu napiš tabulku: pro stupně `M`, `L`, `XL` a pro výšky slotu 3, 5, 8, 13, 15, 20, 29 uveď `labelStep`, výslednou rozteč a rezervu proti velikosti písma. Rezerva nesmí být nikde záporná a pro `M` musí vyjít stejné hodnoty jako dnes.
+**Tohle nesmíš přeskočit.** Průzkum zjistil, že `labelStep` neřídí jen text popisků, ale i **vodorovné čáry mřížky** (hodinové i půlhodinové). Změna prahu tedy překreslí celý rastr.
 
-- [ ] **Krok 4: Ověřit a commitnout**
+Podívej se v prohlížeči na stupeň `XL` při zoomu 6 a 13 před změnou a po ní. Do reportu napiš, jestli rastr po přeředění vypadá dobře, nebo jestli vznikly příliš velké mezery mezi čarami.
+
+- [ ] **Krok 5: Ověřit a commitnout**
 
 ```bash
 npx tsc --noEmit
 npx eslint src/app/_components/TimelineGrid.tsx
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
-git add -A
-git commit -m "fix(planner): sticky hlavička a ředění popisků osy sledují stupeň písma"
+git add -A && git commit -m "fix(planner): sticky hlavička a ředění popisků osy podle stupně písma"
 ```
 
 ---
 
-### Task 4: Tři hraniční případy
-
-Nálezy M12, M14, M15. Všechny tři jsou úzké případy, u kterých je potřeba nejdřív ověřit, jestli vůbec nastávají, a teprve pak zasahovat.
+### Task 8: Dokumentace
 
 **Files:**
-- Modify: `src/components/planner/BlockCard.tsx` (podle zjištění)
-- Modify: `src/lib/tiskarBlockView.ts` (jen pokud M12 vyjde jako reálný)
+- Modify: `docs/vyvoj-historie.md`
+- Modify: `CLAUDE.md` (jen pokud z předchozích úloh vzešla nová konvence)
 
-**Interfaces:**
-- Consumes: `splitChipFits`, `typeScale` — existující.
-- Produces: nic.
+- [ ] **Krok 1: Doplnit historii**
 
-- [ ] **Krok 1: M12 — ztráta pilulky rozdělené zakázky v pásmu 46–47 px**
+Do `docs/vyvoj-historie.md` přidej k sekci z 12. 8. 2026 dovětek o dotažení. Uveď:
+- co se doškálovalo a proč (drobné štítky rostly o 0 %, zatímco číslo zakázky o 35 %),
+- že se tiskaři vrátila pilulka rozdělené zakázky,
+- výsledek měření u čtvercového tlačítka (opraveno / vyhodnoceno jako teoretické),
+- výsledek ověření sticky hlavičky (konstanta smazána / odvozena z písma).
 
-Při stupni `M` byl blok o výšce 46–47 px dřív v kompaktním režimu, který kreslil klikatelnou pilulku rozdělené zakázky (partner, stav, proklik). Nově je v plném layoutu, kde `splitChipFits(46, bar24, 0)` vrací `false`, takže pilulka zmizí a zůstane jen textové `✂1/2`.
+- [ ] **Krok 2: Zapsat známé omezení**
 
-**Tenhle případ je POTVRZENĚ REÁLNÝ, ne teoretický** — controller to dopočítal při ověřování plánu: při stupni `M` a `slotHeight` 23 má hodinová zakázka přesně 46 px. Je to jediná taková kombinace (47 px nevyjde, protože hodinový blok je vždy sudý násobek výšky slotu), ale zoom 23 je běžná hodnota. Nezdržuj se tedy ověřováním, jestli stav nastává, a rovnou ho oprav.
+Do téže sekce přidej odstavec:
 
-Oprav to tak, že se pilulka vykreslí i v plném layoutu, když se vejde. Neměň `splitChipFits` — ta chrání tlačítko „Hotovo" a její rozpočet je správný. Místo toho v `BlockCard.tsx` ověř, jestli se v plném layoutu pilulka vůbec pokouší vykreslit, a případně uprav podmínku tak, aby v pásmu, kde se vejde, byla.
+> **Známé omezení:** při stupni `XL` se na obrazovkách do 1366 px ořízne čtvrtý datumový chip (Pantone); od 1600 px se vejde. Řádek chipů se záměrně nezalamuje. Řešení odloženo (rozhodl Vojta 12. 8. 2026).
 
-- [ ] **Krok 2: M14 — oříznutí čtvrtého chipu na úzkém sloupci**
-
-Řádek datumů má `flexWrap: nowrap` a `overflow: hidden`, takže při `XL` a úzkém sloupci se čtvrtý chip (Pantone) ořízne. Bylo vědomě rozhodnuto, že se chipy zalamovat nebudou.
-
-Ověř, při jaké šířce sloupce k tomu dochází: sečti šířky čtyř chipů při `XL` (odhad `fontSize × 0,55 × počet znaků + padding + rámeček`) a porovnej se šířkou sloupce na obrazovkách 1366, 1680 a 1920 px (sloupec = `(šířka − šířka panelu fronty − 46) / 2`; panel má výchozích 320 px, ale je roztažitelný 200–600).
-
-Do reportu napiš, od jaké šířky sloupce se chip ořízne. **Neopravuj to** — jen zjisti a nahlas. Pokud vyjde, že se ořezává už na běžném notebooku, navrhni v reportu možnosti (zkrátit text chipu, snížit velikost chipů při úzkém sloupci, povolit zalomení) a nech rozhodnutí na majiteli.
-
-- [ ] **Krok 3: M15 — riziko zalomení pravého shluku**
-
-Pravý shluk v řádku 1 plného layoutu má `flexWrap: "wrap"`. Když se zalomí na dva řádky, řádek 1 povyroste zhruba o výšku jednoho mini-chipu a na kartě u prahu plného layoutu se ořízne řádek datumů.
-
-Ověř: kolik mini-chipů se tam může sejít (materiál, barvy, lak = tři) plus značka opakování a značka rozdělení, jaké jsou reálné délky štítků z číselníku (`CodebookOption`), a jestli součet jejich šířek může při `XL` a úzkém sloupci přesáhnout dostupnou šířku.
-
-Pokud ano, nejjednodušší pojistka je `flexWrap: "nowrap"` plus `overflow: hidden` na tom shluku — chipy se pak ořežou vodorovně místo aby rozbily výšku řádku. Zvaž to a rozhodnutí i s odůvodněním napiš do reportu; implementuj jen tehdy, když ověříš, že situace reálně nastává.
-
-- [ ] **Krok 4: Ověřit a commitnout**
+- [ ] **Krok 3: Commit**
 
 ```bash
-npx tsc --noEmit
-node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+git add -A && git commit -m "docs: dotažení čitelnosti timeline + známé omezení šířky"
 ```
-
-Commituj jen tehdy, když z kroků 1–3 vzešla nějaká změna kódu. Pokud všechny tři nálezy vyjdou jako teoretické, commitni jen doplnění zjištění do `docs/vyvoj-historie.md` u sekce z 12. 8. 2026 se zprávou `docs: hraniční případy karty bloku ověřeny jako teoretické`.
 
 ---
 
-## Co se v tomto plánu záměrně NEŘEŠÍ
+## Co tento plán záměrně neřeší
 
-- **Rok v datu na kartě.** Plný layout ukazoval `13.08.26`, nově `13.8.` — na přelomu roku je to nejednoznačné. Plné datum je v tooltipu. Je to vědomé rozhodnutí ze specu hlavní etapy, ne nedopatření; změna by chtěla vlastní rozvahu.
-- **Tlačítko „Hotovo" v tiskařském režimu při L/XL.** Ověřené dopočtem a strážným testem, ale ne okem — v dev databázi nemá tiskař ve svém okně žádnou zakázku. Patří to do proklikání před nasazením, ne do kódové úlohy.
+- **Ořez chipu Pantone na úzkých obrazovkách** — odloženo rozhodnutím majitele.
+- **Ořez čísla zakázky, když je pravý shluk dlouhý** — předexistující chování flexboxu, se stupni písma souvisí jen okrajově.
+- **Prahy `height >= 18` a `h >= 14`** u popisků firemního dne a časů v zamčeném bloku — táž třída vady, ale obsah se stupněm neroste, takže nevzniká nekonzistence. Zůstává jako zapsaný dluh.
+- **Rok v datu na kartě** — rozhodnutí předchozího specu.

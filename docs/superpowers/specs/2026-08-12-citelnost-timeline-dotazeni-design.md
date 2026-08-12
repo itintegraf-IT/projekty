@@ -41,7 +41,6 @@ Průzkum vytvořil úplný soupis. Škálovat se budou tyto prvky, protože stoj
 
 | Prvek | Důvod |
 | --- | --- |
-| Čtvercové tlačítko „Hotovo" (`square`) | Má **pevný box 26 × 26 px** nezávislý na velikosti písma. Zvětšit v něm písmo z 15 na 20 px by znamenalo přetečení. Buď se škáluje i box, nebo nic — a škálovat box je samostatná úvaha, ne drobnost. |
 | Popisek „✓ Hotovo HH:MM" u pruhu | Má vlastní strop `Math.min(size.fontSize, 13)`, vědomou ochranu proti přetečení v úzkém sloupci. Jeho zrušení je rozhodnutí, ne úklid. |
 | Tooltip karty, popover poznámky MTZ, kontextové menu | Žijí mimo kartu, portálované do `document.body` s vlastní pevnou šířkou. Se stupněm písma na timeline nesouvisí. |
 | Produkční chip — **jeho `maxWidth: 132 px`** | Šířka se odvodí z písma spolu s ním, jinak se s rostoucím textem ořízne dřív. |
@@ -130,7 +129,12 @@ Průzkum spočítal skutečné šířky sloupce stroje z reálného layoutu (osa
 
 **Vizuální ověření je součástí zadání, ne bonus.** Tři body (osa a rastr, sticky hlavička, pilulka u tiskaře) nelze uzavřít dopočtem.
 
-## Otevřené body pro Vojtu
+## Rozhodnutí Vojty (12. 8. 2026)
 
-1. **Čtvercové tlačítko „Hotovo" v kartě 14 px** — chceš ho řešit v této etapě, nebo zvlášť? Je to předexistující vada, ale je v tiskařské cestě.
-2. **Ořez chipu Pantone na 1366px obrazovkách při `XL`** — stačí zapsat jako známé omezení, nebo chceš, aby se s tím něco dělalo? Pracuje někdo z plánovačů na notebooku s takovou obrazovkou?
+**Čtvercové tlačítko „Hotovo" se řeší v této etapě.** Je to sice předexistující dluh nesouvisející se stupni písma, ale leží v tiskařské cestě, kde už dvakrát vznikla vážná vada.
+
+Zásah **začne měřením, ne opravou.** Průzkum ukázal, že tlačítko má pevný box 26 × 26 px, zatímco karta může mít 14 px. Než se sáhne na kód, musí být zodpovězeno: jaké výšky karty tiskař ve skutečnosti vidí? Tiskař **nemá zoom slider** (jeho hlavička je záměrně minimální), takže výška slotu je u něj daná uloženou preferencí, typicky výchozích 26 — pak je nejnižší karta 26 px, ne 14. Jestli je pásmo 14–25 px pro tiskaře vůbec dosažitelné, rozhoduje o tom, jestli jde o reálnou vadu nebo o teoretickou.
+
+Řešení bude analogické opravě pruhu: **rozměr se přizpůsobí dostupnému místu** místo aby se tlačítko přeskočilo. Musí ale zůstat rozumným cílem pro klik — pokud by adaptivní velikost klesla pod použitelnou mez, je to zjištění k ohlášení, ne k tichému zmenšení na nepoužitelný čtvereček.
+
+**Chip Pantone se v této etapě neopravuje**, zapíše se jako známé omezení a vyřeší se později. Text omezení pro dokumentaci: *při stupni `XL` se na obrazovkách do 1366 px ořízne čtvrtý datumový chip (Pantone); od 1600 px se vejde. Řešení odloženo.*
