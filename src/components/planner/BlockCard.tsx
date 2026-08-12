@@ -913,6 +913,10 @@ export function BlockCard({
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
         const pIcon = pantoneEffectiveState === "ok" ? " ✓" : pantoneEffectiveState === "danger" ? " ✕" : pantoneEffectiveState === "warning" ? " !" : pantoneEffectiveState === "earlyStart" ? " ⚠" : "";
+        // Číslo i všechno, co ho doprovází, musí vycházet ze STEJNÉ velikosti.
+        // Jinak je v nejnižší hustotě ikona větší než číslo — při XL a kartě
+        // 14 px vycházel zámek 12 px proti číslu 9,8 px.
+        const tinyNum = Math.min(typeScale.num * 0.92, layoutHeight * MICRO_TEXT_CAP_FACTOR);
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 4, paddingTop: 0, paddingBottom: 0, paddingLeft: (block.locked || isUnconfirmedReservation) ? 28 : 8, paddingRight: hasTiskarNotes ? 44 : 8, ...contentBoxFlex, overflow: "hidden", minHeight: 0 }}>
             {/* Levá část: datum chips + číslo + popis */}
@@ -957,8 +961,8 @@ export function BlockCard({
                 )}
                 <div style={{ width: 1, height: 10, background: "var(--border)", flexShrink: 0 }} />
               </>}
-              <span style={{ fontSize: Math.min(typeScale.num * 0.92, layoutHeight * MICRO_TEXT_CAP_FACTOR), fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
-                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
+              <span style={{ fontSize: tinyNum, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
+                {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={Math.round(tinyNum * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(tinyNum * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
               </span>
               {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -984,10 +988,10 @@ export function BlockCard({
                   {block.barvyStatusLabel    && <MiniChip label={block.barvyStatusLabel}    accent={barvyAccent} textColor={barvyText ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
                   {block.lakStatusLabel      && <MiniChip label={block.lakStatusLabel}      accent={lakAccent}   textColor={lakText   ?? undefined} fontSize={Math.min(typeScale.mini, layoutHeight * MICRO_CHIP_CAP_FACTOR)} />}
                   {(block.recurrenceType !== "NONE" || block.recurrenceParentId !== null) && (
-                    <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
+                    <span style={{ fontSize: tinyNum * 0.9, opacity: 0.4, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>↻</span>
                   )}
                   {(splitTotal ?? 0) > 1 && (
-                    <span style={{ fontSize: typeScale.mini * 0.9, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
+                    <span style={{ fontSize: tinyNum * 0.9, opacity: 0.55, color: s.textSub, flexShrink: 0, lineHeight: 1 }}>✂{splitPart}/{splitTotal}{(splitTotalMinutes ?? 0) > 0 ? ` · ${formatPrintHoursShort(splitTotalMinutes!)}` : ""}</span>
                   )}
                 </div>
               )}
