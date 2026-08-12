@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/context-menu";
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
-import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits } from "@/lib/tiskarBlockView";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, tiskarDescClampsToOneLine } from "@/lib/tiskarBlockView";
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
 import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
 
@@ -524,9 +524,19 @@ export function BlockCard({
   // NEshodují přesně — liší se při výšce 65 a 94 px a od 107 px výš dává nový vzorec
   // soustavně o 1 řádek méně (dělitel teď sedí na skutečnou výšku řádku popisu, ne na
   // odhad). Jde o věcné zlepšení, ne regresi — jen to není bezezbytkově „stejné".
-  const descLineClamp = layoutHeight < typeScale.thresholds.full * 1.4
+  //
+  // U TISKAŘE s pásem specifikace na kartě (`hasSpecBand`, spočítané VÝŠ, ať je
+  // závislost přímá, ne oklikou) popis ustupuje na 1 řádek bez ohledu na výšku
+  // karty — rozhodnutí majitele (task 5d, 12. 8. 2026): tiskař potřebuje
+  // specifikaci a tlačítko Hotovo víc než dlouhý popis (ten zůstává dostupný
+  // v tooltipu). Tím se zároveň VYNUCUJE jednořádkový předpoklad, na kterém
+  // `specBandFits` počítá Řádek 1 — viz `tiskarDescClampsToOneLine`
+  // (`tiskarBlockView.ts`) pro celé zdůvodnění a `specBandFits`ův docstring.
+  const descLineClamp = tiskarDescClampsToOneLine(isTiskar, hasSpecBand)
     ? 1
-    : Math.max(2, Math.floor((layoutHeight - typeScale.thresholds.full - 7) / Math.round(typeScale.desc * 1.3)));
+    : layoutHeight < typeScale.thresholds.full * 1.4
+      ? 1
+      : Math.max(2, Math.floor((layoutHeight - typeScale.thresholds.full - 7) / Math.round(typeScale.desc * 1.3)));
 
   const opacity = dimmed ? 0.12 : isDragging ? 0.72 : 1;
   const glow = s.glow;

@@ -147,23 +147,24 @@ export function splitChipFits(
  * rezervy pro SplitChip navíc — tady se ptáme, jestli se vejde pás SAMOTNÝ
  * spolu s tlačítkem, ne jestli po nich zbyde místo na něco dalšího.
  *
- * **Záruka platí jen pro JEDNOŘÁDKOVÝ popis** (`descLineClamp === 1`) — přesně
- * stejná, dřív zdokumentovaná mezera jako u `specFitsBand` v `BlockCard.tsx`
- * (komentář kolem ř. 486–490 tam), jen s JINÝM důsledkem. `ts.rowHeights.header`
- * použité tady je odhad Řádku 1 pro jednořádkový popis; víceřádkový popis
- * (`descLineClamp >= 2`, nastává, jakmile `layoutHeight >= thresholds.full ×
- * 1,4` — na M od 64,4 px, tedy prakticky v CELÉM pásmu, kde se pás specifikace
- * u tiskaře vůbec kreslí, viz `tiskarSpecMin`) zvedne Řádek 1 v DOM o cca
- * 12,4 px nad tenhle odhad. Funkce to nepočítá a `true` tak může vyjít, i
- * když se tlačítko Hotovo ve skutečnosti neveje — přepočet (review 12. 8. 2026)
- * dává přetečení pruhu o ~12,9 px na M / ~14,7 px na L / ~17,1 px na XL.
+ * **Záruka předpokládá JEDNOŘÁDKOVÝ popis** (`descLineClamp === 1`) —
+ * `ts.rowHeights.header` použité tady je odhad Řádku 1 přesně pro tenhle
+ * případ. Do task 5d (12. 8. 2026) to byla jen NADĚJE, ne vynucený předpoklad:
+ * `descLineClamp` mohl u tiskaře vyjít `>= 2` (nastávalo to prakticky v CELÉM
+ * pásmu, kde se pás specifikace u tiskaře vůbec kreslí, viz `tiskarSpecMin`),
+ * Řádek 1 pak v DOM přerostl tenhle odhad o ~12,4 px a pruh Hotovo mohl
+ * přetéct (~12,9/14,7/17,1 px M/L/XL) i když `specBandFits` vrátila `true`.
  *
- * Je to PŘEDEXISTUJÍCÍ mezera (funkce ji nezavádí, jen ji nezavírá) a VĚDOMĚ
- * NEOPRAVENÁ — dopočítat víceřádkový popis by znamenalo přepsat odhad výšky
- * Řádku 1, a cena je zmizení pásu specifikace ze širokého pásma výšek. Jestli
- * má `specBandFits` zohledňovat `descLineClamp`, je rozhodnutí majitele, ne
- * tichá oprava odsud. Kdo tuhle funkci používá, ať s touhle mezerou počítá,
- * ne aby ji objevil znovu.
+ * **Rozhodnutí majitele (task 5d, 12. 8. 2026): ustupuje POPIS, ne pás.**
+ * Tiskař potřebuje specifikaci (to je to, co má tisknout) a tlačítko Hotovo
+ * (jediná cesta, jak odklepne tisk) víc než dlouhý popis. Předpoklad je teď
+ * VYNUCENÝ na straně volajícího, ne jen doufaný: `BlockCard.tsx` omezuje
+ * `descLineClamp` na `1`, kdykoliv `isTiskar && hasSpecBand`, přes pomocnou
+ * funkci `tiskarDescClampsToOneLine` (níž v tomhle souboru) — `hasSpecBand` se
+ * tam počítá (a musí počítat) DŘÍV, než se `descLineClamp` použije, aby
+ * závislost byla přímá, ne oklikou. Dokud volající tenhle kontrakt dodržuje,
+ * je záruka bezvýhradná — žádná známá mezera nezbývá (ověřeno sweepem, viz
+ * `specBandFits: sweep…` testy v `tiskarBlockView.test.ts`).
  */
 export function specBandFits(
   layoutHeight: number,
@@ -174,6 +175,31 @@ export function specBandFits(
   const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
   const specReserve = specRows === 2 ? ts.rowHeights.spec2 : ts.rowHeights.spec1;
   return ts.rowHeights.header + specReserve + barReserve <= layoutHeight;
+}
+
+/**
+ * Smí mít popis u TISKAŘE víc než jeden řádek, když je na kartě pás
+ * specifikace?
+ *
+ * Rozhodnutí majitele (task 5d, 12. 8. 2026): NE — ustupuje popis, ne pás.
+ * Tiskař potřebuje specifikaci (to je to, co má tisknout) a tlačítko Hotovo
+ * (jediná cesta, jak odklepne tisk) víc než dlouhý popis; ten se u tiskaře
+ * zkrátí na jeden řádek elipsou a zůstane dostupný v tooltipu (`BlockCard.tsx`
+ * kreslí popis, tahle funkce jen rozhoduje POČET řádků).
+ *
+ * Volající (`BlockCard.tsx`, `descLineClamp`) tím VYNUCUJE jednořádkový
+ * předpoklad, na kterém `specBandFits` výš počítá Řádek 1
+ * (`ts.rowHeights.header`) — do téhle opravy to byla jen NADĚJE (viz historie
+ * v docstringu `specBandFits`): dvouřádkový popis mohl Řádek 1 v DOM zvednout
+ * nad odhad a pruh Hotovo přetéct. Rozpočet teď říká pravdu, ne se jen stává
+ * konzervativnějším.
+ *
+ * `hasSpecBand` (volající strana) MUSÍ být spočítaná DŘÍV, než se použije
+ * výsledek týhle funkce pro `descLineClamp` — jinak by závislost šla oklikou
+ * a pořadí by nebylo z kódu čitelné.
+ */
+export function tiskarDescClampsToOneLine(isTiskar: boolean | undefined, hasSpecBand: boolean): boolean {
+  return !!isTiskar && hasSpecBand;
 }
 
 /**

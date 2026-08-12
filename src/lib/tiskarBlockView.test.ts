@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, PRINT_BAR_PADDING_PX } from "./tiskarBlockView.js";
+import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, tiskarDescClampsToOneLine, PRINT_BAR_PADDING_PX } from "./tiskarBlockView.js";
 import { plannerTypeScale } from "./plannerTypography";
 
 test("printDoneSize: vysoký blok (≥140 px) = pruh 40 px", () => {
@@ -363,6 +363,81 @@ test("specBandFits: sweep 0–220 px po 0,5 px — nezávislý geometrický mode
         );
       }
     }
+  }
+});
+
+// ── tiskarDescClampsToOneLine (task 5d) ──────────────────────────────────────
+// Rozhodnutí majitele 12. 8. 2026: u tiskaře s pásem specifikace na kartě
+// ustupuje POPIS (na 1 řádek), ne pás. Tím se jednořádkový předpoklad, na
+// kterém `specBandFits` počítá Řádek 1, mění z NADĚJE na VYNUCENÝ kontrakt.
+
+test("tiskarDescClampsToOneLine: omezuje jen tiskaře S vykresleným pásem specifikace", () => {
+  assert.equal(tiskarDescClampsToOneLine(true, true), true, "tiskař + pás → omezit na 1 řádek");
+  assert.equal(tiskarDescClampsToOneLine(true, false), false, "tiskař bez pásu → normální počet řádků, nic se neomezuje");
+  assert.equal(tiskarDescClampsToOneLine(false, true), false, "plánovač (ne-tiskař) s pásem → nedotčeno, `specFitsBand` má vlastní, VĚDOMĚ neopravenou mezeru");
+  assert.equal(tiskarDescClampsToOneLine(undefined, true), false, "isTiskar undefined (BlockCard bez role) → nedotčeno, stejně jako false");
+});
+
+test("STRÁŽNÝ TEST 5d — mezera „specBandFits předpokládá jednořádkový popis“ je u tiskaře uzavřená ve VŠECH kombinacích, ne jen posunutá (sweep 0–220 px po 0,5 px, M/L/XL, specRows 1 i 2)", () => {
+  // Dokládá, že oprava mezeru DOOPRAVDY zavírá, ne že ji jen posouvá:
+  // 1) reprodukuje PŮVODNÍ (needopravený) vzorec `descLineClamp` z
+  //    `BlockCard.tsx` (před task 5d) a ukazuje, že v pásmu, kde `specBandFits`
+  //    vrátí `true`, by starý vzorec vrátil >= 2 řádky (popis by tedy Řádek 1
+  //    reálně zvedl nad odhad, který `specBandFits` používá — přesně
+  //    zdokumentovaná mezera z docstringu `specBandFits`, task 5b);
+  // 2) ověřuje, že `tiskarDescClampsToOneLine` v TÉŽE kombinaci vrátí `true`
+  //    (BlockCard.tsx tedy použije 1, ne starou hodnotu);
+  // 3) s vynuceným 1řádkovým Řádkem 1 přepočítá nezávislý geometrický model
+  //    (stejný jako u `specBandFits: sweep…` výš) a ověří, že se pruh Hotovo
+  //    doopravdy vejde — beze zbytku, ne jen "líp než dřív".
+  //
+  // Pokud by tenhle test spadl, znamená to buď že `tiskarDescClampsToOneLine`
+  // přestala pásmo pokrývat, nebo že i s vynuceným 1 řádkem přetéká — obojí by
+  // znamenalo, že mezera z reportu 5b zůstala otevřená (nebo se jen posunula).
+  const TOLERANCE_PX = 0.7; // stejná tolerance a stejný důvod jako `specBandFits: sweep…` výš
+  const oldDescLineClamp = (h: number, ts: ReturnType<typeof plannerTypeScale>): number =>
+    h < ts.thresholds.full * 1.4
+      ? 1
+      : Math.max(2, Math.floor((h - ts.thresholds.full - 7) / Math.round(ts.desc * 1.3)));
+
+  for (const key of ["M", "L", "XL"] as const) {
+    const ts = plannerTypeScale(key);
+    let sawOldMultilineInSpecBandZone = false;
+
+    for (let h = ts.thresholds.full; h <= 220; h += 0.5) {
+      const printDone = printDoneSize(h, ts);
+      for (const specRows of [1, 2] as const) {
+        const hasSpecBandNow = specBandFits(h, printDone, specRows, ts);
+        if (!hasSpecBandNow) continue;
+
+        const oldClamp = oldDescLineClamp(h, ts);
+        if (oldClamp >= 2) sawOldMultilineInSpecBandZone = true;
+
+        // 2) oprava pásmo doopravdy pokrývá
+        const clampsToOne = tiskarDescClampsToOneLine(true, hasSpecBandNow);
+        assert.equal(
+          clampsToOne, true,
+          `${key} @ ${h}px specRows=${specRows}: hasSpecBand=true, ale tiskarDescClampsToOneLine nevynucuje 1 řádek`
+        );
+        const actualClamp = clampsToOne ? 1 : oldClamp;
+
+        // 3) s vynuceným řádkem se tlačítko doopravdy vejde
+        const row1 = 8 + Math.max(ts.num * 1.2, ts.desc * 1.3 * actualClamp);
+        const specBox = (0 + 3) + (2 + 2) + ts.spec * 1.3 * specRows;
+        const barReserve = printDone?.variant === "bar" ? printDone.height + PRINT_BAR_PADDING_PX : 0;
+        assert.ok(
+          row1 + specBox + barReserve <= h + TOLERANCE_PX,
+          `${key} @ ${h}px specRows=${specRows}: i po opravě (actualClamp=${actualClamp}) nezávislý model (řádek1 ${row1.toFixed(2)} + pás ${specBox.toFixed(2)} + pruh ${barReserve}) přerůstá kartu (${h}px)`
+        );
+      }
+    }
+
+    // Sanitní kontrola testu samotného: pásmo, které oprava řeší, musí být
+    // neprázdné — jinak by test 2)/3) výš procházel naprázdno a nic neověřil.
+    assert.ok(
+      sawOldMultilineInSpecBandZone,
+      `${key}: sweep nenašel ŽÁDNOU výšku, kde by starý vzorec vracel >= 2 řádky uvnitř pásma s pásem specifikace — test by byl bezzubý`
+    );
   }
 });
 
