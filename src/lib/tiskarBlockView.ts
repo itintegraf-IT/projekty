@@ -92,17 +92,25 @@ export function printDoneSize(layoutHeight: number, ts: PlannerTypeScale = DEFAU
   if (layoutHeight >= mid) return { variant: "bar", height: 32, fontSize: Math.round(14 * ts.fontFactor) };
   if (layoutHeight >= barThreshold) {
     const height = Math.min(24, layoutHeight - ts.rowHeights.header - PRINT_BAR_PADDING_PX);
-    // Strop `height - 6` je nutný ve stejném smyslu jako u čtverce níž: pruh v
-    // tomhle pásmu má DOPOČÍTANOU výšku z dostupného místa (viz `height` výš),
-    // takže popisek nesmí přerůst vlastní pruh. Bez stropu by na M těsně nad
-    // `barThreshold` (height 15 px) 12 px popisek do 15px pruhu ještě vešel, ale
-    // na kartě jen o pár pixelů nižší už ne — a `overflow: hidden` by ho oříznul,
-    // stejná třída chyby jako u čtverce (task 5b). Nález review 8/2026 (viz
-    // docstring funkce výš): tahle větev dřív vracela `fontSize: 11.5` napevno,
-    // zatímco sousední větve (32/40 px) rostou s `ts.fontFactor` — rozešlo se to
-    // s vlastním docstringem funkce, který růst s písmem slibuje bez výhrady.
-    // STRÁŽNÝ TEST 9 (`tiskarBlockView.test.ts`) hlídá obě věci napříč M/L/XL.
-    return { variant: "bar", height, fontSize: Math.min(Math.round(11.5 * ts.fontFactor), height - 6) };
+    // Nález review 8/2026 (viz docstring funkce výš): tahle větev dřív vracela
+    // `fontSize: 11.5` napevno, zatímco sousední větve (32/40 px) rostou s
+    // `ts.fontFactor` — rozešlo se to s vlastním docstringem funkce, který růst
+    // s písmem slibuje bez výhrady. Oprava (task 9, 12. 8. 2026) NESMÍ se ale
+    // pomocí `Math.round` posunout na M (produkce dnes vidí přesně 11,5) — proto
+    // BEZ zaokrouhlení, na rozdíl od sousedních větví (jejich výchozí hodnoty 14
+    // a 16 jsou celá čísla, tady je výchozí hodnota půlka).
+    //
+    // Strop `height * 0,8` je obrana do hloubky, ne aktivní omezení: tlačítko je
+    // flex kontejner s `alignItems: "center"` a jedním řádkem textu, řádkový box
+    // zabere cca `fontSize × 1,2` (line-height), tedy `fontSize ≤ height / 1,2 ≈
+    // height × 0,833` — voleno 0,8 pro rezervu. Na žádné dosažitelné výšce v
+    // tomhle pásmu strop NESVÁŽE (M 11,5 proti height×0,8 ∈ [12; 19,2], L 13,225
+    // proti [13,6; 19,2], XL 15,525 proti [16,8; 19,2] — ověřeno dopočtem,
+    // task-9-report.md) — je to pojistka proti budoucí regresi (např. zúžení
+    // `rowHeights.header`), ne řešení dnešního přetečení. STRÁŽNÝ TEST 9
+    // (`tiskarBlockView.test.ts`) hlídá jak návrat k zaokrouhlování/pevné
+    // hodnotě, tak zrušení stropu, tak že se M nikde nehne od 11,5.
+    return { variant: "bar", height, fontSize: Math.min(11.5 * ts.fontFactor, height * 0.8) };
   }
   if (layoutHeight >= ts.thresholds.micro) {
     const squareSide = Math.max(MIN_CARD_CONTENT_HEIGHT_PX, Math.min(26, layoutHeight - 2));
