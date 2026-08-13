@@ -2,6 +2,84 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Kontrolní panel — přesnost a čitelnost (13. 8. 2026)
+
+Vojta otevřel Kontrolní panel na ostrých datech a viděl `Split-skupina s méně než
+2 bloky: 9`. Nešel otevřít seznam, nešlo poznat, co to znamená, a nešlo s tím nic
+udělat. Průzkum nad produkční DB ukázal, že nešlo o vadu UI, ale o **chybu
+v zadání kontroly**.
+
+Spec: `docs/superpowers/specs/2026-08-13-kontrolni-panel-presnost-citelnost-design.md`
+· plán: `docs/superpowers/plans/2026-08-13-kontrolni-panel-presnost-citelnost.md`
+
+### Co ukázala produkční data
+
+Z 24 split-skupin bylo 10 podměrečných (9 jednočlenných, 1 prázdná). Černá skříňka
+(`BlockRevision`) vysvětlila 8 z 10 přímo a ve **všech** případech šlo o týž vzorec:
+plánovač rozdělil zakázku a jednu z půlek pak smazal. U skupiny 1237 vznikl ocas
+a **o 6 sekund později** byl smazaný — oprava překliku. Zbylých 10 integritních
+kontrol hlásilo samé nuly, takže celý červený odznak Reportů svítil kvůli jediné
+kontrole, která měřila, kolikrát se plánovač rozmyslel.
+
+Osamocený blok přitom nic nerozbíjí: **každý** konzument `splitGroupId` se ptá na
+počet sourozenců, ne na existenci skupiny (pilulka „1/2", Σ tisku, panel „Druhá
+část", chip partnera u tiskaře, propagace sdílených polí). A samo se to uzdraví —
+další rozdělení téhož bloku skupinu převezme.
+
+### Změny
+
+| | Kontrola | Osud |
+| --- | --- | --- |
+| ✂️ | Osiřelá split-skupina / rezervace / rodič opakování | pryč — garantují cizí klíče `Block_splitGroupId_fkey`, `Block_reservationId_fkey`, `Block_recurrenceParentId_fkey` (ověřeno v `information_schema` nad ostrou DB) |
+| ✂️ | Split-skupina s méně než 2 bloky | pryč — měřila legitimní akci plánovače |
+| 🆕 | **Rozešlá split-skupina** | `computeSplitDivergence` nad `SPLIT_SHARED_FIELDS` |
+
+`sampleBlockIds` nahrazeno `IntegrityItem` s polem `detail` (konkrétní vadná
+hodnota), integritní řádky se rozbalují do plného seznamu, každá kontrola má
+vysvětlivku „co to znamená / co s tím" (`src/lib/healthCheckCopy.ts`), a selhání
+jedné kontroly už neshodí zbylých sedm (`attempt()`). Panel zůstal **read-only**.
+
+### Očekávaný stav po nasazení: 8 nálezů, všechny legacy
+
+Nová kontrola na ostrých datech našla 8 skupin z 13 zdravých — ve všech se rozešla
+dvojice `jobPresetId` + `jobPresetLabel`. Preset má vždy jen ten člen, jehož
+`Block.id` se rovná `splitGroupId`, tedy starý kořen z doby, kdy `splitGroupId`
+byla self-reference (migrace B2 skupiny backfillovala s `id = staré root PK`).
+Atomický `/split`, který preset na ocas kopíruje, přišel commitem `cf04b207`
+**13. 7. 2026** — tentýž den. Dnešní kód takový stav vyrobit neumí. Opraví se
+otevřením a uložením té části, která má **správné** hodnoty.
+
+### Poučení z revizí (3 nezávislé, na konci etapy)
+
+- **Nejzávažnější nález nebyl v kódu, ale v textu.** Vysvětlivka radila „otevři
+  kteroukoli část a ulož ji" — jenže propagace bere hodnoty z editovaného bloku,
+  takže otevření špatné půlky přepíše správná data. Návod ke ztrátě dat, který by
+  build ani testy nikdy nechytily.
+- **`--warning` NENÍ barva pro písmo.** V light módu má na `--surface` kontrast
+  **1,86:1** (žlutá na bílé), takže stav „nespočteno" i chybové hlášky byly
+  neviditelné — přestože komentář v `globals.css` tvrdil opak. Zaveden
+  `--warning-text` (AA na všech třech podkladech: 5,61 / 4,93 / 4,78). Táž třída
+  vady jako kdysi u `--accent`/`--info`. `--warning` zůstává na okraje a podklady.
+- **Izolace selhání byla asymetrická.** Chráněná byla fáze *výpočtu*, nechráněná
+  fáze *načtení* — pád jednoho dotazu shodil i kontroly, které na těch datech
+  nestojí.
+- **Dva zdroje pravdy pro „nespočteno" se rozešly.** Souhrn počítal i kontrolu se
+  spočteným číslem, ale s chybou; karta ne. Proužek hlásil „1 kontrola nespočtena"
+  a všech pět karet svítilo zeleně a zavřeně.
+
+### Vedlejší zjištění (mimo rozsah)
+
+**Rozdělení bloku nemá undo.** `handleSplitBlockAt` ani `handleBlockCreate`
+neregistrují undo snapshot, takže plánovač splitnutí vrací zpět mazáním ocasu —
+a každá taková oprava po sobě dřív nechávala trvalý falešný poplach v panelu.
+
+### Podmínka nasazení
+
+**Migrace `20260811120000_add_pantone_in_stock_issued` musí být na produkci dřív
+než tahle etapa** — kontrola čte `pantoneInStock` a `pantoneIssued`, které prod
+nemá (poslední aplikovaná je `20260808120000_block_revision_via_many`). Bez ní se
+kontrola ukáže jako „nespočteno" (dřív by shodila panel na 500).
+
 ## Nedodělané zakázky na Monitoru tiskaře (13. 8. 2026)
 
 Připomínka plánovače: „Když v pátek večer nestihnout vytisknout zakázku, o víkendu
