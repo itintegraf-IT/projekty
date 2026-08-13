@@ -486,8 +486,19 @@ function HeroTiming({ block, reason, now }: { block: Block; reason: "running" | 
     );
   }
 
+  // Datum se ukáže jen tehdy, když zakázka nezačala dnes (`startDayLabel`
+  // vrací pro dnešek `null`). U běžné směny tedy nepřibude nic; u zakázky
+  // vytažené ze sekce NEDODĚLÁNO nebo z hledání je to jediné místo, kde se
+  // tiskař dozví, že kouká na jiný den.
+  const dayLabel = startDayLabel(block.startTime, now);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+      {dayLabel && (
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--warning)" }}>
+          {dayLabel}
+        </div>
+      )}
       <div style={{
         display: "flex", alignItems: "center", gap: 12,
         fontSize: 16, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums",
