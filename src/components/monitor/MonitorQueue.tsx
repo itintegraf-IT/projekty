@@ -14,25 +14,12 @@ type Props = {
 };
 
 /**
- * Kolik nejnovějších záznamů sekce NEDODĚLÁNO ukáže najednou.
- *
- * Sekci nic neuklidí (viz `UNFINISHED_LOOKBACK_DAYS` v `monitorView.ts`) a
- * řádek fronty je vysoký ~90–110 px — bez stropu by při deseti a víc
- * nedodělaných zatlačila nadpis „DNES" pod viditelnou plochu kiosku a tiskař
- * by musel dnešní práci odscrollovat, přesný opak toho, co featura chce.
- * Vnořený scrollbar místo stropu nepřipadá v úvahu — na dotykové obrazovce
- * u stroje se ovládá mizerně. Rozhodnutí majitele 13. 8. 2026: 3 nejnovější,
- * starší jsou dosažitelné přes „Najít".
- */
-const OVERDUE_VISIBLE_COUNT = 3;
-
-/**
  * Pravý sloupec Monitoru — zakázky na stroji: nedodělané z minulých dnů
- * (sekce NEDODĚLÁNO, nejvýš `OVERDUE_VISIBLE_COUNT` nejnovějších), dnešek
- * a zítřek. Každý řádek nese totéž, co velká karta: číslo, popis, čas, amber
- * pás se specifikací a výrobní i stavové chipy. Odklepnuté jsou ztlumené se
- * zeleným háčkem (včetně pásu), zakázka na velké kartě zvýrazněná.
- * Kliknutí ji vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
+ * (sekce NEDODĚLÁNO, zúženým řádkem, všechny bez stropu), dnešek a zítřek.
+ * Dnes/Zítra nesou totéž, co velká karta: číslo, popis, čas, amber pás se
+ * specifikací a výrobní i stavové chipy. Odklepnuté jsou ztlumené se zeleným
+ * háčkem (včetně pásu), zakázka na velké kartě zvýrazněná. Kliknutí ji
+ * vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
  */
 export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Props) {
   if (overdue.length === 0 && today.length === 0 && tomorrow.length === 0) {
@@ -43,25 +30,17 @@ export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Pro
     );
   }
 
-  // `overdue` přichází VZESTUPNĚ podle startTime (nejstarší první) — poslední
-  // prvky pole jsou tedy nejnovější. `slice` bez reverse, ať zobrazené pořadí
-  // zůstane vzestupné. Skryté jsou ty STARŠÍ, ze začátku pole.
-  const visibleOverdue = overdue.length > OVERDUE_VISIBLE_COUNT
-    ? overdue.slice(overdue.length - OVERDUE_VISIBLE_COUNT)
-    : overdue;
-  const hiddenOverdueCount = overdue.length - visibleOverdue.length;
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", minHeight: 0 }}>
       {/* NEDODĚLÁNO jde NAHORU: fronta se pak čte chronologicky shora dolů. */}
       <QueueSection
         title="Nedoděláno"
-        blocks={visibleOverdue}
+        blocks={overdue}
         heroId={heroId}
         onSelect={onSelect}
         tone="warning"
         showDate
-        hiddenCount={hiddenOverdueCount}
+        compact
       />
       <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} />
       <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} />
@@ -70,7 +49,7 @@ export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Pro
 }
 
 function QueueSection({
-  title, blocks, heroId, onSelect, tone = "muted", showDate = false, hiddenCount = 0,
+  title, blocks, heroId, onSelect, tone = "muted", showDate = false, compact = false,
 }: {
   title: string;
   blocks: Block[];
@@ -80,10 +59,13 @@ function QueueSection({
   tone?: "muted" | "warning";
   /** Řádek ukáže i den, ne jen čas. Povinné u zakázek z minulých dnů. */
   showDate?: boolean;
-  /** Kolik starších záznamů se do sekce nevešlo — jen informativní řádek nad seznamem, neklikací. */
-  hiddenCount?: number;
+  /** Zúžený řádek: jen číslo, popis a čas. Bez pásu specifikace a bez chipů.
+   *  Sekce NEDODĚLÁNO umí mít i deset položek (ostrá data 12. 8. 2026: XL 106
+   *  jich má devět) a v plném tvaru by zatlačila nadpis „DNES" pod okraj
+   *  obrazovky. Detaily tiskař dostane kliknutím — vyjede velká karta. */
+  compact?: boolean;
 }) {
-  if (blocks.length === 0 && hiddenCount === 0) return null;
+  if (blocks.length === 0) return null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
@@ -93,13 +75,6 @@ function QueueSection({
       }}>
         {title}
       </div>
-      {hiddenCount > 0 && (
-        // Skryté jsou ty starší (viz OVERDUE_VISIBLE_COUNT výš) — bez tohohle
-        // řádku by tiskař nevěděl, že vůbec existují a kam se poděly.
-        <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "0 2px" }}>
-          …a dalších {hiddenCount} starších — najdeš je přes „Najít“
-        </div>
-      )}
       {blocks.map((b) => {
         const isDone = b.printCompletedAt != null;
         const isHero = b.id === heroId;
@@ -108,8 +83,8 @@ function QueueSection({
             key={b.id}
             onClick={(e) => { if (e.button !== 0) return; onSelect(b); }}
             style={{
-              display: "flex", flexDirection: "column", alignItems: "stretch", gap: 7,
-              padding: "10px 12px",
+              display: "flex", flexDirection: "column", alignItems: "stretch", gap: compact ? 0 : 7,
+              padding: compact ? "7px 12px" : "10px 12px",
               borderRadius: 10,
               textAlign: "left",
               font: "inherit",
@@ -127,14 +102,14 @@ function QueueSection({
               <span style={{
                 fontFamily: "ui-monospace, monospace",
                 fontWeight: 700, fontVariantNumeric: "tabular-nums",
-                fontSize: 14, flexShrink: 0,
+                fontSize: compact ? 13 : 14, flexShrink: 0,
                 color: isDone ? "var(--success)" : "var(--text)",
               }}>
                 {isDone ? "✓ " : ""}{b.orderNumber}
               </span>
               <span style={{
                 flex: 1, minWidth: 0,
-                color: "var(--text-muted)", fontSize: 13,
+                color: "var(--text-muted)", fontSize: compact ? 12 : 13,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 {b.description ?? ""}
@@ -144,7 +119,7 @@ function QueueSection({
                   v datech. `formatPragueDateTimeWithWeekday` dá „pá 9. 8. 22:00". */}
               <span style={{
                 flexShrink: 0,
-                color: "var(--text-muted)", fontSize: 13,
+                color: "var(--text-muted)", fontSize: compact ? 12 : 13,
                 fontVariantNumeric: "tabular-nums",
               }}>
                 {showDate
@@ -153,7 +128,7 @@ function QueueSection({
               </span>
             </span>
 
-            {b.specifikace?.trim() && (
+            {!compact && b.specifikace?.trim() && (
               // Amber pás jako na kartě bloku v plánu i na velké kartě Monitoru.
               // Barvy jsou záměrně stejné literály (SPEC_HIGHLIGHT), aby stejná
               // informace vypadala všude stejně; pás si nese vlastní pozadí, takže
@@ -175,7 +150,7 @@ function QueueSection({
               </span>
             )}
 
-            <MonitorChips block={b} size="queue" />
+            {!compact && <MonitorChips block={b} size="queue" />}
           </button>
         );
       })}
