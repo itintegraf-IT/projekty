@@ -5,6 +5,7 @@ import { formatPragueTime } from "@/lib/dateUtils";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -61,7 +62,7 @@ export type IntegrityItem = {
   /** Konkrétní vadná hodnota, česky. Bez ní je nález nedohledatelný. */
   detail: string;
 };
-export type IntegrityIssue = { key: string; label: string; count: number; items: IntegrityItem[] };
+export type IntegrityIssue = { key: string; label: string; count: number | null; items: IntegrityItem[]; error?: string };
 export type AttachmentFileRow = { id: number; reservationId: number; originalName: string; storageKey: string };
 export type DiskEntry = { reservationId: number; storageKey: string };
 export type AttachmentIssues = { missingFiles: AttachmentFileRow[]; orphanFiles: DiskEntry[] };
@@ -69,11 +70,11 @@ export type AttachmentIssues = { missingFiles: AttachmentFileRow[]; orphanFiles:
 export type HealthResult = {
   checkedAt: string;
   checks: {
-    overlaps: { count: number; items: OverlapPair[] };
-    drift: { count: number; items: DriftItem[] };
-    outsideHours: { count: number; items: DriftItem[] };
-    integrity: { count: number; breakdown: IntegrityIssue[] };
-    attachments: { count: number; missingFiles: AttachmentFileRow[]; orphanFiles: DiskEntry[] };
+    overlaps: { count: number | null; items: OverlapPair[]; error?: string };
+    drift: { count: number | null; items: DriftItem[]; error?: string };
+    outsideHours: { count: number | null; items: DriftItem[]; error?: string };
+    integrity: { count: number | null; breakdown: IntegrityIssue[]; error?: string };
+    attachments: { count: number | null; missingFiles: AttachmentFileRow[]; orphanFiles: DiskEntry[]; error?: string };
   };
 };
 
@@ -339,6 +340,21 @@ const SPLIT_SELECT = Object.fromEntries(
 ) as Prisma.BlockSelect;
 
 /**
+ * Spustí jednu kontrolu izolovaně. Při výjimce vrátí `null` a text chyby, takže
+ * ostatní kontroly doběhnou a zobrazí se. Bez tohohle by jedna rozbitá kontrola
+ * (typicky sloupec, který produkce ještě nemá) shodila celý panel na 500 —
+ * u nástroje, který má odhalovat tiché vady, je to nejhorší možné chování.
+ */
+export async function attempt<T>(label: string, fn: () => Promise<T>): Promise<{ value: T | null; error?: string }> {
+  try {
+    return { value: await fn() };
+  } catch (err) {
+    logger.error(`[health] kontrola ${label} selhala`, err);
+    return { value: null, error: err instanceof Error ? err.message : "neznámá chyba" };
+  }
+}
+
+/**
  * Spočítá všech 5 kontrol. Čte celou tabulku Block (pár sloupců) 1× a sdílí ji mezi
  * překryvy a integritu; drift/mimo provoz z detectCalendarDrift; přílohy FS sken.
  * Jen čte. Typováno na `typeof prisma` (thin wiring) — logika je v pure funkcích výše.
@@ -350,34 +366,47 @@ export async function runHealthChecks(db: typeof prisma, now: Date): Promise<Hea
     db.reservationAttachment.findMany({ select: { id: true, reservationId: true, originalName: true, storageKey: true } }),
   ]);
 
-  const splitRows = (await db.block.findMany({
-    where: { splitGroupId: { not: null } },
-    select: SPLIT_SELECT,
-  })) as unknown as SplitSharedRow[];
-
   const blocks = allBlocks as BlockRow[];
   const refs: IntegrityRefs = { jobPresetIds: new Set(jobPresets.map((p) => p.id)) };
 
-  const drifted = await detectCalendarDrift(
+  const driftR = await attempt("drift", async () => bucketDrift(await detectCalendarDrift(
     db, [...MACHINES], now, new Date(now.getTime() + DRIFT_HORIZON_DAYS * DAY_MS), now,
-  );
-  const { drift, outsideHours } = bucketDrift(drifted);
-  const overlaps = computeOverlapPairs(blocks, now);
-  const integrity = [...computeIntegrityIssues(blocks, refs), computeSplitDivergence(splitRows)];
-  const attach = diffAttachmentFiles(attachmentRows, await scanAttachmentDir(ATTACHMENTS_DIR));
-  const integrityCount = integrity.reduce((s, i) => s + i.count, 0);
+  )));
+  const overlapsR = await attempt("overlaps", async () => computeOverlapPairs(blocks, now));
+  const baseR = await attempt("integrity", async () => computeIntegrityIssues(blocks, refs));
+  const divergedR = await attempt("splitFieldsDiverged", async () => computeSplitDivergence(
+    (await db.block.findMany({ where: { splitGroupId: { not: null } }, select: SPLIT_SELECT })) as unknown as SplitSharedRow[],
+  ));
+  const attachR = await attempt("attachments", async () =>
+    diffAttachmentFiles(attachmentRows, await scanAttachmentDir(ATTACHMENTS_DIR)));
+
+  // Rozpad integrity: základní kontroly + řádek rozešlé skupiny. Když selže jen
+  // ten druhý, zbytek rozpadu se pořád ukáže — jen s vlastní značkou „nespočteno".
+  const breakdown: IntegrityIssue[] = [
+    ...(baseR.value ?? []),
+    divergedR.value ?? {
+      key: "splitFieldsDiverged", label: "Rozešlá split-skupina (části mají různé údaje)",
+      count: null, items: [], error: divergedR.error,
+    },
+  ];
+  // Karta nese `error`, i když se sama spočetla — jinak by dílčí selhání zmizelo.
+  const integrityError = baseR.error ?? (divergedR.error != null ? "Dílčí kontrola nespočtena." : undefined);
+  const integrityCount = baseR.value == null
+    ? null
+    : breakdown.reduce((s, i) => s + (i.count ?? 0), 0);
 
   return {
     checkedAt: now.toISOString(),
     checks: {
-      overlaps: { count: overlaps.length, items: overlaps.slice(0, MAX_ITEMS) },
-      drift: { count: drift.length, items: drift.slice(0, MAX_ITEMS) },
-      outsideHours: { count: outsideHours.length, items: outsideHours.slice(0, MAX_ITEMS) },
-      integrity: { count: integrityCount, breakdown: integrity },
+      overlaps: { count: overlapsR.value?.length ?? null, items: (overlapsR.value ?? []).slice(0, MAX_ITEMS), error: overlapsR.error },
+      drift: { count: driftR.value?.drift.length ?? null, items: (driftR.value?.drift ?? []).slice(0, MAX_ITEMS), error: driftR.error },
+      outsideHours: { count: driftR.value?.outsideHours.length ?? null, items: (driftR.value?.outsideHours ?? []).slice(0, MAX_ITEMS), error: driftR.error },
+      integrity: { count: integrityCount, breakdown, error: integrityError },
       attachments: {
-        count: attach.missingFiles.length + attach.orphanFiles.length,
-        missingFiles: attach.missingFiles,
-        orphanFiles: attach.orphanFiles,
+        count: attachR.value == null ? null : attachR.value.missingFiles.length + attachR.value.orphanFiles.length,
+        missingFiles: attachR.value?.missingFiles ?? [],
+        orphanFiles: attachR.value?.orphanFiles ?? [],
+        error: attachR.error,
       },
     },
   };

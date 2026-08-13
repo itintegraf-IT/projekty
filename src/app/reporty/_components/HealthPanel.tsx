@@ -38,10 +38,10 @@ function Jump({ id }: { id: number }) {
 }
 
 function Card({ title, subtitle, icon, count, children, defaultOpen }: {
-  title: string; subtitle: string; icon: string; count: number; children?: React.ReactNode; defaultOpen: boolean;
+  title: string; subtitle: string; icon: string; count: number | null; children?: React.ReactNode; defaultOpen: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const bad = count > 0;
+  const bad = (count ?? 0) > 0;
   return (
     <div style={{
       background: "var(--surface)", border: "1px solid var(--border)",
@@ -122,7 +122,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
           {/* Karty */}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {/* 1. Překryvy */}
-            <Card icon="🔀" title="Překryvy bloků" subtitle="Dva bloky na stejném stroji ve stejný čas — jen budoucí." count={data.checks.overlaps.count} defaultOpen={data.checks.overlaps.count > 0}>
+            <Card icon="🔀" title="Překryvy bloků" subtitle="Dva bloky na stejném stroji ve stejný čas — jen budoucí." count={data.checks.overlaps.count} defaultOpen={(data.checks.overlaps.count ?? 0) > 0}>
               <TableWrap>
                 <thead><tr><th style={TH}>Stroj</th><th style={TH}>Blok A</th><th style={TH}>Blok B</th><th style={TH}>Překryv</th><th style={TH}></th></tr></thead>
                 <tbody>
@@ -140,7 +140,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 2. Drift */}
-            <Card icon="🕒" title="Drift konce bloku" subtitle="Uložený konec nesedí na aktuální pracovní kalendář." count={data.checks.drift.count} defaultOpen={data.checks.drift.count > 0}>
+            <Card icon="🕒" title="Drift konce bloku" subtitle="Uložený konec nesedí na aktuální pracovní kalendář." count={data.checks.drift.count} defaultOpen={(data.checks.drift.count ?? 0) > 0}>
               <TableWrap>
                 <thead><tr><th style={TH}>Zakázka</th><th style={TH}>Stroj</th><th style={TH}>Uložený konec</th><th style={TH}>Přepočítaný</th><th style={TH}></th></tr></thead>
                 <tbody>
@@ -158,7 +158,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 3. Mimo provoz */}
-            <Card icon="🚫" title="Bloky mimo provoz stroje" subtitle="Zakázka začíná, když stroj nejede a není to vědomý bypass." count={data.checks.outsideHours.count} defaultOpen={data.checks.outsideHours.count > 0}>
+            <Card icon="🚫" title="Bloky mimo provoz stroje" subtitle="Zakázka začíná, když stroj nejede a není to vědomý bypass." count={data.checks.outsideHours.count} defaultOpen={(data.checks.outsideHours.count ?? 0) > 0}>
               <TableWrap>
                 <thead><tr><th style={TH}>Zakázka</th><th style={TH}>Stroj</th><th style={TH}>Začátek</th><th style={TH}></th></tr></thead>
                 <tbody>
@@ -175,15 +175,15 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 4. Integrita dat */}
-            <Card icon="🧩" title="Integrita dat" subtitle="Osiřelé vazby a neplatné hodnoty." count={data.checks.integrity.count} defaultOpen={data.checks.integrity.count > 0}>
+            <Card icon="🧩" title="Integrita dat" subtitle="Osiřelé vazby a neplatné hodnoty." count={data.checks.integrity.count} defaultOpen={(data.checks.integrity.count ?? 0) > 0}>
               <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 8, border: "1px solid var(--border)", borderRadius: 9, overflow: "hidden" }}>
                 {data.checks.integrity.breakdown.map((it) => (
                   <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 9, background: "var(--surface)", padding: "9px 13px", fontSize: 13 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: it.count > 0 ? "var(--danger)" : "color-mix(in oklab, var(--success) 70%, transparent)" }} />
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: (it.count ?? 0) > 0 ? "var(--danger)" : "color-mix(in oklab, var(--success) 70%, transparent)" }} />
                     <span>{it.label}</span>
                     <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-                      {it.count > 0 && it.items[0] != null && <a href={jumpHref(it.items[0].id)} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 12, fontWeight: 600 }}>Otevřít první →</a>}
-                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: it.count > 0 ? "var(--danger)" : "var(--text-muted)" }}>{it.count}</span>
+                      {(it.count ?? 0) > 0 && it.items[0] != null && <a href={jumpHref(it.items[0].id)} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 12, fontWeight: 600 }}>Otevřít první →</a>}
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: (it.count ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)" }}>{it.count ?? "—"}</span>
                     </span>
                   </div>
                 ))}
@@ -191,7 +191,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 5. Přílohy */}
-            <Card icon="📎" title="Přílohy: soubory vs. databáze" subtitle="Metadata v DB bez souboru na disku (nebo naopak)." count={data.checks.attachments.count} defaultOpen={data.checks.attachments.count > 0}>
+            <Card icon="📎" title="Přílohy: soubory vs. databáze" subtitle="Metadata v DB bez souboru na disku (nebo naopak)." count={data.checks.attachments.count} defaultOpen={(data.checks.attachments.count ?? 0) > 0}>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8, fontSize: 13 }}>
                 <div>Metadata v DB bez souboru na disku: <strong style={{ color: data.checks.attachments.missingFiles.length > 0 ? "var(--danger)" : "var(--text-muted)" }}>{data.checks.attachments.missingFiles.length}</strong></div>
                 {data.checks.attachments.missingFiles.map((m) => (

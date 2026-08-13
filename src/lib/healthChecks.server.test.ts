@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeOverlapPairs, computeIntegrityIssues, computeSplitDivergence, diffAttachmentFiles, bucketDrift, type BlockRow, type IntegrityRefs, type SplitSharedRow, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
+import { computeOverlapPairs, computeIntegrityIssues, computeSplitDivergence, diffAttachmentFiles, bucketDrift, attempt, type BlockRow, type IntegrityRefs, type SplitSharedRow, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
 import { SPLIT_SHARED_FIELDS } from "./splitSharedFields";
 import { FIELD_LABELS } from "./auditFormatters";
 import type { DriftedBlock } from "./calendarDrift.server";
@@ -310,5 +310,23 @@ test("bucketDrift: END_MISMATCH+HORIZON → drift; START_NOT_RUNNABLE → outsid
   assert.deepEqual(outsideHours.map((d) => d.id), [2]);
   assert.equal(drift[0].storedEnd.getTime(), D("2026-08-01T10:00:00Z").getTime());
   assert.equal(drift[0].expectedEnd?.getTime(), D("2026-08-01T11:00:00Z").getTime());
+});
+
+// ── Izolace selhání jedné kontroly ───────────────────────────────────────────
+
+test("attempt: selhání jedné kontroly nezhatí ostatní", async () => {
+  const ok = await attempt("dobrá", async () => 42);
+  assert.equal(ok.value, 42);
+  assert.equal(ok.error, undefined);
+
+  const bad = await attempt("špatná", async () => { throw new Error("Unknown column 'pantoneInStock'"); });
+  assert.equal(bad.value, null);
+  assert.equal(bad.error, "Unknown column 'pantoneInStock'");
+});
+
+test("attempt: výjimka bez Error dostane náhradní text", async () => {
+  const bad = await attempt("divná", async () => { throw "boom"; });
+  assert.equal(bad.value, null);
+  assert.equal(bad.error, "neznámá chyba");
 });
 

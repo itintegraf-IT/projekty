@@ -7,17 +7,17 @@ export type BlockRef = { id: number; orderNumber: string; type: string; startTim
 export type OverlapPair = { machine: string; a: BlockRef; b: BlockRef; overlapStart: string; overlapEnd: string; overlapMinutes: number };
 export type DriftItem = { id: number; orderNumber: string; machine: string; startTime: string; storedEnd: string; expectedEnd: string | null; reason: string };
 export type IntegrityItem = { id: number; orderNumber: string; machine: string; type: string; startTime: string; detail: string };
-export type IntegrityIssue = { key: string; label: string; count: number; items: IntegrityItem[] };
+export type IntegrityIssue = { key: string; label: string; count: number | null; items: IntegrityItem[]; error?: string };
 export type AttachmentFileRow = { id: number; reservationId: number; originalName: string; storageKey: string };
 export type DiskEntry = { reservationId: number; storageKey: string };
 export type HealthData = {
   checkedAt: string;
   checks: {
-    overlaps: { count: number; items: OverlapPair[] };
-    drift: { count: number; items: DriftItem[] };
-    outsideHours: { count: number; items: DriftItem[] };
-    integrity: { count: number; breakdown: IntegrityIssue[] };
-    attachments: { count: number; missingFiles: AttachmentFileRow[]; orphanFiles: DiskEntry[] };
+    overlaps: { count: number | null; items: OverlapPair[]; error?: string };
+    drift: { count: number | null; items: DriftItem[]; error?: string };
+    outsideHours: { count: number | null; items: DriftItem[]; error?: string };
+    integrity: { count: number | null; breakdown: IntegrityIssue[]; error?: string };
+    attachments: { count: number | null; missingFiles: AttachmentFileRow[]; orphanFiles: DiskEntry[]; error?: string };
   };
 };
 
@@ -34,16 +34,10 @@ export interface UseHealthData {
 
 function countFindings(data: HealthData): { total: number; badChecks: number } {
   const counts = [
-    data.checks.overlaps.count,
-    data.checks.drift.count,
-    data.checks.outsideHours.count,
-    data.checks.integrity.count,
-    data.checks.attachments.count,
-  ];
-  return {
-    total: counts.reduce((a, c) => a + c, 0),
-    badChecks: counts.filter((c) => c > 0).length,
-  };
+    data.checks.overlaps.count, data.checks.drift.count, data.checks.outsideHours.count,
+    data.checks.integrity.count, data.checks.attachments.count,
+  ].map((c) => c ?? 0);
+  return { total: counts.reduce((a, c) => a + c, 0), badChecks: counts.filter((c) => c > 0).length };
 }
 
 /**
