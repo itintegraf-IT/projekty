@@ -1557,6 +1557,20 @@ proklik a tabulka scénář → důkaz: `.superpowers/sdd/2026-08-13-pripominky-
    větve `dragStateRef` (`move`/`resize`/`multi-move`/`shift-edge-resize`)
    najednou.
 
+   **Rozšířeno téhož dne po zpětné vazbě majitele** (`38ec7a96`): první verze
+   rušila hledání jen při kliku do **prázdné plochy** sloupce stroje, protože
+   spec vyložil „kliknutím kamkoliv do plánu" jako „do plochy plánu" a chtěl
+   ochránit procházení shod. Výklad byl chybný a ochrana zbytečná — mezi
+   shodami se přepíná šipkami v hlavičce, které jsou mimo mřížku. Zato
+   nejčastější pohyb plánovače (najdi zakázku → klikni na ni) dotaz nezrušil a
+   featura působila jako rozbitá i po nasazení. Obsluha proto přesunuta z
+   jednotlivých sloupců na celý kontejner `[data-timeline-grid]` (nový prop
+   `onPlanClick`); klik na blok tam dobublá, protože `BlockCard` propagaci
+   nezastavuje. Stavové chipy uvnitř bloku (DATA/MATERIÁL/Pantone) ji zastavují
+   samy — a to je správně, odklepnutí stavu není opuštění hledání.
+   Ověřeno naživo Playwrightem: klik do prázdna ✓, klik na blok ✓, Esc ✓,
+   přetažení bloku dotaz zachová ✓, laso dotaz zachová ✓.
+
 ### Poučení
 
 **Strop „ukaž 3, zbytek si najdi" předpokládal, že uživatel ví, co hledá.**

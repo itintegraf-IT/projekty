@@ -204,19 +204,29 @@ dva komentáře, které tvrdí opak skutečnosti:
 
 `clearSearch()` se zapojí na dvě další místa:
 
-1. **klik do prázdného místa mřížky** (`onGridClickEmpty`)
+1. **klik kamkoliv do mřížky** (`onPlanClick` na `[data-timeline-grid]`) — tedy
+   i na blok, na časovou osu a na sloupec s datem
 2. **klávesa Esc** (do existující obsluhy, k rušení výběru a schránky)
 
 Oba komentáře, které lžou, se opraví na skutečný stav.
 
-**Klik na blok hledání neruší.** Procházení výsledků (`goToMatch`) samo vybírá
-bloky; rušit dotaz při kliknutí na blok by znemožnilo proklikat další shodu.
-Zadání „kliknutím kamkoliv do plánu“ se tedy vykládá jako „do plochy plánu“.
+> **Opraveno 13. 8. 2026 po zpětné vazbě.** První verze zapojila `clearSearch`
+> jen na `onGridClickEmpty`, tedy na prázdné místo ve sloupci stroje, s
+> odůvodněním, že rušení při kliku na blok by znemožnilo proklikat další shodu.
+> To odůvodnění neobstálo: mezi shodami se přepíná šipkami v hlavičce, které jsou
+> MIMO mřížku. Zato nejčastější pohyb plánovače — najdi zakázku, klikni na ni —
+> dotaz nezrušil, takže featura působila jako rozbitá. Zadání znělo doslova
+> „vynulovat kliknutím kamkoliv do plánu“ a to zúžení bylo chybný výklad.
 
-**Dotažení lasa hledání neruší.** Lasový výběr končí `mouseup`, po kterém
-prohlížeč pošle i `click` na sloupec — bez pojistky by tažení přes bloky smazalo
-dotaz. Sloupec si proto poznamená, že právě doběhlo laso, a klik po něm
-`onGridClickEmpty` nespustí.
+**Stavové chipy uvnitř bloku hledání neruší** — zastavují propagaci samy
+(`stopPropagation`). Je to správně: odklepnutí DATA nebo MATERIÁL uprostřed
+hledání není opuštění hledání.
+
+**Gesta hledání neruší.** Laso, přetažení bloku, resize i tažení hranice směny
+končí `mouseup`, po kterém prohlížeč pošle ještě `click` — bez pojistky by
+tažení nalezeného bloku smazalo dotaz uprostřed úkonu. Mřížka si proto
+poznamená čas konce gesta (`gestureEndedAtRef`) a klik do 150 ms po něm
+`onPlanClick` nespustí.
 
 Volba cíle pro vložení (`onGridClick` → `setPasteTarget`) hledání **ruší** —
 je to týž klik do prázdna a uživatel v tu chvíli hledání opustil.

@@ -336,3 +336,29 @@ past — dává čtenáři falešnou jistotu a sám sebe tím chrání před kon
 (kdo věří hotové věci, neprokliká ji). U tvrzení „volá se odsud, odsud a
 odsud" ověřit `grep` na místě, ne důvěřovat textu. Chybějící komentář by
 aspoň nelhal.
+
+---
+
+## P20 — Zúžit zadání kvůli vlastní obavě je stejná vada jako ho nesplnit
+
+**Co se stalo (13. 8. 2026, dvakrát na téže featuře):** Majitel napsal, že
+hledání v plánu se má „vynulovat kliknutím kamkoliv do plánu".
+
+Poprvé jsem zapojení `clearSearch` na klik do plánu **úplně odstranil** —
+z obavy, že klik přijde i po dotažení lasa a smaže plánovači rozepsaný dotaz.
+Obava byla technicky správná, řešení špatné: správná odpověď byla pojistka
+(`gestureEndedAtRef`), ne vypnutí featury. Podruhé jsem „kamkoliv" vyložil
+jako „do prázdné plochy" a klik na blok vyňal s odůvodněním, že by to
+znemožnilo proklikat další shodu. Odůvodnění bylo mylné (mezi shodami se
+přepíná šipkami v hlavičce, mimo mřížku) a vyňatý případ byl přitom ten
+NEJČASTĚJŠÍ: plánovač najde zakázku a klikne na ni. Featura tak podruhé
+působila jako rozbitá — a chybu nenašel build, 1062 testů, pět kol
+subagentního review ani finální adversariální review, protože všechny měřily
+kód proti specu, a spec už to zúžení obsahoval.
+
+**Pravidlo:** Když z vlastní obavy zužuji rozsah toho, co si zadavatel řekl,
+je to **rozhodnutí zadavatele, ne moje** — buď to zúžení do zadání nedávat,
+nebo se na ně výslovně zeptat. Zúžení zapsané do specu se stává nedotknutelnou
+pravdou pro každé další review; od té chvíle už ho nikdo nezpochybní. A obava
+z vedlejšího efektu se řeší pojistkou proti tomu efektu, ne vypnutím
+požadované funkce.
