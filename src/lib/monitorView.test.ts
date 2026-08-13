@@ -365,8 +365,63 @@ test("monitorQueue: scénář z připomínky plánovače — pátek nedotištěn
   assert.equal(pickHeroBlock([patecni, stredecni], "XL_105", now)?.block.id, 2);
 });
 
+// ── monitorQueue.overdue: přesné hranice okna (horní i dolní) ──────────────
+// NOW = 2026-08-12T06:00:00.000Z = 8:00 pražského času, todayStr = "2026-08-12".
+// Praha je v srpnu UTC+2, takže:
+//   - dnešní pražská půlnoc (2026-08-12 00:00) = 2026-08-11T22:00:00.000Z UTC
+//   - spodní hrana (dnes − 14 dní = 2026-07-29 00:00 pražského) = 2026-07-28T22:00:00.000Z UTC
+// Ověřeno i výpočtem přes pragueToUTC/addDaysToCivilDate, ne jen ručně.
+
+test("monitorQueue.overdue: blok končící PŘESNĚ v dnešní pražské půlnoci do sekce NEPATŘÍ (ostrá horní hranice)", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    // konec = 2026-08-11T22:00:00.000Z UTC = přesně dnešní pražská půlnoc.
+    startTime: "2026-08-11T14:00:00.000Z", endTime: "2026-08-11T22:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+});
+
+test("monitorQueue.overdue: blok končící o milisekundu dřív než dnešní pražská půlnoc do sekce PATŘÍ", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    // konec = 2026-08-11T21:59:59.999Z UTC = 1 ms před dnešní pražskou půlnocí.
+    startTime: "2026-08-11T14:00:00.000Z", endTime: "2026-08-11T21:59:59.999Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue.map((x) => x.id), [1]);
+});
+
+test("monitorQueue.overdue: blok končící PŘESNĚ na spodní hraně (dnes − 14 dní, pražská půlnoc) do sekce PATŘÍ (inkluzivní dolní hranice)", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    // konec = 2026-07-28T22:00:00.000Z UTC = přesně pražská půlnoc dne
+    // addDaysToCivilDate("2026-08-12", -14) = "2026-07-29".
+    startTime: "2026-07-28T14:00:00.000Z", endTime: "2026-07-28T22:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue.map((x) => x.id), [1]);
+});
+
+test("monitorQueue.overdue: blok končící o milisekundu dřív než spodní hrana do sekce NEPATŘÍ", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    // konec = 2026-07-28T21:59:59.999Z UTC = 1 ms před spodní hranou.
+    startTime: "2026-07-28T14:00:00.000Z", endTime: "2026-07-28T21:59:59.999Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+});
+
 test("UNFINISHED_LOOKBACK_DAYS je 14", () => {
-  // Zbytek testů je psaný vůči konkrétním datům, takže by změnu konstanty
-  // chytily — ale jen nepřímo a s matoucí hláškou. Tohle je explicitní zámek.
+  // Hlídá JEN hodnotu exportované konstanty. Podle ověření mutačním testováním
+  // (recenze 13. 8. 2026) chování odvozené z konstanty (`floorMs` v monitorQueue)
+  // tenhle test NEHLÍDÁ vůbec — mutace hranice `floorMs` o řádově dny tímhle
+  // testem proklouzne beze změny. Skutečné chování na obou hranách okna hlídají
+  // až čtyři testy výše („přesné hranice okna").
   assert.equal(UNFINISHED_LOOKBACK_DAYS, 14);
 });
