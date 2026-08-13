@@ -196,7 +196,7 @@ export type SplitSharedRow = Record<string, unknown> & {
 };
 
 /** Sentinel pro chybějící hodnotu — odlišuje NULL od prázdného řetězce. */
-const NULL_SENTINEL = " null";
+const NULL_SENTINEL = "\u0000null";
 
 /** Kanonický tvar hodnoty pro porovnání napříč členy skupiny. */
 function normalizeShared(v: unknown): string {
