@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeOverlapPairs, computeIntegrityIssues, diffAttachmentFiles, bucketDrift, type BlockRow, type IntegrityRefs, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
+import { computeOverlapPairs, computeIntegrityIssues, computeSplitDivergence, diffAttachmentFiles, bucketDrift, type BlockRow, type IntegrityRefs, type SplitSharedRow, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
+import { SPLIT_SHARED_FIELDS } from "./splitSharedFields";
+import { FIELD_LABELS } from "./auditFormatters";
 import type { DriftedBlock } from "./calendarDrift.server";
 
 const D = (iso: string) => new Date(iso);
@@ -173,6 +175,92 @@ test("integrity: items respektují strop, count nese skutečný počet", () => {
   const it = issue(computeIntegrityIssues(many, refs()), "badPrintMinutes");
   assert.equal(it.count, 60);
   assert.equal(it.items.length, 50);
+});
+
+// ── Rozešlá split-skupina ───────────────────────────────────────────────────
+function srow(o: Partial<SplitSharedRow> & Pick<SplitSharedRow, "id" | "splitGroupId">): SplitSharedRow {
+  // Všechna sdílená pole nejdřív na null, pak přebijeme těmi, na kterých testu záleží.
+  // Pořadí je podstatné: `orderNumber` a `type` jsou SOUČÁSTÍ SPLIT_SHARED_FIELDS,
+  // takže musí přijít až za rozbalením základu, jinak by zůstaly null.
+  const base: Record<string, unknown> = {};
+  for (const f of SPLIT_SHARED_FIELDS) base[f] = null;
+  return {
+    ...base,
+    machine: "XL_105",
+    orderNumber: "18447",
+    type: "ZAKAZKA",
+    startTime: OK_START,
+    ...o,
+  } as SplitSharedRow;
+}
+
+test("divergence: shodná skupina → žádný nález", () => {
+  const rows = [srow({ id: 1, splitGroupId: 7 }), srow({ id: 2, splitGroupId: 7 })];
+  assert.equal(computeSplitDivergence(rows).count, 0);
+});
+
+test("divergence: jednočlenná skupina se přeskakuje", () => {
+  const rows = [srow({ id: 1, splitGroupId: 7, materialInStock: true })];
+  assert.equal(computeSplitDivergence(rows).count, 0);
+});
+
+test("divergence: null proti hodnotě je rozdíl (sentinel funguje)", () => {
+  const rows = [
+    srow({ id: 1, splitGroupId: 7, jobPresetLabel: "XL 106 LED" }),
+    srow({ id: 2, splitGroupId: 7, jobPresetLabel: null }),
+  ];
+  const res = computeSplitDivergence(rows);
+  assert.equal(res.count, 1);
+  assert.match(res.items[0].detail, /Preset/);
+  assert.match(res.items[0].detail, /1 = XL 106 LED/);
+  assert.match(res.items[0].detail, /2 = —/);
+});
+
+test("divergence: dvě Date instance se stejným časem NEJSOU rozdíl", () => {
+  const rows = [
+    srow({ id: 1, splitGroupId: 7, deadlineExpedice: new Date("2026-09-01T00:00:00Z") }),
+    srow({ id: 2, splitGroupId: 7, deadlineExpedice: new Date("2026-09-01T00:00:00Z") }),
+  ];
+  assert.equal(computeSplitDivergence(rows).count, 0);
+});
+
+test("divergence: item nese skupinu, oba stroje a odkaz na první blok", () => {
+  const rows = [
+    srow({ id: 11, splitGroupId: 7, machine: "XL_105", materialInStock: true }),
+    srow({ id: 12, splitGroupId: 7, machine: "XL_106", materialInStock: false }),
+  ];
+  const res = computeSplitDivergence(rows);
+  assert.equal(res.count, 1);
+  assert.equal(res.items[0].id, 11);
+  assert.equal(res.items[0].orderNumber, "18447");
+  assert.equal(res.items[0].machine, "XL 105 + XL 106");
+});
+
+test("divergence: víc rozešlých polí se v detailu spojí", () => {
+  const rows = [
+    srow({ id: 1, splitGroupId: 7, materialInStock: true, pantoneOk: true }),
+    srow({ id: 2, splitGroupId: 7, materialInStock: false, pantoneOk: false }),
+  ];
+  const detail = computeSplitDivergence(rows).items[0].detail;
+  assert.match(detail, /Materiál skladem/);
+  assert.match(detail, /Pantone OK/);
+  assert.equal(detail.includes(" · "), true);
+});
+
+test("divergence: strážný test — hlídá se KAŽDÉ pole ze SPLIT_SHARED_FIELDS", () => {
+  for (const field of SPLIT_SHARED_FIELDS) {
+    const a = srow({ id: 1, splitGroupId: 7 });
+    const b = srow({ id: 2, splitGroupId: 7 });
+    (a as Record<string, unknown>)[field] = "A";
+    (b as Record<string, unknown>)[field] = "B";
+    assert.equal(computeSplitDivergence([a, b]).count, 1, `pole ${field} se nehlídá`);
+  }
+});
+
+test("divergence: strážný test — každé sdílené pole má český popisek", () => {
+  for (const field of SPLIT_SHARED_FIELDS) {
+    assert.ok(field in FIELD_LABELS, `pole ${field} nemá popisek ve FIELD_LABELS`);
+  }
 });
 
 // ── Přílohy ────────────────────────────────────────────────────────────────

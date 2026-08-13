@@ -2,7 +2,10 @@ import { detectCalendarDrift, type DriftedBlock } from "@/lib/calendarDrift.serv
 import { SLOT_MS } from "@/lib/printTime";
 import { MACHINES, machineLabel } from "@/lib/machines";
 import { formatPragueTime } from "@/lib/dateUtils";
+import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
+import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -181,6 +184,96 @@ export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs):
   return issues;
 }
 
+// ── Rozešlá split-skupina ────────────────────────────────────────────────────
+export type SplitSharedRow = Record<string, unknown> & {
+  id: number;
+  machine: string;
+  orderNumber: string;
+  type: string;
+  startTime: Date;
+  splitGroupId: number;
+};
+
+/** Sentinel pro chybějící hodnotu — odlišuje NULL od prázdného řetězce. */
+const NULL_SENTINEL = " null";
+
+/** Kanonický tvar hodnoty pro porovnání napříč členy skupiny. */
+function normalizeShared(v: unknown): string {
+  if (v === null || v === undefined) return NULL_SENTINEL;
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
+/** Tvar, kterému rozumí `fmtAuditVal` (bere `string | null`). */
+function toAuditString(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
+/**
+ * Členové jedné split-skupiny mají sdílet všech 31 polí ze `SPLIT_SHARED_FIELDS`.
+ * Když se některé rozejde, dvě části téže zakázky se navenek tváří jako různá práce
+ * (jedna půlka „materiál skladem", druhá ne). CLAUDE.md tuhle třídu vad vede jako
+ * Critical nález go/no-go auditu 5. 8. 2026 — dosud ji nehlídalo nic.
+ *
+ * Seznam polí se ZÁMĚRNĚ bere ze `SPLIT_SHARED_FIELDS`, ne z ručně psané kopie:
+ * nové sdílené pole se tak začne hlídat samo. Hlídá to i strážný test.
+ *
+ * Jednotka nálezu je SKUPINA, ne blok — opravuje se skupina jako celek.
+ * Čistá funkce.
+ */
+export function computeSplitDivergence(rows: SplitSharedRow[]): IntegrityIssue {
+  const byGroup = new Map<number, SplitSharedRow[]>();
+  for (const r of rows) {
+    const arr = byGroup.get(r.splitGroupId) ?? [];
+    arr.push(r);
+    byGroup.set(r.splitGroupId, arr);
+  }
+
+  const items: IntegrityItem[] = [];
+  let count = 0;
+  const groupIds = [...byGroup.keys()].sort((a, b) => a - b);
+
+  for (const gid of groupIds) {
+    const members = byGroup.get(gid)!;
+    if (members.length < 2) continue; // není co porovnávat
+
+    const divergedFields = SPLIT_SHARED_FIELDS.filter((field) => {
+      const distinct = new Set(members.map((m) => normalizeShared(m[field])));
+      return distinct.size > 1;
+    });
+    if (divergedFields.length === 0) continue;
+
+    count++;
+    if (items.length >= MAX_ITEMS) continue;
+
+    const sorted = [...members].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const detail = divergedFields
+      .map((field) => {
+        const label = FIELD_LABELS[field] ?? field;
+        const values = sorted
+          .map((m) => `${m.id} = ${fmtAuditVal(toAuditString(m[field]), field)}`)
+          .join(", ");
+        return `${label}: ${values}`;
+      })
+      .join(" · ");
+
+    const machines = [...new Set(sorted.map((m) => machineLabel(m.machine)))].join(" + ");
+    const head = sorted[0]!;
+    items.push({
+      id: head.id,
+      orderNumber: head.orderNumber,
+      machine: machines,
+      type: head.type,
+      startTime: head.startTime,
+      detail,
+    });
+  }
+
+  return { key: "splitFieldsDiverged", label: "Rozešlá split-skupina (části mají různé údaje)", count, items };
+}
+
 // ── Přílohy: disk vs. DB ─────────────────────────────────────────────────────
 /** Množinový rozdíl DB metadat a souborů na disku (klíč = "reservationId/storageKey"). Čistá funkce. */
 export function diffAttachmentFiles(dbRows: AttachmentFileRow[], diskEntries: DiskEntry[]): AttachmentIssues {
@@ -237,6 +330,15 @@ const BLOCK_SELECT = {
 } as const;
 
 /**
+ * Select pro kontrolu rozešlé skupiny. Skládá se ZE `SPLIT_SHARED_FIELDS`, ne z ručně
+ * psaného seznamu — nové sdílené pole se tak začne číst samo. Kdyby produkční schéma
+ * některý sloupec nemělo, Prisma spadne hlasitě (P2022), ne tiše.
+ */
+const SPLIT_SELECT = Object.fromEntries(
+  [...SPLIT_SHARED_FIELDS, "id", "machine", "startTime", "splitGroupId"].map((f) => [f, true]),
+) as Prisma.BlockSelect;
+
+/**
  * Spočítá všech 5 kontrol. Čte celou tabulku Block (pár sloupců) 1× a sdílí ji mezi
  * překryvy a integritu; drift/mimo provoz z detectCalendarDrift; přílohy FS sken.
  * Jen čte. Typováno na `typeof prisma` (thin wiring) — logika je v pure funkcích výše.
@@ -248,6 +350,11 @@ export async function runHealthChecks(db: typeof prisma, now: Date): Promise<Hea
     db.reservationAttachment.findMany({ select: { id: true, reservationId: true, originalName: true, storageKey: true } }),
   ]);
 
+  const splitRows = (await db.block.findMany({
+    where: { splitGroupId: { not: null } },
+    select: SPLIT_SELECT,
+  })) as unknown as SplitSharedRow[];
+
   const blocks = allBlocks as BlockRow[];
   const refs: IntegrityRefs = { jobPresetIds: new Set(jobPresets.map((p) => p.id)) };
 
@@ -256,7 +363,7 @@ export async function runHealthChecks(db: typeof prisma, now: Date): Promise<Hea
   );
   const { drift, outsideHours } = bucketDrift(drifted);
   const overlaps = computeOverlapPairs(blocks, now);
-  const integrity = computeIntegrityIssues(blocks, refs);
+  const integrity = [...computeIntegrityIssues(blocks, refs), computeSplitDivergence(splitRows)];
   const attach = diffAttachmentFiles(attachmentRows, await scanAttachmentDir(ATTACHMENTS_DIR));
   const integrityCount = integrity.reduce((s, i) => s + i.count, 0);
 
