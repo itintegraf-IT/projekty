@@ -1,6 +1,6 @@
 # Monitor u stroje — nedodělané zakázky z minulých dnů
 
-Datum: 12. 8. 2026 · Stav: návrh schválen, implementace čeká na uvolnění souborů
+Datum: 12. 8. 2026 · Stav: REALIZOVÁNO 13. 8. 2026 (plán `docs/superpowers/plans/2026-08-13-monitor-nedodelane-zakazky.md`)
 Vyvolala: připomínka plánovače (8/2026)
 
 > „Když v pátek večer nestihnout vytisknout zakázku, o víkendu se tisknout nebude

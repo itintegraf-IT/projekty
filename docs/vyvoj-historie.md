@@ -2,6 +2,58 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Nedodělané zakázky na Monitoru tiskaře (13. 8. 2026)
+
+Připomínka plánovače: „Když v pátek večer nestihnout vytisknout zakázku, o víkendu
+se tisknout nebude a v pondělí a úterý bude svátek, uvidí tiskaři, jakou zakázkou
+mají ve středu začít?" Neuvidí — čtyři nezávislé brány: 16h okno hero karty,
+fronta jen dnes+zítra podle dne startu, plán s rozsahem 1 den zpět, a „Najít",
+které zakázku najde, ale klik nevede nikam.
+
+**Řešení:** sekce „NEDODĚLÁNO" ve frontě (`monitorQueue().overdue`, 14 dní zpět)
+jako hlavní cesta + „Najít" ústící na velkou kartu Monitoru jako neomezená
+záložní cesta. Nic se nepřeplánovává, žádná notifikace (rozhodnutí majitele).
+
+### Klíčová rozhodnutí
+
+- **Rozhoduje `endTime`, ne `startTime`.** Noční směna 22:00–6:00 začala včera,
+  ale končí dnes — podle startu by spadla do NEDODĚLÁNO, i když právě běží na
+  velké kartě. Táž volba, na které stojí 16h okno.
+- **14denní strop je pojistka, ne pohodlí.** Sekci nic neuklidí a `Block` řádky
+  se v projektu nikdy nemažou (jediný retenční skript maže `BlockRevision`).
+- **NEPOUŽÍVÁ se `overdueAlarmState(...) === "stale"`**, ačkoli se to nabízí:
+  odpovídá na jinou otázku (16 h = „je to akutní") a udělalo by dvouhodinovou
+  slepou skvrnu — zakázka stará 14 h by při běžícím jiném bloku nebyla ani na
+  kartě, ani v sekci.
+- **POZASTAVENO se vylučuje** — plán ji z „po termínu" taky vylučuje. Je to
+  výrobní stopka, ne zpoždění; jinak by obě obrazovky tvrdily opak.
+- **Ruční výběr žádné okno nezná**, takže přes „Najít" jde odklepnout i zakázka
+  půl roku stará. Server nebrání — `complete` route nemá časovou kontrolu.
+
+### Gotchy
+
+- **Efekt pro `focusBlockId` musí být deklarovaný ZA efektem `[viewMachine]`**,
+  který maže `selectedId`. React spouští efekty v pořadí deklarace a ten úklid
+  běží i při mountu.
+- **`setViewMachine` a `setFocusBlockId` musí padnout v témže handleru**, aby je
+  React zbatchoval — jinak `resolveSelectedBlock` blok odmítne pro neshodu stroje.
+- **Early return v `MonitorQueue` musel zahrnout `overdue`** — jinak by hláška
+  „není dnes ani zítra nic naplánováno" přebila sekci právě ve stavu, kdy je
+  nejpotřebnější.
+
+### Známá omezení
+
+- **`printCompletedAt` je čas KLIKNUTÍ, ne tisku.** Zakázka z minulého týdne
+  odklepnutá ve středu dostane razítko středy, takže `computeThroughput`
+  a `computeAvgLeadTimeDays` (`reportMetrics.ts`) vykážou průtok ve špatném
+  období. Featura to zkreslení zvětšuje. **Rozhodnutí Vojty: známé omezení,
+  do reportů se nesahá.**
+- **Odklepnutí není neutrální akce** — vytištěný blok se stává zdí pro chain
+  push, nejde přepočítat ani rozdělit a mizí z detekce driftu.
+- **Zakázky starší než 14 dní** jsou dosažitelné pouze přes „Najít".
+- **Osiřelá půlka rozdělené zakázky** na druhém stroji se v sekci neobjeví —
+  server odklepnutí na cizím stroji zakazuje. Sekce je striktně per-stroj.
+
 ## Dva stupně zpoždění + hledání v DTP přehledu (12.–13. 8. 2026)
 
 Připomínka plánovače: zpožděná neodklepnutá zakázka a hotová zakázka vypadaly
