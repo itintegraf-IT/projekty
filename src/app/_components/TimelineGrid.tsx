@@ -239,6 +239,12 @@ interface TimelineGridProps {
   copiedBlockId?: number | null;
   onGridClick?: (machine: string, time: Date) => void;
   onGridClickEmpty?: () => void;
+  /** Kliknutí KAMKOLIV do mřížky — i na blok, na časovou osu nebo na sloupec s datem.
+   *  Odlišné od `onGridClickEmpty`, které reaguje jen na prázdné místo ve sloupci stroje.
+   *  Dnes tím plánovač ruší hledání (připomínka 13. 8. 2026: „vynulovat kliknutím
+   *  kamkoliv do plánu"). Gesta (laso, přesun, resize, hranice směny) ho nespouštějí
+   *  — hlídá `gestureEndedAtRef`. */
+  onPlanClick?: () => void;
   onBlockCopy?: (block: Block) => void;
   selectedBlockIds?: Set<number>;
   onMultiSelect?: (ids: Set<number>) => void;
@@ -544,6 +550,7 @@ export default function TimelineGrid({
   copiedBlockId,
   onGridClick,
   onGridClickEmpty,
+  onPlanClick,
   onBlockCopy,
   selectedBlockIds,
   onMultiSelect,
@@ -1614,7 +1621,21 @@ export default function TimelineGrid({
             osa + sloupce strojů), ne podle středu celého okna, protože napravo od
             mřížky sedí editační/notifikační panely a DtpPanel, které si o šířku
             okna ukrajují. */}
-        <div data-timeline-grid style={{ height: totalHeight, display: "flex" }}>
+        <div
+          data-timeline-grid
+          style={{ height: totalHeight, display: "flex" }}
+          // Klik kamkoliv do mřížky ruší hledání. Visí ZÁMĚRNĚ tady, ne na sloupci
+          // stroje: plánovač, který si zakázku našel, na ni typicky klikne — a čeká,
+          // že se pohled vrátí na všechny zakázky. Klik na blok propagaci nezastavuje,
+          // takže sem dobublá; stavové chipy uvnitř bloku ji zastavují samy, což je
+          // správně (odklepnutí DATA uprostřed hledání dotaz mazat nemá).
+          onClick={(e) => {
+            if (e.button !== 0) return;
+            // Táž pojistka jako u `onGridClickEmpty`: po dotaženém gestu pošle
+            // prohlížeč ještě `click` a ten by dotaz smazal uprostřed úkonu.
+            if (Date.now() - gestureEndedAtRef.current > 150) onPlanClick?.();
+          }}
+        >
 
           {/* ── Datum sloupec ─────────────────────────────────────────────── */}
           <div style={{ width: DATE_COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>

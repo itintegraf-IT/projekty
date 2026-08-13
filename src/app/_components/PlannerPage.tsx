@@ -1031,7 +1031,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }, [searchMatches]);
 
   // Zrušení hledání — jediné místo pravdy. Volá se z křížku v poli, z Esc
-  // a z kliknutí do prázdné plochy plánu.
+  // (jak z pole přes `SearchField`, tak z globální obsluhy kláves) a z kliknutí
+  // kamkoliv do mřížky plánu (`onPlanClick`).
   function clearSearch() {
     setFilterText("");
     setSelectedBlock(null);
@@ -3158,15 +3159,21 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             typeScale={typeScale}
             copiedBlockId={copiedBlock?.id ?? null}
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
-            // Klik do prázdné plochy plánu ruší hledání — plánovač se jinak musí
-            // po každém dotazu trefit do malého křížku, aby se vrátil pohled na
-            // všechny zakázky (připomínka 13. 8. 2026). Klik NA blok hledání
-            // neruší: procházení shod (`goToMatch`) samo bloky vybírá a rušení by
-            // znemožnilo proklikat další shodu. Syntetický `click`, který prohlížeč
-            // pošle po dotažení gesta (lasa, přetažení bloku, resize, tažení hranice
-            // směny), je odchycený v TimelineGridu (`gestureEndedAtRef`) — jinak by
-            // stejné přesunutí nalezeného bloku smazalo dotaz i ztlumení.
-            onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); clearSearch(); }}
+            onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); }}
+            // Hledání ruší klik KAMKOLIV do mřížky, tedy i na blok — plánovač se
+            // jinak musí po každém dotazu trefit do malého křížku, aby se vrátil
+            // pohled na všechny zakázky (připomínka 13. 8. 2026, doslova „vynulovat
+            // kliknutím kamkoliv do plánu").
+            //
+            // Původní užší varianta (jen prázdné místo ve sloupci) měla chránit
+            // procházení shod. Neobstála: mezi shodami se přepíná šipkami v hlavičce,
+            // které jsou MIMO mřížku, takže se jich tohle netýká — zato nejčastější
+            // pohyb plánovače (najdi zakázku → klikni na ni) hledání nezrušil a
+            // featura působila jako rozbitá.
+            //
+            // Syntetický `click` po dotažení gesta (laso, přetažení bloku, resize,
+            // tažení hranice směny) je odchycený v TimelineGridu (`gestureEndedAtRef`).
+            onPlanClick={clearSearch}
             onBlockCopy={(block) => {
               setCopiedBlock(block);
               setIsCut(false);
