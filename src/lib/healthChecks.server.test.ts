@@ -74,7 +74,7 @@ test("integrity: osiřelý jobPreset se hlásí, platný ne", () => {
   const ok = blk({ id: 2, startTime: OK_START, endTime: OK_END, jobPresetId: 5 });
   const res = computeIntegrityIssues([orphan, ok], refs({ jobPresetIds: new Set([5]) }));
   const it = issue(res, "orphanJobPreset");
-  assert.deepEqual(it.sampleBlockIds, [1]);
+  assert.deepEqual(it.items.map((x) => x.id), [1]);
   assert.equal(it.count, 1);
 });
 
@@ -99,7 +99,7 @@ test("integrity: vadné printMinutes (odd/too big/<=0); NULL a completed se nehl
   const res = computeIntegrityIssues([odd, big, nul, done], refs());
   const it = issue(res, "badPrintMinutes");
   assert.equal(it.count, 2);
-  assert.deepEqual(it.sampleBlockIds, [1, 2]);
+  assert.deepEqual(it.items.map((x) => x.id), [1, 2]);
 });
 
 test("integrity: nezarovnaný start jen ZAKAZKA nedokončená; REZERVACE ne", () => {
@@ -108,7 +108,7 @@ test("integrity: nezarovnaný start jen ZAKAZKA nedokončená; REZERVACE ne", ()
   const res = computeIntegrityIssues([zak, rez], refs());
   const it = issue(res, "unalignedStart");
   assert.equal(it.count, 1);
-  assert.deepEqual(it.sampleBlockIds, [1]);
+  assert.deepEqual(it.items.map((x) => x.id), [1]);
 });
 
 test("integrity: nekonzistentní printCompleted (XOR) se hlásí, konzistentní ne", () => {
@@ -119,7 +119,7 @@ test("integrity: nekonzistentní printCompleted (XOR) se hlásí, konzistentní 
   const res = computeIntegrityIssues([onlyAt, onlyUser, bothSet, bothNull], refs());
   const it = issue(res, "inconsistentPrintCompleted");
   assert.equal(it.count, 2);
-  assert.deepEqual(it.sampleBlockIds, [1, 2]);
+  assert.deepEqual(it.items.map((x) => x.id), [1, 2]);
 });
 
 test("integrity: zrušené kontroly už v rozpadu nejsou", () => {
@@ -129,6 +129,50 @@ test("integrity: zrušené kontroly už v rozpadu nejsou", () => {
     assert.equal(keys.includes(gone), false, `kontrola ${gone} měla být zrušena`);
   }
   assert.equal(keys.length, 7);
+});
+
+test("integrity: item nese číslo zakázky, stroj jako popisek a konkrétní vadnou hodnotu", () => {
+  const odd = blk({ id: 1, orderNumber: "18447", machine: "XL_105", startTime: OK_START, endTime: OK_END, printMinutes: 45 });
+  const it = issue(computeIntegrityIssues([odd], refs()), "badPrintMinutes");
+  assert.equal(it.count, 1);
+  assert.equal(it.items[0].id, 1);
+  assert.equal(it.items[0].orderNumber, "18447");
+  assert.equal(it.items[0].machine, "XL 105");
+  assert.equal(it.items[0].detail, "45 min");
+});
+
+test("integrity: detail nezarovnaného startu ukazuje pražský čas", () => {
+  const zak = blk({ id: 1, startTime: D("2026-08-03T06:17:00Z"), endTime: OK_END });
+  const it = issue(computeIntegrityIssues([zak], refs()), "unalignedStart");
+  assert.equal(it.items[0].detail, "start 08:17");
+});
+
+test("integrity: detail nelogického intervalu ukazuje obě strany", () => {
+  const bad = blk({ id: 1, startTime: D("2026-08-03T08:00:00Z"), endTime: D("2026-08-03T06:00:00Z") });
+  const it = issue(computeIntegrityIssues([bad], refs()), "negativeInterval");
+  assert.equal(it.items[0].detail, "konec 08:00 ≤ začátek 10:00");
+});
+
+test("integrity: detail osiřelého presetu jmenuje chybějící id", () => {
+  const orphan = blk({ id: 1, startTime: OK_START, endTime: OK_END, jobPresetId: 99 });
+  const it = issue(computeIntegrityIssues([orphan], refs()), "orphanJobPreset");
+  assert.equal(it.items[0].detail, "preset #99 neexistuje");
+});
+
+test("integrity: detail nekonzistentního dokončení rozlišuje obě strany XOR", () => {
+  const onlyAt = blk({ id: 1, startTime: OK_START, endTime: OK_END, printCompletedAt: D("2026-08-04T00:00:00Z") });
+  const onlyUser = blk({ id: 2, startTime: OK_START, endTime: OK_END, printCompletedByUserId: 7 });
+  const it = issue(computeIntegrityIssues([onlyAt, onlyUser], refs()), "inconsistentPrintCompleted");
+  assert.equal(it.items[0].detail, "čas dokončení bez uživatele");
+  assert.equal(it.items[1].detail, "uživatel bez času dokončení");
+});
+
+test("integrity: items respektují strop, count nese skutečný počet", () => {
+  const many = Array.from({ length: 60 }, (_, i) =>
+    blk({ id: i + 1, startTime: OK_START, endTime: OK_END, printMinutes: 45 }));
+  const it = issue(computeIntegrityIssues(many, refs()), "badPrintMinutes");
+  assert.equal(it.count, 60);
+  assert.equal(it.items.length, 50);
 });
 
 // ── Přílohy ────────────────────────────────────────────────────────────────

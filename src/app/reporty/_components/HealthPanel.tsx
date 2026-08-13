@@ -182,7 +182,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
                     <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: it.count > 0 ? "var(--danger)" : "color-mix(in oklab, var(--success) 70%, transparent)" }} />
                     <span>{it.label}</span>
                     <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-                      {it.count > 0 && it.sampleBlockIds[0] != null && <a href={jumpHref(it.sampleBlockIds[0])} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 12, fontWeight: 600 }}>Otevřít první →</a>}
+                      {it.count > 0 && it.items[0] != null && <a href={jumpHref(it.items[0].id)} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 12, fontWeight: 600 }}>Otevřít první →</a>}
                       <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: it.count > 0 ? "var(--danger)" : "var(--text-muted)" }}>{it.count}</span>
                     </span>
                   </div>

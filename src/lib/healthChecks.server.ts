@@ -1,6 +1,7 @@
 import { detectCalendarDrift, type DriftedBlock } from "@/lib/calendarDrift.server";
 import { SLOT_MS } from "@/lib/printTime";
-import { MACHINES } from "@/lib/machines";
+import { MACHINES, machineLabel } from "@/lib/machines";
+import { formatPragueTime } from "@/lib/dateUtils";
 import { prisma } from "@/lib/prisma";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -47,7 +48,17 @@ export type DriftItem = {
   reason: DriftedBlock["reason"];
 };
 
-export type IntegrityIssue = { key: string; label: string; count: number; sampleBlockIds: number[] };
+export type IntegrityItem = {
+  id: number;
+  orderNumber: string;
+  /** Hotový zobrazovací text stroje — UI nic nedopočítává. */
+  machine: string;
+  type: string;
+  startTime: Date;
+  /** Konkrétní vadná hodnota, česky. Bez ní je nález nedohledatelný. */
+  detail: string;
+};
+export type IntegrityIssue = { key: string; label: string; count: number; items: IntegrityItem[] };
 export type AttachmentFileRow = { id: number; reservationId: number; originalName: string; storageKey: string };
 export type DiskEntry = { reservationId: number; storageKey: string };
 export type AttachmentIssues = { missingFiles: AttachmentFileRow[]; orphanFiles: DiskEntry[] };
@@ -110,6 +121,13 @@ export type IntegrityRefs = {
   jobPresetIds: Set<number>;
 };
 
+function toItem(b: BlockRow, detail: string): IntegrityItem {
+  return {
+    id: b.id, orderNumber: b.orderNumber, machine: machineLabel(b.machine),
+    type: b.type, startTime: b.startTime, detail,
+  };
+}
+
 /**
  * Neplatné hodnoty a osiřelý preset. Čistá funkce nad načtenými bloky.
  *
@@ -128,27 +146,37 @@ export type IntegrityRefs = {
 export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs): IntegrityIssue[] {
   const machines = MACHINES as readonly string[];
   const issues: IntegrityIssue[] = [];
-  const add = (key: string, label: string, hits: BlockRow[]) => {
-    issues.push({ key, label, count: hits.length, sampleBlockIds: hits.slice(0, MAX_ITEMS).map((b) => b.id) });
+  const add = (key: string, label: string, hits: BlockRow[], detail: (b: BlockRow) => string) => {
+    issues.push({
+      key, label, count: hits.length,
+      items: hits.slice(0, MAX_ITEMS).map((b) => toItem(b, detail(b))),
+    });
   };
 
   add("orphanJobPreset", "Osiřelý jobPreset (blok odkazuje na smazaný preset)",
-    blocks.filter((b) => b.jobPresetId != null && !refs.jobPresetIds.has(b.jobPresetId)));
+    blocks.filter((b) => b.jobPresetId != null && !refs.jobPresetIds.has(b.jobPresetId)),
+    (b) => `preset #${b.jobPresetId} neexistuje`);
   add("invalidMachine", "Neplatný stroj",
-    blocks.filter((b) => !machines.includes(b.machine)));
+    blocks.filter((b) => !machines.includes(b.machine)),
+    (b) => `stroj „${b.machine}"`);
   add("invalidType", "Neplatný typ bloku",
-    blocks.filter((b) => !VALID_TYPES.includes(b.type)));
+    blocks.filter((b) => !VALID_TYPES.includes(b.type)),
+    (b) => `typ „${b.type}"`);
   add("negativeInterval", "Konec ≤ začátek (nelogický interval)",
-    blocks.filter((b) => b.endTime.getTime() <= b.startTime.getTime()));
+    blocks.filter((b) => b.endTime.getTime() <= b.startTime.getTime()),
+    (b) => `konec ${formatPragueTime(b.endTime)} ≤ začátek ${formatPragueTime(b.startTime)}`);
   add("badPrintMinutes", "Vadné printMinutes (ZAKÁZKA)",
     blocks.filter((b) =>
       b.type === "ZAKAZKA" && b.printCompletedAt == null && b.printMinutes != null &&
-      (b.printMinutes <= 0 || b.printMinutes > MAX_PRINT_MINUTES || b.printMinutes % 30 !== 0)));
+      (b.printMinutes <= 0 || b.printMinutes > MAX_PRINT_MINUTES || b.printMinutes % 30 !== 0)),
+    (b) => `${b.printMinutes} min`);
   add("unalignedStart", "Nezarovnaný start (mimo 30min mřížku)",
     blocks.filter((b) =>
-      b.type === "ZAKAZKA" && b.printCompletedAt == null && b.startTime.getTime() % SLOT_MS !== 0));
+      b.type === "ZAKAZKA" && b.printCompletedAt == null && b.startTime.getTime() % SLOT_MS !== 0),
+    (b) => `start ${formatPragueTime(b.startTime)}`);
   add("inconsistentPrintCompleted", "Nekonzistentní dokončení tisku (jen jeden ze dvou údajů)",
-    blocks.filter((b) => (b.printCompletedAt == null) !== (b.printCompletedByUserId == null)));
+    blocks.filter((b) => (b.printCompletedAt == null) !== (b.printCompletedByUserId == null)),
+    (b) => (b.printCompletedAt != null ? "čas dokončení bez uživatele" : "uživatel bez času dokončení"));
 
   return issues;
 }

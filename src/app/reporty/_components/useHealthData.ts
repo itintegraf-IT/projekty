@@ -6,7 +6,8 @@ import { useState, useEffect, useCallback } from "react";
 export type BlockRef = { id: number; orderNumber: string; type: string; startTime: string; endTime: string };
 export type OverlapPair = { machine: string; a: BlockRef; b: BlockRef; overlapStart: string; overlapEnd: string; overlapMinutes: number };
 export type DriftItem = { id: number; orderNumber: string; machine: string; startTime: string; storedEnd: string; expectedEnd: string | null; reason: string };
-export type IntegrityIssue = { key: string; label: string; count: number; sampleBlockIds: number[] };
+export type IntegrityItem = { id: number; orderNumber: string; machine: string; type: string; startTime: string; detail: string };
+export type IntegrityIssue = { key: string; label: string; count: number; items: IntegrityItem[] };
 export type AttachmentFileRow = { id: number; reservationId: number; originalName: string; storageKey: string };
 export type DiskEntry = { reservationId: number; storageKey: string };
 export type HealthData = {
