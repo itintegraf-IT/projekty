@@ -61,7 +61,10 @@ export const HEALTH_COPY: Record<string, CheckCopy> = {
   },
   splitFieldsDiverged: {
     znamena: "Části rozdělené zakázky mají mít shodné údaje (číslo zakázky, popis, deadline, stavy dat, materiálu a Pantone). Tady se rozešly, takže každá část tvrdí něco jiného.",
-    coStim: "Otevři kteroukoli část a ulož ji — server správnou hodnotu rozešle na zbytek skupiny sám.",
+    // POZOR na formulaci: propagace v PUT /api/blocks/[id] bere hodnoty z EDITOVANÉHO
+    // bloku a `updateMany` je rozešle na sourozence. Starší text („otevři kteroukoli
+    // část") tedy naváděl přepsat správnou hodnotu tou špatnou.
+    coStim: "Otevři tu část, která má správné hodnoty — v tabulce výš je u každého pole vidět, co která část tvrdí — a ulož ji. Server hodnotu rozešle na zbytek skupiny. Pozor: uloží se hodnoty z části, kterou otevřeš, takže na pořadí záleží.",
   },
 };
 

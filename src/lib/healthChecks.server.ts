@@ -2,7 +2,7 @@ import { detectCalendarDrift, type DriftedBlock } from "@/lib/calendarDrift.serv
 import { SLOT_MS } from "@/lib/printTime";
 import { MACHINES, machineLabel } from "@/lib/machines";
 import { formatPragueTime } from "@/lib/dateUtils";
-import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
+import { SPLIT_SHARED_FIELDS, type SplitSharedField } from "@/lib/splitSharedFields";
 import { FIELD_LABELS, fmtAuditVal } from "@/lib/auditFormatters";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -198,19 +198,51 @@ export type SplitSharedRow = Record<string, unknown> & {
 /** Sentinel pro chybějící hodnotu — odlišuje NULL od prázdného řetězce. */
 const NULL_SENTINEL = "\u0000null";
 
+/** Sentinel pro `Invalid Date` — porovnání smí selhat, celá kontrola ne. */
+const INVALID_DATE_SENTINEL = " invalid";
+/** Strop délky jedné vypsané hodnoty v `detail` (viz `clipValue`). */
+const MAX_DETAIL_VALUE = 80;
+
 /** Kanonický tvar hodnoty pro porovnání napříč členy skupiny. */
 function normalizeShared(v: unknown): string {
   if (v === null || v === undefined) return NULL_SENTINEL;
-  if (v instanceof Date) return v.toISOString();
+  // `toISOString()` nad Invalid Date hází RangeError — bez guardu by jediný
+  // poškozený DateTime v databázi shodil CELOU kontrolu, ne jen svůj řádek.
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? INVALID_DATE_SENTINEL : v.toISOString();
   return String(v);
 }
 
 /** Tvar, kterému rozumí `fmtAuditVal` (bere `string | null`). */
 function toAuditString(v: unknown): string | null {
   if (v === null || v === undefined) return null;
-  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString(); // guard viz výše
   return String(v);
 }
+
+/**
+ * Zobrazení hodnoty v `detail`. Tenká vrstva nad `fmtAuditVal`, protože ten vrací „—"
+ * pro NULL i pro prázdný řetězec (`if (!val …)`) — rozešlá skupina s `""` proti `null`
+ * by pak vyrobila nález s detailem „1 = —, 2 = —", kde uživatel nevidí ŽÁDNÝ rozdíl,
+ * přestože nález je pravdivý. `auditFormatters.ts` se záměrně neupravuje: pro historii
+ * je jeho chování správné, rozlišovat to potřebuje jen tahle kontrola.
+ */
+function fmtSharedVal(v: unknown, field: string): string {
+  if (v === null || v === undefined) return "—";
+  if (v instanceof Date && Number.isNaN(v.getTime())) return "(neplatné datum)";
+  if (typeof v === "string" && v.trim() === "") return "(prázdné)";
+  return fmtAuditVal(toAuditString(v), field);
+}
+
+/**
+ * Rozešlý `description` + `specifikace` po 1 200 znacích dá detail 2 480 znaků; krát
+ * 50 položek jsou stovky kB v payloadu. Nález zůstává dohledatelný podle id bloku.
+ */
+function clipValue(s: string): string {
+  return s.length > MAX_DETAIL_VALUE ? `${s.slice(0, MAX_DETAIL_VALUE)}…` : s;
+}
+
+/** Popisek řádku — zapsaný jednou, protože ho potřebuje i fallback v `runHealthChecks`. */
+export const SPLIT_DIVERGENCE_LABEL = "Rozešlá split-skupina (části mají různé údaje)";
 
 /**
  * Členové jedné split-skupiny mají sdílet všech 31 polí ze `SPLIT_SHARED_FIELDS`.
@@ -249,12 +281,15 @@ export function computeSplitDivergence(rows: SplitSharedRow[]): IntegrityIssue {
     count++;
     if (items.length >= MAX_ITEMS) continue;
 
-    const sorted = [...members].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    // Sekundární klíč `id`: `findMany` je bez `orderBy` a MySQL pořadí řádků
+    // negarantuje, takže při shodném startu (dvě části na dvou strojích) by se
+    // `items[0].id` i pořadí v detailu mezi dvěma běhy panelu přehazovalo.
+    const sorted = [...members].sort((a, b) => a.startTime.getTime() - b.startTime.getTime() || a.id - b.id);
     const detail = divergedFields
       .map((field) => {
         const label = FIELD_LABELS[field] ?? field;
         const values = sorted
-          .map((m) => `${m.id} = ${fmtAuditVal(toAuditString(m[field]), field)}`)
+          .map((m) => `${m.id} = ${clipValue(fmtSharedVal(m[field], field))}`)
           .join(", ");
         return `${label}: ${values}`;
       })
@@ -272,7 +307,7 @@ export function computeSplitDivergence(rows: SplitSharedRow[]): IntegrityIssue {
     });
   }
 
-  return { key: "splitFieldsDiverged", label: "Rozešlá split-skupina (části mají různé údaje)", count, items };
+  return { key: "splitFieldsDiverged", label: SPLIT_DIVERGENCE_LABEL, count, items };
 }
 
 // ── Přílohy: disk vs. DB ─────────────────────────────────────────────────────
@@ -340,17 +375,44 @@ const SPLIT_SELECT = Object.fromEntries(
 ) as Prisma.BlockSelect;
 
 /**
+ * Pojistka za cast výše: `as Prisma.BlockSelect` typovou kontrolu vypíná, takže překlep
+ * v `SPLIT_SHARED_FIELDS` (pole, které v Prisma schématu vůbec není) projde buildem
+ * i testy a rozbije se až za běhu na produkci. Tohle to shodí při `tsc`.
+ */
+type _AssertSharedFieldsExistOnBlock =
+  Exclude<SplitSharedField, keyof Prisma.BlockSelect> extends never ? true : never;
+export const SHARED_FIELDS_EXIST_ON_BLOCK: _AssertSharedFieldsExistOnBlock = true;
+
+/**
  * Spustí jednu kontrolu izolovaně. Při výjimce vrátí `null` a text chyby, takže
  * ostatní kontroly doběhnou a zobrazí se. Bez tohohle by jedna rozbitá kontrola
  * (typicky sloupec, který produkce ještě nemá) shodila celý panel na 500 —
  * u nástroje, který má odhalovat tiché vady, je to nejhorší možné chování.
  */
-export async function attempt<T>(label: string, fn: () => Promise<T>): Promise<{ value: T | null; error?: string }> {
+export type Attempted<T> = { value: T | null; error?: string };
+
+/** Strop délky chybové hlášky, která jde do UI (viz `shortenError`). */
+const MAX_ERROR_CHARS = 200;
+
+/**
+ * Hláška do UI: první neprázdný řádek, oříznutý. `PrismaClientValidationError.message`
+ * má naměřeno 2 624 znaků na 75 řádcích včetně absolutních cest k souborům na serveru —
+ * vykreslené v `<div>` je to nečitelná zeď a zbytečný únik cest. Plná hláška zůstává
+ * v `logger.error`, kde je pro diagnostiku správně.
+ */
+function shortenError(err: unknown): string {
+  if (!(err instanceof Error)) return "neznámá chyba";
+  const firstLine = err.message.split("\n").map((l) => l.trim()).find((l) => l.length > 0);
+  if (!firstLine) return "neznámá chyba";
+  return firstLine.length > MAX_ERROR_CHARS ? `${firstLine.slice(0, MAX_ERROR_CHARS)}…` : firstLine;
+}
+
+export async function attempt<T>(label: string, fn: () => Promise<T>): Promise<Attempted<T>> {
   try {
     return { value: await fn() };
   } catch (err) {
     logger.error(`[health] kontrola ${label} selhala`, err);
-    return { value: null, error: err instanceof Error ? err.message : "neznámá chyba" };
+    return { value: null, error: shortenError(err) };
   }
 }
 
@@ -360,32 +422,49 @@ export async function attempt<T>(label: string, fn: () => Promise<T>): Promise<{
  * Jen čte. Typováno na `typeof prisma` (thin wiring) — logika je v pure funkcích výše.
  */
 export async function runHealthChecks(db: typeof prisma, now: Date): Promise<HealthResult> {
-  const [allBlocks, jobPresets, attachmentRows] = await Promise.all([
-    db.block.findMany({ select: BLOCK_SELECT }),
-    db.jobPreset.findMany({ select: { id: true } }),
-    db.reservationAttachment.findMany({ select: { id: true, reservationId: true, originalName: true, storageKey: true } }),
-  ]);
+  // Načtení je stejně křehké jako výpočet (chybějící sloupec, spadlé spojení), a když
+  // stálo MIMO `attempt`, propadla výjimka do routy → 500 → zmizel celý panel včetně
+  // kontrol, které na těchhle datech vůbec nestojí. Chráněná musí být obě fáze.
+  const dataR = await attempt("data", async () => {
+    const [allBlocks, jobPresets, attachmentRows] = await Promise.all([
+      db.block.findMany({ select: BLOCK_SELECT }),
+      db.jobPreset.findMany({ select: { id: true } }),
+      db.reservationAttachment.findMany({ select: { id: true, reservationId: true, originalName: true, storageKey: true } }),
+    ]);
+    return {
+      blocks: allBlocks as BlockRow[],
+      refs: { jobPresetIds: new Set(jobPresets.map((p) => p.id)) } satisfies IntegrityRefs,
+      attachmentRows: attachmentRows as AttachmentFileRow[],
+    };
+  });
+  const data = dataR.value;
+  /** Kontrola, která na společných datech STOJÍ — dědí jejich chybu místo aby padla. */
+  const dataFailed = <T,>(): Attempted<T> => ({ value: null, error: dataR.error ?? "Data se nepodařilo načíst." });
 
-  const blocks = allBlocks as BlockRow[];
-  const refs: IntegrityRefs = { jobPresetIds: new Set(jobPresets.map((p) => p.id)) };
-
+  // Drift a rozešlá skupina mají VLASTNÍ dotaz, takže doběhnou i při selhání načtení výše.
   const driftR = await attempt("drift", async () => bucketDrift(await detectCalendarDrift(
     db, [...MACHINES], now, new Date(now.getTime() + DRIFT_HORIZON_DAYS * DAY_MS), now,
   )));
-  const overlapsR = await attempt("overlaps", async () => computeOverlapPairs(blocks, now));
-  const baseR = await attempt("integrity", async () => computeIntegrityIssues(blocks, refs));
+  const overlapsR = data == null
+    ? dataFailed<OverlapPair[]>()
+    : await attempt("overlaps", async () => computeOverlapPairs(data.blocks, now));
+  const baseR = data == null
+    ? dataFailed<IntegrityIssue[]>()
+    : await attempt("integrity", async () => computeIntegrityIssues(data.blocks, data.refs));
   const divergedR = await attempt("splitFieldsDiverged", async () => computeSplitDivergence(
     (await db.block.findMany({ where: { splitGroupId: { not: null } }, select: SPLIT_SELECT })) as unknown as SplitSharedRow[],
   ));
-  const attachR = await attempt("attachments", async () =>
-    diffAttachmentFiles(attachmentRows, await scanAttachmentDir(ATTACHMENTS_DIR)));
+  const attachR = data == null
+    ? dataFailed<AttachmentIssues>()
+    : await attempt("attachments", async () =>
+      diffAttachmentFiles(data.attachmentRows, await scanAttachmentDir(ATTACHMENTS_DIR)));
 
   // Rozpad integrity: základní kontroly + řádek rozešlé skupiny. Když selže jen
   // ten druhý, zbytek rozpadu se pořád ukáže — jen s vlastní značkou „nespočteno".
   const breakdown: IntegrityIssue[] = [
     ...(baseR.value ?? []),
     divergedR.value ?? {
-      key: "splitFieldsDiverged", label: "Rozešlá split-skupina (části mají různé údaje)",
+      key: "splitFieldsDiverged", label: SPLIT_DIVERGENCE_LABEL,
       count: null, items: [], error: divergedR.error,
     },
   ];

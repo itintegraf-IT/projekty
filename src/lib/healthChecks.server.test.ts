@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeOverlapPairs, computeIntegrityIssues, computeSplitDivergence, diffAttachmentFiles, bucketDrift, attempt, type BlockRow, type IntegrityRefs, type SplitSharedRow, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
+import { computeOverlapPairs, computeIntegrityIssues, computeSplitDivergence, diffAttachmentFiles, bucketDrift, attempt, runHealthChecks, type BlockRow, type IntegrityRefs, type SplitSharedRow, type AttachmentFileRow, type DiskEntry } from "./healthChecks.server";
 import { SPLIT_SHARED_FIELDS } from "./splitSharedFields";
 import { FIELD_LABELS } from "./auditFormatters";
 import type { DriftedBlock } from "./calendarDrift.server";
@@ -263,6 +263,79 @@ test("divergence: strážný test — každé sdílené pole má český popisek
   }
 });
 
+test("divergence: prázdný řetězec proti NULL je v detailu ROZLIŠITELNÝ", () => {
+  // fmtAuditVal vrací „—" pro obojí; bez vlastního wrapperu by nález byl pravdivý,
+  // ale detail by tvrdil „1 = —, 2 = —", tedy žádný viditelný rozdíl.
+  const rows = [
+    srow({ id: 1, splitGroupId: 7, description: "" }),
+    srow({ id: 2, splitGroupId: 7, description: null }),
+  ];
+  const res = computeSplitDivergence(rows);
+  assert.equal(res.count, 1);
+  const detail = res.items[0].detail;
+  assert.match(detail, /1 = \(prázdné\)/);
+  assert.match(detail, /2 = —/);
+});
+
+test("divergence: bílé znaky proti NULL jsou taky rozlišitelné", () => {
+  const rows = [
+    srow({ id: 1, splitGroupId: 7, specifikace: "   " }),
+    srow({ id: 2, splitGroupId: 7, specifikace: null }),
+  ];
+  const detail = computeSplitDivergence(rows).items[0].detail;
+  assert.match(detail, /1 = \(prázdné\)/);
+  assert.match(detail, /2 = —/);
+});
+
+test("divergence: dlouhá hodnota se v detailu ořízne na 80 znaků", () => {
+  const rows = [
+    srow({ id: 1, splitGroupId: 7, description: "A".repeat(1200) }),
+    srow({ id: 2, splitGroupId: 7, description: "B".repeat(1200) }),
+  ];
+  const detail = computeSplitDivergence(rows).items[0].detail;
+  assert.equal(detail.includes("A".repeat(80) + "…"), true);
+  assert.equal(detail.includes("A".repeat(81)), false);
+  assert.ok(detail.length < 300, `detail je ${detail.length} znaků, měl by být oříznutý`);
+});
+
+test("divergence: Invalid Date kontrolu nepoloží (RangeError)", () => {
+  const bad = new Date("nesmysl");
+  const rows = [
+    srow({ id: 1, splitGroupId: 7, deadlineExpedice: bad }),
+    srow({ id: 2, splitGroupId: 7, deadlineExpedice: new Date("2026-09-01T00:00:00Z") }),
+  ];
+  const res = computeSplitDivergence(rows);
+  assert.equal(res.count, 1);
+  assert.match(res.items[0].detail, /neplatné datum/);
+});
+
+test("divergence: řazení má sekundární klíč id (shodný start nepřehazuje pořadí)", () => {
+  // MySQL bez `orderBy` pořadí řádků negarantuje → bez `|| a.id - b.id` by se
+  // items[0].id i pořadí v detailu mezi běhy panelu přehazovalo.
+  const mk = (ids: number[]) => ids.map((id) =>
+    srow({ id, splitGroupId: 7, machine: id % 2 ? "XL_105" : "XL_106", jobPresetLabel: `P${id}` }));
+  const a = computeSplitDivergence(mk([12, 11]));
+  const b = computeSplitDivergence(mk([11, 12]));
+  assert.equal(a.items[0].id, 11);
+  assert.equal(b.items[0].id, 11);
+  assert.equal(a.items[0].detail, b.items[0].detail);
+});
+
+test("divergence: items respektují strop MAX_ITEMS, count nese skutečný počet", () => {
+  const rows: SplitSharedRow[] = [];
+  for (let g = 1; g <= 60; g++) {
+    rows.push(srow({ id: g * 2, splitGroupId: g, jobPresetLabel: "A" }));
+    rows.push(srow({ id: g * 2 + 1, splitGroupId: g, jobPresetLabel: "B" }));
+  }
+  const res = computeSplitDivergence(rows);
+  assert.equal(res.count, 60);
+  assert.equal(res.items.length, 50);
+});
+
+test("divergence: klíč nálezu je splitFieldsDiverged", () => {
+  assert.equal(computeSplitDivergence([]).key, "splitFieldsDiverged");
+});
+
 // ── Přílohy ────────────────────────────────────────────────────────────────
 
 test("diffAttachmentFiles: DB řádek bez souboru → missing", () => {
@@ -328,5 +401,129 @@ test("attempt: výjimka bez Error dostane náhradní text", async () => {
   const bad = await attempt("divná", async () => { throw "boom"; });
   assert.equal(bad.value, null);
   assert.equal(bad.error, "neznámá chyba");
+});
+
+test("attempt: mnohořádková Prisma hláška se zkrátí na první řádek", async () => {
+  // PrismaClientValidationError.message má naměřeno 2 624 znaků / 75 řádků včetně
+  // absolutních cest na serveru — do UI se z toho smí dostat jen první řádek.
+  const bad = await attempt("prisma", async () => {
+    throw new Error("\nInvalid `prisma.block.findMany()` invocation:\n\n\n{\n  select: {\n    vymyslenePole: true\n  }\n}\n/Users/x/y/z.ts:12:34");
+  });
+  assert.equal(bad.error, "Invalid `prisma.block.findMany()` invocation:");
+});
+
+test("attempt: dlouhý první řádek se ořízne na 200 znaků", async () => {
+  const bad = await attempt("dlouhá", async () => { throw new Error("X".repeat(500)); });
+  assert.equal(bad.error, "X".repeat(200) + "…");
+});
+
+// ── Kompozice runHealthChecks (fake Prisma klient) ───────────────────────────
+// Vzorem `scheduleSlotFinder.server.test.ts`: funkce si klienta bere parametrem,
+// takže se podstrkuje přímo, bez mockování modulu.
+
+type FakeOpts = {
+  blocks?: unknown[];
+  blocksThrow?: boolean;
+  presetsThrow?: boolean;
+  splitRows?: SplitSharedRow[];
+  splitThrow?: boolean;
+};
+
+function fakeDb(o: FakeOpts = {}) {
+  return {
+    block: {
+      findMany: async (args: { where?: Record<string, unknown> }) => {
+        // Dotaz driftu (`scheduleBypassed` ve where) → prázdno, drift doběhne bez kalendáře.
+        if (args.where && "scheduleBypassed" in args.where) return [];
+        if (args.where && "splitGroupId" in args.where) {
+          if (o.splitThrow) throw new Error("Unknown column 'Block.pantoneIssued'");
+          return o.splitRows ?? [];
+        }
+        if (o.blocksThrow) throw new Error("Unknown column 'Block.orderNumber'");
+        return o.blocks ?? [];
+      },
+    },
+    jobPreset: {
+      findMany: async () => { if (o.presetsThrow) throw new Error("JobPreset nedostupný"); return []; },
+    },
+    reservationAttachment: { findMany: async () => [] },
+    machineWeekShifts: { findMany: async () => [] },
+    companyDay: { findMany: async () => [] },
+  } as unknown as Parameters<typeof runHealthChecks>[0];
+}
+
+const okBlock = () => ({ ...blk({ id: 1, startTime: OK_START, endTime: OK_END, printMinutes: 45 }) });
+const divergedRows = () => [
+  srow({ id: 11, splitGroupId: 7, jobPresetLabel: "A" }),
+  srow({ id: 12, splitGroupId: 7, jobPresetLabel: "B" }),
+];
+const breakdownRow = (r: Awaited<ReturnType<typeof runHealthChecks>>, key: string) => {
+  const row = r.checks.integrity.breakdown.find((i) => i.key === key);
+  assert.ok(row, `v rozpadu chybí ${key}`);
+  return row!;
+};
+
+test("runHealthChecks: base OK + diverged OK → součet obou, žádná chyba", async () => {
+  const r = await runHealthChecks(fakeDb({ blocks: [okBlock()], splitRows: divergedRows() }), NOW);
+  assert.equal(r.checks.integrity.error, undefined);
+  assert.equal(breakdownRow(r, "splitFieldsDiverged").count, 1);
+  assert.equal(r.checks.integrity.count, 2); // badPrintMinutes 1 + rozešlá skupina 1
+  assert.equal(r.checks.overlaps.count, 0);
+  assert.equal(r.checks.drift.count, 0);
+});
+
+test("runHealthChecks: base OK + diverged FAIL → základ se spočte, řádek nese chybu", async () => {
+  const r = await runHealthChecks(fakeDb({ blocks: [okBlock()], splitThrow: true }), NOW);
+  assert.equal(r.checks.integrity.count, 1); // jen základní kontroly
+  assert.equal(r.checks.integrity.error, "Dílčí kontrola nespočtena.");
+  const row = breakdownRow(r, "splitFieldsDiverged");
+  assert.equal(row.count, null);
+  assert.equal(row.error, "Unknown column 'Block.pantoneIssued'");
+});
+
+test("runHealthChecks: base FAIL + diverged OK → integrita null, řádek skupiny přesto nese číslo", async () => {
+  // Poškozený řádek (endTime není Date) shodí computeIntegrityIssues, ne načtení dat.
+  const broken = { ...okBlock(), endTime: "nesmysl" as unknown as Date };
+  const r = await runHealthChecks(fakeDb({ blocks: [broken], splitRows: divergedRows() }), NOW);
+  assert.equal(r.checks.integrity.count, null);
+  assert.ok(r.checks.integrity.error);
+  assert.equal(breakdownRow(r, "splitFieldsDiverged").count, 1);
+});
+
+test("runHealthChecks: base FAIL + diverged FAIL → integrita null a obě chyby jsou vidět", async () => {
+  const broken = { ...okBlock(), endTime: "nesmysl" as unknown as Date };
+  const r = await runHealthChecks(fakeDb({ blocks: [broken], splitThrow: true }), NOW);
+  assert.equal(r.checks.integrity.count, null);
+  assert.ok(r.checks.integrity.error);
+  assert.equal(breakdownRow(r, "splitFieldsDiverged").error, "Unknown column 'Block.pantoneIssued'");
+});
+
+test("runHealthChecks: selhání NAČTENÍ dat neshodí panel — drift doběhne", async () => {
+  // Regrese V1: `Promise.all` stálo mimo `attempt`, takže jediný vadný sloupec
+  // propadl do routy jako 500 a zmizelo všech 5 kontrol včetně těch nezávislých.
+  const r = await runHealthChecks(fakeDb({ blocksThrow: true, splitRows: divergedRows() }), NOW);
+  assert.equal(r.checks.drift.count, 0);
+  assert.equal(r.checks.drift.error, undefined);
+  assert.equal(r.checks.outsideHours.count, 0);
+  assert.equal(r.checks.overlaps.count, null);
+  assert.equal(r.checks.overlaps.error, "Unknown column 'Block.orderNumber'");
+  assert.equal(r.checks.integrity.count, null);
+  assert.equal(r.checks.integrity.error, "Unknown column 'Block.orderNumber'");
+  assert.equal(r.checks.attachments.count, null);
+  assert.equal(r.checks.attachments.error, "Unknown column 'Block.orderNumber'");
+  // Kontrola s vlastním dotazem se spočte i tak.
+  assert.equal(breakdownRow(r, "splitFieldsDiverged").count, 1);
+});
+
+test("runHealthChecks: selhání dílčího dotazu (presety) taky nepoloží celý panel", async () => {
+  const r = await runHealthChecks(fakeDb({ presetsThrow: true }), NOW);
+  assert.equal(r.checks.drift.count, 0);
+  assert.equal(r.checks.integrity.count, null);
+  assert.equal(r.checks.integrity.error, "JobPreset nedostupný");
+});
+
+test("runHealthChecks: klíč splitFieldsDiverged je v rozpadu integrity vždy", async () => {
+  const r = await runHealthChecks(fakeDb(), NOW);
+  assert.equal(breakdownRow(r, "splitFieldsDiverged").key, computeSplitDivergence([]).key);
 });
 

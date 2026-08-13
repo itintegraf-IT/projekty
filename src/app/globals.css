@@ -169,6 +169,16 @@ body {
   --success: oklch(0.62 0.18 152);
   --success-contrast: oklch(0.18 0.04 152);
   --warning: oklch(0.78 0.16 85);
+  /* --warning je JEDINÝ ze sourozenců, který slib z komentáře výše v LIGHT módu
+     neplní: oklch(0.78 0.16 85) = #e6ad00 dává na --surface (#f2f6f9) kontrast
+     1,86:1 — žlutá na bílé, text prakticky neviditelný (změřeno 13. 8. 2026 při
+     zavádění stavu „nespočteno" v Kontrolním panelu). Sytost je tu vlastnost
+     odstínu, ne chyba hodnoty: --warning je dobrý na okraje, tečky a podklady.
+     Pro PÍSMO proto existuje --warning-text. Hodnota je zvolená tak, aby WCAG AA
+     (4,5:1) prošla na VŠECH třech podkladech, na kterých se reálně používá:
+     --surface 5,61:1 · pilulka color-mix(warning 20 %) 4,93:1 · odznak 25 % 4,78:1.
+     V dark módu je --warning na tmavém podkladu 10,22:1, takže tam je alias na něj. */
+  --warning-text: oklch(0.5 0.13 75);
   --brand: oklch(0.9 0.19 102);
   --brand-contrast: oklch(0.2 0.015 248.39);
   --timeline-bg: oklch(0.94 0.01 250);
@@ -227,6 +237,8 @@ body {
   --success: oklch(0.72 0.18 152);
   --success-contrast: oklch(0.18 0.04 152);
   --warning: oklch(0.82 0.16 90);
+  /* V dark módu je --warning na tmavém podkladu 10,22:1 — vlastní tón netřeba. */
+  --warning-text: var(--warning);
   --brand: oklch(0.9 0.19 102);
   --brand-contrast: oklch(0.2 0.015 248.39);
   --timeline-bg: oklch(0.2 0.01 250);

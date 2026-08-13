@@ -20,6 +20,20 @@ function fmtDateTime(iso: string): string {
 }
 
 /**
+ * Vede odkaz „Otevřít v plánu" na něco, co uživatel opravdu uvidí?
+ *
+ * `/?highlight=<id>` se v `app/page.tsx` NEPOUŽIJE jako id — přeloží se na
+ * `orderNumber` nalezeného bloku a předá plánovači jako textový filtr. Dva stavy
+ * proto slibují víc, než umí splnit, a je poctivější odkaz nenabízet:
+ *  - prázdný `orderNumber` → filtr je prázdný řetězec a skok se nikdy nespustí,
+ *  - `invalidMachine` → blok se strojem mimo MACHINES se v plánu nevykreslí vůbec
+ *    (říká to i vysvětlivka u té kontroly, která posílá zásah do databáze).
+ */
+function canJump(issueKey: string, orderNumber: string): boolean {
+  return orderNumber.trim().length > 0 && issueKey !== "invalidMachine";
+}
+
+/**
  * Jeden řádek rozpadu Integrity. Řádek s nálezem je klikací a rozbalí se do
  * vysvětlivky a tabulky VŠECH nálezů — dřív se z padesáti posílaných položek
  * zobrazila jedna. Nulový a nespočtený řádek se nerozbalují (není co ukázat).
@@ -50,7 +64,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{
             fontVariantNumeric: "tabular-nums", fontWeight: 700,
-            color: uncomputed ? "var(--warning)" : bad ? "var(--danger)" : "var(--text-muted)",
+            color: uncomputed ? "var(--warning-text)" : bad ? "var(--danger)" : "var(--text-muted)",
           }}>
             {uncomputed ? "nespočteno" : issue.count}
           </span>
@@ -60,9 +74,19 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
         </span>
       </div>
 
-      {uncomputed && issue.error && (
-        <div style={{ padding: "0 13px 10px 29px", fontSize: 12, color: "var(--warning)" }}>
-          Kontrola se nespočetla: {issue.error}
+      {/* Důvod se vypisuje i bez `error` — holé „nespočteno" bez vysvětlení
+          a bez možnosti rozbalit je slepá ulička. */}
+      {uncomputed && (
+        <div style={{ padding: "0 13px 10px 29px", fontSize: 12, color: "var(--warning-text)" }}>
+          Kontrola se nespočetla: {issue.error ?? "důvod neznámý"}
+        </div>
+      )}
+
+      {/* Nález bez položek se nedá rozbalit — bez téhle hlášky svítí červené číslo,
+          na které nejde kliknout a nikde není proč. */}
+      {bad && issue.items.length === 0 && (
+        <div style={{ padding: "0 13px 10px 29px", fontSize: 12, color: "var(--text-muted)" }}>
+          Detaily nejsou k dispozici.
         </div>
       )}
 
@@ -87,11 +111,17 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
                       <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{fmtDateTime(item.startTime)}</div>
                     </td>
                     <td style={{ ...TD, fontWeight: 700, fontSize: 12 }}>{item.machine}</td>
-                    <td style={{ ...TD, color: "var(--text-muted)" }}>{item.detail}</td>
+                    {/* Rozešlá skupina může vypsat i deset polí — bez stropu a lámání
+                        by jedno dlouhé slovo (popis, specifikace) roztáhlo tabulku. */}
+                    <td style={{ ...TD, color: "var(--text-muted)", maxWidth: 420, overflowWrap: "anywhere" }}>{item.detail}</td>
                     <td style={TD}>
-                      <a href={`/?highlight=${item.id}`} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
-                        Otevřít v plánu →
-                      </a>
+                      {canJump(issue.key, item.orderNumber) ? (
+                        <a href={`/?highlight=${item.id}`} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
+                          Otevřít v plánu →
+                        </a>
+                      ) : (
+                        <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>v plánu nedohledatelný</span>
+                      )}
                     </td>
                   </tr>
                 ))}

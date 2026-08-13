@@ -116,14 +116,19 @@ const BTN_ACTIVE: React.CSSProperties = {
 const DOW_LABELS = ["Ne","Po","Út","St","Čt","Pá","So"];
 
 /** Odznak s počtem nálezů na záložce Kontrolní panel. Vidět i bez otevření. */
-function HealthBadge({ loading, error, total, active }: { loading: boolean; error: string | null; total: number; active: boolean }) {
+function HealthBadge({ loading, error, total, uncomputed, active }: { loading: boolean; error: string | null; total: number; uncomputed: number; active: boolean }) {
   const base: React.CSSProperties = {
     fontSize: 11, fontWeight: 800, lineHeight: 1, padding: "3px 7px", borderRadius: 999,
     fontVariantNumeric: "tabular-nums", minWidth: 18, textAlign: "center",
   };
   if (loading) return <span style={{ ...base, color: active ? "var(--brand-contrast)" : "var(--text-muted)", opacity: 0.7 }}>…</span>;
-  if (error) return <span style={{ ...base, background: "color-mix(in oklab, var(--warning) 25%, transparent)", color: "var(--warning)" }} title={`Kontrolu nešlo načíst: ${error}`}>!</span>;
+  if (error) return <span style={{ ...base, background: "color-mix(in oklab, var(--warning) 25%, transparent)", color: "var(--warning-text)" }} title={`Kontrolu nešlo načíst: ${error}`}>!</span>;
   if (total > 0) return <span style={{ ...base, background: "var(--danger)", color: "#fff" }}>{total}</span>;
+  // Nespočtená kontrola NESMÍ propadnout na zelené ✓. Bez téhle větve platilo:
+  // kontrola selže, ostatní jsou čisté → total === 0 → odznak hlásí „v pořádku",
+  // uživatel do panelu vůbec neklikne a o selhání se nedozví. `error` výš chytá
+  // jen pád celého fetche, ne dílčí kontrolu.
+  if (uncomputed > 0) return <span style={{ ...base, background: "color-mix(in oklab, var(--warning) 25%, transparent)", color: "var(--warning-text)" }} title={`${uncomputed === 1 ? "1 kontrola se nespočetla" : `${uncomputed} kontroly se nespočetly`} — otevři Kontrolní panel`}>⚠</span>;
   return <span style={{ ...base, background: "color-mix(in oklab, var(--success) 22%, transparent)", color: "var(--success)" }}>✓</span>;
 }
 
@@ -481,7 +486,7 @@ export default function ReportDashboard() {
             title="Kontrolní panel — integrita dat"
           >
             🩺 Kontrolní panel
-            <HealthBadge loading={health.loading} error={health.error} total={health.total} active={mode === "health"} />
+            <HealthBadge loading={health.loading} error={health.error} total={health.total} uncomputed={health.uncomputed} active={mode === "health"} />
           </button>
         </div>
 
