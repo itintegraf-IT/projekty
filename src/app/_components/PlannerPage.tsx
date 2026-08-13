@@ -149,6 +149,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // TISKAR: Monitor je domovská obrazovka, plán je za tlačítkem „Celý plán →".
   // Záměrně asymetrické — nejde o dvojici rovnocenných záložek.
   const [tiskarView, setTiskarView] = useState<"monitor" | "plan">("monitor");
+  // Jednorázový příkaz pro Monitor — „vytáhni tuhle zakázku na velkou kartu".
+  // Monitor si ho po zpracování sám vynuluje přes onFocusHandled.
+  const [monitorFocusId, setMonitorFocusId] = useState<number | null>(null);
 
   // ── Job Builder (tvorba zakázek/série/fronty) — vlastní hook ──
   // handleBlockCreate je hoisted function (níže) → lze ji předat sem jako onBlockCreated.
@@ -942,9 +945,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     setDaysBack(Math.max(3, diffDays + 5));
   }
 
-  // Sdílené i pro OrderSearchSheet i pro klik na řádek v Monitoru (MonitorQueue):
-  // přepnout do plánu, případně na jiný stroj, vybrat blok a doscrollovat na něj
-  // (přes stejný odložený mechanismus jako handleJumpToOutOfRange výše).
+  // Skok do PLÁNU na konkrétní blok: přepne pohled, případně stroj, vybere blok
+  // a doscrolluje na něj (přes odložený mechanismus handleJumpToOutOfRange výše).
+  //
+  // Po 13. 8. 2026 už tudy NEJDE hlavní cesta z vyhledávání — zakázka míří na
+  // velkou kartu Monitoru (viz onSelect u OrderSearchSheet). Zůstávají: rezervace
+  // a údržba z vyhledávání, skok na split partnera a procházení výsledků
+  // hlavičkového hledání v plánu.
   function jumpToBlockFromMonitor(block: Block) {
     setTiskarView("plan");
     if (block.machine !== viewMachine) setViewMachine(block.machine);
@@ -2804,6 +2811,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           onOpenSearch={() => setSearchSheetOpen(true)}
           onMachineChange={(machine) => setViewMachine(machine)}
           onLogout={handleLogout}
+          focusBlockId={monitorFocusId}
+          onFocusHandled={() => setMonitorFocusId(null)}
         />
       )}
 
@@ -3362,7 +3371,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           allBlocks={blocks}
           onSelect={(block) => {
             setSearchSheetOpen(false);
-            jumpToBlockFromMonitor(block);
+            // ZAKÁZKA míří na velkou kartu Monitoru. Skok do plánu je pro tiskaře
+            // slepá ulička: rozsah má napevno 1 den zpět, TimelineGrid blok mimo
+            // rozsah nevykreslí a BlockDetail je za `canEdit`. Rezervace a údržba
+            // jdou do plánu dál — `resolveSelectedBlock` je na kartu nepustí
+            // a tiskař je stejně neodklepává.
+            if (block.type !== "ZAKAZKA") {
+              jumpToBlockFromMonitor(block);
+              return;
+            }
+            // Obojí v jednom handleru, ať to React zbatchuje — jinak Monitor
+            // renderuje ještě se starým strojem a výběr se zahodí.
+            if (block.machine !== viewMachine) setViewMachine(block.machine);
+            setTiskarView("monitor");
+            setMonitorFocusId(block.id);
           }}
           onClose={() => setSearchSheetOpen(false)}
         />

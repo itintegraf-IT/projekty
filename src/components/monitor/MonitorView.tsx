@@ -22,6 +22,10 @@ type Props = {
   onOpenSearch: () => void;
   onMachineChange: (machine: string) => void;
   onLogout: () => void;
+  /** Zakázka, kterou má Monitor vytáhnout na velkou kartu (klik ve vyhledávání). */
+  focusBlockId?: number | null;
+  /** Zavolá se, jakmile Monitor požadavek spotřebuje — jednorázový příkaz. */
+  onFocusHandled?: () => void;
 };
 
 const HEADER_BTN: CSSProperties = {
@@ -49,6 +53,7 @@ const HEADER_BTN: CSSProperties = {
 export function MonitorView({
   blocks, viewMachine, ownMachine,
   onPrintComplete, onOpenPlan, onOpenSearch, onMachineChange, onLogout,
+  focusBlockId, onFocusHandled,
 }: Props) {
   // Vázané na konkrétní blok, ne na komponentu: po odklepnutí se hero karta
   // přepne na další zakázku ještě během požadavku a jeden sdílený boolean
@@ -141,6 +146,26 @@ export function MonitorView({
     setConfirmingRevertId(null);
     setSelectedId(null);
   }, [viewMachine]);
+
+  // Jednorázový příkaz zvenčí: „dej tuhle zakázku na velkou kartu".
+  //
+  // MUSÍ být deklarovaný ZA efektem `[viewMachine]` výš. React spouští efekty
+  // v pořadí deklarace a ten úklidový efekt běží I PŘI MOUNTU — dřív deklarovaný
+  // focus by si tedy sám přepsal výběr na null, kdykoli hledání zároveň přepnulo
+  // stroj (a při návratu z plánu na Monitor vždycky).
+  //
+  // Druhá podmínka je na straně volajícího: `setViewMachine` a `setFocusBlockId`
+  // musí padnout v TÉMŽE handleru, aby je React zbatchoval. Jinak by tenhle
+  // render proběhl ještě se starým strojem, `resolveSelectedBlock` by blok odmítl
+  // pro neshodu stroje a úklidový efekt `[selectedId, selected]` by výběr smazal.
+  useEffect(() => {
+    if (focusBlockId == null) return;
+    setSelectedId(focusBlockId);
+    setStickyId(null);
+    setConfirmingId(null);
+    setConfirmingRevertId(null);
+    onFocusHandled?.();
+  }, [focusBlockId, onFocusHandled]);
 
   const queue = now ? monitorQueue(blocks, viewMachine, now) : { overdue: [], today: [], tomorrow: [] };
   const partner = card ? findSplitPartner(card.block, blocks, viewMachine) : null;
