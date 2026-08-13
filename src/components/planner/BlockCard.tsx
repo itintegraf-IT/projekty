@@ -1476,11 +1476,19 @@ export function BlockCard({
         const margin = 10;
         const vw = window.innerWidth;
         const vh = window.innerHeight;
-        // Prefer right of block, fall back to left if not enough space
-        const spaceRight = vw - rect.right - margin;
-        const showRight = spaceRight >= tooltipW;
-        const rawLeft = showRight ? rect.right + margin : rect.left - margin - tooltipW;
-        // Clamp to viewport so tooltip never goes off-screen
+        // Bublina jde VŽDY na vnější stranu mřížky, ne „vpravo, když se vejde".
+        // Sloupce strojů leží vedle sebe, takže bublina napravo od bloku v XL 105
+        // spolehlivě zakryje celý sloupec XL 106 i se sousedními zakázkami
+        // (připomínka tiskařů 13. 8. 2026). Rozhoduje vodorovný střed bloku vůči
+        // středu okna, ne počet sloupců — pravidlo platí i kdyby strojů přibylo.
+        //
+        // Vlevo od levého sloupce je časová osa, kde je jen čas: překryv tam
+        // nikoho nestojí informaci.
+        const blockCenterX = rect.left + rect.width / 2;
+        const placeLeft = blockCenterX < vw / 2;
+        const rawLeft = placeLeft ? rect.left - margin - tooltipW : rect.right + margin;
+        // Ořez na okraje okna. Když se bublina na vnější stranu nevejde celá,
+        // překryje kus VLASTNÍHO sloupce — pořád lepší než zakrýt cizí stroj.
         const left = Math.max(margin, Math.min(rawLeft, vw - tooltipW - margin));
         const top = Math.max(8, Math.min(rect.top, vh - 220));
         // Format time
