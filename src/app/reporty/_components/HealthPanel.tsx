@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { machineLabel } from "@/lib/machines";
 import type { BlockRef, HealthData } from "./useHealthData";
+import IntegrityRow from "./IntegrityRow";
 
 interface HealthPanelProps {
   data: HealthData | null;
@@ -178,14 +179,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             <Card icon="🧩" title="Integrita dat" subtitle="Osiřelé vazby a neplatné hodnoty." count={data.checks.integrity.count} defaultOpen={(data.checks.integrity.count ?? 0) > 0}>
               <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 8, border: "1px solid var(--border)", borderRadius: 9, overflow: "hidden" }}>
                 {data.checks.integrity.breakdown.map((it) => (
-                  <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 9, background: "var(--surface)", padding: "9px 13px", fontSize: 13 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: (it.count ?? 0) > 0 ? "var(--danger)" : "color-mix(in oklab, var(--success) 70%, transparent)" }} />
-                    <span>{it.label}</span>
-                    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-                      {(it.count ?? 0) > 0 && it.items[0] != null && <a href={jumpHref(it.items[0].id)} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 12, fontWeight: 600 }}>Otevřít první →</a>}
-                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, color: (it.count ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)" }}>{it.count ?? "—"}</span>
-                    </span>
-                  </div>
+                  <IntegrityRow key={it.key} issue={it} />
                 ))}
               </div>
             </Card>
