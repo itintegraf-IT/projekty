@@ -142,7 +142,7 @@ export function MonitorView({
     setSelectedId(null);
   }, [viewMachine]);
 
-  const queue = now ? monitorQueue(blocks, viewMachine, now) : { today: [], tomorrow: [] };
+  const queue = now ? monitorQueue(blocks, viewMachine, now) : { overdue: [], today: [], tomorrow: [] };
   const partner = card ? findSplitPartner(card.block, blocks, viewMachine) : null;
 
   const kicker =
@@ -441,7 +441,11 @@ export function MonitorView({
             }}>
               {/* Dokud neběží čas (server render a první snímek v prohlížeči), nevíme,
                   co má být na kartě — hlásit „nic naplánováno" by v tu chvíli lhalo. */}
-              {now ? "Na tomhle stroji nic naplánováno." : ""}
+              {!now
+                ? ""
+                : queue.overdue.length > 0
+                ? "Na dnešek nic naplánováno. Vpravo čekají nedodělané zakázky."
+                : "Na tomhle stroji nic naplánováno."}
             </div>
           )}
         </div>
@@ -455,6 +459,7 @@ export function MonitorView({
             Fronta na {machineLabel(viewMachine)}
           </div>
           <MonitorQueue
+            overdue={queue.overdue}
             today={queue.today}
             tomorrow={queue.tomorrow}
             heroId={card?.block.id ?? null}
