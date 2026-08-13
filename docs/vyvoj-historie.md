@@ -417,11 +417,11 @@ Tři etapy, tři specifikace v `docs/superpowers/specs/`:
 
 | Funkce | Co dělá |
 | --- | --- |
-| `pickHeroBlock` | automatický výběr: `running` → `overdue` → `upcoming` |
+| `pickHeroBlock` | automatický výběr; od 13. 8. 2026 `overdue` → `running` → `upcoming` (viz sekce z 13. 8. níž) |
 | `resolveSelectedBlock` | ručně vybraná zakázka; pustí ji, když zmizí nebo se přesune na jiný stroj |
 | `resolveStickyBlock` | zakázka držená po odklepnutí; pustí ji, když přestane být odklepnutá |
-| `reasonForBlock` | stav podle času, **bez** 16h okna — to je pravidlo výběru, ne zobrazení |
-| `monitorQueue` | fronta na **dnešek + zítřek**, jen `ZAKAZKA`, odklepnuté zůstávají |
+| `reasonForBlock` | stav podle času, **bez** 16h okna — to je pravidlo zobrazení |
+| `monitorQueue` | fronta na **dnešek + zítřek**; od 13. 8. 2026 navíc sekce NEDODĚLÁNO. Jen `ZAKAZKA`, odklepnuté zůstávají |
 | `startDayLabel` | `null` / `"zítra"` / `"13. 08."` — porovnává civilní pražské dny |
 
 **Priorita karty:** ruční výběr → držená (odklepnutá) → automatika. Klik ve frontě je
@@ -431,6 +431,12 @@ ve frontě.
 **`OVERDUE_WINDOW_MS` = 16 h se počítá od KONCE zakázky, ne podle dne startu.** Původní
 návrh vázal `overdue` na pražský den startu a tím shodil noční směnu: zakázka 22:00–6:00
 by v 8:00 ráno z Monitoru zmizela, protože „nezačala dnes“.
+
+> **Neplatí od 13. 8. 2026:** velká karta se `OVERDUE_WINDOW_MS` už neřídí vůbec — drží
+> zakázku, dokud tiskař nedá HOTOVO nebo „Přeskočit →“, s jedinou mezí `unfinishedFloorMs`
+> (14 dní). Konstanta zůstala vyhrazená červenému alarmu zpoždění v PLÁNU. Volba „počítat
+> od konce, ne podle dne startu“ platí dál a stojí na ní i sekce NEDODĚLÁNO. Detail
+> v sekci z 13. 8. 2026 níž.
 
 ### Gotchy, které stály čas
 
