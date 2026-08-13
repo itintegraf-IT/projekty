@@ -1480,12 +1480,25 @@ export function BlockCard({
         // Sloupce strojů leží vedle sebe, takže bublina napravo od bloku v XL 105
         // spolehlivě zakryje celý sloupec XL 106 i se sousedními zakázkami
         // (připomínka tiskařů 13. 8. 2026). Rozhoduje vodorovný střed bloku vůči
-        // středu okna, ne počet sloupců — pravidlo platí i kdyby strojů přibylo.
+        // středu MŘÍŽKY (čas. osa + sloupce strojů), ne okna — pravidlo platí i
+        // kdyby strojů přibylo.
+        //
+        // NE `vw / 2`: mřížka okno nevyplňuje, napravo od ní sedí editační panel,
+        // notifikační panel a DtpPanel (`PlannerPage.tsx`) — se šířkou okna by
+        // se u otevřených panelů střed mřížky posunul o stovky pixelů doleva a
+        // bublina by u bloku ve skutečnosti vlevo (podle okna „vpravo") stejně
+        // přepadla do sousedního sloupce (regrese vady, kterou tahle etapa
+        // opravovala). Když hák `[data-timeline-grid]` nenajdeme (mřížka se
+        // nestihla vykreslit), spadneme na `vw / 2` — obrazovka u stroje nesmí
+        // kvůli bublině spadnout.
         //
         // Vlevo od levého sloupce je časová osa, kde je jen čas: překryv tam
         // nikoho nestojí informaci.
+        const gridEl = blockCardRef.current?.closest("[data-timeline-grid]");
+        const gridRect = gridEl?.getBoundingClientRect();
+        const gridCenterX = gridRect ? gridRect.left + gridRect.width / 2 : vw / 2;
         const blockCenterX = rect.left + rect.width / 2;
-        const placeLeft = blockCenterX < vw / 2;
+        const placeLeft = blockCenterX < gridCenterX;
         const rawLeft = placeLeft ? rect.left - margin - tooltipW : rect.right + margin;
         // Ořez na okraje okna. Když se bublina na vnější stranu nevejde celá,
         // překryje kus VLASTNÍHO sloupce — pořád lepší než zakrýt cizí stroj.

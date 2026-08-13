@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Block } from "@/app/_components/TimelineGrid";
-import { pickHeroBlock, monitorQueue, runProgress, resolveStickyBlock, startDayLabel, resolveSelectedBlock, reasonForBlock } from "@/lib/monitorView";
+import { pickHeroBlock, monitorQueue, runProgress, resolveStickyBlock, startDayLabel, resolveSelectedBlock, reasonForBlock, unfinishedFloorMs } from "@/lib/monitorView";
 import { findSplitPartner, getSplitChipState } from "@/lib/splitHelpers";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
@@ -85,7 +85,10 @@ export function MonitorView({
   // Zakázky, které tiskař u tohoto stroje vědomě odsunul z karty. Bez omezení
   // by přetahující zakázka držela kartu donekonečna a jediná cesta dál by byla
   // odklepnout ji — tedy zalhat do evidence (`printCompletedAt` je podklad pro
-  // reporty). Ve frontě zůstávají v sekci NEDODĚLÁNO.
+  // reporty). `skippedIds` platí jen pro výběr hero karty (`pickHeroBlock`) —
+  // `monitorQueue` o něm neví, takže zakázka ve frontě zůstává (v sekci
+  // NEDODĚLÁNO, nebo výjimečně DNES/ZÍTRA, pokud tam podle startu patří —
+  // viz `monitorQueue` v `monitorView.ts`), nikdy nezmizí docela.
   //
   // localStorage, ne server: je to vlastnost TÉHLE obrazovky u stroje, ne
   // uživatele. Kiosek se restartuje a bez uložení by po každém restartu
@@ -180,7 +183,22 @@ export function MonitorView({
     // `setSkippedIds` — ten musí zůstat čistá funkce (StrictMode ho zavolá
     // dvakrát, se side-efektem uvnitř by dvakrát zapsal). `next` se proto
     // spočítá napřed a zápis proběhne AŽ PO `setSkippedIds`.
-    const next = new Set(skippedIds);
+    //
+    // Před přidáním nového id sadu prořízneme: `Block` řádky se v projektu
+    // nikdy nemažou samy od sebe, takže bez úklidu by `monitor-skipped:<stroj>`
+    // v localStorage rostl donekonečna. Zahodíme id bloků, které mezitím z
+    // dat úplně zmizely (smazané), a id bloků pod `unfinishedFloorMs` — ty už
+    // by stejně nikdy nebyly kandidátem na hero kartu ani na sekci NEDODĚLÁNO
+    // (`pickHeroBlock`/`monitorQueue` je samy vylučují), takže si nezaslouží
+    // trvalé místo v úložišti.
+    const floorMs = now ? unfinishedFloorMs(now) : 0;
+    const pruned = new Set(
+      [...skippedIds].filter((sid) => {
+        const b = blocks.find((x) => x.id === sid);
+        return !!b && new Date(b.endTime).getTime() >= floorMs;
+      })
+    );
+    const next = new Set(pruned);
     next.add(id);
     setSkippedIds(next);
     try {

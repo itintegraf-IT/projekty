@@ -153,15 +153,14 @@ export function monitorQueue(
       .filter((b) => utcToPragueDateStr(new Date(b.startTime)) === dayStr)
       .sort(byStartAsc);
 
-  // Hranice z CIVILNÍCH pražských dnů, ne odečtením 14×24 h — jinak by se okno
-  // posunulo o hodinu na přechodu letního času.
-  const todayMidnightMs = pragueToUTC(todayStr, 0, 0).getTime();
+  const t = now.getTime();
   const floorMs = unfinishedFloorMs(now);
 
-  // Rozhoduje endTime, ne startTime: noční směna 22:00–6:00 začala včera, ale
-  // končí dnes — podle startu by spadla sem, i když právě běží na velké kartě.
-  // Táž volba, na které stojí overdue výpočet v `pickHeroBlock` (gotcha z
-  // 10. 8. 2026).
+  // Hranice sladěná s `pickHeroBlock` (oprava I1, 13. 8. 2026): dřív tahle
+  // sekce brala jen `end < dnešní půlnoc`, zatímco karta bere `end <= now` —
+  // mezi tím byla díra (typicky noční směna 22:00–6:00, teď ráno) a zakázka
+  // na kartě nebyla dohledatelná NIKDE ve frontě. „Přeskočit →" ji pak z
+  // Monitoru odstranilo až do půlnoci beze stopy.
   const overdue = onMachine
     .filter((b) => {
       if (b.printCompletedAt != null) return false;
@@ -169,7 +168,12 @@ export function monitorQueue(
       // termínu" taky vylučuje (BlockCard na ni nevolá overdueAlarmState).
       if (b.blockVariant === "POZASTAVENO") return false;
       const end = new Date(b.endTime).getTime();
-      return end < todayMidnightMs && end >= floorMs;
+      if (end > t || end < floorMs) return false;
+      // Start na dnešek nebo zítřek vynecháme — tu zakázku už plní sekce
+      // DNES/ZÍTRA (`forDay`, řídí se `startTime`). Bez týhle podmínky by se
+      // objevila ve frontě DVAKRÁT: tady i tam.
+      const startStr = utcToPragueDateStr(new Date(b.startTime));
+      return startStr !== todayStr && startStr !== tomorrowStr;
     })
     .sort(byStartAsc);
 

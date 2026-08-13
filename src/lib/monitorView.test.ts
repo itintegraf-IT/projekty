@@ -276,17 +276,22 @@ test("monitorQueue.overdue: odklepnutá zakázka z minula v sekci NENÍ", () => 
   assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
 });
 
-test("monitorQueue.overdue: PRÁVĚ BĚŽÍCÍ noční směna z včerejška v sekci NENÍ", () => {
-  // Regrese endTime vs startTime. Start 11. 8. 22:00, konec 12. 8. 6:00 —
-  // začala včera, ale končí DNES, takže do „z minulých dnů" nepatří. Podle
-  // startTime by spadla dovnitř, i když je zrovna na velké kartě.
+test("monitorQueue.overdue: nedodělaná noční směna z včerejška UŽ patří do sekce (oprava I1, 13. 8. 2026)", () => {
+  // Start 11. 8. 22:00, konec 12. 8. 6:00 — začala včera a v `now` (8:00) je
+  // dávno skončená. Do opravy I1 sekce filtrovala horní hranici přes
+  // `end < dnešní půlnoc` (přísnější než `pickHeroBlock`, který bere
+  // `end <= now`): tahle zakázka tedy nespadla ani sem (končí AŽ po půlnoci),
+  // ani do dnešní fronty (`forDay` čte start, a ten je včerejší) — byla
+  // NIKDE, přestože ji `pickHeroBlock` už dávno ukazoval na velké kartě jako
+  // overdue. „Přeskočit →" ji pak z Monitoru odstranilo beze stopy až do
+  // půlnoci (viz kombinovaný test hero+fronta níž).
   const now = new Date("2026-08-12T06:00:00.000Z"); // 8:00 pražského času
   const b = mk({
     id: 1, machine: "XL_105", type: "ZAKAZKA",
     startTime: "2026-08-11T20:00:00.000Z", endTime: "2026-08-12T04:00:00.000Z",
     printCompletedAt: null,
   });
-  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue.map((x) => x.id), [1]);
 });
 
 test("monitorQueue.overdue: POZASTAVENÁ zakázka v sekci NENÍ", () => {
@@ -370,31 +375,46 @@ test("monitorQueue: scénář z připomínky plánovače — pátek nedotištěn
 
 // ── monitorQueue.overdue: přesné hranice okna (horní i dolní) ──────────────
 // NOW = 2026-08-12T06:00:00.000Z = 8:00 pražského času, todayStr = "2026-08-12".
-// Praha je v srpnu UTC+2, takže:
-//   - dnešní pražská půlnoc (2026-08-12 00:00) = 2026-08-11T22:00:00.000Z UTC
-//   - spodní hrana (dnes − 14 dní = 2026-07-29 00:00 pražského) = 2026-07-28T22:00:00.000Z UTC
-// Ověřeno i výpočtem přes pragueToUTC/addDaysToCivilDate, ne jen ručně.
+// Horní hranici od opravy I1 (13. 8. 2026) NEURČUJE dnešní půlnoc, ale `end <=
+// now` — sladěno s `pickHeroBlock` (viz test níž „nedodělaná noční směna").
+// Praha je v srpnu UTC+2, takže spodní hrana (dnes − 14 dní = 2026-07-29 00:00
+// pražského) = 2026-07-28T22:00:00.000Z UTC. Ověřeno i výpočtem přes
+// pragueToUTC/addDaysToCivilDate, ne jen ručně.
 
-test("monitorQueue.overdue: blok končící PŘESNĚ v dnešní pražské půlnoci do sekce NEPATŘÍ (ostrá horní hranice)", () => {
+test("monitorQueue.overdue: blok končící PŘESNĚ teď (`end === now`) do sekce PATŘÍ (inkluzivní horní hranice)", () => {
   const now = new Date("2026-08-12T06:00:00.000Z");
   const b = mk({
     id: 1, machine: "XL_105", type: "ZAKAZKA",
-    // konec = 2026-08-11T22:00:00.000Z UTC = přesně dnešní pražská půlnoc.
-    startTime: "2026-08-11T14:00:00.000Z", endTime: "2026-08-11T22:00:00.000Z",
+    startTime: "2026-08-11T14:00:00.000Z", endTime: "2026-08-12T06:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue.map((x) => x.id), [1]);
+});
+
+test("monitorQueue.overdue: blok, který v `now` ještě neskončil (`end > now`), do sekce NEPATŘÍ", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-11T14:00:00.000Z", endTime: "2026-08-12T06:00:00.001Z",
     printCompletedAt: null,
   });
   assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
 });
 
-test("monitorQueue.overdue: blok končící o milisekundu dřív než dnešní pražská půlnoc do sekce PATŘÍ", () => {
-  const now = new Date("2026-08-12T06:00:00.000Z");
+test("monitorQueue.overdue: zakázka, která začala i skončila DNES, je jen v sekci DNES, ne dvakrát (i když `end <= now`)", () => {
+  // Regrese by dřív ukázala tutéž zakázku duplicitně — jednou tady (podle
+  // `end <= now`), podruhé v `today` (podle `startTime`). Podmínka „start
+  // nepadá na dnešek ani zítřek" v `monitorQueue` (I1) tomu brání.
+  const now = new Date("2026-08-12T10:00:00.000Z"); // 12:00 pražského času
   const b = mk({
     id: 1, machine: "XL_105", type: "ZAKAZKA",
-    // konec = 2026-08-11T21:59:59.999Z UTC = 1 ms před dnešní pražskou půlnocí.
-    startTime: "2026-08-11T14:00:00.000Z", endTime: "2026-08-11T21:59:59.999Z",
+    // 6:00–8:00 pražského, dávno hotovo, ale start i konec spadají na dnešek.
+    startTime: "2026-08-12T04:00:00.000Z", endTime: "2026-08-12T06:00:00.000Z",
     printCompletedAt: null,
   });
-  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue.map((x) => x.id), [1]);
+  const q = monitorQueue([b], "XL_105", now);
+  assert.deepEqual(q.overdue, []);
+  assert.deepEqual(q.today.map((x) => x.id), [1]);
 });
 
 test("monitorQueue.overdue: blok končící PŘESNĚ na spodní hraně (dnes − 14 dní, pražská půlnoc) do sekce PATŘÍ (inkluzivní dolní hranice)", () => {
@@ -526,4 +546,40 @@ test("pickHeroBlock: hranice okna nedodělaných je přesná na milisekundu", ()
   });
   assert.equal(pickHeroBlock([onFloor], "XL_105", now)?.block.id, 1);
   assert.equal(pickHeroBlock([belowFloor], "XL_105", now), null);
+});
+
+// ── Invariant: zakázka na velké kartě je vždy dohledatelná ve frontě ───────
+// (oprava I1, 13. 8. 2026 — přesný scénář z reviewu)
+
+test("pickHeroBlock + monitorQueue: noční směna XL 106, kterou karta drží jako přetahující, je i ve frontě NEDODĚLÁNO", () => {
+  // Scénář z reviewu: blok 12. 8. 22:00 – 13. 8. 6:00, neodklepnutý, teď je
+  // 13. 8. 8:00 a ráno na stejném stroji už běží jiný blok. Do opravy I1 byla
+  // noční zakázka NA KARTĚ (pickHeroBlock ji bere jako overdue), ale nikde ve
+  // frontě (monitorQueue ji podle staré horní hranice `end < dnešní půlnoc`
+  // vylučovala) — `heroId` pak nezvýraznil žádný řádek a „Přeskočit →" by ji
+  // z Monitoru odstranilo beze stopy až do půlnoci.
+  const now = new Date("2026-08-13T06:00:00.000Z"); // 8:00 pražského času
+  const night = mk({
+    id: 1, machine: "XL_106", type: "ZAKAZKA",
+    startTime: "2026-08-12T20:00:00.000Z", endTime: "2026-08-13T04:00:00.000Z", // 22:00–6:00 Praha
+    printCompletedAt: null,
+  });
+  const morning = mk({
+    id: 2, machine: "XL_106", type: "ZAKAZKA",
+    startTime: "2026-08-13T04:00:00.000Z", endTime: "2026-08-13T10:00:00.000Z", // 6:00–12:00 Praha, právě běží
+    printCompletedAt: null,
+  });
+  const blocks = [night, morning];
+
+  const hero = pickHeroBlock(blocks, "XL_106", now);
+  assert.equal(hero?.block.id, 1);
+  assert.equal(hero?.reason, "overdue");
+
+  const queue = monitorQueue(blocks, "XL_106", now);
+  assert.deepEqual(queue.overdue.map((x) => x.id), [1]);
+  assert.deepEqual(queue.today.map((x) => x.id), [2]);
+
+  // Invariant: id na kartě je dohledatelné v NĚKTERÉ sekci fronty.
+  const allQueueIds = [...queue.overdue, ...queue.today, ...queue.tomorrow].map((x) => x.id);
+  assert.ok(hero && allQueueIds.includes(hero.block.id), "hero blok musí být dohledatelný ve frontě");
 });

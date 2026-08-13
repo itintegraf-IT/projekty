@@ -8,7 +8,9 @@ Připomínka plánovače: „Když v pátek večer nestihnout vytisknout zakázk
 se tisknout nebude a v pondělí a úterý bude svátek, uvidí tiskaři, jakou zakázkou
 mají ve středu začít?" Neuvidí — čtyři nezávislé brány: 16h okno hero karty,
 fronta jen dnes+zítra podle dne startu, plán s rozsahem 1 den zpět, a „Najít",
-které zakázku najde, ale klik nevede nikam.
+které zakázku najde, ale klik nevede nikam. (Popis PŮVODNÍHO problému, jak se
+jevil na startu etapy — 16h okno hero karty samo zmizelo ještě týž den, viz
+„Aktualizace pozdě 13. 8. 2026" na konci téhle sekce.)
 
 **Řešení:** sekce „NEDODĚLÁNO" ve frontě (`monitorQueue().overdue`, 14 dní zpět)
 jako hlavní cesta + „Najít" ústící na velkou kartu Monitoru jako neomezená
@@ -18,19 +20,23 @@ záložní cesta. Nic se nepřeplánovává, žádná notifikace (rozhodnutí ma
 
 - **Rozhoduje `endTime`, ne `startTime`.** Noční směna 22:00–6:00 začala včera,
   ale končí dnes — podle startu by spadla do NEDODĚLÁNO, i když právě běží na
-  velké kartě. Táž volba, na které stojí 16h okno.
+  velké kartě. Táž volba, na které tehdy stálo 16h okno (to okno od pozdního
+  13. 8. 2026 v `pickHeroBlock` už není — viz aktualizace na konci sekce —, ale
+  volba `endTime` místo `startTime` platí dál).
 - **14denní strop je pojistka, ne pohodlí.** Sekci nic neuklidí a `Block` řádky
   se v projektu nikdy nemažou (jediný retenční skript maže `BlockRevision`).
 - **NEPOUŽÍVÁ se `overdueAlarmState(...) === "stale"`**, ačkoli se to nabízí:
   odpovídá na jinou otázku (16 h = „je to akutní") a udělalo by dvouhodinovou
   slepou skvrnu — zakázka stará 14 h by při běžícím jiném bloku nebyla ani na
   kartě, ani v sekci.
-- **Zvolený civilní den má vlastní dvouhodinovou skvrnu taky**, jen jinde a
-  užší: neodklepnutá zakázka vypadne z 16h okna hero karty v 22:00, ale do
-  NEDODĚLÁNO (`endTime < todayMidnightMs`) spadne až po půlnoci. Mezi 22:00
-  a půlnocí není vidět nikde. Vědomě přijaté — spraveno by to bylo jen tím,
-  že by se hranice počítala od konce bloku místo od civilní půlnoci, tedy
-  přesně tou logikou, kvůli které se zamítla `stale` varianta výš.
+- **Zvolený civilní den měl vlastní dvouhodinovou skvrnu taky** (PŮVODNÍ stav,
+  dnes už NEPLATÍ — zavřeno opravou I1 pozdě 13. 8. 2026, viz aktualizace na
+  konci sekce), jen jinde a užší: neodklepnutá zakázka vypadla z 16h okna hero
+  karty v 22:00, ale do NEDODĚLÁNO (`endTime < todayMidnightMs`) spadla až po
+  půlnoci. Mezi 22:00 a půlnocí nebyla vidět nikde. V okamžiku psaní tohohle
+  odstavce to bylo vědomě přijaté jako nedokonalost — do konce dne se to
+  ukázalo jako skutečná vada (Important nález finálního reviewu) a bylo
+  opraveno.
 - **POZASTAVENO se vylučuje** — plán ji z „po termínu" taky vylučuje. Je to
   výrobní stopka, ne zpoždění; jinak by obě obrazovky tvrdily opak.
 - **Ruční výběr žádné okno nezná**, takže přes „Najít" jde odklepnout i zakázka
@@ -60,6 +66,35 @@ záložní cesta. Nic se nepřeplánovává, žádná notifikace (rozhodnutí ma
 - **Osiřelá půlka rozdělené zakázky** na druhém stroji se v sekci neobjeví —
   server odklepnutí na cizím stroji zakazuje. Sekce je striktně per-stroj.
 
+### Aktualizace pozdě 13. 8. 2026 — 16h okno hero karty zrušeno, mezera ve frontě zavřena
+
+Etapa výš zavedla sekci NEDODĚLÁNO, ale hero karta i tak ještě 16 h po konci
+zakázky odskočila na běžící blok (`OVERDUE_WINDOW_MS`, popsáno v sekci „Dva
+stupně zpoždění" níž). Ještě týž den to prošlo dvěma dalšími koly:
+
+- **`pickHeroBlock` přestal 16h okno používat úplně** (commit `f9d70267`):
+  přetahující zakázka drží kartu, dokud tiskař nedá HOTOVO nebo „Přeskočit →",
+  omezeno jen `unfinishedFloorMs` (14 dní). `overdue` má navíc přednost před
+  `running` — dřív karta odskočila na nově začínající blok, i když tiskař
+  pořád tiskl ten předchozí.
+- **`monitorQueue().overdue` na to nebyla sladěná** (Important nález finálního
+  reviewu, oprava téhož dne): sekce pořád brala horní hranici `endTime <
+  dnešní půlnoc`, kdežto karta už `end <= now` bez ohledu na půlnoc. Mezi tím
+  byla díra — typicky noční směna 22:00–6:00, neodklepnutá, ráno běží jiný
+  blok: karta ji držela jako `overdue`, ale ve frontě nebyla NIKDE (ani
+  NEDODĚLÁNO, ani DNES). „Přeskočit →" pak zakázku z Monitoru odstranilo beze
+  stopy až do půlnoci. Oprava sladila horní hranici obou funkcí na `end <=
+  now` a přidala podmínku „start nepadá na dnešek ani zítřek" (jinak by se
+  zakázka objevila ve frontě dvakrát — v NEDODĚLÁNO i v DNES/ZÍTRA zároveň).
+  Pokryto testy v `monitorView.test.ts` (kombinovaný test hero+fronta).
+
+Důsledek: „16h okno hero karty" a „dvouhodinová slepá skvrna mezi 22:00 a
+půlnocí", oba zmíněné výš v původním popisu problému, dnes **neplatí ani
+jedno**. `OVERDUE_WINDOW_MS` z `overdueState.ts` od tohohle bodu řídí jen
+červený alarm zpoždění v PLÁNU — ne Monitor. Sekce „Dva stupně zpoždění" níž
+vznikla ještě PŘED touhle aktualizací, takže její tvrzení o „jediném okně pro
+plán i Monitor" je z téhož důvodu zastaralé.
+
 ## Dva stupně zpoždění + hledání v DTP přehledu (12.–13. 8. 2026)
 
 Připomínka plánovače: zpožděná neodklepnutá zakázka a hotová zakázka vypadaly
@@ -74,10 +109,17 @@ znamenají pravý opak.
 ### Klíčová rozhodnutí
 
 - **`OVERDUE_WINDOW_MS` se přestěhovala z `monitorView.ts` do `overdueState.ts`.**
-  Týmž oknem se teď řídí červený alarm v plánu i to, jak dlouho zakázka zůstává
-  na velké kartě Monitoru u stroje. `monitorView.ts` konstantu **re-exportuje** —
-  produkčně ji odtud nikdo nebere, drží se jako záruka, že si ji tam někdo
-  nezkopíruje zpátky a čísla se nerozejdou.
+  V okamžiku vzniku téhle sekce (12.–13. 8. 2026, dopoledne) jím byl řízený
+  červený alarm v plánu i to, jak dlouho zakázka zůstává na velké kartě
+  Monitoru. **Neplatí od pozdějšího 13. 8. 2026** (viz „Aktualizace pozdě
+  13. 8. 2026" v sekci „Nedodělané zakázky na Monitoru tiskaře" výš): hero
+  karta Monitoru přestala okno používat úplně, drží zakázku, dokud tiskař
+  nerozhodne. Okno dnes řídí JEN červený alarm v plánu. `monitorView.ts`
+  konstantu **re-exportuje** dál — produkčně ji odtud nikdo nebere, drží se
+  jako záruka, že si ji tam někdo nezkopíruje zpátky a čísla se nerozejdou
+  (tohle re-export tvrzení pořád platí, jen se změnil DŮVOD, PROČ je re-export
+  potřeba — dřív garantoval shodu dvou skutečných konzumentů, dnes hlídá, aby
+  žádný nový konzument nevznikl).
 - **Výplň alarmu je ZÁMĚRNĚ shodná s pozastavenou zakázkou** (rozhodnutí majitele
   12. 8. 2026, poté co se první verze „modrá karta + červený rám" ukázala jako
   nevýrazná). Pozastavená zakázka je stav plánu do budoucna, v minulosti prakticky

@@ -1609,7 +1609,12 @@ export default function TimelineGrid({
       {header}
 
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", minHeight: 0, backgroundColor: "var(--timeline-bg)" }}>
-        <div style={{ height: totalHeight, display: "flex" }}>
+        {/* data-timeline-grid: stabilní hák pro BlockCard hover bublinu (I3, oprava
+            13. 8. 2026) — bublina se má rozhodovat podle středu TÉHLE mřížky (čas.
+            osa + sloupce strojů), ne podle středu celého okna, protože napravo od
+            mřížky sedí editační/notifikační panely a DtpPanel, které si o šířku
+            okna ukrajují. */}
+        <div data-timeline-grid style={{ height: totalHeight, display: "flex" }}>
 
           {/* ── Datum sloupec ─────────────────────────────────────────────── */}
           <div style={{ width: DATE_COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, borderRight: "1px solid var(--border)", backgroundColor: "var(--surface)" }}>

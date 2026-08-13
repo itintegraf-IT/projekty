@@ -111,7 +111,16 @@ aniž by lhal do dat (odklepnutí zakázky, kterou nevytiskl, je lež v evidenci
 
 Na kartě s `reason === "overdue"` proto přibude vedle HOTOVO druhé, vedlejší
 tlačítko **„Přeskočit →“**. Zakázka tím z karty zmizí a Monitor pokračuje
-doporučeným pořadím; ve frontě zůstane v sekci NEDODĚLÁNO.
+doporučeným pořadím; ve frontě zůstane — typicky v sekci NEDODĚLÁNO, výjimečně
+v DNES/ZÍTRA, pokud tam zakázka podle svého startu patří (viz `monitorQueue`).
+
+> Finální review 13. 8. 2026 (Important nález I1) odhalilo, že do opravy `monitorQueue`
+> a `pickHeroBlock` používaly RŮZNÉ horní hranice pro „konec zakázky" (fronta
+> `endTime < dnešní půlnoc`, karta `end <= teď`), takže mezi nimi byla díra —
+> typicky noční směna 22:00–6:00, ráno neodklepnutá. Taková zakázka byla NA
+> KARTĚ, ale ve frontě NIKDE, takže by ji „Přeskočit →“ odstranilo z Monitoru
+> beze stopy až do půlnoci. Opraveno sladěním obou hranic (`docs/vyvoj-historie.md`,
+> sekce „Nedodělané zakázky na Monitoru tiskaře" → „Aktualizace pozdě 13. 8. 2026").
 
 Přeskočení se ukládá do `localStorage` pod klíčem odvozeným od stroje. Je to
 vlastnost té obrazovky u stroje, ne uživatele (viz paměť „Nastavení: zařízení vs.
