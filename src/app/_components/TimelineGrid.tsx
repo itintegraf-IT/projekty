@@ -604,10 +604,12 @@ export default function TimelineGrid({
   const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
-  // Čas, kdy doběhlo lasové tažení. Po `mouseup` pošle prohlížeč na sloupec ještě
-  // `click` — bez téhle pojistky by tažení přes bloky spustilo `onGridClickEmpty`
-  // a smazalo plánovači napsaný dotaz. Ref, ne state: čte se v témže ticku.
-  const lassoEndedAtRef = useRef(0);
+  // Čas, kdy doběhlo gesto, po kterém prohlížeč pošle na sloupec ještě syntetický
+  // `click` (mousedown a mouseup mají společného předka = sloupec): dotažení lasa,
+  // přetažení bloku, resize bloku i tažení hranice směny. Bez téhle pojistky by
+  // takový `click` spustil `onGridClickEmpty` a smazal plánovači napsaný dotaz.
+  // Ref, ne state: čte se v témže ticku.
+  const gestureEndedAtRef = useRef(0);
   const blocksRef       = useRef(blocks);
   const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
 
@@ -982,7 +984,7 @@ export default function TimelineGrid({
           // Kliknutí na prázdné místo → odznačit vše
           callbacksRef.current.onMultiSelect?.(new Set());
         }
-        if (lassoRef.current.active) lassoEndedAtRef.current = Date.now();
+        if (lassoRef.current.active) gestureEndedAtRef.current = Date.now();
         lassoRef.current = null;
         lassoRectRef.current = null;
         setLassoRect(null);
@@ -994,6 +996,10 @@ export default function TimelineGrid({
       if (!ds || !vs) return;
 
       const moved = dragDidMove.current;
+      // Stejná pojistka jako u lasa (viz komentář u `gestureEndedAtRef`) — pokrývá
+      // VŠECHNY větve níž (move/resize/multi-move/shift-edge-resize), protože se
+      // nastavuje před rozpadem podle `ds.type`.
+      if (moved) gestureEndedAtRef.current = Date.now();
       // Snapshot shift-edge preview BEFORE clearing — jinak by ho ref mohl ztratit.
       const shiftPreviewSnapshot = shiftEdgePreviewRef.current;
       dragStateRef.current = null;
@@ -1861,7 +1867,7 @@ export default function TimelineGrid({
                   if ((e.target as HTMLElement).closest("[data-block]")) return;
                   // 150 ms stačí na `click`, který přijde hned po `mouseup`,
                   // a je pod prahem, kdy by uživatel stihl kliknout znovu.
-                  if (Date.now() - lassoEndedAtRef.current > 150) onGridClickEmpty?.();
+                  if (Date.now() - gestureEndedAtRef.current > 150) onGridClickEmpty?.();
                   const el = scrollRef.current;
                   const vs = viewStartRef.current;
                   if (!el || !vs || !onGridClick) return;

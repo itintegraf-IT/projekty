@@ -3162,8 +3162,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             // po každém dotazu trefit do malého křížku, aby se vrátil pohled na
             // všechny zakázky (připomínka 13. 8. 2026). Klik NA blok hledání
             // neruší: procházení shod (`goToMatch`) samo bloky vybírá a rušení by
-            // znemožnilo proklikat další shodu. Dotažení lasa je odchycené
-            // v TimelineGridu (`lassoEndedAtRef`).
+            // znemožnilo proklikat další shodu. Syntetický `click`, který prohlížeč
+            // pošle po dotažení gesta (lasa, přetažení bloku, resize, tažení hranice
+            // směny), je odchycený v TimelineGridu (`gestureEndedAtRef`) — jinak by
+            // stejné přesunutí nalezeného bloku smazalo dotaz i ztlumení.
             onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); clearSearch(); }}
             onBlockCopy={(block) => {
               setCopiedBlock(block);
