@@ -1,11 +1,12 @@
 "use client";
 
 import type { Block } from "@/app/_components/TimelineGrid";
-import { formatPragueTime } from "@/lib/dateUtils";
+import { formatPragueTime, formatPragueDateTimeWithWeekday } from "@/lib/dateUtils";
 import { MonitorChips } from "@/components/monitor/MonitorChips";
 import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
 
 type Props = {
+  overdue: Block[];
   today: Block[];
   tomorrow: Block[];
   heroId: number | null;
@@ -19,8 +20,8 @@ type Props = {
  * háčkem (včetně pásu), zakázka na velké kartě zvýrazněná.
  * Kliknutí ji vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
  */
-export function MonitorQueue({ today, tomorrow, heroId, onSelect }: Props) {
-  if (today.length === 0 && tomorrow.length === 0) {
+export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Props) {
+  if (overdue.length === 0 && today.length === 0 && tomorrow.length === 0) {
     return (
       <div style={{ color: "var(--text-muted)", fontSize: 14, padding: "12px 4px" }}>
         Na tomhle stroji není dnes ani zítra nic naplánováno.
@@ -30,6 +31,8 @@ export function MonitorQueue({ today, tomorrow, heroId, onSelect }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", minHeight: 0 }}>
+      {/* NEDODĚLÁNO jde NAHORU: fronta se pak čte chronologicky shora dolů. */}
+      <QueueSection title="Nedoděláno" blocks={overdue} heroId={heroId} onSelect={onSelect} tone="warning" showDate />
       <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} />
       <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} />
     </div>
@@ -37,15 +40,24 @@ export function MonitorQueue({ today, tomorrow, heroId, onSelect }: Props) {
 }
 
 function QueueSection({
-  title, blocks, heroId, onSelect,
-}: { title: string; blocks: Block[]; heroId: number | null; onSelect: (block: Block) => void }) {
+  title, blocks, heroId, onSelect, tone = "muted", showDate = false,
+}: {
+  title: string;
+  blocks: Block[];
+  heroId: number | null;
+  onSelect: (block: Block) => void;
+  /** `warning` odliší nedodělané od běžné fronty — jediný barevný rozdíl. */
+  tone?: "muted" | "warning";
+  /** Řádek ukáže i den, ne jen čas. Povinné u zakázek z minulých dnů. */
+  showDate?: boolean;
+}) {
   if (blocks.length === 0) return null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
       <div style={{
         fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase",
-        color: "var(--text-muted)", fontWeight: 700,
+        color: tone === "warning" ? "var(--warning)" : "var(--text-muted)", fontWeight: 700,
       }}>
         {title}
       </div>
@@ -88,12 +100,17 @@ function QueueSection({
               }}>
                 {b.description ?? ""}
               </span>
+              {/* U nedodělaných musí být vidět DEN, jinak řádek vypadá jako dnešní
+                  zakázka. Den v týdnu tam patří — tiskař myslí ve směnách, ne
+                  v datech. `formatPragueDateTimeWithWeekday` dá „pá 9. 8. 22:00". */}
               <span style={{
                 flexShrink: 0,
                 color: "var(--text-muted)", fontSize: 13,
                 fontVariantNumeric: "tabular-nums",
               }}>
-                {formatPragueTime(new Date(b.startTime))}
+                {showDate
+                  ? formatPragueDateTimeWithWeekday(new Date(b.startTime))
+                  : formatPragueTime(new Date(b.startTime))}
               </span>
             </span>
 
