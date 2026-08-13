@@ -94,7 +94,15 @@ Nabízí se to — `stale` je přesně „neodklepnuté a starší než 16 h" a 
 sdílený zdroj pravdy s plánem. **Zamítnuto:** odpovídá na jinou otázku (16 h =
 „je to ještě akutní"), a vznikla by dvouhodinová slepá skvrna. Zakázka, které je
 14 h a zároveň na stroji něco běží, není na kartě (running vyhrává) a nebyla by
-ani v sekci (ještě není `stale`). Civilní den slepou skvrnu nemá.
+ani v sekci (ještě není `stale`).
+
+Civilní den má vlastní slepou skvrnu taky — jen jinde a užší. 16h okno hero
+karty pro neodklepnutou zakázku vyprší dnes ve 22:00 (den po startu), ale
+`endTime < todayMidnightMs` do sekce NEDODĚLÁNO pustí až po půlnoci — mezi
+22:00 a půlnocí není zakázka nikde vidět. Je to vědomě přijaté: dvě hodiny, ne
+dva dny jako u zamítnuté `stale` varianty, a řešit by ji šlo jen tak, že by se
+`endTime < todayMidnightMs` nahradilo něčím, co počítá od konce bloku, tedy
+přesně tou logikou, kterou `stale` má a kterou tenhle spec zamítá o odstavec výš.
 
 `OVERDUE_WINDOW_MS` se **nemění ani neparametrizuje** — od 12. 8. 2026 tímtéž
 oknem hasne i červený alarm na kartě v plánu (`src/lib/overdueState.ts`), takže

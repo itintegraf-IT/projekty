@@ -25,6 +25,12 @@ záložní cesta. Nic se nepřeplánovává, žádná notifikace (rozhodnutí ma
   odpovídá na jinou otázku (16 h = „je to akutní") a udělalo by dvouhodinovou
   slepou skvrnu — zakázka stará 14 h by při běžícím jiném bloku nebyla ani na
   kartě, ani v sekci.
+- **Zvolený civilní den má vlastní dvouhodinovou skvrnu taky**, jen jinde a
+  užší: neodklepnutá zakázka vypadne z 16h okna hero karty v 22:00, ale do
+  NEDODĚLÁNO (`endTime < todayMidnightMs`) spadne až po půlnoci. Mezi 22:00
+  a půlnocí není vidět nikde. Vědomě přijaté — spraveno by to bylo jen tím,
+  že by se hranice počítala od konce bloku místo od civilní půlnoci, tedy
+  přesně tou logikou, kvůli které se zamítla `stale` varianta výš.
 - **POZASTAVENO se vylučuje** — plán ji z „po termínu" taky vylučuje. Je to
   výrobní stopka, ne zpoždění; jinak by obě obrazovky tvrdily opak.
 - **Ruční výběr žádné okno nezná**, takže přes „Najít" jde odklepnout i zakázka

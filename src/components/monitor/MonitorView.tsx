@@ -331,6 +331,12 @@ export function MonitorView({
 
                 {partner && (() => {
                   const { state, time } = getSplitChipState(partner);
+                  // Táž past, jakou featura opravila o dvacet řádků výš u
+                  // HeroTiming: do 13. 8. karta ukazovala jen dnešní/zítřejší
+                  // bloky, takže čas bez data stačil. Teď na ní může ležet
+                  // zakázka z minulého týdne a čas bez data by se četl jako
+                  // dnešní stav druhého stroje.
+                  const day = startDayLabel(time, now);
                   return (
                     <div style={{
                       fontSize: 13, color: "var(--text-muted)",
@@ -340,8 +346,8 @@ export function MonitorView({
                         {machineLabel(partner.machine)}
                       </span>
                       {state === "done"
-                        ? `· hotovo ${formatPragueTime(time)}`
-                        : `· čeká od ${formatPragueTime(time)}`}
+                        ? `· hotovo ${day ? `${day} ` : ""}${formatPragueTime(time)}`
+                        : `· čeká od ${day ? `${day} ` : ""}${formatPragueTime(time)}`}
                     </div>
                   );
                 })()}
@@ -520,7 +526,10 @@ function HeroTiming({ block, reason, now }: { block: Block; reason: "running" | 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
       {dayLabel && (
-        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--warning)" }}>
+        // `--warning` v Monitoru všude jinde znamená „PŘETAHUJE" — u prostě
+        // běžícího bloku (typicky noční směna po půlnoci, startDayLabel vrátí
+        // včerejšek) by žlutý datum-štítek nad ZELENÝM pruhem lhal o stavu.
+        <div style={{ fontSize: 15, fontWeight: 700, color: reason === "overdue" ? "var(--warning)" : "var(--text-muted)" }}>
           {dayLabel}
         </div>
       )}

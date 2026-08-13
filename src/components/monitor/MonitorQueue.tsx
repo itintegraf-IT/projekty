@@ -14,10 +14,24 @@ type Props = {
 };
 
 /**
- * Pravý sloupec Monitoru — zakázky na stroji pro dnešek a zítřek.
- * Každý řádek nese totéž, co velká karta: číslo, popis, čas, amber pás se
- * specifikací a výrobní i stavové chipy. Odklepnuté jsou ztlumené se zeleným
- * háčkem (včetně pásu), zakázka na velké kartě zvýrazněná.
+ * Kolik nejnovějších záznamů sekce NEDODĚLÁNO ukáže najednou.
+ *
+ * Sekci nic neuklidí (viz `UNFINISHED_LOOKBACK_DAYS` v `monitorView.ts`) a
+ * řádek fronty je vysoký ~90–110 px — bez stropu by při deseti a víc
+ * nedodělaných zatlačila nadpis „DNES" pod viditelnou plochu kiosku a tiskař
+ * by musel dnešní práci odscrollovat, přesný opak toho, co featura chce.
+ * Vnořený scrollbar místo stropu nepřipadá v úvahu — na dotykové obrazovce
+ * u stroje se ovládá mizerně. Rozhodnutí majitele 13. 8. 2026: 3 nejnovější,
+ * starší jsou dosažitelné přes „Najít".
+ */
+const OVERDUE_VISIBLE_COUNT = 3;
+
+/**
+ * Pravý sloupec Monitoru — zakázky na stroji: nedodělané z minulých dnů
+ * (sekce NEDODĚLÁNO, nejvýš `OVERDUE_VISIBLE_COUNT` nejnovějších), dnešek
+ * a zítřek. Každý řádek nese totéž, co velká karta: číslo, popis, čas, amber
+ * pás se specifikací a výrobní i stavové chipy. Odklepnuté jsou ztlumené se
+ * zeleným háčkem (včetně pásu), zakázka na velké kartě zvýrazněná.
  * Kliknutí ji vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
  */
 export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Props) {
@@ -29,10 +43,26 @@ export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Pro
     );
   }
 
+  // `overdue` přichází VZESTUPNĚ podle startTime (nejstarší první) — poslední
+  // prvky pole jsou tedy nejnovější. `slice` bez reverse, ať zobrazené pořadí
+  // zůstane vzestupné. Skryté jsou ty STARŠÍ, ze začátku pole.
+  const visibleOverdue = overdue.length > OVERDUE_VISIBLE_COUNT
+    ? overdue.slice(overdue.length - OVERDUE_VISIBLE_COUNT)
+    : overdue;
+  const hiddenOverdueCount = overdue.length - visibleOverdue.length;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", minHeight: 0 }}>
       {/* NEDODĚLÁNO jde NAHORU: fronta se pak čte chronologicky shora dolů. */}
-      <QueueSection title="Nedoděláno" blocks={overdue} heroId={heroId} onSelect={onSelect} tone="warning" showDate />
+      <QueueSection
+        title="Nedoděláno"
+        blocks={visibleOverdue}
+        heroId={heroId}
+        onSelect={onSelect}
+        tone="warning"
+        showDate
+        hiddenCount={hiddenOverdueCount}
+      />
       <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} />
       <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} />
     </div>
@@ -40,7 +70,7 @@ export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Pro
 }
 
 function QueueSection({
-  title, blocks, heroId, onSelect, tone = "muted", showDate = false,
+  title, blocks, heroId, onSelect, tone = "muted", showDate = false, hiddenCount = 0,
 }: {
   title: string;
   blocks: Block[];
@@ -50,8 +80,10 @@ function QueueSection({
   tone?: "muted" | "warning";
   /** Řádek ukáže i den, ne jen čas. Povinné u zakázek z minulých dnů. */
   showDate?: boolean;
+  /** Kolik starších záznamů se do sekce nevešlo — jen informativní řádek nad seznamem, neklikací. */
+  hiddenCount?: number;
 }) {
-  if (blocks.length === 0) return null;
+  if (blocks.length === 0 && hiddenCount === 0) return null;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
@@ -61,6 +93,13 @@ function QueueSection({
       }}>
         {title}
       </div>
+      {hiddenCount > 0 && (
+        // Skryté jsou ty starší (viz OVERDUE_VISIBLE_COUNT výš) — bez tohohle
+        // řádku by tiskař nevěděl, že vůbec existují a kam se poděly.
+        <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "0 2px" }}>
+          …a dalších {hiddenCount} starších — najdeš je přes „Najít"
+        </div>
+      )}
       {blocks.map((b) => {
         const isDone = b.printCompletedAt != null;
         const isHero = b.id === heroId;

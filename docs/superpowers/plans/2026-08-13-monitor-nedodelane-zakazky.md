@@ -835,6 +835,22 @@ datumová logika.
 memoizovat `MonitorQueue`/řádky přes `React.memo`, a teprve nakonec `useMemo` nad
 výpočtem. Rozhodnutí zapsat sem, ne to udělat naslepo.
 
+**Tři testy napojení „Najít" ze spec §8** — „klik na výsledek z jiného stroje
+přepne stroj a blok se objeví na kartě", „odklepnutá zakázka z minula jde přes
+„Najít" vytáhnout a Vrátit", „rezervace jde dál do plánu". Vynechány záměrně,
+ne přehlédnutím: pokrývají `MonitorView`/`PlannerPage`, tedy React komponenty
+s efekty a stavem, a repo na render-testy komponent nemá harness — jediný test
+v `src/app/_components/` je `useUndoManager.test.ts`, a ten testuje čistý hook,
+ne vykreslenou komponentu. Napsat je by znamenalo napřed postavit testovací
+infrastrukturu (React Testing Library nebo obdobu), což je mimo rozsah týhle
+opravné vlny.
+
+Krytí místo toho leží na ručním prokliku. **Ten proklik proběhl** (Playwright,
+účet `tiskar`, stroj `XL_105`, review 13. 8. 2026) přes všechny čtyři scénáře
+z Kroku 7 Tasku 5 výš — tři z nich jsou přesně tyhle testy ze spec §8 (cizí
+stroj, odklepnutá zakázka z minula + Vrátit, rezervace do plánu), čtvrtý
+(zakázka na vlastním stroji) plán žádal navíc. Všechny čtyři prošly.
+
 ## Před nasazením
 
 1. **Celá suite + build:**

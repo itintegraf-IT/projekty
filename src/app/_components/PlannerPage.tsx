@@ -948,12 +948,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Skok do PLÁNU na konkrétní blok: přepne pohled, případně stroj, vybere blok
   // a doscrolluje na něj (přes odložený mechanismus handleJumpToOutOfRange výše).
   //
-  // Po 13. 8. 2026 má jediného volajícího: ne-ZAKAZKA větev v onSelect u
-  // OrderSearchSheet (rezervace a údržba z vyhledávání). ZAKAZKA tudy už
-  // nejde — mířila by do slepé uličky: tiskař má rozsah plánu napevno 1 den
-  // zpět, TimelineGrid blok mimo rozsah vůbec nevykreslí a BlockDetail je za
-  // canEdit. Zakázka proto míří na velkou kartu Monitoru (viz onSelect u
-  // OrderSearchSheet, větev block.type === "ZAKAZKA").
+  // Volající v `onSelect` u OrderSearchSheet (review 13. 8. 2026, nález 2):
+  // vždy ne-ZAKAZKA (rezervace a údržba z vyhledávání — tiskař je neodklepává,
+  // `resolveSelectedBlock` je na kartu nepustí) a ZAKAZKA JEN tehdy, když je
+  // tiskař už v plánu a blok leží v zobrazeném rozsahu (`staysInVisiblePlan`) —
+  // tam funguje, protože TimelineGrid blok reálně vykreslí. Mimo tenhle případ
+  // ZAKAZKA míří na velkou kartu Monitoru: tiskař má rozsah plánu napevno
+  // 1 den zpět, TimelineGrid blok mimo rozsah vůbec nevykreslí a BlockDetail
+  // je za canEdit — skok sem by byl slepá ulička.
   function jumpToBlockFromMonitor(block: Block) {
     setTiskarView("plan");
     if (block.machine !== viewMachine) setViewMachine(block.machine);
@@ -3373,12 +3375,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           allBlocks={blocks}
           onSelect={(block) => {
             setSearchSheetOpen(false);
-            // ZAKÁZKA míří na velkou kartu Monitoru. Skok do plánu je pro tiskaře
-            // slepá ulička: rozsah má napevno 1 den zpět, TimelineGrid blok mimo
-            // rozsah nevykreslí a BlockDetail je za `canEdit`. Rezervace a údržba
-            // jdou do plánu dál — `resolveSelectedBlock` je na kartu nepustí
-            // a tiskař je stejně neodklepává.
-            if (block.type !== "ZAKAZKA") {
+            // ZAKÁZKA obvykle míří na velkou kartu Monitoru. Skok do plánu je
+            // pro tiskaře typicky slepá ulička: rozsah má napevno 1 den zpět,
+            // TimelineGrid blok mimo rozsah nevykreslí a BlockDetail je za
+            // `canEdit`. VÝJIMKA: když je tiskař UŽ v plánu (tiskarView ===
+            // "plan") a blok leží uvnitř zobrazeného rozsahu (>= viewStart),
+            // zůstat v plánu — tam blok reálně JE vidět, `jumpToBlockFromMonitor`
+            // ho jen vybere a doscrolluje, žádný `canEdit`/BlockDetail se
+            // nepotřebuje. Byla to dřívější fungující cesta „ukaž mi to v
+            // plánu" a bez týhle podmínky by klik na viditelný blok tiskaře
+            // nečekaně vyhodil z plánu na Monitor (review 13. 8. 2026, nález 2)
+            // — NEODSTRAŇOVAT ani „nezjednodušovat" zpátky na plošné `!== "ZAKAZKA"`.
+            // Rezervace a údržba jdou do plánu vždy — tiskař je neodklepává
+            // a `resolveSelectedBlock` je na kartu nepustí.
+            const staysInVisiblePlan =
+              block.type === "ZAKAZKA" && tiskarView === "plan" && new Date(block.startTime) >= viewStart;
+            if (block.type !== "ZAKAZKA" || staysInVisiblePlan) {
               jumpToBlockFromMonitor(block);
               return;
             }

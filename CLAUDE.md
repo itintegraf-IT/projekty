@@ -9,7 +9,7 @@
 ```bash
 npm run build        # build (spustit lokálně před pushem — chytí TS chyby dřív než server)
 npm run lint         # vrací warningy, 0 chyb je OK
-# celá test suite (846 testů, node:test + tsx) — glob NEJDE do podsložek,
+# celá test suite (1053 testů, node:test + tsx) — glob NEJDE do podsložek,
 # proto se každá složka s testy musí uvést zvlášť (jinak tiše nepoběží):
 node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
 ```
