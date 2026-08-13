@@ -72,16 +72,25 @@ export function MonitorView({
   // výhradně zakázek, které ještě nezačaly.
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   // Vrátit je destruktivní a karta drží zakázku bez expirace — tiskař na další
-  // směně by jinak jedním kliknutím rozdělal zakázku z minulé směny, která by mu
-  // navíc z Monitoru zmizela (je mimo OVERDUE_WINDOW_MS). Proto na dvě doby.
-  // Držíme id, ne boolean: zastaralý časovač by jinak zhasl dotaz, který mezitím
-  // otevřela jiná zakázka.
+  // směně by jinak jedním kliknutím rozdělal zakázku z minulé směny. Proto
+  // na dvě doby. Držíme id, ne boolean: zastaralý časovač by jinak zhasl
+  // dotaz, který mezitím otevřela jiná zakázka.
   const [confirmingRevertId, setConfirmingRevertId] = useState<number | null>(null);
 
   // Zakázka, kterou si tiskař ručně vytáhl z fronty. Přebíjí automatický výběr:
   // plán je optimální pořadí, ale u stroje se legitimně odchýlí (typicky když
   // na následující zakázku není materiál).
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // Zakázky, které tiskař u tohoto stroje vědomě odsunul z karty. Bez omezení
+  // by přetahující zakázka držela kartu donekonečna a jediná cesta dál by byla
+  // odklepnout ji — tedy zalhat do evidence (`printCompletedAt` je podklad pro
+  // reporty). Ve frontě zůstávají v sekci NEDODĚLÁNO.
+  //
+  // localStorage, ne server: je to vlastnost TÉHLE obrazovky u stroje, ne
+  // uživatele. Kiosek se restartuje a bez uložení by po každém restartu
+  // naskočila táž zakázka znovu.
+  const [skippedIds, setSkippedIds] = useState<ReadonlySet<number>>(new Set());
 
   // `now` tiká samo — hodiny v hlavičce (formatPragueTime) i běhová logika
   // (pickHeroBlock/runProgress) běží ze stejné hodnoty; 15 s je dost časté
@@ -99,7 +108,7 @@ export function MonitorView({
     return () => clearInterval(id);
   }, []);
 
-  const liveHero = now ? pickHeroBlock(blocks, viewMachine, now) : null;
+  const liveHero = now ? pickHeroBlock(blocks, viewMachine, now, skippedIds) : null;
   const sticky = resolveStickyBlock(blocks, stickyId, viewMachine);
   const selected = resolveSelectedBlock(blocks, selectedId, viewMachine);
 
@@ -146,6 +155,40 @@ export function MonitorView({
     setConfirmingRevertId(null);
     setSelectedId(null);
   }, [viewMachine]);
+
+  const skipKey = `monitor-skipped:${viewMachine}`;
+
+  // Čte se až po připojení v prohlížeči: komponenta se renderuje i na serveru,
+  // kde localStorage není, a rozdílný první snímek by vyvolal hydration error.
+  //
+  // MUSÍ být deklarovaný ZA úklidovým efektem `[viewMachine]` výš (běží i při
+  // mountu) a PŘED efektem `focusBlockId` níž — stejná past, jakou popisuje
+  // komentář u něj.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(skipKey);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      setSkippedIds(new Set(Array.isArray(parsed) ? parsed.filter((x): x is number => typeof x === "number") : []));
+    } catch {
+      // Poškozený nebo nedostupný localStorage nesmí shodit obrazovku u stroje.
+      setSkippedIds(new Set());
+    }
+  }, [skipKey]);
+
+  function skipBlock(id: number) {
+    setSkippedIds((cur) => {
+      const next = new Set(cur);
+      next.add(id);
+      try {
+        window.localStorage.setItem(skipKey, JSON.stringify([...next]));
+      } catch {
+        // Zápis smí selhat (plná kvóta, privátní režim) — přeskočení pak
+        // platí jen do restartu. Lepší než spadnout.
+      }
+      return next;
+    });
+    setSelectedId(null);
+  }
 
   // Jednorázový příkaz zvenčí: „dej tuhle zakázku na velkou kartu".
   //
@@ -425,42 +468,70 @@ export function MonitorView({
                         Další →
                       </button>
                     </div>
-                  ) : (
-                    <PrintDoneButton
-                      size={{ variant: "hero", height: 96, fontSize: 30 }}
-                      isDone={false}
-                      completedAt={null}
-                      pending={pendingId === card.block.id || Date.now() < lockUntil}
-                      confirmLabel={
-                        card.reason === "upcoming" && confirmingId === card.block.id
-                          ? `ZAČÍNÁ ${startLabelForConfirm} — POTVRDIT`
-                          : undefined
-                      }
-                      onToggle={() => {
-                        const id = card.block.id;
-                        // Budoucí zakázka na dvě doby: první kliknutí se jen zeptá.
-                        if (card.reason === "upcoming" && confirmingId !== id) {
-                          setConfirmingId(id);
-                          setTimeout(
-                            () => setConfirmingId((cur) => (cur === id ? null : cur)),
-                            5000
-                          );
-                          return;
+                  ) : (() => {
+                    const doneButton = (
+                      <PrintDoneButton
+                        size={{ variant: "hero", height: 96, fontSize: 30 }}
+                        isDone={false}
+                        completedAt={null}
+                        pending={pendingId === card.block.id || Date.now() < lockUntil}
+                        confirmLabel={
+                          card.reason === "upcoming" && confirmingId === card.block.id
+                            ? `ZAČÍNÁ ${startLabelForConfirm} — POTVRDIT`
+                            : undefined
                         }
-                        setConfirmingId(null);
-                        setPendingId(id);
-                        // Musí být synchronně, ne v .then(): PlannerPage označí
-                        // zakázku za odklepnutou optimisticky ještě před odpovědí
-                        // serveru, takže by karta do té doby ukazovala cizí zakázku.
-                        setStickyId(id);
-                        const until = Date.now() + 800;
-                        setLockUntil(until);
-                        setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
-                        onPrintComplete(id, true)
-                          .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
-                      }}
-                    />
-                  )}
+                        onToggle={() => {
+                          const id = card.block.id;
+                          // Budoucí zakázka na dvě doby: první kliknutí se jen zeptá.
+                          if (card.reason === "upcoming" && confirmingId !== id) {
+                            setConfirmingId(id);
+                            setTimeout(
+                              () => setConfirmingId((cur) => (cur === id ? null : cur)),
+                              5000
+                            );
+                            return;
+                          }
+                          setConfirmingId(null);
+                          setPendingId(id);
+                          // Musí být synchronně, ne v .then(): PlannerPage označí
+                          // zakázku za odklepnutou optimisticky ještě před odpovědí
+                          // serveru, takže by karta do té doby ukazovala cizí zakázku.
+                          setStickyId(id);
+                          const until = Date.now() + 800;
+                          setLockUntil(until);
+                          setTimeout(() => setLockUntil((cur) => (cur === until ? 0 : cur)), 800);
+                          onPrintComplete(id, true)
+                            .finally(() => setPendingId((cur) => (cur === id ? null : cur)));
+                        }}
+                      />
+                    );
+
+                    // „Přeskočit →" jen u přetahující zakázky. U běžící ani budoucí
+                    // nedává smysl — ta se odsouvat nepotřebuje, karta na ní nedrží.
+                    if (card.reason !== "overdue") return doneButton;
+
+                    return (
+                      <div style={{ display: "flex", gap: 12, height: 96 }}>
+                        {/* `display: flex` + `width: 100%` uvnitř: PrintDoneButton má
+                            pevnou výšku 96, ale šířku si sám nenastavuje — bez tohohle
+                            by se ve flexu smrsknul na obsah. */}
+                        <div style={{ flex: 2, minWidth: 0, display: "flex" }}>
+                          {doneButton}
+                        </div>
+                        <button
+                          onClick={(e) => { if (e.button !== 0) return; skipBlock(card.block.id); }}
+                          style={{
+                            flex: 1, borderRadius: 12,
+                            border: "1px solid var(--border)",
+                            background: "var(--surface-3)", color: "var(--text)",
+                            font: "inherit", fontSize: 18, fontWeight: 700, cursor: "pointer",
+                          }}
+                        >
+                          Přeskočit →
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </>

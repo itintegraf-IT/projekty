@@ -13,20 +13,15 @@ export type HeroReason = "running" | "overdue" | "upcoming";
 export type HeroPick = { block: Block; reason: HeroReason } | null;
 
 /**
- * Jak dlouho po svém konci smí neodklepnutá zakázka zůstat na velké kartě.
- * Počítá se od KONCE, ne podle dne startu — noční směna 22:00–6:00 by jinak
- * ráno z Monitoru zmizela, protože „nezačala dnes".
+ * Okno, po které v plánu svítí červený alarm zpoždění (`overdueState.ts`).
  *
- * Bydlí v `overdueState.ts`, protože od 12. 8. 2026 tímtéž oknem hasne i červený
- * alarm na kartě v plánu.
- *
- * Re-export je tu ZÁRUKA, ne pohodlí: produkčně už konstantu odsud nikdo nebere
- * (jediný konzument je test parity). Drží se proto, aby nikdo v budoucnu nesáhl
- * po tom, že si sem hodnotu zkopíruje zpátky — dvě čísla by se nevyhnutelně
- * rozešla a plán by červenal jinak dlouho, než by Monitor držel kartu.
+ * Velká karta Monitoru jím řídit PŘESTALA (13. 8. 2026) — drží zakázku, dokud
+ * tiskař nedá HOTOVO nebo „Přeskočit →“ (viz `pickHeroBlock`). Konstanta tu
+ * zůstává re-exportovaná jako ZÁRUKA, ne z pohodlí: kdyby si ji sem někdo
+ * zkopíroval zpátky jako vlastní číslo, plán by červenal jinak dlouho, než by
+ * se choval Monitor.
  */
 export { OVERDUE_WINDOW_MS } from "./overdueState";
-import { OVERDUE_WINDOW_MS } from "./overdueState";
 
 /** Otevřená zakázka na daném stroji = ZAKAZKA + správný stroj + neodklepnutá. */
 function isOpenOrder(b: Block, machine: string): boolean {
@@ -35,45 +30,6 @@ function isOpenOrder(b: Block, machine: string): boolean {
 
 function byStartAsc(a: Block, b: Block): number {
   return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
-}
-
-/**
- * Zakázka na velkou kartu Monitoru, s důvodem výběru. Priorita:
- *  1. `running`  — je uvnitř svého času,
- *  2. `overdue`  — nic neběží, ale zakázce už vypršel čas, nikdo ji neodklepl
- *                  a od jejího konce neuplynulo víc než OVERDUE_WINDOW_MS
- *                  (bez tohohle by z Monitoru zmizela a tiskař by ji musel
- *                  hledat v plánu),
- *  3. `upcoming` — jinak nejbližší budoucí.
- */
-export function pickHeroBlock(blocks: Block[], machine: string, now: Date): HeroPick {
-  const t = now.getTime();
-  const open = blocks.filter((b) => isOpenOrder(b, machine));
-
-  const running = open
-    .filter((b) => new Date(b.startTime).getTime() <= t && t < new Date(b.endTime).getTime())
-    .sort(byStartAsc);
-  if (running.length > 0) return { block: running[0], reason: "running" };
-
-  const overdue = open
-    .filter((b) => {
-      const end = new Date(b.endTime).getTime();
-      return end <= t && t - end <= OVERDUE_WINDOW_MS;
-    })
-    .sort((a, b) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime());
-  if (overdue.length > 0) return { block: overdue[0], reason: "overdue" };
-
-  const next = pickNextBlock(blocks, machine, now);
-  return next ? { block: next, reason: "upcoming" } : null;
-}
-
-/** Nejbližší budoucí neodklepnutá zakázka na stroji (klidně i zítřejší). */
-export function pickNextBlock(blocks: Block[], machine: string, now: Date): Block | null {
-  const t = now.getTime();
-  const upcoming = blocks
-    .filter((b) => isOpenOrder(b, machine) && new Date(b.startTime).getTime() > t)
-    .sort(byStartAsc);
-  return upcoming[0] ?? null;
 }
 
 /**
@@ -90,6 +46,78 @@ export function pickNextBlock(blocks: Block[], machine: string, now: Date): Bloc
  * kartě, ani tady.
  */
 export const UNFINISHED_LOOKBACK_DAYS = 14;
+
+/**
+ * Spodní hranice okna nedodělaných zakázek — pražská půlnoc dne
+ * `dnes − UNFINISHED_LOOKBACK_DAYS`.
+ *
+ * Sdílí ji fronta (`monitorQueue`) i velká karta (`pickHeroBlock`), aby se
+ * nemohly rozejít: zakázka, kterou karta drží, musí být dohledatelná i ve
+ * frontě, a naopak. Počítá se z CIVILNÍCH pražských dnů, ne odečtením
+ * 14×24 h — jinak by se okno posunulo o hodinu na přechodu letního času.
+ */
+export function unfinishedFloorMs(now: Date): number {
+  const todayStr = utcToPragueDateStr(now);
+  return pragueToUTC(addDaysToCivilDate(todayStr, -UNFINISHED_LOOKBACK_DAYS), 0, 0).getTime();
+}
+
+/**
+ * Zakázka na velkou kartu Monitoru, s důvodem výběru. Priorita:
+ *  1. `overdue`  — zakázce vypršel čas, nikdo ji neodklepl a tiskař ji
+ *                  nepřeskočil. Z několika vyhrává ta, která skončila
+ *                  NEJPOZDĚJI — to je ta, kterou má tiskař rozdělanou.
+ *  2. `running`  — je uvnitř svého času,
+ *  3. `upcoming` — jinak nejbližší budoucí.
+ *
+ * `overdue` je záměrně PŘED `running` (13. 8. 2026). Do té doby přebíjel běh
+ * podle plánu, takže v okamžiku, kdy začal následující blok, karta odskočila —
+ * i když tiskař pořád tiskl tu předchozí, a zmizelo mu i tlačítko HOTOVO.
+ *
+ * Šestnáctihodinové okno tu ZÁMĚRNĚ NENÍ: karta drží zakázku, dokud tiskař
+ * nedá HOTOVO nebo „Přeskočit →". `OVERDUE_WINDOW_MS` zůstává vyhrazené
+ * červenému alarmu v plánu — kdo ho sem vrátí, obnoví opravenou vadu.
+ * Jediná mez je `unfinishedFloorMs`, sdílená s frontou: bez ní by na kartě
+ * navěky seděl blok, který v datech leží od loňska.
+ *
+ * `skippedIds` jsou zakázky, které tiskař u tohoto stroje vědomě odsunul.
+ * Zůstávají ve frontě v sekci NEDODĚLÁNO, jen nesmí zpátky na kartu.
+ */
+export function pickHeroBlock(
+  blocks: Block[],
+  machine: string,
+  now: Date,
+  skippedIds?: ReadonlySet<number>
+): HeroPick {
+  const t = now.getTime();
+  const floorMs = unfinishedFloorMs(now);
+  const open = blocks.filter((b) => isOpenOrder(b, machine));
+
+  const overdue = open
+    .filter((b) => {
+      if (skippedIds?.has(b.id)) return false;
+      const end = new Date(b.endTime).getTime();
+      return end <= t && end >= floorMs;
+    })
+    .sort((a, b) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime());
+  if (overdue.length > 0) return { block: overdue[0], reason: "overdue" };
+
+  const running = open
+    .filter((b) => new Date(b.startTime).getTime() <= t && t < new Date(b.endTime).getTime())
+    .sort(byStartAsc);
+  if (running.length > 0) return { block: running[0], reason: "running" };
+
+  const next = pickNextBlock(blocks, machine, now);
+  return next ? { block: next, reason: "upcoming" } : null;
+}
+
+/** Nejbližší budoucí neodklepnutá zakázka na stroji (klidně i zítřejší). */
+export function pickNextBlock(blocks: Block[], machine: string, now: Date): Block | null {
+  const t = now.getTime();
+  const upcoming = blocks
+    .filter((b) => isOpenOrder(b, machine) && new Date(b.startTime).getTime() > t)
+    .sort(byStartAsc);
+  return upcoming[0] ?? null;
+}
 
 /**
  * Fronta Monitoru — zakázky na daném stroji pro dnešek a zítřek, obojí seřazené
@@ -117,7 +145,7 @@ export function monitorQueue(
   // Hranice z CIVILNÍCH pražských dnů, ne odečtením 14×24 h — jinak by se okno
   // posunulo o hodinu na přechodu letního času.
   const todayMidnightMs = pragueToUTC(todayStr, 0, 0).getTime();
-  const floorMs = pragueToUTC(addDaysToCivilDate(todayStr, -UNFINISHED_LOOKBACK_DAYS), 0, 0).getTime();
+  const floorMs = unfinishedFloorMs(now);
 
   // Rozhoduje endTime, ne startTime: noční směna 22:00–6:00 začala včera, ale
   // končí dnes — podle startu by spadla sem, i když právě běží na velké kartě.

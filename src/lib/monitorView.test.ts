@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pickHeroBlock, pickNextBlock, monitorQueue, resolveSelectedBlock, reasonForBlock, runProgress, resolveStickyBlock, startDayLabel, UNFINISHED_LOOKBACK_DAYS } from "./monitorView.js";
+import { pickHeroBlock, pickNextBlock, monitorQueue, resolveSelectedBlock, reasonForBlock, runProgress, resolveStickyBlock, startDayLabel, UNFINISHED_LOOKBACK_DAYS, unfinishedFloorMs } from "./monitorView.js";
 import type { Block } from "../app/_components/TimelineGrid.js";
 
 // Pozn.: časy jsou v UTC. Praha je v srpnu UTC+2, takže 2026-08-10T06:00Z = 8:00 ráno.
@@ -47,12 +47,12 @@ test("pickHeroBlock: u více přetahujících vyhraje ta s nejpozdějším konce
   assert.equal(hero?.block.id, 2);
 });
 
-test("pickHeroBlock: běžící má přednost před přetahující", () => {
+test("pickHeroBlock: přetahující má přednost před běžící (oprava 13. 8. 2026 — dřív karta odskočila na nově začínající, i když tiskař pořád tiskl tu předchozí)", () => {
   const late = mk({ id: 1, startTime: "2026-08-10T04:00:00.000Z", endTime: "2026-08-10T06:00:00.000Z" });
   const running = mk({ id: 2, startTime: "2026-08-10T06:00:00.000Z", endTime: "2026-08-10T10:00:00.000Z" });
   const hero = pickHeroBlock([late, running], "XL_106", new Date("2026-08-10T07:00:00.000Z"));
-  assert.equal(hero?.reason, "running");
-  assert.equal(hero?.block.id, 2);
+  assert.equal(hero?.reason, "overdue");
+  assert.equal(hero?.block.id, 1);
 });
 
 test("pickHeroBlock: nic neběží ani nepřetahuje = upcoming", () => {
@@ -70,17 +70,19 @@ test("pickHeroBlock: noční směna přes půlnoc zůstane na kartě i ráno", (
   assert.equal(hero?.block.id, 9);
 });
 
-test("pickHeroBlock: zakázka po 16hodinovém okně už na kartě není", () => {
-  const b = mk({ startTime: "2026-08-09T04:00:00.000Z", endTime: "2026-08-09T08:00:00.000Z" });
+test("pickHeroBlock: zakázka i po 16hodinovém okně zůstává na kartě (oprava 13. 8. 2026 — 16h okno se na hero kartu už nevztahuje, jen unfinishedFloorMs)", () => {
+  const b = mk({ id: 5, startTime: "2026-08-09T04:00:00.000Z", endTime: "2026-08-09T08:00:00.000Z" });
   // konec + 17 h
   const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T01:00:00.000Z"));
-  assert.equal(hero, null);
+  assert.equal(hero?.reason, "overdue");
+  assert.equal(hero?.block.id, 5);
 });
 
-test("pickHeroBlock: včerejší neodklepnutá zakázka se jako overdue nebere", () => {
-  const b = mk({ startTime: "2026-08-09T06:00:00.000Z", endTime: "2026-08-09T09:00:00.000Z" });
+test("pickHeroBlock: včerejší neodklepnutá zakázka se jako overdue BERE (oprava 13. 8. 2026 — dřív ji vylučovalo 16h okno, teď drží kartu, dokud tiskař nerozhodne)", () => {
+  const b = mk({ id: 6, startTime: "2026-08-09T06:00:00.000Z", endTime: "2026-08-09T09:00:00.000Z" });
   const hero = pickHeroBlock([b], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
-  assert.equal(hero, null);
+  assert.equal(hero?.reason, "overdue");
+  assert.equal(hero?.block.id, 6);
 });
 
 test("pickHeroBlock: cizí stroj a jiné typy bloků se ignorují", () => {
@@ -360,9 +362,10 @@ test("monitorQueue: scénář z připomínky plánovače — pátek nedotištěn
   // Páteční je v NEDODĚLÁNO, ne ve frontě dneška.
   assert.deepEqual(q.overdue.map((x) => x.id), [1]);
   assert.deepEqual(q.today.map((x) => x.id), [2]);
-  // A hero automatika se nemění — ukáže středeční jako „upcoming"/"running",
-  // páteční na kartu nesáhne (je mimo 16h okno).
-  assert.equal(pickHeroBlock([patecni, stredecni], "XL_105", now)?.block.id, 2);
+  // Oprava 13. 8. 2026: hero automatika teď páteční nedodělanou zakázku
+  // naopak PŘEBERE na kartu (je v okně unfinishedFloorMs) — tiskař ji uvidí
+  // rovnou, místo aby ji musel dohledávat ve frontě NEDODĚLÁNO.
+  assert.equal(pickHeroBlock([patecni, stredecni], "XL_105", now)?.block.id, 1);
 });
 
 // ── monitorQueue.overdue: přesné hranice okna (horní i dolní) ──────────────
@@ -424,4 +427,75 @@ test("UNFINISHED_LOOKBACK_DAYS je 14", () => {
   // testem proklouzne beze změny. Skutečné chování na obou hranách okna hlídají
   // až čtyři testy výše („přesné hranice okna").
   assert.equal(UNFINISHED_LOOKBACK_DAYS, 14);
+});
+
+// ── pickHeroBlock: přetahující přebíjí nově začínající (oprava 13. 8. 2026) ──
+
+test("pickHeroBlock: přetahující neodklepnutá přebije nově začínající", () => {
+  const now = new Date("2026-08-13T12:30:00.000Z");
+  const blocks = [
+    mk({ id: 1, machine: "XL_105", startTime: "2026-08-13T04:00:00.000Z", endTime: "2026-08-13T12:00:00.000Z" }),
+    mk({ id: 2, machine: "XL_105", startTime: "2026-08-13T12:00:00.000Z", endTime: "2026-08-13T20:00:00.000Z" }),
+  ];
+  const pick = pickHeroBlock(blocks, "XL_105", now);
+  assert.equal(pick?.block.id, 1);
+  assert.equal(pick?.reason, "overdue");
+});
+
+test("pickHeroBlock: z několika přetahujících vyhraje ta, co skončila nejpozději", () => {
+  const now = new Date("2026-08-13T12:30:00.000Z");
+  const blocks = [
+    mk({ id: 1, machine: "XL_105", startTime: "2026-08-12T04:00:00.000Z", endTime: "2026-08-12T12:00:00.000Z" }),
+    mk({ id: 2, machine: "XL_105", startTime: "2026-08-13T04:00:00.000Z", endTime: "2026-08-13T12:00:00.000Z" }),
+  ];
+  assert.equal(pickHeroBlock(blocks, "XL_105", now)?.block.id, 2);
+});
+
+test("pickHeroBlock: přetahující drží kartu i po 16 h (žádné OVERDUE_WINDOW_MS)", () => {
+  // Konec + 20 h. Do 13. 8. 2026 by tuhle zakázku výběr zahodil a karta by
+  // odskočila na běžící blok — právě to je opravovaná vada.
+  const now = new Date("2026-08-14T08:00:00.000Z");
+  const blocks = [
+    mk({ id: 1, machine: "XL_105", startTime: "2026-08-13T04:00:00.000Z", endTime: "2026-08-13T12:00:00.000Z" }),
+    mk({ id: 2, machine: "XL_105", startTime: "2026-08-14T04:00:00.000Z", endTime: "2026-08-14T20:00:00.000Z" }),
+  ];
+  assert.equal(pickHeroBlock(blocks, "XL_105", now)?.block.id, 1);
+});
+
+test("pickHeroBlock: přeskočená zakázka se na kartu nevrátí", () => {
+  const now = new Date("2026-08-13T12:30:00.000Z");
+  const blocks = [
+    mk({ id: 1, machine: "XL_105", startTime: "2026-08-13T04:00:00.000Z", endTime: "2026-08-13T12:00:00.000Z" }),
+    mk({ id: 2, machine: "XL_105", startTime: "2026-08-13T12:00:00.000Z", endTime: "2026-08-13T20:00:00.000Z" }),
+  ];
+  const pick = pickHeroBlock(blocks, "XL_105", now, new Set([1]));
+  assert.equal(pick?.block.id, 2);
+  assert.equal(pick?.reason, "running");
+});
+
+test("pickHeroBlock: zakázka starší než okno nedodělaných se na kartu nevrátí", () => {
+  const now = new Date("2026-08-13T12:30:00.000Z");
+  const blocks = [
+    mk({ id: 1, machine: "XL_105", startTime: "2026-07-20T04:00:00.000Z", endTime: "2026-07-20T12:00:00.000Z" }),
+  ];
+  assert.equal(pickHeroBlock(blocks, "XL_105", now), null);
+});
+
+test("pickHeroBlock: hranice okna nedodělaných je přesná na milisekundu", () => {
+  // Podlaha = pražská půlnoc dne (dnes − 14). Blok končící přesně na ní projde,
+  // blok o milisekundu dřív ne. Bez tohohle testu projde i posun podlahy o dny.
+  const now = new Date("2026-08-13T12:30:00.000Z");
+  const floor = unfinishedFloorMs(now);
+  const onFloor = mk({
+    id: 1, machine: "XL_105",
+    startTime: new Date(floor - 3_600_000).toISOString(),
+    endTime: new Date(floor).toISOString(),
+  });
+  const belowFloor = mk({
+    id: 2, machine: "XL_105",
+    startTime: new Date(floor - 3_600_001).toISOString(),
+    endTime: new Date(floor - 1).toISOString(),
+  });
+  assert.equal(pickHeroBlock([onFloor], "XL_105", now)?.block.id, 1);
+  assert.equal(pickHeroBlock([belowFloor], "XL_105", now), null);
 });
