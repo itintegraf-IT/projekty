@@ -158,11 +158,18 @@ zakryje celý pruh druhého stroje včetně sousedních zakázek.
 
 Bublina jde **vždy na vnější stranu mřížky** (rozhodnutí majitele 13. 8. 2026):
 
-- blok v levé polovině okna → bublina **vlevo** (přes časovou osu, kde je jen čas)
-- blok v pravé polovině okna → bublina **vpravo**
+- blok v levé polovině mřížky → bublina **vlevo** (přes časovou osu, kde je jen čas)
+- blok v pravé polovině mřížky → bublina **vpravo**
 
-Rozhoduje vodorovný střed bloku vůči středu okna, ne počet sloupců — pravidlo
-tak platí i kdyby strojů přibylo.
+Rozhoduje vodorovný střed bloku vůči středu **mřížky**, ne počet sloupců —
+pravidlo tak platí i kdyby strojů přibylo.
+
+> Původní návrh porovnával se středem OKNA. Finální review 13. 8. 2026 (nález I3)
+> ukázalo, že mřížka okno nevyplňuje: napravo od ní stojí editační `<aside>`,
+> notifikační panel i DTP panel. Při otevřených panelech na 1440 px vyšel střed
+> okna doprostřed pravého sloupce a bublina se vykreslila přes sloupec levý —
+> tedy přesně ta vada, kterou má featura odstranit. Rozhoduje proto střed
+> kontejneru se sloupci (`[data-timeline-grid]`), ne `window.innerWidth`.
 
 Ořez na okraje okna zůstává; když se bublina na vnější stranu nevejde celá,
 překryje část **vlastního** sloupce, což je pořád lepší než zakrýt cizí stroj.
