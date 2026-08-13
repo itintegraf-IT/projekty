@@ -948,10 +948,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Skok do PLÁNU na konkrétní blok: přepne pohled, případně stroj, vybere blok
   // a doscrolluje na něj (přes odložený mechanismus handleJumpToOutOfRange výše).
   //
-  // Po 13. 8. 2026 už tudy NEJDE hlavní cesta z vyhledávání — zakázka míří na
-  // velkou kartu Monitoru (viz onSelect u OrderSearchSheet). Zůstávají: rezervace
-  // a údržba z vyhledávání, skok na split partnera a procházení výsledků
-  // hlavičkového hledání v plánu.
+  // Po 13. 8. 2026 má jediného volajícího: ne-ZAKAZKA větev v onSelect u
+  // OrderSearchSheet (rezervace a údržba z vyhledávání). ZAKAZKA tudy už
+  // nejde — mířila by do slepé uličky: tiskař má rozsah plánu napevno 1 den
+  // zpět, TimelineGrid blok mimo rozsah vůbec nevykreslí a BlockDetail je za
+  // canEdit. Zakázka proto míří na velkou kartu Monitoru (viz onSelect u
+  // OrderSearchSheet, větev block.type === "ZAKAZKA").
   function jumpToBlockFromMonitor(block: Block) {
     setTiskarView("plan");
     if (block.machine !== viewMachine) setViewMachine(block.machine);

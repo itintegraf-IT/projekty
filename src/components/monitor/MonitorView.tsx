@@ -154,7 +154,7 @@ export function MonitorView({
   // focus by si tedy sám přepsal výběr na null, kdykoli hledání zároveň přepnulo
   // stroj (a při návratu z plánu na Monitor vždycky).
   //
-  // Druhá podmínka je na straně volajícího: `setViewMachine` a `setFocusBlockId`
+  // Druhá podmínka je na straně volajícího: `setViewMachine` a `setMonitorFocusId`
   // musí padnout v TÉMŽE handleru, aby je React zbatchoval. Jinak by tenhle
   // render proběhl ještě se starým strojem, `resolveSelectedBlock` by blok odmítl
   // pro neshodu stroje a úklidový efekt `[selectedId, selected]` by výběr smazal.
