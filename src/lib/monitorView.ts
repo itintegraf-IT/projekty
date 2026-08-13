@@ -1,5 +1,5 @@
 import type { Block } from "@/app/_components/TimelineGrid";
-import { utcToPragueDateStr, addDaysToCivilDate, formatPragueDateShort } from "@/lib/dateUtils";
+import { utcToPragueDateStr, addDaysToCivilDate, formatPragueDateShort, pragueToUTC } from "@/lib/dateUtils";
 
 /**
  * Pravidla pro tiskařský Monitor — která zakázka patří na velkou kartu,
@@ -77,9 +77,26 @@ export function pickNextBlock(blocks: Block[], machine: string, now: Date): Bloc
 }
 
 /**
+ * Jak daleko zpět sahá sekce „NEDODĚLÁNO" ve frontě Monitoru.
+ *
+ * Pokryje každou reálnou kombinaci víkend + svátky + celozávodní odstávka.
+ * Strop tu MUSÍ být: sekci nic neuklidí (zakázka z ní zmizí jen odklepnutím
+ * nebo smazáním bloku) a `Block` řádky se v projektu nikdy nemažou, takže
+ * bez něj by seznam rostl donekonečna, až by Monitor přestal být čitelný.
+ *
+ * ZÁMĚRNĚ to NENÍ `OVERDUE_WINDOW_MS`: to odpovídá na jinou otázku („je
+ * zpoždění ještě akutní?", 16 h) a použití by udělalo dvouhodinovou slepou
+ * skvrnu — zakázka stará 14 h by při běžícím jiném bloku nebyla ani na velké
+ * kartě, ani tady.
+ */
+export const UNFINISHED_LOOKBACK_DAYS = 14;
+
+/**
  * Fronta Monitoru — zakázky na daném stroji pro dnešek a zítřek, obojí seřazené
- * podle začátku. Odklepnuté zůstávají, fronta je ukazuje ztlumené, aby byl vidět
- * postup směny. Rezervace a údržba do fronty nepatří — tiskař odklepává zakázky.
+ * podle začátku, plus sekce NEDODĚLÁNO (neodklepnuté zakázky z předchozích dnů,
+ * max `UNFINISHED_LOOKBACK_DAYS` zpátky). Odklepnuté zůstávají v dnešní/zítřejší
+ * frontě, fronta je ukazuje ztlumené, aby byl vidět postup směny. Rezervace a
+ * údržba do fronty ani do NEDODĚLÁNO nepatří — tiskař odklepává zakázky.
  *
  * Dva dny záměrně: tiskař, který přeskočí zakázku kvůli chybějícímu materiálu,
  * často sáhne po něčem z dalšího dne. Na vzdálenější zakázky je tlačítko Najít.
@@ -88,7 +105,7 @@ export function monitorQueue(
   blocks: Block[],
   machine: string,
   now: Date
-): { today: Block[]; tomorrow: Block[] } {
+): { overdue: Block[]; today: Block[]; tomorrow: Block[] } {
   const todayStr = utcToPragueDateStr(now);
   const tomorrowStr = addDaysToCivilDate(todayStr, 1);
   const onMachine = blocks.filter((b) => b.type === "ZAKAZKA" && b.machine === machine);
@@ -96,7 +113,27 @@ export function monitorQueue(
     onMachine
       .filter((b) => utcToPragueDateStr(new Date(b.startTime)) === dayStr)
       .sort(byStartAsc);
-  return { today: forDay(todayStr), tomorrow: forDay(tomorrowStr) };
+
+  // Hranice z CIVILNÍCH pražských dnů, ne odečtením 14×24 h — jinak by se okno
+  // posunulo o hodinu na přechodu letního času.
+  const todayMidnightMs = pragueToUTC(todayStr, 0, 0).getTime();
+  const floorMs = pragueToUTC(addDaysToCivilDate(todayStr, -UNFINISHED_LOOKBACK_DAYS), 0, 0).getTime();
+
+  // Rozhoduje endTime, ne startTime: noční směna 22:00–6:00 začala včera, ale
+  // končí dnes — podle startu by spadla sem, i když právě běží na velké kartě.
+  // Táž volba, na které stojí 16h okno hero karty (gotcha z 10. 8. 2026).
+  const overdue = onMachine
+    .filter((b) => {
+      if (b.printCompletedAt != null) return false;
+      // Pozastavená zakázka je výrobní stopka, ne zpoždění — plán ji z „po
+      // termínu" taky vylučuje (BlockCard na ni nevolá overdueAlarmState).
+      if (b.blockVariant === "POZASTAVENO") return false;
+      const end = new Date(b.endTime).getTime();
+      return end < todayMidnightMs && end >= floorMs;
+    })
+    .sort(byStartAsc);
+
+  return { overdue, today: forDay(todayStr), tomorrow: forDay(tomorrowStr) };
 }
 
 /**

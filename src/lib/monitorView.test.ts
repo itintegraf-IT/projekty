@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { pickHeroBlock, pickNextBlock, monitorQueue, resolveSelectedBlock, reasonForBlock, runProgress, resolveStickyBlock, startDayLabel } from "./monitorView.js";
+import { pickHeroBlock, pickNextBlock, monitorQueue, resolveSelectedBlock, reasonForBlock, runProgress, resolveStickyBlock, startDayLabel, UNFINISHED_LOOKBACK_DAYS } from "./monitorView.js";
 import type { Block } from "../app/_components/TimelineGrid.js";
 
 // Pozn.: časy jsou v UTC. Praha je v srpnu UTC+2, takže 2026-08-10T06:00Z = 8:00 ráno.
@@ -238,4 +238,135 @@ test("reasonForBlock: dávno skončená zakázka je overdue bez ohledu na 16h ok
 test("reasonForBlock: budoucí zakázka je upcoming", () => {
   const b = mk({ startTime: "2026-08-12T06:00:00.000Z", endTime: "2026-08-12T12:00:00.000Z" });
   assert.equal(reasonForBlock(b, new Date("2026-08-10T08:00:00.000Z")), "upcoming");
+});
+
+// ── monitorQueue: sekce NEDODĚLÁNO ──────────────────────────────────────────
+
+test("monitorQueue.overdue: neodklepnutá zakázka z předchozího dne je v sekci", () => {
+  // NOW = 2026-08-12 08:00 pražského času. Blok skončil 10. 8. ve 22:00.
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-10T12:00:00.000Z", endTime: "2026-08-10T20:00:00.000Z",
+    printCompletedAt: null,
+  });
+  const q = monitorQueue([b], "XL_105", now);
+  assert.deepEqual(q.overdue.map((x) => x.id), [1]);
+});
+
+test("monitorQueue.overdue: zakázka starší než 14 dnů v sekci NENÍ", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-07-20T06:00:00.000Z", endTime: "2026-07-20T14:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+});
+
+test("monitorQueue.overdue: odklepnutá zakázka z minula v sekci NENÍ", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-10T12:00:00.000Z", endTime: "2026-08-10T20:00:00.000Z",
+    printCompletedAt: "2026-08-10T20:05:00.000Z",
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+});
+
+test("monitorQueue.overdue: PRÁVĚ BĚŽÍCÍ noční směna z včerejška v sekci NENÍ", () => {
+  // Regrese endTime vs startTime. Start 11. 8. 22:00, konec 12. 8. 6:00 —
+  // začala včera, ale končí DNES, takže do „z minulých dnů" nepatří. Podle
+  // startTime by spadla dovnitř, i když je zrovna na velké kartě.
+  const now = new Date("2026-08-12T06:00:00.000Z"); // 8:00 pražského času
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-11T20:00:00.000Z", endTime: "2026-08-12T04:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+});
+
+test("monitorQueue.overdue: POZASTAVENÁ zakázka v sekci NENÍ", () => {
+  // Plán ji z „po termínu" vědomě vylučuje (BlockCard nevolá overdueAlarmState).
+  // Je to výrobní stopka, ne zpoždění — kdyby ji Monitor ukázal, obě obrazovky
+  // by o téže zakázce tvrdily opak.
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA", blockVariant: "POZASTAVENO",
+    startTime: "2026-08-10T12:00:00.000Z", endTime: "2026-08-10T20:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+});
+
+test("monitorQueue.overdue: rezervace ani údržba do sekce nepatří", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const rez = mk({
+    id: 1, machine: "XL_105", type: "REZERVACE",
+    startTime: "2026-08-10T12:00:00.000Z", endTime: "2026-08-10T20:00:00.000Z",
+    printCompletedAt: null,
+  });
+  const udrzba = mk({
+    id: 2, machine: "XL_105", type: "UDRZBA",
+    startTime: "2026-08-10T12:00:00.000Z", endTime: "2026-08-10T20:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([rez, udrzba], "XL_105", now).overdue, []);
+});
+
+test("monitorQueue.overdue: cizí stroj do sekce nepatří", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const b = mk({
+    id: 1, machine: "XL_106", type: "ZAKAZKA",
+    startTime: "2026-08-10T12:00:00.000Z", endTime: "2026-08-10T20:00:00.000Z",
+    printCompletedAt: null,
+  });
+  assert.deepEqual(monitorQueue([b], "XL_105", now).overdue, []);
+});
+
+test("monitorQueue.overdue: řadí vzestupně podle začátku (nejstarší nahoře)", () => {
+  const now = new Date("2026-08-12T06:00:00.000Z");
+  const novejsi = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-11T06:00:00.000Z", endTime: "2026-08-11T14:00:00.000Z",
+    printCompletedAt: null,
+  });
+  const starsi = mk({
+    id: 2, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-05T06:00:00.000Z", endTime: "2026-08-05T14:00:00.000Z",
+    printCompletedAt: null,
+  });
+  const q = monitorQueue([novejsi, starsi], "XL_105", now);
+  assert.deepEqual(q.overdue.map((x) => x.id), [2, 1]);
+});
+
+test("monitorQueue: scénář z připomínky plánovače — pátek nedotištěno, dnes je středa po svátcích", () => {
+  // Pá 7. 8. 2026 zakázka 14:00–22:00 se nestihla. So+Ne volno, Po+Út svátek.
+  // Tiskař přijde ve středu 12. 8. v 6:00 (04:00 UTC).
+  const now = new Date("2026-08-12T04:00:00.000Z");
+  const patecni = mk({
+    id: 1, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-07T12:00:00.000Z", endTime: "2026-08-07T20:00:00.000Z",
+    printCompletedAt: null,
+  });
+  const stredecni = mk({
+    id: 2, machine: "XL_105", type: "ZAKAZKA",
+    startTime: "2026-08-12T04:00:00.000Z", endTime: "2026-08-12T12:00:00.000Z",
+    printCompletedAt: null,
+  });
+
+  const q = monitorQueue([patecni, stredecni], "XL_105", now);
+  // Páteční je v NEDODĚLÁNO, ne ve frontě dneška.
+  assert.deepEqual(q.overdue.map((x) => x.id), [1]);
+  assert.deepEqual(q.today.map((x) => x.id), [2]);
+  // A hero automatika se nemění — ukáže středeční jako „upcoming"/"running",
+  // páteční na kartu nesáhne (je mimo 16h okno).
+  assert.equal(pickHeroBlock([patecni, stredecni], "XL_105", now)?.block.id, 2);
+});
+
+test("UNFINISHED_LOOKBACK_DAYS je 14", () => {
+  // Zbytek testů je psaný vůči konkrétním datům, takže by změnu konstanty
+  // chytily — ale jen nepřímo a s matoucí hláškou. Tohle je explicitní zámek.
+  assert.equal(UNFINISHED_LOOKBACK_DAYS, 14);
 });
