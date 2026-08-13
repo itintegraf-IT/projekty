@@ -28,7 +28,8 @@ export const Z_TIMELINE = {
   blockBase: 1,          // karta bloku v klidu
   // Pozn.: karta-interní vrstvy (obsah, spec/odstávka overlay, chipy — zIndex 2–4)
   // zůstávají lokální literály uvnitř stacking contextu karty; jejich vztah je
-  // popsaný komentářem přímo v TimelineGrid. Do sdílené škály nepatří (nesoupeří
+  // popsaný komentáři přímo v `src/components/planner/BlockCard.tsx` (od extrakce
+  // karty c1e9b34a už nežijí v TimelineGrid). Do sdílené škály nepatří (nesoupeří
   // s ničím vně karty), proto tu nemají konstantu. Totéž pár efemérních in-column
   // preview overlayů (resize tooltip, queue-drop preview) — jednorázové literály.
   blockHover: 5,         // karta pod myší

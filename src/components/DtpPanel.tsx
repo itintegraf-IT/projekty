@@ -10,10 +10,12 @@ import {
 import type { Block } from "@/app/_components/TimelineGrid";
 import { Z_LAYOUT } from "@/lib/zLayers";
 import type { CodebookOption } from "@/lib/plannerTypes";
+import { selectDtpOverviewBlocks, type DtpStatusFilter } from "@/lib/dtpOverview";
 import { badgeColorVar } from "@/lib/badgeColors";
 import { formatProductionTypeChip, PRODUCTION_CHIP_COLORS } from "@/lib/productionTags";
 import { blockPrintMinutes } from "@/lib/printTimeClient";
 import { machineLabel } from "@/lib/machines";
+import { SearchField } from "@/components/SearchField";
 
 // ─── Sdílené typy ─────────────────────────────────────────────────────────────
 type OnStatusChange = (
@@ -26,7 +28,6 @@ const DTP_PANEL_MIN_W = 180;
 const DTP_PANEL_MAX_W = 420;
 
 // ─── Typy ─────────────────────────────────────────────────────────────────────
-type FilterValue = "all" | "none" | number; // number = dataStatusId
 
 interface DtpPanelProps {
   blocks: Block[];
@@ -41,7 +42,7 @@ interface DtpPanelProps {
 
 // ─── Pomocné funkce ───────────────────────────────────────────────────────────
 
-function formatCardDate(startTimeStr: string): { label: string; urgent: boolean } {
+function formatCardDate(startTimeStr: string, allowUrgent = true): { label: string; urgent: boolean } {
   const todayStr = todayPragueDateStr();
   const tomorrowStr = addDaysToCivilDate(todayStr, 1);
   const startDate = utcToPragueDateStr(new Date(startTimeStr));
@@ -50,8 +51,8 @@ function formatCardDate(startTimeStr: string): { label: string; urgent: boolean 
     timeZone: BUSINESS_TIME_ZONE, hour: "2-digit", minute: "2-digit",
   }).format(d);
 
-  if (startDate === todayStr) return { label: `dnes ${timeLabel}`, urgent: true };
-  if (startDate === tomorrowStr) return { label: `zítra ${timeLabel}`, urgent: true };
+  if (startDate === todayStr) return { label: `dnes ${timeLabel}`, urgent: allowUrgent };
+  if (startDate === tomorrowStr) return { label: `zítra ${timeLabel}`, urgent: allowUrgent };
 
   const dayLabel = new Intl.DateTimeFormat("cs-CZ", {
     timeZone: BUSINESS_TIME_ZONE, weekday: "short", day: "numeric", month: "numeric",
@@ -88,7 +89,8 @@ export function DtpPanel({
   onWidthCommit,
   onClose,
 }: DtpPanelProps) {
-  const [activeFilter, setActiveFilter] = useState<FilterValue>("all");
+  const [activeFilter, setActiveFilter] = useState<DtpStatusFilter>("all");
+  const [query, setQuery] = useState("");
 
   // ── Resize ──
   const dragStartX = useRef<number>(0);
@@ -120,25 +122,23 @@ export function DtpPanel({
   }
 
   // ── Data ──
-  const relevantBlocks = useMemo(() => {
-    const now = Date.now();
-    const todayStr = todayPragueDateStr();
-    const horizon30 = addDaysToCivilDate(todayStr, 30);
-    return blocks
-      .filter((b) => {
-        if (b.type !== "ZAKAZKA") return false;
-        if (new Date(b.endTime).getTime() < now) return false;
-        const startDate = utcToPragueDateStr(new Date(b.startTime));
-        return startDate <= horizon30 || b.dataOk === false;
-      })
-      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-  }, [blocks]);
-
-  const filteredBlocks = relevantBlocks.filter((b) => {
-    if (activeFilter === "all") return true;
-    if (activeFilter === "none") return b.dataStatusId === null;
-    return b.dataStatusId === activeFilter;
-  });
+  // `now` se přepočítá jen se změnou `blocks`/`query`/`activeFilter` (stejně jako
+  // to dělal původní Date.now() uvnitř memoizace). Vědomý kompromis, ne opomenutí:
+  // dokud do panelu nepřijde nová verze plánu, `now` ZAMRZNE — štítek „mimo přehled"
+  // ani příznak urgentnosti („dnes"/„zítra") tedy přes noc samy nezestárnou. Panel
+  // se ale v provozu překresluje s každou změnou plánu, takže se to prakticky
+  // neprojeví; tikající `now` by sem přitáhlo vlastní interval kvůli dvěma štítkům.
+  const searching = query.trim().length > 0;
+  const { filteredBlocks, outsideIds } = useMemo(() => {
+    // `outsideIds` (zakázky, které by ve frontě bez hledání nebyly — skončené
+    // nebo za horizontem; dostanou štítek) počítá rovnou výběr. Panel si je dřív
+    // dopočítával druhým průchodem přes `isInDtpDefaultList`, čímž se `Intl`
+    // formátování dne provedlo na každý výsledek podruhé.
+    const { list, outsideIds } = selectDtpOverviewBlocks({
+      blocks, query, statusFilter: activeFilter, now: new Date(),
+    });
+    return { filteredBlocks: list, outsideIds };
+  }, [blocks, query, activeFilter]);
 
   // ── Render: seznam ──
   return (
@@ -171,7 +171,10 @@ export function DtpPanel({
             background: "var(--surface)", border: "1px solid var(--border)",
             padding: "1px 6px", borderRadius: 4,
           }}>
-            {filteredBlocks.length} zakázek
+            {/* Při hledání je to počet VÝSLEDKŮ, ne velikost fronty — bez rozlišení
+                by badge u jedné shody hlásil „1 zakázek", zatímco ve frontě jich
+                čeká čtyřicet. */}
+            {searching ? `nalezeno ${filteredBlocks.length}` : `${filteredBlocks.length} zakázek`}
           </span>
           {onClose && (
             <button
@@ -186,6 +189,22 @@ export function DtpPanel({
             >×</button>
           )}
         </div>
+      </div>
+
+      {/* Hledání zakázky — při zadaném dotazu panel vědomě opouští 30denní okno */}
+      {/* Bez `position: relative` — křížek si pozicuje SearchField vůči vlastnímu
+          obalu, ne vůči tomuhle divu (dřív byl `right: 16` kompenzací za padding). */}
+      <div style={{
+        padding: "7px 10px", borderBottom: "1px solid var(--border)",
+        flexShrink: 0, display: "flex", alignItems: "center",
+      }}>
+        <SearchField
+          size="sm"
+          value={query}
+          onChange={setQuery}
+          onClear={() => setQuery("")}
+          ariaLabel="Hledat zakázku v DTP přehledu"
+        />
       </div>
 
       {/* Filter chips */}
@@ -219,9 +238,16 @@ export function DtpPanel({
         {filteredBlocks.length === 0 && (
           <div style={{
             flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
-            color: "var(--text-muted)", fontSize: 12, padding: "24px 0",
+            textAlign: "center", color: "var(--text-muted)", fontSize: 12, padding: "24px 8px",
           }}>
-            Žádné zakázky
+            {/* Dotaz a filtrační chip se ANDují (`selectDtpOverviewBlocks`), takže
+                „nenalezena" by u zapnutého chipu lhalo: zakázka existuje, jen má jiný
+                status. Hláška proto rozlišuje a rovnou říká, co s tím. */}
+            {!searching
+              ? "Žádné zakázky"
+              : activeFilter === "all"
+              ? `Zakázka „${query.trim()}“ nenalezena.`
+              : `Zakázka „${query.trim()}“ v tomto filtru není — zkus „Vše“.`}
           </div>
         )}
         {filteredBlocks.map((block) => (
@@ -229,6 +255,7 @@ export function DtpPanel({
             key={block.id}
             block={block}
             dataOpts={dataOpts}
+            outsideDefaultList={outsideIds.has(block.id)}
             onScrollTo={() => onScrollToBlock(block)}
             onStatusChange={onStatusChange}
           />
@@ -266,18 +293,23 @@ function FilterChip({
 
 // ─── BlockCard ────────────────────────────────────────────────────────────────
 function BlockCard({
-  block, dataOpts, onScrollTo, onStatusChange,
+  block, dataOpts, outsideDefaultList, onScrollTo, onStatusChange,
 }: {
   block: Block;
   dataOpts: CodebookOption[];
+  /** Zakázka nalezená hledáním, která do běžné fronty přehledu nepatří. */
+  outsideDefaultList: boolean;
   onScrollTo: () => void;
   onStatusChange: OnStatusChange;
 }) {
+  // U zakázky mimo běžnou frontu se datum nebarví jako urgentní — „dnes" u
+  // dávno dotištěné zakázky by volalo po akci, která už nedává smysl.
   const { label: dateLabel, urgent } = useMemo(
-    () => formatCardDate(block.startTime),
-    [block.startTime]
+    () => formatCardDate(block.startTime, !outsideDefaultList),
+    [block.startTime, outsideDefaultList]
   );
   const [hovered, setHovered] = useState(false);
+  const isPrintDone = block.printCompletedAt != null;
   const typeChip = formatProductionTypeChip(block.tiskoveArchy, block.serie);
 
   function handleClick() {
@@ -295,17 +327,35 @@ function BlockCard({
         cursor: "pointer", transition: "border-color 100ms ease-out",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 3 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6, marginBottom: 3 }}>
         <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text)" }}>
           {block.orderNumber}
         </span>
         <span style={{
           fontSize: 10, fontWeight: urgent ? 700 : 400,
           color: urgent ? "#f59e0b" : "var(--text-muted)",
+          whiteSpace: "nowrap",
         }}>
           {dateLabel}
         </span>
       </div>
+
+      {/* Hledání od 13. 8. 2026 vytáhne do panelu i UŽ VYTIŠTĚNÉ zakázky — dřív
+          to nemělo jak nastat, fronta končila u `endTime < now`. Status chip
+          zůstává editovatelný (DTP legitimně doplňuje, co se zapomnělo —
+          rozhodnutí majitele), ale karta musí dát najevo, že jde o historii,
+          ať se do ní nekliká omylem. */}
+      {outsideDefaultList && (
+        <div style={{
+          display: "inline-block", marginBottom: 4,
+          fontSize: 9, fontWeight: 600, letterSpacing: "0.03em",
+          padding: "1px 6px", borderRadius: 4,
+          border: `1px dashed ${isPrintDone ? "var(--success)" : "var(--border)"}`,
+          color: isPrintDone ? "var(--success)" : "var(--text-muted)",
+        }}>
+          {isPrintDone ? "✓ vytištěno · mimo přehled" : "mimo přehled"}
+        </div>
+      )}
 
       {block.description && (
         <div style={{

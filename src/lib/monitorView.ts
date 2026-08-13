@@ -16,8 +16,17 @@ export type HeroPick = { block: Block; reason: HeroReason } | null;
  * Jak dlouho po svém konci smí neodklepnutá zakázka zůstat na velké kartě.
  * Počítá se od KONCE, ne podle dne startu — noční směna 22:00–6:00 by jinak
  * ráno z Monitoru zmizela, protože „nezačala dnes".
+ *
+ * Bydlí v `overdueState.ts`, protože od 12. 8. 2026 tímtéž oknem hasne i červený
+ * alarm na kartě v plánu.
+ *
+ * Re-export je tu ZÁRUKA, ne pohodlí: produkčně už konstantu odsud nikdo nebere
+ * (jediný konzument je test parity). Drží se proto, aby nikdo v budoucnu nesáhl
+ * po tom, že si sem hodnotu zkopíruje zpátky — dvě čísla by se nevyhnutelně
+ * rozešla a plán by červenal jinak dlouho, než by Monitor držel kartu.
  */
-export const OVERDUE_WINDOW_MS = 16 * 60 * 60 * 1000;
+export { OVERDUE_WINDOW_MS } from "./overdueState";
+import { OVERDUE_WINDOW_MS } from "./overdueState";
 
 /** Otevřená zakázka na daném stroji = ZAKAZKA + správný stroj + neodklepnutá. */
 function isOpenOrder(b: Block, machine: string): boolean {

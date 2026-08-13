@@ -21,6 +21,7 @@ import {
   utcToPragueDateStr,
 } from "@/lib/dateUtils";
 import { computeShadeParity } from "@/lib/blockShades";
+import { blockMatchesQuery } from "@/lib/orderSearch";
 import { type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
 import { Lock, Hourglass } from "lucide-react";
@@ -1568,7 +1569,6 @@ export default function TimelineGrid({
   }
 
   const currentTimeY = now ? dateToY(now, viewStart, slotHeight) : null;
-  const filter       = filterText.trim().toLowerCase();
 
   // Zamknuté bloky per machine pro TIME sloupec overlay
   const lockedBlocksByMachine = new Map<string, Block[]>();
@@ -2072,7 +2072,12 @@ export default function TimelineGrid({
                   const maxRenderHeight = Number.isFinite(nextStartMs)
                     ? dateToY(new Date(nextStartMs), viewStart, slotHeight) - top
                     : Infinity;
-                  const blockMatchesFilter = filter === "" || [block.orderNumber, block.description, block.specifikace, block.jobPresetLabel].some(f => f?.toLowerCase().includes(filter));
+                  // Týž predikát jako hlavičkové hledání a tiskařský OrderSearchSheet
+                  // (`blockMatchesQuery` nefiltruje při prázdném dotazu, což je přesně
+                  // původní chování `filter === "" || …`). Dokud si tohle místo drželo
+                  // vlastní kopii, přidání pátého prohledávaného pole by rozešlo
+                  // hledání (blok najde) od ztlumení v plánu (blok zůstane ztlumený).
+                  const blockMatchesFilter = blockMatchesQuery(block, filterText);
                   const dimmed   = (!blockMatchesFilter) || !!isThisBlockDragging;
                   const selected = !isThisBlockDragging && block.id === selectedBlockId;
                   // Split skupina — O(1) lookup z předpočítané mapy

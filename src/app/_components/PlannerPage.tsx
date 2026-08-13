@@ -28,7 +28,7 @@ import { accumulateShifted, excludeShiftedTargeted, type ShiftedSnapshots } from
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
 import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
-import { Input }     from "@/components/ui/input";
+import { SearchField } from "@/components/SearchField";
 import { Label }     from "@/components/ui/label";
 import { Button }    from "@/components/ui/button";
 import { Lock, Unlock } from "lucide-react";
@@ -54,6 +54,7 @@ import { DtpPanel } from "@/components/DtpPanel";
 import { DtpDataPopover } from "@/components/DtpDataPopover";
 import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
 import { OrderSearchSheet } from "@/components/OrderSearchSheet";
+import { blockMatchesQuery } from "@/lib/orderSearch";
 import { useSSE, type SSEMessage } from "@/hooks/useSSE";
 import { useJobBuilder, type ReservationQueueItem } from "@/hooks/useJobBuilder";
 import { FontScaleSwitch } from "@/components/planner/FontScaleSwitch";
@@ -980,25 +981,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }, [blocks, viewStart, gridSlotHeight]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Bloky mimo rozsah (v minulosti) odpovídající aktuálnímu hledání
-  const outOfRangeBlocks = filterText.trim()
-    ? blocks
-        .filter(b => {
-          const q = filterText.trim().toLowerCase();
-          const matches = [b.orderNumber, b.description, b.specifikace, b.jobPresetLabel].some(f => f?.toLowerCase().includes(q));
-          return matches && new Date(b.startTime) < viewStart;
-        })
-        .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
-    : [];
-  const nearestOutOfRange = outOfRangeBlocks[0] ?? null;
-
   // Všechny bloky odpovídající hledání, seřazené podle startTime
   const searchMatches = filterText.trim()
     ? blocks
-        .filter(b => {
-          const q = filterText.trim().toLowerCase();
-          return [b.orderNumber, b.description, b.specifikace, b.jobPresetLabel].some(f => f?.toLowerCase().includes(q));
-        })
+        .filter(b => blockMatchesQuery(b, filterText))
         .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
     : [];
 
@@ -1032,6 +1018,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // goToMatch závisí na searchMatches — spustit jakmile jsou k dispozici
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchMatches]);
+
+  // Zrušení hledání — jediné místo pravdy (křížek v poli, Esc, klik do prázdna v plánu)
+  function clearSearch() {
+    setFilterText("");
+    setSelectedBlock(null);
+    setSearchMatchIndex(0);
+  }
 
   function goToNextMatch() {
     if (!filterText.trim() || searchMatches.length === 0) return;
@@ -2887,29 +2880,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         </div>
 
         <div className="flex items-center gap-2 ml-4 flex-1">
-          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-            <Input
-              type="text"
-              value={filterText}
-              onChange={(e) => { setFilterText(e.target.value); setSearchMatchIndex(0); }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") { e.preventDefault(); goToNextMatch(); }
-                if (e.key === "Escape") { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); }
-              }}
-              placeholder="Hledat zakázku…"
-              className="h-8 text-xs w-40 theme-transition-fast"
-              style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)", paddingRight: filterText ? 22 : undefined }}
-            />
-            {filterText && (
-              <button
-                onClick={() => { setFilterText(""); setSelectedBlock(null); setSearchMatchIndex(0); }}
-                style={{ position: "absolute", right: 6, background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, lineHeight: 1, fontSize: 14, display: "flex", alignItems: "center" }}
-                title="Zrušit filtr (Esc)"
-              >
-                ×
-              </button>
-            )}
-          </div>
+          <SearchField
+            value={filterText}
+            onChange={(v) => { setFilterText(v); setSearchMatchIndex(0); }}
+            onClear={clearSearch}
+            onEnter={goToNextMatch}
+            ariaLabel="Hledat zakázku v plánu"
+          />
           {filterText && (
             <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
               {searchMatches.length > 0 ? (
@@ -3166,6 +3143,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             typeScale={typeScale}
             copiedBlockId={copiedBlock?.id ?? null}
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
+            // ZÁMĚRNĚ bez `clearSearch()`: `filterText` je vstup od uživatele, kdežto
+            // výběr a editace jsou stav, který si aplikace nastavila sama. Handler visí
+            // na `onClick` sloupce stroje (TimelineGrid), takže ho spustí i dotažení
+            // lasa a volba cíle pro vložení — plánovač by uprostřed úkonu přišel
+            // o napsaný dotaz i o ztlumení neshodujících se bloků. Hledání ruší
+            // výhradně křížek a Esc (`clearSearch`).
             onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); }}
             onBlockCopy={(block) => {
               setCopiedBlock(block);

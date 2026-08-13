@@ -16,6 +16,23 @@ export type BlockStyle = {
   glow: string;
 };
 
+/**
+ * Pozastavená zakázka — pojmenovaná konstanta, ne jen položka v `BLOCK_STYLES`,
+ * protože z ní vychází i `BLOCK_OVERDUE_ALARM`. Přes index `BLOCK_STYLES["…"]`ovat
+ * by to nešlo bezpečně: mapa je `Record<string, BlockStyle>`, takže překlep nebo
+ * přejmenování klíče TypeScript nezachytí a alarm by se tiše vykreslil bez pozadí,
+ * rámu i barvy textu.
+ */
+const ZAKAZKA_POZASTAVENO: BlockStyle = {
+  gradient:    "linear-gradient(160deg, rgba(208,0,0,0.95) 0%, rgba(176,0,0,0.88) 100%)",
+  border:      "rgba(208,0,0,0.65)",
+  accentBar:   "#d00000",
+  leftBg:      "rgba(208,0,0,0.14)",
+  textPrimary: "#ffffff",
+  textSub:     "#e5e7eb",
+  glow:        "rgba(208,0,0,0.32)",
+};
+
 export const BLOCK_STYLES: Record<string, BlockStyle> = {
   ZAKAZKA: {
     gradient:    "linear-gradient(160deg, rgba(59,130,246,0.95) 0%, rgba(37,99,235,0.88) 100%)",
@@ -62,26 +79,66 @@ export const BLOCK_STYLES: Record<string, BlockStyle> = {
     textSub:     "#e5e7eb",
     glow:        "rgba(227,100,20,0.32)",
   },
-  ZAKAZKA_POZASTAVENO: {
-    gradient:    "linear-gradient(160deg, rgba(208,0,0,0.95) 0%, rgba(176,0,0,0.88) 100%)",
-    border:      "rgba(208,0,0,0.65)",
-    accentBar:   "#d00000",
-    leftBg:      "rgba(208,0,0,0.14)",
-    textPrimary: "#ffffff",
-    textSub:     "#e5e7eb",
-    glow:        "rgba(208,0,0,0.32)",
-  },
+  ZAKAZKA_POZASTAVENO: ZAKAZKA_POZASTAVENO,
 };
 
+/**
+ * ZBYTKOVÝ stav zpožděné zakázky — konec je v minulosti déle než OVERDUE_WINDOW_MS
+ * a nikdo neodklepl (`overdueAlarmState` → `stale`). Zůstává tlumený: po 16 hodinách
+ * už to není akutní věc směny, ale nepořádek v odklepávání.
+ *
+ * `accentBar` je od 12. 8. 2026 ČERVENÝ a kreslí se v plném krytí. Dřív to byla
+ * ztlumená oranžová (opacity 0,4 v BlockCard) a karta pak byla k nerozeznání od
+ * hotové — obě vybledlé, obě říkaly „tuhle už neřeš". Levý pruh je jediné místo,
+ * kde tenhle stav ještě drží barvu; nezeslabovat.
+ */
 export const BLOCK_OVERDUE: BlockStyle = {
   gradient:    "linear-gradient(160deg, rgba(251,146,60,0.22) 0%, rgba(234,88,12,0.14) 100%)",
   border:      "rgba(251,146,60,0.55)",
-  accentBar:   "#f97316",
+  accentBar:   "#ef4444",
   leftBg:      "rgba(251,146,60,0.10)",
   textPrimary: "var(--text)",
   textSub:     "var(--text-muted)",
   glow:        "rgba(251,146,60,0.25)",
 };
+
+/**
+ * AKUTNÍ stav zpožděné zakázky (`overdueAlarmState` → `alarm`): konec je v minulosti
+ * nejvýš OVERDUE_WINDOW_MS a tiskař neodklepl.
+ *
+ * Výplň je ZÁMĚRNĚ shodná s pozastavenou zakázkou — rozhodnutí majitele 12. 8. 2026
+ * poté, co se první verze (modrá karta + červený rám) ukázala jako nevýrazná.
+ * Zdůvodnění: pozastavená zakázka je stav plánu do budoucna, do tisku se nedostane,
+ * takže v minulosti prakticky nestojí a záměna nehrozí. Formálně ale nastat MŮŽE
+ * (zakázku pozastavíš a blok zůstane na svém starém čase), proto ten spread — kdyby
+ * se ty dva stavy měly někdy rozejít, je to jedna vědomá editace tady, ne tichý drift.
+ *
+ * Alarm je pak o stupeň hlasitější než pozastavená: k téže výplni přidává světlejší
+ * červený rám, bílou vlasovou linku zevnitř a širší levý pruh.
+ */
+export const BLOCK_OVERDUE_ALARM: BlockStyle = { ...ZAKAZKA_POZASTAVENO };
+
+/**
+ * Dekorace alarmu nad rámec výplně. `ringInner` je bílá vlasová linka ZEVNITŘ rámu —
+ * odděluje červeň rámu od červeně výplně, jinak by rám na kartě zanikl.
+ * `icon` je bílá, ne červená: hodinky u čísla zakázky sedí na červené výplni.
+ */
+export const OVERDUE_ALARM = {
+  ring:       "#ff3b30",
+  ringWidth:  2,
+  ringInner:  "rgba(255,255,255,0.55)",
+  bar:        "#ff3b30",
+  barWidth:   6,
+  icon:       "#ffffff",
+} as const;
+
+/**
+ * Barva hodinek u ZBYTKOVÉHO zpoždění. Alarm má vlastní (`OVERDUE_ALARM.icon`,
+ * bílá na červené výplni); tady jde o oranžovou na tlumené kartě. Bydlí tu proto,
+ * že barvy bloků patří do palety, ne do komponenty — `BlockCard` ji měla jako
+ * holý hex přímo ve výrazu vedle `OVERDUE_ALARM.icon`.
+ */
+export const OVERDUE_STALE_ICON = "#f59e0b";
 
 export const BLOCK_PRINT_DONE: BlockStyle = {
   gradient:    "linear-gradient(160deg, rgba(59,130,246,0.13) 0%, rgba(59,130,246,0.07) 100%)",

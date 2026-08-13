@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Block } from "@/app/_components/TimelineGrid";
+import { blockMatchesQuery } from "@/lib/orderSearch";
 
 type Props = {
   open: boolean;
@@ -32,13 +33,10 @@ export function OrderSearchSheet({ open, allBlocks, onSelect, onClose }: Props) 
 
   if (!open || typeof document === "undefined") return null;
 
-  const q = query.trim().toLowerCase();
+  const q = query.trim();
   const results = q
     ? allBlocks
-        .filter((b) =>
-          [b.orderNumber, b.description, b.specifikace, b.jobPresetLabel]
-            .some((f) => f?.toLowerCase().includes(q))
-        )
+        .filter((b) => blockMatchesQuery(b, q))
         .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
         .slice(0, 20)
     : [];

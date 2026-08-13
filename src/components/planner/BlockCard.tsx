@@ -5,7 +5,8 @@ import { createPortal } from "react-dom";
 import { blockPrintMinutes, formatPrintHoursShort, type CalendarDriftInfo } from "@/lib/printTimeClient";
 import { isParkedDrift } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
-import { BLOCK_STYLES, BLOCK_OVERDUE, BLOCK_PRINT_DONE, getBlockStyleKey, tint } from "@/lib/blockStyles";
+import { BLOCK_STYLES, BLOCK_OVERDUE, BLOCK_OVERDUE_ALARM, BLOCK_PRINT_DONE, OVERDUE_ALARM, OVERDUE_STALE_ICON, getBlockStyleKey, tint } from "@/lib/blockStyles";
+import { overdueAlarmState } from "@/lib/overdueState";
 import {
   civilDateToUTCMidnight,
   formatPragueDateShort,
@@ -347,7 +348,16 @@ export function BlockCard({
   // i fialový rámeček a vypadal jako potvrzený (viz hasUnconfirmedReservation).
   const isUnconfirmedReservation = block.type === "REZERVACE"
     && ((block.reservationId != null && !block.reservationConfirmedAt) || groupUnconfirmedReservation);
-  const isOverdue     = block.type === "ZAKAZKA" && new Date(block.endTime) < now && !isPrintDone && !isPozastaveno;
+  // Zpožděná neodklepnutá zakázka ve dvou stupních (`overdueState.ts`): `alarm` do
+  // 16 h po konci se kreslí sytě, `stale` po nich zůstává tlumená. Do 12. 8. 2026 tu
+  // byl jediný tlumený stav a splýval s hotovou zakázkou — obě vybledlé.
+  // Typ a pozastavení řeší karta, ne ta funkce (viz komentář u ní).
+  const overdueStage  = block.type === "ZAKAZKA" && !isPozastaveno
+    ? overdueAlarmState(block.endTime, block.printCompletedAt, now)
+    : "none";
+  const isOverdueAlarm = overdueStage === "alarm";
+  const isOverdueStale = overdueStage === "stale";
+  const isOverdue      = overdueStage !== "none";
   // Deadline štítek — nezávislé na isOverdue (to je „konec bloku je v minulosti").
   // Termín expedice je okamžik 14:00 pražského času, ne celý den (viz deadlineState.ts);
   // běží nezávisle na `now`, takže hlásí i bloky naplánované do budoucna.
@@ -430,18 +440,78 @@ export function BlockCard({
     : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${icon}`
     : "⚠";
 
+  // POZOR na pořadí: tlumený `BLOCK_OVERDUE` platí jen pro ZBYTKOVÝ stav (nad 16 h).
+  // Akutní zpoždění má plnou červenou výplň shodnou s pozastavenou zakázkou — barva
+  // varianty (bez sáčku, bez technologie) se pod ním vědomě ztrácí, protože zpoždění
+  // je v tu chvíli důležitější informace. Viz BLOCK_OVERDUE_ALARM.
   const s = isPrintDone
     ? BLOCK_PRINT_DONE
     : isPozastaveno
     ? BLOCK_STYLES["ZAKAZKA_POZASTAVENO"]
-    : isOverdue
+    : isOverdueAlarm
+    ? BLOCK_OVERDUE_ALARM
+    : isOverdueStale
     ? BLOCK_OVERDUE
     : (BLOCK_STYLES[getBlockStyleKey(block.type, block.blockVariant)] ?? BLOCK_STYLES["ZAKAZKA"]);
 
+  // Alarm zpožděné zakázky se kreslí jako INSET stín karty, ne jako překryvný <div>.
+  // Inset stín leží nad pozadím, ale POD potomky, takže obsah nikdy nepřemaluje —
+  // zvlášť čtvercové tlačítko „Hotovo", které na nízké kartě (layoutHeight 20 px)
+  // vyplní celou výšku a překryv by mu ukrojil 3 px nahoře i dole. Rozpočty
+  // v `tiskarBlockView.ts` hlídají ořez TOKEM, o překryvu by se nikdy nedozvěděly.
+  // Totéž platilo pro celošířkový pruh tiskařských poznámek na `top: 0`.
+  // Zároveň to obchází přednostní řetěz `border` (kopírování → multi-výběr → zámek
+  // → nepotvrzená rezervace → výběr), do kterého se alarm nevešel, a funguje i tam,
+  // kde levý pruh nahradil 22px pás zámku.
+  //
+  // Druhý inset je o 1 px širší, takže z něj zbude vlasová linka ZEVNITŘ rámu —
+  // bez ní by červeň rámu splynula s červení výplně.
+  const alarmRing = isOverdueAlarm
+    ? `inset 0 0 0 ${OVERDUE_ALARM.ringWidth}px ${OVERDUE_ALARM.ring},`
+      + ` inset 0 0 0 ${OVERDUE_ALARM.ringWidth + 1}px ${OVERDUE_ALARM.ringInner}`
+    : null;
+
+  // Hodinky u čísla zakázky — jediný nosič informace „proč je tahle karta červená".
+  // Akutní zpoždění má od 12. 8. 2026 výplň SHODNOU s pozastavenou zakázkou
+  // (viz BLOCK_OVERDUE_ALARM), takže bez hodinek plánovač nerozezná „běž za
+  // tiskařem" od „zákazník to stopnul, nedělej nic".
+  //
+  // Kreslí se proto ve VŠECH TŘECH větvích layoutu. Do 13. 8. 2026 byly jen
+  // v COMPACT, tedy v pásmu širokém 5 px výšky karty — u běžné hodinové zakázky
+  // (FULL) i na oddáleném plánu (TINY/MICRO_TEXT, 14–44 px) tak alarm žádné
+  // vysvětlení neměl.
+  //
+  // Je to funkce, ne hotový element: velikost se musí odvodit od TOHO ŘÁDKU, kde
+  // ikona stojí. TINY/MICRO_TEXT počítá písmo z `tinyNum` (stropené výškou karty),
+  // takže s pevným `typeScale.num` by na 14px kartě ve stupni XL byla ikona větší
+  // než samotné číslo zakázky — přesně proti pravidlu z CLAUDE.md o stropu
+  // odvozeném od místa, kde prvek stojí.
+  const renderOverdueClock = (baseNum: number) => isOverdue ? (
+    <span
+      title={isOverdueAlarm
+        ? "Měla být vytištěná — tiskař zatím neodklepl"
+        : "Neodklepnutá déle než 16 hodin po konci"}
+      style={{ display: "inline-flex", alignItems: "center", marginLeft: 4, flexShrink: 0 }}
+    >
+      <Clock
+        size={Math.round(baseNum * NUM_ICON_RATIO_CLOCK)}
+        strokeWidth={2.5}
+        color={isOverdueAlarm ? OVERDUE_ALARM.icon : OVERDUE_STALE_ICON}
+      />
+    </span>
+  ) : null;
+
   // Střídání odstínů — světlý/tmavý wash přes gradient, aby šla vidět hranice mezi
   // sousedícími zakázkami/rezervacemi téže barvy. Aplikuje se jen na plné barevné
-  // stavy; dokončený tisk a bloky po termínu mají vlastní tlumený vzhled → beze změny.
-  const shadeEligible = !isPrintDone && !isOverdue && shadeParity != null;
+  // stavy, tedy na všechno kromě vlastních tlumených vzhledů: dokončeného tisku
+  // a ZBYTKOVÉHO zpoždění.
+  //
+  // POZOR na dosah: `shadeParity` počítá `computeShadeParity` per kbelík
+  // `getBlockStyleKey(type, blockVariant)` a o alarmu NEVÍ. Dvě sousedící zpožděné
+  // zakázky z různých kbelíků (STANDARD + BEZ_SACKU) tedy můžou dostat touž paritu
+  // a splynout v jednu červenou plochu — wash je zaručený jen uvnitř téže nominální
+  // barvy. Rozlišuje je pak až rám alarmu, ne odstín.
+  const shadeEligible = !isPrintDone && !isOverdueStale && shadeParity != null;
   const shadedBackground = shadeEligible
     ? shadeParity === 1
       ? `linear-gradient(rgba(255,255,255,0.30), rgba(255,255,255,0.30)), ${s.gradient}`
@@ -639,11 +709,15 @@ export function BlockCard({
         border: isCopied ? "1.5px dashed #3b82f6" : multiSelected ? "2.5px solid #FFE600" : block.locked ? "1.5px solid rgba(251,191,36,0.7)" : isUnconfirmedReservation ? "1.5px dashed rgba(168,85,247,0.7)" : `1px solid ${selected ? "#FFE600" : s.border}`,
         outline: isCopied ? "1px solid rgba(59,130,246,0.3)" : undefined,
         outlineOffset: isCopied ? "2px" : undefined,
-        boxShadow: block.locked
-          ? `${shadow}, 0 0 0 1px rgba(251,191,36,0.35)`
-          : isRunningNow
-          ? `${shadow}, 0 0 0 2px var(--success)`
-          : shadow,
+        boxShadow: [
+          shadow,
+          block.locked
+            ? "0 0 0 1px rgba(251,191,36,0.35)"
+            : isRunningNow
+            ? "0 0 0 2px var(--success)"
+            : null,
+          alarmRing,
+        ].filter(Boolean).join(", "),
         background: shadedBackground,
         display: "flex", flexDirection: "column",
         overflow: "hidden", userSelect: "none",
@@ -664,7 +738,20 @@ export function BlockCard({
           <Hourglass size={11} strokeWidth={2} color="rgba(168,85,247,1)" />
         </div>
       ) : (
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: isRunningNow ? 5 : 3, background: isRunningNow ? "var(--success)" : s.accentBar, opacity: isOverdue ? 0.4 : 1, borderRadius: "7px 0 0 7px", flexShrink: 0 }} />
+        // Pořadí podmínek je v obou vlastnostech shodné (běžící → alarm → základ).
+        // Rozejít se nesmí: dnes jsou ty dva stavy vzájemně vyloučené (běžící blok
+        // vyžaduje `now < end`, alarm `now > end`), ale kdyby někdo zavedl toleranci
+        // na konci bloku, obrácené pořadí by dalo 6px ZELENÝ pruh — stav, který
+        // v žádné legendě není.
+        <div style={{
+          position: "absolute", left: 0, top: 0, bottom: 0,
+          width: isRunningNow ? 5 : isOverdueAlarm ? OVERDUE_ALARM.barWidth : 3,
+          background: isRunningNow ? "var(--success)" : isOverdueAlarm ? OVERDUE_ALARM.bar : s.accentBar,
+          // Ztlumení pruhu platilo dřív pro každé zpoždění a bylo to naruby: právě
+          // ten pruh měl stav hlásit. Zbytkový stav ho teď má červený a plný
+          // (BLOCK_OVERDUE.accentBar), akutní k tomu ještě širší.
+          borderRadius: "7px 0 0 7px", flexShrink: 0,
+        }} />
       )}
 
       {/* Modrý selection overlay */}
@@ -874,7 +961,7 @@ export function BlockCard({
               <span style={{ fontSize: typeScale.num * 0.92, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
                 {isPrintDone && <span style={{ marginLeft: 4, fontSize: typeScale.num * NUM_ICON_RATIO_MINOR, color: "#22c55e", fontWeight: 700 }}>✓</span>}
-                {isOverdue && !isPrintDone && block.type === "ZAKAZKA" && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 4 }}><Clock size={Math.round(typeScale.num * NUM_ICON_RATIO_CLOCK)} strokeWidth={2.5} color="#f59e0b" /></span>}
+                {renderOverdueClock(typeScale.num)}
               </span>
               {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -999,6 +1086,9 @@ export function BlockCard({
               </>}
               <span style={{ fontSize: tinyNum, fontWeight: 700, color: s.textPrimary, whiteSpace: "nowrap", flexShrink: 0, lineHeight: 1 }}>
                 {block.orderNumber}{block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Lock size={Math.round(tinyNum * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(tinyNum * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
+                {/* `tinyNum`, ne `typeScale.num` — na oddáleném plánu je to jediné
+                    rozlišení alarmu od pozastavené zakázky a musí se vejít vedle čísla. */}
+                {renderOverdueClock(tinyNum)}
               </span>
               {block.description && (
                 <span style={{ display: "flex", alignItems: "baseline", gap: 3, flex: 1, minWidth: 0, overflow: "hidden" }}>
@@ -1057,6 +1147,11 @@ export function BlockCard({
               {block.orderNumber}
               {block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 3, opacity: 0.85 }}><Lock size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}{isUnconfirmedReservation && !block.locked && <span style={{ display: "inline-flex", alignItems: "center", marginLeft: 2, opacity: 0.85 }}><Hourglass size={Math.round(typeScale.num * NUM_ICON_RATIO_MINOR)} strokeWidth={2} /></span>}
             </span>
+            {/* ZÁMĚRNĚ mimo span s číslem: ten má `maxWidth: 60%` + `overflow: hidden`,
+                takže hodinky jako jeho poslední potomek by se u delšího čísla tiše
+                usekly — a `textOverflow: ellipsis` u `inline-flex` prvku nevykreslí
+                ani „…", takže by po jediném nosiči stavu nezbyla žádná stopa. */}
+            {renderOverdueClock(typeScale.num)}
             {showDesc && block.description && (
               <span
                 // title jen když je popis useknutý na 1 řádek (typicky tiskař s pásem

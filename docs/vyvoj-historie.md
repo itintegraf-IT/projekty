@@ -2,6 +2,78 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Dva stupně zpoždění + hledání v DTP přehledu (12.–13. 8. 2026)
+
+Připomínka plánovače: zpožděná neodklepnutá zakázka a hotová zakázka vypadaly
+v plánu stejně — obě vybledlé (`BLOCK_OVERDUE` krytí 0,22/0,14 vs.
+`BLOCK_PRINT_DONE` 0,13/0,07). Obě tedy říkaly „tuhle už neřeš", přestože
+znamenají pravý opak.
+
+**Řešení:** `src/lib/overdueState.ts` — `overdueAlarmState()` vrací `none` /
+`alarm` (do 16 h po konci) / `stale` (nad 16 h). Akutní zpoždění má plnou
+červenou výplň, zbytkové zůstává tlumené, ale s červeným levým pruhem.
+
+### Klíčová rozhodnutí
+
+- **`OVERDUE_WINDOW_MS` se přestěhovala z `monitorView.ts` do `overdueState.ts`.**
+  Týmž oknem se teď řídí červený alarm v plánu i to, jak dlouho zakázka zůstává
+  na velké kartě Monitoru u stroje. `monitorView.ts` konstantu **re-exportuje** —
+  produkčně ji odtud nikdo nebere, drží se jako záruka, že si ji tam někdo
+  nezkopíruje zpátky a čísla se nerozejdou.
+- **Výplň alarmu je ZÁMĚRNĚ shodná s pozastavenou zakázkou** (rozhodnutí majitele
+  12. 8. 2026, poté co se první verze „modrá karta + červený rám" ukázala jako
+  nevýrazná). Pozastavená zakázka je stav plánu do budoucna, v minulosti prakticky
+  nestojí. `BLOCK_OVERDUE_ALARM` je proto spread pojmenované konstanty — kdyby se
+  ty dva stavy měly rozejít, je to jedna vědomá editace.
+- **Alarm se kreslí jako INSET stín karty, ne jako překryvný `<div>`.** První
+  verze používala overlay se `zIndex: 4`, tedy nad veškerým obsahem — a na kartě
+  vysoké 20 px ukrojila 3 px z čtvercového tlačítka „Hotovo" a spolkla
+  celošířkový pruh tiskařských poznámek na `top: 0`. Rozpočty
+  v `tiskarBlockView.ts` hlídají ořez TOKEM, o překryvu by se nikdy nedozvěděly
+  (nález review 13. 8. 2026). Inset stín leží nad pozadím, ale POD potomky.
+- **Hodinky u čísla zakázky se kreslí ve FULL i COMPACT.** Původně jen v COMPACT,
+  tedy v pásmu širokém 5 px výšky karty — u běžné hodinové zakázky tak plánovač
+  viděl červenou kartu bez vysvětlení a od pozastavené ji nerozeznal.
+
+### Hledání — jeden predikát, jedno pole
+
+`src/lib/orderSearch.ts` (`blockMatchesQuery`) sjednotil podmínku shody, kterou si
+opisovala **čtyři** místa: hlavičkové hledání v planneru, `outOfRangeBlocks`,
+tiskařský `OrderSearchSheet` a ztlumení neshodujících se bloků v `TimelineGrid`.
+Bez toho by přidání pátého prohledávaného pole rozešlo hledání (blok najde) od
+plánu (blok zůstane ztlumený).
+
+`src/components/SearchField.tsx` pak sjednotil i **vzhled** pole (input + křížek +
+Esc). DTP panel dostal vlastní hledání jako syrový `<input>` s inline styly,
+zatímco hlavička planneru používala sdílený `<Input>` — dvě pole, která dělají
+totéž, se lišila výškou i fokusovým prstencem. Co je vlastní jednomu místu
+(Enter = skok na další výsledek a počítadlo N/M v planneru, filtrační chipy v DTP)
+zůstalo u volajícího.
+
+### DTP přehled
+
+`src/lib/dtpOverview.ts` — bez dotazu panel ukazuje běžnou frontu (30 dnů dopředu
++ vše s nehotovými daty), s dotazem okno **vědomě zahazuje** a hledá napříč vším,
+jinak by DTP starší zakázku nenašel vůbec. Nalezené zakázky mimo běžnou frontu
+jdou pod ni a nesou štítek „mimo přehled".
+
+Pozor: dotaz a filtrační chip se **ANDují**. Prázdný stav to proto rozlišuje —
+u zapnutého chipu hlásí „v tomto filtru není", ne „nenalezena" (jinak by tvrdil,
+že zakázka neexistuje, i když existuje a má jen jiný status).
+
+### Známá omezení
+
+- `computeShadeParity` (střídání odstínů) počítá paritu per kbelík
+  `getBlockStyleKey(type, blockVariant)` a **o alarmu neví**. Dvě sousedící
+  zpožděné zakázky z různých kbelíků (STANDARD + BEZ_SACKU) tedy můžou dostat
+  touž paritu a splynout v jednu červenou plochu; rozlišuje je až rám alarmu.
+- `overdueAlarmState` je záměrně jen o čase. Že se stav týká výhradně `ZAKAZKA`
+  a že pozastavená zakázka se za zpožděnou nepovažuje, si hlídá volající
+  (`BlockCard`) — a `BlockCard` nemá žádný test, takže smazání toho guardu
+  projde buildem i celou suitou.
+- `now` v DTP panelu se přepočítá jen se změnou `blocks`/`query`/`activeFilter`,
+  takže štítky „dnes"/„zítra" přes noc samy nezestárnou.
+
 ## Čitelnost timeline — velikost písma v blocích (12. 8. 2026)
 
 Plánovači hlásili, že písmo v kartách bloků na timeline je na promítací tabuli
