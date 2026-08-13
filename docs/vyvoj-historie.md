@@ -1452,3 +1452,80 @@ skoro čtvrtina všeho; bez jejich vyloučení by číslo bylo nafouklé o třet
 Klíčové soubory: `src/lib/reportMetrics.ts` (`computePlanStability`, `PlanMoveInput`) ·
 `src/app/api/report/dashboard/route.ts` (`handleRetro`) ·
 `src/app/reporty/_components/PlanningSection.tsx` · `KpiCard.tsx`
+
+---
+
+## Připomínky tiskařů a plánovače (13. 8. 2026)
+
+Čtyři samostatné opravy Monitoru a plánu, každá vlastní commit, ověřené
+proklikem v běžící appce (Playwright, dev server, recept v paměti
+`screenshot_bezici_appky.md`) — všech 13 scénářů prošlo, 0 nálezů. Plný
+proklik a tabulka scénář → důkaz: `.superpowers/sdd/2026-08-13-pripominky-monitor-planner/task-5-report.md`.
+
+1. **Sekce NEDODĚLÁNO ukazuje všechny nedodělané zakázky, ne jen 3.**
+   (`48499b2e`) Zrušen strop `OVERDUE_VISIBLE_COUNT` a řádek „…a dalších X
+   starších — najdeš je přes Najít". Nová prop `compact` na `QueueSection`
+   zúží řádek jen pro NEDODĚLÁNO (menší padding, menší písmo, bez amber pásu
+   specifikace a bez chipů), aby seznam s 9+ položkami nezatlačil nadpis
+   „DNES" pod okraj obrazovky. `src/components/monitor/MonitorQueue.tsx`.
+
+2. **Přetahující zakázka drží velkou kartu, dokud tiskař nerozhodne.**
+   (`f9d70267`, review fix `825ae928`) Priorita výběru hero bloku byla
+   `running → overdue → upcoming`; v okamžiku, kdy začal další blok podle
+   plánu, karta odskočila, i když tiskař pořád tiskl tu předchozí — zmizelo
+   mu tlačítko HOTOVO uprostřed tisku. Nová priorita `overdue → running →
+   upcoming`, bez šestnáctihodinového stropu (ten zůstává vyhrazený
+   červenému alarmu v plánu, `OVERDUE_WINDOW_MS`); jediná mez je
+   `unfinishedFloorMs` (14 dní zpět, sdílená s frontou NEDODĚLÁNO). Nové
+   tlačítko „Přeskočit →" vedle HOTOVO dává tiskaři vědomou cestu z
+   přetahující zakázky pryč bez falešného odklepnutí — efekt se ukládá do
+   `localStorage` per stroj (`monitor-skipped:<machine>`), takže přeskočená
+   zakázka se nevrátí na kartu ani po reloadu. Review odhalilo, že
+   `POZASTAVENO` zakázka (výrobní stopka, ne zpoždění) do opravy chybně
+   spadala pod `overdue` a mohla na kartě viset až 14 dní — doplněna stejná
+   výjimka, jakou už měla fronta. `src/lib/monitorView.ts`,
+   `src/components/monitor/MonitorView.tsx`.
+
+3. **Hover bublina v plánu jde na vnější stranu mřížky.**
+   (`ff7cf704`) Staré pravidlo „vpravo, pokud se vejde" u bloku v levém
+   sloupci (XL 105) spolehlivě zakrylo celý sousední sloupec (XL 106) i se
+   zakázkami na něm. Nové pravidlo rozhoduje podle vodorovného středu bloku
+   vůči středu OKNA (ne podle počtu sloupců — platí i kdyby strojů přibylo):
+   blok vlevo od středu → bublina vlevo, blok vpravo → bublina vpravo. Když
+   se bublina na vnější stranu celá nevejde, ořízne se do vlastního sloupce
+   — pořád lepší než zakrýt cizí stroj. `src/components/planner/BlockCard.tsx`.
+
+4. **Hledání v plánu ruší klik do prázdné plochy i Esc; gesta ho zrušit
+   nesmí.** (`6b61756f`, dodatek `da72ff0a`) Komentář nad `clearSearch()`
+   dlouho tvrdil, že se volá „z křížku v poli, z Esc a z kliknutí do prázdné
+   plochy plánu" — ve skutečnosti visela jen na křížku. Doplněna zbylá dvě
+   zapojení (Esc větev v obsluze kláves, `onGridClickEmpty` v
+   `PlannerPage.tsx`). Zároveň přidána časová pojistka v `TimelineGrid.tsx`
+   proti tomu, aby syntetický `click`, který prohlížeč pošle hned po
+   `mouseup` na konci gesta, nesmazal rozepsaný dotaz — první verze kryla jen
+   dotažení lasa (`lassoEndedAtRef`), review našla mezeru: stejný mechanismus
+   nastává i u přetažení bloku, resize a tažení hranice směny. Ref
+   přejmenován na `gestureEndedAtRef` a razítko teď dostávají všechny čtyři
+   větve `dragStateRef` (`move`/`resize`/`multi-move`/`shift-edge-resize`)
+   najednou.
+
+### Poučení
+
+**Strop „ukaž 3, zbytek si najdi" předpokládal, že uživatel ví, co hledá.**
+Řádek „…a dalších X starších — najdeš je přes Najít" byl logicky v pořádku
+pro plánovače, který zná čísla zakázek a umí je vyhledat. Tiskař u stroje ale
+hledá zakázku, kterou **nikdy neviděl** — neví, co má napsat do pole Najít.
+Strop, který přesouvá odpovědnost na vyhledávání, funguje jen tam, kde
+uživatel dopředu ví, co hledat; jinde zakázku ze seznamu efektivně smaže.
+
+**Komentář, který popisuje zamýšlené chování místo skutečného, je horší než
+žádný.** `clearSearch()` měl u sebe komentář vyjmenovávající tři volající
+místa (křížek, Esc, klik do prázdna) — ve skutečnosti ji volalo jen jedno
+(křížek). Kdo komentář četl, si featuru odškrtl jako hotovou; nikdo dál
+nepídil, proč Esc dotaz nemaže. Chybu nenašel ani build, ani test suite (na
+chování `PlannerPage.tsx` v tomhle rozsahu dedikovaný test není), ani vlastní
+review implementačního tasku — až samostatné review o pár hodin později, které
+se ptalo „platí to, co komentář tvrdí" místo „odpovídá diff zadání". Jediný
+signál, že něco chybí, by dal proklik — a ten komentář, tvářící se jako
+dokumentace hotové věci, důvod k prokliku sebral. Chybějící komentář by aspoň
+nelhal.

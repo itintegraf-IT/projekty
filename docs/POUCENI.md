@@ -317,3 +317,22 @@ a výška obsahu karty u bloku přes odstávku obcházela podlahu 20 px.
 **Pravidlo:** Když závěr stojí na provozním předpokladu, který kód
 nevynucuje, není to závěr — je to domněnka. Buď ten předpoklad vynuť v kódu,
 nebo vadu považuj za reálnou.
+
+---
+
+## P19 — Komentář, který popisuje zamýšlené chování místo skutečného, je horší než žádný
+
+**Co se stalo (13. 8. 2026):** `clearSearch()` v `PlannerPage.tsx` měla u sebe
+komentář „jediné místo pravdy — volá se z křížku v poli, z Esc a z kliknutí do
+prázdné plochy plánu". Ve skutečnosti visela jen na křížku. Kdo komentář
+přečetl, si zapojení odškrtl jako hotové; nikdo se dál neptal, proč Esc
+rozepsaný dotaz nemaže. Chybu nenašel build ani test suite (`PlannerPage.tsx`
+v tomhle rozsahu dedikovaný test nemá), ani review vlastního implementačního
+tasku — až samostatné navazující review, které se ptalo „platí to, co
+komentář tvrdí", ne „odpovídá diff zadání".
+
+**Pravidlo:** Komentář, který popisuje CÍL místo AKTUÁLNÍHO stavu kódu, je
+past — dává čtenáři falešnou jistotu a sám sebe tím chrání před kontrolou
+(kdo věří hotové věci, neprokliká ji). U tvrzení „volá se odsud, odsud a
+odsud" ověřit `grep` na místě, ne důvěřovat textu. Chybějící komentář by
+aspoň nelhal.
