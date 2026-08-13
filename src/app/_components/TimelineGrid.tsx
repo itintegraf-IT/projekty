@@ -604,6 +604,10 @@ export default function TimelineGrid({
   const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
+  // Čas, kdy doběhlo lasové tažení. Po `mouseup` pošle prohlížeč na sloupec ještě
+  // `click` — bez téhle pojistky by tažení přes bloky spustilo `onGridClickEmpty`
+  // a smazalo plánovači napsaný dotaz. Ref, ne state: čte se v témže ticku.
+  const lassoEndedAtRef = useRef(0);
   const blocksRef       = useRef(blocks);
   const selectedBlockIdsRef = useRef(selectedBlockIds ?? new Set<number>());
 
@@ -978,6 +982,7 @@ export default function TimelineGrid({
           // Kliknutí na prázdné místo → odznačit vše
           callbacksRef.current.onMultiSelect?.(new Set());
         }
+        if (lassoRef.current.active) lassoEndedAtRef.current = Date.now();
         lassoRef.current = null;
         lassoRectRef.current = null;
         setLassoRect(null);
@@ -1854,7 +1859,9 @@ export default function TimelineGrid({
                 } : undefined}
                 onClick={(e) => {
                   if ((e.target as HTMLElement).closest("[data-block]")) return;
-                  onGridClickEmpty?.();
+                  // 150 ms stačí na `click`, který přijde hned po `mouseup`,
+                  // a je pod prahem, kdy by uživatel stihl kliknout znovu.
+                  if (Date.now() - lassoEndedAtRef.current > 150) onGridClickEmpty?.();
                   const el = scrollRef.current;
                   const vs = viewStartRef.current;
                   if (!el || !vs || !onGridClick) return;

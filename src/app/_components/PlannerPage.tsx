@@ -1030,7 +1030,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchMatches]);
 
-  // Zrušení hledání — jediné místo pravdy (křížek v poli, Esc, klik do prázdna v plánu)
+  // Zrušení hledání — jediné místo pravdy. Volá se z křížku v poli, z Esc
+  // a z kliknutí do prázdné plochy plánu.
   function clearSearch() {
     setFilterText("");
     setSelectedBlock(null);
@@ -2614,12 +2615,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (e.key === "Escape") {
         setSelectedBlockIds(new Set());
-        // Vyčistit i clipboard + paste target — Esc = "zruš vše"
+        // Vyčistit i clipboard + paste target + hledání — Esc = "zruš vše"
         setCopiedBlock(null);
         setIsCut(false);
         setPasteTarget(null);
         clipboardGroupRef.current = [];
         isGroupCutRef.current = false;
+        clearSearch();
         return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedBlockIdsRef.current.size > 0) {
@@ -3156,13 +3158,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             typeScale={typeScale}
             copiedBlockId={copiedBlock?.id ?? null}
             onGridClick={(machine, time) => setPasteTarget({ machine, time })}
-            // ZÁMĚRNĚ bez `clearSearch()`: `filterText` je vstup od uživatele, kdežto
-            // výběr a editace jsou stav, který si aplikace nastavila sama. Handler visí
-            // na `onClick` sloupce stroje (TimelineGrid), takže ho spustí i dotažení
-            // lasa a volba cíle pro vložení — plánovač by uprostřed úkonu přišel
-            // o napsaný dotaz i o ztlumení neshodujících se bloků. Hledání ruší
-            // výhradně křížek a Esc (`clearSearch`).
-            onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); }}
+            // Klik do prázdné plochy plánu ruší hledání — plánovač se jinak musí
+            // po každém dotazu trefit do malého křížku, aby se vrátil pohled na
+            // všechny zakázky (připomínka 13. 8. 2026). Klik NA blok hledání
+            // neruší: procházení shod (`goToMatch`) samo bloky vybírá a rušení by
+            // znemožnilo proklikat další shodu. Dotažení lasa je odchycené
+            // v TimelineGridu (`lassoEndedAtRef`).
+            onGridClickEmpty={() => { setSelectedBlock(null); setEditingBlock(null); clearSearch(); }}
             onBlockCopy={(block) => {
               setCopiedBlock(block);
               setIsCut(false);
