@@ -21,6 +21,15 @@
 - České popisky polí a formátování hodnot přes existující `FIELD_LABELS` a `fmtAuditVal` (`src/lib/auditFormatters.ts`) — **nepsat druhý formátovač**.
 - Časy v textech přes `formatPragueTime` / `formatPragueDateTime` (`src/lib/dateUtils.ts`).
 
+**NEspouštět `npm run build` ani nový dev server.** Na Macu běží Vojtovy instance na portech
+3000 a 3111 a sdílejí složku `.next` — build i další dev server by je rozhodily. Typovou
+správnost ověřuj **výhradně** přes `npx tsc --noEmit`. Vizuální kontrola proběhne až na
+závěr na Vojtově běžící instanci, ne zakládáním další.
+
+**Commitovat jen vyjmenované soubory** (`git add <cesta>`), nikdy `git add -A` ani `git add .`
+— v pracovním stromu jsou rozdělané změny z paralelní session (`PlannerPage.tsx`,
+`src/lib/keyboardShortcuts.ts`, `docs/POUCENI.md`). Těch se **nedotýkat**.
+
 **Testy — příkazy:**
 
 ```bash
@@ -1246,26 +1255,14 @@ a nahradit vnitřek karty Integrita (řádky 179–190 — `<div style={{ displa
               </div>
 ```
 
-- [ ] **Step 3: Ověřit typovou kontrolou a buildem**
+- [ ] **Step 3: Ověřit typovou kontrolou**
 
 Run: `npx tsc --noEmit`
 Expected: bez chyb
 
-Run: `npm run build`
-Expected: build projde (může trvat několik minut)
+**Nespouštět `npm run build` ani dev server** — viz Global Constraints. Vizuální kontrola je až na konci plánu.
 
-- [ ] **Step 4: Ověřit v běžící aplikaci**
-
-Spustit dev server na portu 3001 (port 3000 patří Vojtově běžící instanci — nesahat na ni):
-
-```bash
-npm run dev -- -p 3001
-```
-
-Přihlásit se jako ADMIN, otevřít `http://localhost:3001/reporty`, rozbalit kartu **Integrita dat**.
-Expected: 8 řádků; řádek s nálezem jde rozkliknout a ukáže vysvětlivku i tabulku; nulové řádky se nerozbalují.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add src/app/reporty/_components/IntegrityRow.tsx src/app/reporty/_components/HealthPanel.tsx
@@ -1532,7 +1529,7 @@ Barvu rámečku proužku (řádek 107) upravit tak, aby nespočtená kontrola ne
 border: `1px solid ${total > 0 ? "color-mix(in oklab, var(--danger) 45%, var(--border))" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 45%, var(--border))" : "color-mix(in oklab, var(--success) 40%, var(--border))"}`,
 ```
 
-- [ ] **Step 9: Spustit celou test suite a build**
+- [ ] **Step 9: Spustit celou test suite a typovou kontrolu**
 
 Run:
 ```bash
@@ -1544,19 +1541,9 @@ Expected: PASS, žádný selhaný test
 Run: `npx tsc --noEmit`
 Expected: bez chyb
 
-Run: `npm run build`
-Expected: build projde
+**Nespouštět `npm run build` ani dev server** — viz Global Constraints.
 
-- [ ] **Step 10: Ověřit v běžící aplikaci**
-
-Spustit `npm run dev -- -p 3001`, přihlásit se jako ADMIN, otevřít `/reporty`.
-Expected:
-- souhrnný proužek ukazuje čas kontroly a správný počet;
-- každá z 5 karet po rozbalení ukáže dvě věty „Co to znamená / Co s tím";
-- karta Integrita má 8 řádků, řádek s nálezem se rozbalí do tabulky;
-- odkaz „Otevřít v plánu" skočí na `/?highlight=<id>` a zvýrazní blok.
-
-- [ ] **Step 11: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/lib/healthSummary.ts src/lib/healthSummary.test.ts src/app/reporty/_components/useHealthData.ts src/app/reporty/_components/HealthPanel.tsx src/app/reporty/_components/ReportDashboard.tsx
