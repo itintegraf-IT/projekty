@@ -41,9 +41,9 @@ function byStartAsc(a: Block, b: Block): number {
  * bez něj by seznam rostl donekonečna, až by Monitor přestal být čitelný.
  *
  * ZÁMĚRNĚ to NENÍ `OVERDUE_WINDOW_MS`: to odpovídá na jinou otázku („je
- * zpoždění ještě akutní?", 16 h) a použití by udělalo dvouhodinovou slepou
- * skvrnu — zakázka stará 14 h by při běžícím jiném bloku nebyla ani na velké
- * kartě, ani tady.
+ * zpoždění ještě akutní?", 16 h) — použití by ořízlo frontu NEDODĚLÁNO (a od
+ * 13. 8. 2026 i mez `pickHeroBlock`) na necelý den, takže by běžný výpadek
+ * přes víkend nebo svátky zakázku z Monitoru úplně ztratil.
  */
 export const UNFINISHED_LOOKBACK_DAYS = 14;
 
@@ -74,13 +74,20 @@ export function unfinishedFloorMs(now: Date): number {
  * i když tiskař pořád tiskl tu předchozí, a zmizelo mu i tlačítko HOTOVO.
  *
  * Šestnáctihodinové okno tu ZÁMĚRNĚ NENÍ: karta drží zakázku, dokud tiskař
- * nedá HOTOVO nebo „Přeskočit →". `OVERDUE_WINDOW_MS` zůstává vyhrazené
- * červenému alarmu v plánu — kdo ho sem vrátí, obnoví opravenou vadu.
- * Jediná mez je `unfinishedFloorMs`, sdílená s frontou: bez ní by na kartě
- * navěky seděl blok, který v datech leží od loňska.
+ * nedá HOTOVO nebo „Přeskočit →" — až na jednu mez, `unfinishedFloorMs`
+ * (sdílenou s frontou): po `UNFINISHED_LOOKBACK_DAYS` dnech od konce zakázka
+ * zmizí i BEZ rozhodnutí tiskaře, stejně jako z fronty NEDODĚLÁNO. Bez týhle
+ * podlahy by na kartě navěky seděl blok, který v datech leží od loňska.
+ * `OVERDUE_WINDOW_MS` zůstává vyhrazené červenému alarmu v plánu — kdo ho
+ * sem vrátí, obnoví opravenou vadu.
+ *
+ * Pozastavená zakázka (`blockVariant === "POZASTAVENO"`) se do `overdue`
+ * nepočítá — je to výrobní stopka, ne zpoždění, táž výjimka jako
+ * v `monitorQueue`.
  *
  * `skippedIds` jsou zakázky, které tiskař u tohoto stroje vědomě odsunul.
- * Zůstávají ve frontě v sekci NEDODĚLÁNO, jen nesmí zpátky na kartu.
+ * Zůstávají ve frontě, jen nesmí zpátky na kartu (viz `monitorQueue` pro to,
+ * kdy skončí v sekci NEDODĚLÁNO a kdy v dnešní/zítřejší frontě).
  */
 export function pickHeroBlock(
   blocks: Block[],
@@ -95,6 +102,10 @@ export function pickHeroBlock(
   const overdue = open
     .filter((b) => {
       if (skippedIds?.has(b.id)) return false;
+      // Pozastavená zakázka je výrobní stopka, ne zpoždění — táž výjimka jako
+      // v `monitorQueue`. Bez ní by karta ukázala výrobní stopku jako
+      // PŘETAHUJE a jediná cesta dál by byla Přeskočit nebo mylné HOTOVO.
+      if (b.blockVariant === "POZASTAVENO") return false;
       const end = new Date(b.endTime).getTime();
       return end <= t && end >= floorMs;
     })
@@ -149,7 +160,8 @@ export function monitorQueue(
 
   // Rozhoduje endTime, ne startTime: noční směna 22:00–6:00 začala včera, ale
   // končí dnes — podle startu by spadla sem, i když právě běží na velké kartě.
-  // Táž volba, na které stojí 16h okno hero karty (gotcha z 10. 8. 2026).
+  // Táž volba, na které stojí overdue výpočet v `pickHeroBlock` (gotcha z
+  // 10. 8. 2026).
   const overdue = onMachine
     .filter((b) => {
       if (b.printCompletedAt != null) return false;
@@ -235,9 +247,11 @@ export function resolveSelectedBlock(
 /**
  * Stav zakázky podle jejího času — bez ohledu na to, jak se na kartu dostala.
  *
- * Záměrně **bez** šestnáctihodinového okna: to je pravidlo pro automatický výběr
- * (`pickHeroBlock`), ne pro zobrazení. Když si tiskař ručně vytáhne týden starou
- * neodklepnutou zakázku, „PŘETAHUJE" je pořád pravdivý popis.
+ * Záměrně **bez** jakékoli meze stáří: `pickHeroBlock` má `unfinishedFloorMs`
+ * (mez pro AUTOMATICKÝ výběr), tahle funkce ne — je to čisté zobrazení pro
+ * blok, který už je vybraný (`resolveSelectedBlock` floor nekontroluje). Když
+ * si tiskař ručně vytáhne přes hledání i měsíc starou neodklepnutou zakázku,
+ * „PŘETAHUJE" je pořád pravdivý popis.
  */
 export function reasonForBlock(block: Block, now: Date): HeroReason {
   const t = now.getTime();

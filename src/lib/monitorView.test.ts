@@ -462,6 +462,28 @@ test("pickHeroBlock: přetahující drží kartu i po 16 h (žádné OVERDUE_WIN
   assert.equal(pickHeroBlock(blocks, "XL_105", now)?.block.id, 1);
 });
 
+test("pickHeroBlock: POZASTAVENÁ zakázka nezabere kartu — je výrobní stopka, ne zpoždění (CRITICAL nález review 13. 8. 2026)", () => {
+  // XL 106, blok #7 POZASTAVENO 11. 8. 04:00–12:00 neodklepnutý, blok #8 běží
+  // 13. 8. 04:00–12:00, now = 13. 8. 08:00. Bez výjimky by #7 vyhrál jako
+  // overdue (skončil dřív, ale nic to nemění na řazení „nejpozdější konec
+  // vyhrává" mezi kandidáty) a karta by tiskaři ukázala výrobní stopku
+  // s kickerem PŘETAHUJE misto právě běžící zakázky.
+  const now = new Date("2026-08-13T06:00:00.000Z"); // 8:00 pražského času
+  const blocks = [
+    mk({
+      id: 7, machine: "XL_106", blockVariant: "POZASTAVENO",
+      startTime: "2026-08-11T02:00:00.000Z", endTime: "2026-08-11T10:00:00.000Z",
+    }),
+    mk({
+      id: 8, machine: "XL_106",
+      startTime: "2026-08-13T02:00:00.000Z", endTime: "2026-08-13T10:00:00.000Z",
+    }),
+  ];
+  const pick = pickHeroBlock(blocks, "XL_106", now);
+  assert.equal(pick?.block.id, 8);
+  assert.equal(pick?.reason, "running");
+});
+
 test("pickHeroBlock: přeskočená zakázka se na kartu nevrátí", () => {
   const now = new Date("2026-08-13T12:30:00.000Z");
   const blocks = [
@@ -482,19 +504,25 @@ test("pickHeroBlock: zakázka starší než okno nedodělaných se na kartu nevr
 });
 
 test("pickHeroBlock: hranice okna nedodělaných je přesná na milisekundu", () => {
-  // Podlaha = pražská půlnoc dne (dnes − 14). Blok končící přesně na ní projde,
-  // blok o milisekundu dřív ne. Bez tohohle testu projde i posun podlahy o dny.
+  // Podlaha je natvrdo jako LITERÁL, ne z unfinishedFloorMs(now) — kdyby si ji
+  // test spočítal ze stejné funkce/konstanty jako produkční kód, mutace
+  // UNFINISHED_LOOKBACK_DAYS (14 → 15) by testu proklouzla: obě strany by se
+  // posunuly stejně a asserty by pořád vyšly. Podlaha = pražská půlnoc dne
+  // 2026-07-30 (2026-08-13 minus 14 civilních dní) = 2026-07-29T22:00:00.000Z
+  // UTC (Praha je v srpnu UTC+2). Ověřeno i výpočtem přes unfinishedFloorMs.
   const now = new Date("2026-08-13T12:30:00.000Z");
-  const floor = unfinishedFloorMs(now);
+  const FLOOR = new Date("2026-07-29T22:00:00.000Z").getTime();
+  assert.equal(unfinishedFloorMs(now), FLOOR);
+
   const onFloor = mk({
     id: 1, machine: "XL_105",
-    startTime: new Date(floor - 3_600_000).toISOString(),
-    endTime: new Date(floor).toISOString(),
+    startTime: new Date(FLOOR - 3_600_000).toISOString(),
+    endTime: new Date(FLOOR).toISOString(),
   });
   const belowFloor = mk({
     id: 2, machine: "XL_105",
-    startTime: new Date(floor - 3_600_001).toISOString(),
-    endTime: new Date(floor - 1).toISOString(),
+    startTime: new Date(FLOOR - 3_600_001).toISOString(),
+    endTime: new Date(FLOOR - 1).toISOString(),
   });
   assert.equal(pickHeroBlock([onFloor], "XL_105", now)?.block.id, 1);
   assert.equal(pickHeroBlock([belowFloor], "XL_105", now), null);

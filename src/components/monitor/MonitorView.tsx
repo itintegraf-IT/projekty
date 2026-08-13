@@ -176,17 +176,19 @@ export function MonitorView({
   }, [skipKey]);
 
   function skipBlock(id: number) {
-    setSkippedIds((cur) => {
-      const next = new Set(cur);
-      next.add(id);
-      try {
-        window.localStorage.setItem(skipKey, JSON.stringify([...next]));
-      } catch {
-        // Zápis smí selhat (plná kvóta, privátní režim) — přeskočení pak
-        // platí jen do restartu. Lepší než spadnout.
-      }
-      return next;
-    });
+    // Zápis do localStorage je vedlejší efekt, nesmí sedět uvnitř updateru
+    // `setSkippedIds` — ten musí zůstat čistá funkce (StrictMode ho zavolá
+    // dvakrát, se side-efektem uvnitř by dvakrát zapsal). `next` se proto
+    // spočítá napřed a zápis proběhne AŽ PO `setSkippedIds`.
+    const next = new Set(skippedIds);
+    next.add(id);
+    setSkippedIds(next);
+    try {
+      window.localStorage.setItem(skipKey, JSON.stringify([...next]));
+    } catch {
+      // Zápis smí selhat (plná kvóta, privátní režim) — přeskočení pak
+      // platí jen do restartu. Lepší než spadnout.
+    }
     setSelectedId(null);
   }
 
@@ -512,9 +514,12 @@ export function MonitorView({
 
                     return (
                       <div style={{ display: "flex", gap: 12, height: 96 }}>
-                        {/* `display: flex` + `width: 100%` uvnitř: PrintDoneButton má
-                            pevnou výšku 96, ale šířku si sám nenastavuje — bez tohohle
-                            by se ve flexu smrsknul na obsah. */}
+                        {/* Obalující div, ne PrintDoneButton napřímo: ten má vlastní
+                            `flexShrink: 0` a bez `flex: 2` na tomhle divu by v outer
+                            flexu nezabral dvoutřetinový podíl vedle „Přeskočit →" — jen
+                            tolik místa, kolik potřebuje sám (viz PrintDoneButton.tsx).
+                            Šířku button uvnitř dostane sám, `width: 100%` má ve svém
+                            stylu (varianta `hero`) — vyplní přesně tenhle div. */}
                         <div style={{ flex: 2, minWidth: 0, display: "flex" }}>
                           {doneButton}
                         </div>

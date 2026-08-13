@@ -58,9 +58,10 @@ test("nečitelné datum → none, nikdy alarm", () => {
 });
 
 test("okno je sdílené s Monitorem — jedna konstanta, ne dvě", () => {
-  // Plán i Monitor odpovídají na tutéž otázku („je neodklepnutá zakázka ještě
-  // akutní?"). Kdyby se čísla rozešla, karta v plánu by hasla jindy, než zakázka
-  // mizí z velké karty u stroje.
+  // Monitor u stroje jím po 13. 8. 2026 už neřídí, kdy zakázka mizí z velké
+  // karty (`pickHeroBlock` drží zakázku, dokud tiskař nerozhodne) — re-export
+  // v `monitorView.ts` je jen záruka proti tomu, aby si tam někdo hodnotu
+  // zkopíroval zpátky jako vlastní číslo. Test hlídá, že ta záruka drží.
   assert.equal(MONITOR_WINDOW_MS, OVERDUE_WINDOW_MS);
 });
 
@@ -68,6 +69,6 @@ test("okno je 16 hodin", () => {
   // Zbytek souboru je psaný RELATIVNĚ k OVERDUE_WINDOW_MS a test parity výš
   // porovnává re-export téhož bindingu — obojí zůstane zelené i po změně
   // hodnoty. Bez tohohle řádku by se okno dalo tiše přenastavit a posunout
-  // zároveň červený alarm v plánu i dobu, po kterou zakázka drží velkou kartu.
+  // červený alarm v plánu, aniž by na to test upozornil.
   assert.equal(OVERDUE_WINDOW_MS, 16 * 60 * 60 * 1000);
 });

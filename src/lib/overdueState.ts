@@ -20,10 +20,11 @@ export type OverdueState = "none" | "alarm" | "stale";
  * Počítá se od KONCE, ne podle dne startu — noční směna 22:00–6:00 by jinak
  * ráno vypadla, protože „nezačala dnes".
  *
- * Jediný zdroj pravdy pro plán i pro Monitor u stroje (`monitorView.ts` konstantu
- * re-exportuje). Obě obrazovky odpovídají na tutéž otázku a nesmí se rozejít:
- * plán tímhle oknem řídí červený alarm na kartě, Monitor to, jestli zakázka
- * ještě smí zůstat na velké kartě.
+ * Řídí červený alarm zpoždění na kartě bloku v PLÁNU. Velká karta Monitoru
+ * u stroje jím řídit PŘESTALA (13. 8. 2026, `pickHeroBlock` v `monitorView.ts`
+ * teď drží zakázku, dokud tiskař nerozhodne) — `monitorView.ts` konstantu
+ * pořád re-exportuje, ale jen jako záruku proti tomu, aby si ji odtud někdo
+ * zkopíroval zpátky jako vlastní číslo.
  */
 export const OVERDUE_WINDOW_MS = 16 * 60 * 60 * 1000;
 
