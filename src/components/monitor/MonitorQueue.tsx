@@ -97,7 +97,7 @@ function QueueSection({
         // Skryté jsou ty starší (viz OVERDUE_VISIBLE_COUNT výš) — bez tohohle
         // řádku by tiskař nevěděl, že vůbec existují a kam se poděly.
         <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "0 2px" }}>
-          …a dalších {hiddenCount} starších — najdeš je přes „Najít"
+          …a dalších {hiddenCount} starších — najdeš je přes „Najít“
         </div>
       )}
       {blocks.map((b) => {
