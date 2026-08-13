@@ -8,7 +8,7 @@ function blk(o: Partial<BlockRow> & Pick<BlockRow, "id" | "startTime" | "endTime
   return {
     orderNumber: `Z-${o.id}`, machine: "XL_105", type: "ZAKAZKA",
     printMinutes: 120, printCompletedAt: null, printCompletedByUserId: null,
-    splitGroupId: null, reservationId: null, jobPresetId: null, recurrenceParentId: null,
+    jobPresetId: null,
     ...o,
   };
 }
@@ -59,12 +59,7 @@ test("computeOverlapPairs: tři vzájemně se překrývající → 3 páry", () 
 
 // ── Integrita dat ──────────────────────────────────────────────────────────
 function refs(o: Partial<IntegrityRefs> = {}): IntegrityRefs {
-  return {
-    splitGroupIds: o.splitGroupIds ?? new Set<number>(),
-    reservationIds: o.reservationIds ?? new Set<number>(),
-    jobPresetIds: o.jobPresetIds ?? new Set<number>(),
-    blockIds: o.blockIds ?? new Set<number>(),
-  };
+  return { jobPresetIds: o.jobPresetIds ?? new Set<number>() };
 }
 function issue(res: ReturnType<typeof computeIntegrityIssues>, key: string) {
   const it = res.find((i) => i.key === key);
@@ -77,32 +72,22 @@ const OK_END = D("2026-08-03T10:00:00Z");
 test("integrity: osiřelý jobPreset se hlásí, platný ne", () => {
   const orphan = blk({ id: 1, startTime: OK_START, endTime: OK_END, jobPresetId: 99 });
   const ok = blk({ id: 2, startTime: OK_START, endTime: OK_END, jobPresetId: 5 });
-  const res = computeIntegrityIssues([orphan, ok], refs({ jobPresetIds: new Set([5]), blockIds: new Set([1, 2]) }));
+  const res = computeIntegrityIssues([orphan, ok], refs({ jobPresetIds: new Set([5]) }));
   const it = issue(res, "orphanJobPreset");
   assert.deepEqual(it.sampleBlockIds, [1]);
   assert.equal(it.count, 1);
 });
 
-test("integrity: osiřelý splitGroup / reservation / recurrenceParent", () => {
-  const b1 = blk({ id: 1, startTime: OK_START, endTime: OK_END, splitGroupId: 7 });
-  const b2 = blk({ id: 2, startTime: OK_START, endTime: OK_END, reservationId: 8 });
-  const b3 = blk({ id: 3, startTime: OK_START, endTime: OK_END, recurrenceParentId: 900 });
-  const res = computeIntegrityIssues([b1, b2, b3], refs({ blockIds: new Set([1, 2, 3]) }));
-  assert.equal(issue(res, "orphanSplitGroup").count, 1);
-  assert.equal(issue(res, "orphanReservation").count, 1);
-  assert.equal(issue(res, "orphanRecurrenceParent").count, 1);
-});
-
 test("integrity: neplatný stroj a typ", () => {
   const bad = blk({ id: 1, machine: "XX_999", type: "PRUSER", startTime: OK_START, endTime: OK_END });
-  const res = computeIntegrityIssues([bad], refs({ blockIds: new Set([1]) }));
+  const res = computeIntegrityIssues([bad], refs());
   assert.equal(issue(res, "invalidMachine").count, 1);
   assert.equal(issue(res, "invalidType").count, 1);
 });
 
 test("integrity: konec <= začátek", () => {
   const bad = blk({ id: 1, startTime: D("2026-08-03T10:00:00Z"), endTime: D("2026-08-03T08:00:00Z") });
-  const res = computeIntegrityIssues([bad], refs({ blockIds: new Set([1]) }));
+  const res = computeIntegrityIssues([bad], refs());
   assert.equal(issue(res, "negativeInterval").count, 1);
 });
 
@@ -111,7 +96,7 @@ test("integrity: vadné printMinutes (odd/too big/<=0); NULL a completed se nehl
   const big = blk({ id: 2, startTime: OK_START, endTime: OK_END, printMinutes: 3000 });
   const nul = blk({ id: 3, startTime: OK_START, endTime: OK_END, printMinutes: null });
   const done = blk({ id: 4, startTime: OK_START, endTime: OK_END, printMinutes: 45, printCompletedAt: D("2026-08-04T00:00:00Z") });
-  const res = computeIntegrityIssues([odd, big, nul, done], refs({ blockIds: new Set([1, 2, 3, 4]) }));
+  const res = computeIntegrityIssues([odd, big, nul, done], refs());
   const it = issue(res, "badPrintMinutes");
   assert.equal(it.count, 2);
   assert.deepEqual(it.sampleBlockIds, [1, 2]);
@@ -120,7 +105,7 @@ test("integrity: vadné printMinutes (odd/too big/<=0); NULL a completed se nehl
 test("integrity: nezarovnaný start jen ZAKAZKA nedokončená; REZERVACE ne", () => {
   const zak = blk({ id: 1, type: "ZAKAZKA", startTime: D("2026-08-03T08:15:00Z"), endTime: OK_END });
   const rez = blk({ id: 2, type: "REZERVACE", startTime: D("2026-08-03T08:15:00Z"), endTime: OK_END });
-  const res = computeIntegrityIssues([zak, rez], refs({ blockIds: new Set([1, 2]) }));
+  const res = computeIntegrityIssues([zak, rez], refs());
   const it = issue(res, "unalignedStart");
   assert.equal(it.count, 1);
   assert.deepEqual(it.sampleBlockIds, [1]);
@@ -131,17 +116,19 @@ test("integrity: nekonzistentní printCompleted (XOR) se hlásí, konzistentní 
   const onlyUser = blk({ id: 2, startTime: OK_START, endTime: OK_END, printCompletedByUserId: 7 });
   const bothSet = blk({ id: 3, startTime: OK_START, endTime: OK_END, printCompletedAt: D("2026-08-04T00:00:00Z"), printCompletedByUserId: 7 });
   const bothNull = blk({ id: 4, startTime: OK_START, endTime: OK_END });
-  const res = computeIntegrityIssues([onlyAt, onlyUser, bothSet, bothNull], refs({ blockIds: new Set([1, 2, 3, 4]) }));
+  const res = computeIntegrityIssues([onlyAt, onlyUser, bothSet, bothNull], refs());
   const it = issue(res, "inconsistentPrintCompleted");
   assert.equal(it.count, 2);
   assert.deepEqual(it.sampleBlockIds, [1, 2]);
 });
 
-test("integrity: split-skupina < 2 bloky (1 člen i prázdná skupina)", () => {
-  const lone = blk({ id: 1, startTime: OK_START, endTime: OK_END, splitGroupId: 10 });
-  // skupina 10 má 1 člena; skupina 20 je v setu, ale nemá žádný blok
-  const res = computeIntegrityIssues([lone], refs({ splitGroupIds: new Set([10, 20]), blockIds: new Set([1]) }));
-  assert.equal(issue(res, "undersizedSplitGroup").count, 2);
+test("integrity: zrušené kontroly už v rozpadu nejsou", () => {
+  const b = blk({ id: 1, startTime: OK_START, endTime: OK_END });
+  const keys = computeIntegrityIssues([b], refs()).map((i) => i.key);
+  for (const gone of ["orphanSplitGroup", "orphanReservation", "orphanRecurrenceParent", "undersizedSplitGroup"]) {
+    assert.equal(keys.includes(gone), false, `kontrola ${gone} měla být zrušena`);
+  }
+  assert.equal(keys.length, 7);
 });
 
 // ── Přílohy ────────────────────────────────────────────────────────────────

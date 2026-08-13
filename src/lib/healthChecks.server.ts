@@ -23,10 +23,7 @@ export type BlockRow = {
   printMinutes: number | null;
   printCompletedAt: Date | null;
   printCompletedByUserId: number | null;
-  splitGroupId: number | null;
-  reservationId: number | null;
   jobPresetId: number | null;
-  recurrenceParentId: number | null;
 };
 
 export type BlockRef = { id: number; orderNumber: string; type: string; startTime: Date; endTime: Date };
@@ -110,13 +107,24 @@ export function computeOverlapPairs(blocks: BlockRow[], now: Date): OverlapPair[
 
 // ── Integrita dat ───────────────────────────────────────────────────────────
 export type IntegrityRefs = {
-  splitGroupIds: Set<number>;
-  reservationIds: Set<number>;
   jobPresetIds: Set<number>;
-  blockIds: Set<number>;
 };
 
-/** Osiřelé vazby + neplatné hodnoty. Čistá funkce nad načtenými bloky a množinami ID. */
+/**
+ * Neplatné hodnoty a osiřelý preset. Čistá funkce nad načtenými bloky.
+ *
+ * Osiřelou split-skupinu / rezervaci / rodiče opakování zde ZÁMĚRNĚ nehlídáme —
+ * všechny tři sloupce mají cizí klíč (`Block_splitGroupId_fkey`,
+ * `Block_reservationId_fkey`, `Block_recurrenceParentId_fkey`), takže takový stav
+ * MySQL nedovolí vzniknout. Co garantuje databáze, nemá smysl kontrolovat aplikací.
+ * `jobPresetId` cizí klíč NEMÁ, proto zůstává.
+ *
+ * Podměrečná split-skupina se nehlásí taky záměrně: vzniká legitimní akcí plánovače
+ * (rozdělení zakázky a smazání jedné půlky), nic nerozbíjí — všichni konzumenti
+ * `splitGroupId` se ptají na počet sourozenců, ne na existenci skupiny — a z aplikace
+ * se s ní nedá nic udělat. Ověřeno nad ostrou DB 13. 8. 2026, viz spec.
+ * Skutečné riziko split-skupin hlídá `computeSplitDivergence`.
+ */
 export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs): IntegrityIssue[] {
   const machines = MACHINES as readonly string[];
   const issues: IntegrityIssue[] = [];
@@ -126,19 +134,13 @@ export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs):
 
   add("orphanJobPreset", "Osiřelý jobPreset (blok odkazuje na smazaný preset)",
     blocks.filter((b) => b.jobPresetId != null && !refs.jobPresetIds.has(b.jobPresetId)));
-  add("orphanSplitGroup", "Osiřelá split-skupina",
-    blocks.filter((b) => b.splitGroupId != null && !refs.splitGroupIds.has(b.splitGroupId)));
-  add("orphanReservation", "Osiřelá rezervace",
-    blocks.filter((b) => b.reservationId != null && !refs.reservationIds.has(b.reservationId)));
-  add("orphanRecurrenceParent", "Osiřelý rodič opakování",
-    blocks.filter((b) => b.recurrenceParentId != null && !refs.blockIds.has(b.recurrenceParentId)));
   add("invalidMachine", "Neplatný stroj",
     blocks.filter((b) => !machines.includes(b.machine)));
   add("invalidType", "Neplatný typ bloku",
     blocks.filter((b) => !VALID_TYPES.includes(b.type)));
   add("negativeInterval", "Konec ≤ začátek (nelogický interval)",
     blocks.filter((b) => b.endTime.getTime() <= b.startTime.getTime()));
-  add("badPrintMinutes", "Vadné printMinutes (ZAKAZKA)",
+  add("badPrintMinutes", "Vadné printMinutes (ZAKÁZKA)",
     blocks.filter((b) =>
       b.type === "ZAKAZKA" && b.printCompletedAt == null && b.printMinutes != null &&
       (b.printMinutes <= 0 || b.printMinutes > MAX_PRINT_MINUTES || b.printMinutes % 30 !== 0)));
@@ -147,25 +149,6 @@ export function computeIntegrityIssues(blocks: BlockRow[], refs: IntegrityRefs):
       b.type === "ZAKAZKA" && b.printCompletedAt == null && b.startTime.getTime() % SLOT_MS !== 0));
   add("inconsistentPrintCompleted", "Nekonzistentní dokončení tisku (jen jeden ze dvou údajů)",
     blocks.filter((b) => (b.printCompletedAt == null) !== (b.printCompletedByUserId == null)));
-
-  // split-skupina < 2 bloky (i prázdné skupiny přítomné v refs.splitGroupIds)
-  const membersByGroup = new Map<number, number[]>();
-  for (const b of blocks) {
-    if (b.splitGroupId == null) continue;
-    const arr = membersByGroup.get(b.splitGroupId) ?? [];
-    arr.push(b.id);
-    membersByGroup.set(b.splitGroupId, arr);
-  }
-  const undersizedSamples: number[] = [];
-  let undersizedCount = 0;
-  for (const gid of refs.splitGroupIds) {
-    const members = membersByGroup.get(gid) ?? [];
-    if (members.length < 2) {
-      undersizedCount++;
-      if (undersizedSamples.length < MAX_ITEMS && members[0] != null) undersizedSamples.push(members[0]);
-    }
-  }
-  issues.push({ key: "undersizedSplitGroup", label: "Split-skupina s méně než 2 bloky", count: undersizedCount, sampleBlockIds: undersizedSamples });
 
   return issues;
 }
@@ -222,8 +205,7 @@ export function bucketDrift(drifted: DriftedBlock[]): { drift: DriftItem[]; outs
 
 const BLOCK_SELECT = {
   id: true, orderNumber: true, machine: true, type: true, startTime: true, endTime: true,
-  printMinutes: true, printCompletedAt: true, printCompletedByUserId: true, splitGroupId: true, reservationId: true,
-  jobPresetId: true, recurrenceParentId: true,
+  printMinutes: true, printCompletedAt: true, printCompletedByUserId: true, jobPresetId: true,
 } as const;
 
 /**
@@ -232,21 +214,14 @@ const BLOCK_SELECT = {
  * Jen čte. Typováno na `typeof prisma` (thin wiring) — logika je v pure funkcích výše.
  */
 export async function runHealthChecks(db: typeof prisma, now: Date): Promise<HealthResult> {
-  const [allBlocks, splitGroups, reservations, jobPresets, attachmentRows] = await Promise.all([
+  const [allBlocks, jobPresets, attachmentRows] = await Promise.all([
     db.block.findMany({ select: BLOCK_SELECT }),
-    db.splitGroup.findMany({ select: { id: true } }),
-    db.reservation.findMany({ select: { id: true } }),
     db.jobPreset.findMany({ select: { id: true } }),
     db.reservationAttachment.findMany({ select: { id: true, reservationId: true, originalName: true, storageKey: true } }),
   ]);
 
   const blocks = allBlocks as BlockRow[];
-  const refs: IntegrityRefs = {
-    splitGroupIds: new Set(splitGroups.map((g) => g.id)),
-    reservationIds: new Set(reservations.map((r) => r.id)),
-    jobPresetIds: new Set(jobPresets.map((p) => p.id)),
-    blockIds: new Set(blocks.map((b) => b.id)),
-  };
+  const refs: IntegrityRefs = { jobPresetIds: new Set(jobPresets.map((p) => p.id)) };
 
   const drifted = await detectCalendarDrift(
     db, [...MACHINES], now, new Date(now.getTime() + DRIFT_HORIZON_DAYS * DAY_MS), now,
