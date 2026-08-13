@@ -555,6 +555,7 @@ export default function ReportDashboard() {
             error={health.error}
             total={health.total}
             badChecks={health.badChecks}
+            uncomputed={health.uncomputed}
             onRefresh={health.refetch}
           />
         ) : (

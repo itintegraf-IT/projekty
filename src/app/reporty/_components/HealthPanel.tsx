@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { machineLabel } from "@/lib/machines";
 import type { BlockRef, HealthData } from "./useHealthData";
 import IntegrityRow from "./IntegrityRow";
+import CheckExplainer from "./CheckExplainer";
 
 interface HealthPanelProps {
   data: HealthData | null;
@@ -13,6 +14,8 @@ interface HealthPanelProps {
   total: number;
   /** Kolik z 5 kontrol má nález (z useHealthData). */
   badChecks: number;
+  /** Kolik z 5 kontrol se nepodařilo spočítat (z useHealthData). */
+  uncomputed: number;
   /** Znovu spustí kontroly — aktualizuje panel i odznak v záhlaví. */
   onRefresh: () => void;
 }
@@ -38,16 +41,28 @@ function Jump({ id }: { id: number }) {
   return <a href={jumpHref(id)} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>Otevřít v plánu →</a>;
 }
 
-function Card({ title, subtitle, icon, count, children, defaultOpen }: {
-  title: string; subtitle: string; icon: string; count: number | null; children?: React.ReactNode; defaultOpen: boolean;
+function Card({ title, subtitle, icon, count, error, copyKey, children, defaultOpen }: {
+  title: string; subtitle: string; icon: string; count: number | null; error?: string;
+  copyKey: string; children?: React.ReactNode; defaultOpen: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const uncomputed = count === null;
   const bad = (count ?? 0) > 0;
+  const edge = uncomputed
+    ? "var(--warning)"
+    : bad
+      ? "var(--danger)"
+      : "color-mix(in oklab, var(--success) 55%, var(--border))";
+  const pillColor = uncomputed ? "var(--warning)" : bad ? "var(--danger)" : "var(--success)";
+  const pillBg = uncomputed
+    ? "color-mix(in oklab, var(--warning) 20%, transparent)"
+    : bad
+      ? "color-mix(in oklab, var(--danger) 20%, transparent)"
+      : "color-mix(in oklab, var(--success) 18%, transparent)";
   return (
     <div style={{
       background: "var(--surface)", border: "1px solid var(--border)",
-      borderLeft: `3px solid ${bad ? "var(--danger)" : "color-mix(in oklab, var(--success) 55%, var(--border))"}`,
-      borderRadius: 11, overflow: "hidden",
+      borderLeft: `3px solid ${edge}`, borderRadius: 11, overflow: "hidden",
     }}>
       <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 15px", cursor: "pointer", userSelect: "none" }}>
         <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, background: "var(--surface-2)" }}>{icon}</div>
@@ -58,13 +73,22 @@ function Card({ title, subtitle, icon, count, children, defaultOpen }: {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 11 }}>
           <span style={{
             fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999, fontVariantNumeric: "tabular-nums",
-            color: bad ? "var(--danger)" : "var(--success)",
-            background: bad ? "color-mix(in oklab, var(--danger) 20%, transparent)" : "color-mix(in oklab, var(--success) 18%, transparent)",
-          }}>{bad ? count : "✓ 0"}</span>
+            color: pillColor, background: pillBg,
+          }}>{uncomputed ? "nespočteno" : bad ? count : "✓ 0"}</span>
           <span style={{ color: "var(--text-muted)", fontSize: 12, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
         </div>
       </div>
-      {open && children && <div style={{ borderTop: "1px solid var(--border)", padding: "10px 15px 15px" }}>{children}</div>}
+      {open && (
+        <div style={{ borderTop: "1px solid var(--border)", padding: "10px 15px 15px" }}>
+          {error && (
+            <div style={{ fontSize: 12, color: "var(--warning)", marginBottom: 8 }}>
+              Kontrola se nespočetla: {error}
+            </div>
+          )}
+          <CheckExplainer copyKey={copyKey} />
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -84,7 +108,7 @@ function BlockCell({ r }: { r: BlockRef }) {
   );
 }
 
-export default function HealthPanel({ data, loading, error, total, badChecks, onRefresh }: HealthPanelProps) {
+export default function HealthPanel({ data, loading, error, total, badChecks, uncomputed, onRefresh }: HealthPanelProps) {
   const sectionLabel: React.CSSProperties = { fontSize: 12, color: "var(--brand)", fontWeight: 600, borderBottom: "1px solid var(--border)", paddingBottom: 4, marginBottom: 12 };
   const refreshBtn = (
     <button onClick={onRefresh} disabled={loading} style={{ background: "var(--brand)", color: "var(--brand-contrast)", border: "1px solid var(--brand)", borderRadius: 8, padding: "9px 15px", fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1, whiteSpace: "nowrap" }}>
@@ -105,15 +129,17 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
       {!error && data && (
         <>
           {/* Souhrnný proužek */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: `1px solid ${total > 0 ? "color-mix(in oklab, var(--danger) 45%, var(--border))" : "color-mix(in oklab, var(--success) 40%, var(--border))"}`, borderRadius: 12, padding: "16px 18px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: `1px solid ${total > 0 ? "color-mix(in oklab, var(--danger) 45%, var(--border))" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 45%, var(--border))" : "color-mix(in oklab, var(--success) 40%, var(--border))"}`, borderRadius: 12, padding: "16px 18px", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 250 }}>
               <div style={{ width: 42, height: 42, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: total > 0 ? "color-mix(in oklab, var(--danger) 22%, transparent)" : "color-mix(in oklab, var(--success) 20%, transparent)" }}>{total > 0 ? "⚠️" : "✓"}</div>
               <div>
-                <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", color: total > 0 ? "var(--danger)" : "var(--success)" }}>
-                  {total > 0 ? `${total} ${total === 1 ? "problém" : total < 5 ? "problémy" : "problémů"}` : "Vše v pořádku"}
+                <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", color: total > 0 ? "var(--danger)" : uncomputed > 0 ? "var(--warning)" : "var(--success)" }}>
+                  {total > 0 ? `${total} ${total === 1 ? "problém" : total < 5 ? "problémy" : "problémů"}` : uncomputed > 0 ? "Bez nálezu (neúplně)" : "Vše v pořádku"}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
-                  {total > 0 ? `v ${badChecks} z 5 kontrol · ` : "5 kontrol bez nálezu · "}kontrola {fmtDateTime(data.checkedAt)}
+                  {total > 0 ? `v ${badChecks} z 5 kontrol · ` : "5 kontrol · "}
+                  {uncomputed > 0 ? `${uncomputed} ${uncomputed === 1 ? "kontrola nespočtena" : uncomputed < 5 ? "kontroly nespočteny" : "kontrol nespočteno"} · ` : ""}
+                  kontrola {fmtDateTime(data.checkedAt)}
                 </div>
               </div>
             </div>
@@ -123,7 +149,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
           {/* Karty */}
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {/* 1. Překryvy */}
-            <Card icon="🔀" title="Překryvy bloků" subtitle="Dva bloky na stejném stroji ve stejný čas — jen budoucí." count={data.checks.overlaps.count} defaultOpen={(data.checks.overlaps.count ?? 0) > 0}>
+            <Card icon="🔀" title="Překryvy bloků" subtitle="Dva bloky na stejném stroji ve stejný čas — jen budoucí." copyKey="overlaps" count={data.checks.overlaps.count} error={data.checks.overlaps.error} defaultOpen={(data.checks.overlaps.count ?? 1) > 0}>
               <TableWrap>
                 <thead><tr><th style={TH}>Stroj</th><th style={TH}>Blok A</th><th style={TH}>Blok B</th><th style={TH}>Překryv</th><th style={TH}></th></tr></thead>
                 <tbody>
@@ -141,7 +167,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 2. Drift */}
-            <Card icon="🕒" title="Drift konce bloku" subtitle="Uložený konec nesedí na aktuální pracovní kalendář." count={data.checks.drift.count} defaultOpen={(data.checks.drift.count ?? 0) > 0}>
+            <Card icon="🕒" title="Drift konce bloku" subtitle="Uložený konec nesedí na aktuální pracovní kalendář." copyKey="drift" count={data.checks.drift.count} error={data.checks.drift.error} defaultOpen={(data.checks.drift.count ?? 1) > 0}>
               <TableWrap>
                 <thead><tr><th style={TH}>Zakázka</th><th style={TH}>Stroj</th><th style={TH}>Uložený konec</th><th style={TH}>Přepočítaný</th><th style={TH}></th></tr></thead>
                 <tbody>
@@ -159,7 +185,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 3. Mimo provoz */}
-            <Card icon="🚫" title="Bloky mimo provoz stroje" subtitle="Zakázka začíná, když stroj nejede a není to vědomý bypass." count={data.checks.outsideHours.count} defaultOpen={(data.checks.outsideHours.count ?? 0) > 0}>
+            <Card icon="🚫" title="Bloky mimo provoz stroje" subtitle="Zakázka začíná, když stroj nejede a není to vědomý bypass." copyKey="outsideHours" count={data.checks.outsideHours.count} error={data.checks.outsideHours.error} defaultOpen={(data.checks.outsideHours.count ?? 1) > 0}>
               <TableWrap>
                 <thead><tr><th style={TH}>Zakázka</th><th style={TH}>Stroj</th><th style={TH}>Začátek</th><th style={TH}></th></tr></thead>
                 <tbody>
@@ -176,7 +202,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 4. Integrita dat */}
-            <Card icon="🧩" title="Integrita dat" subtitle="Osiřelé vazby a neplatné hodnoty." count={data.checks.integrity.count} defaultOpen={(data.checks.integrity.count ?? 0) > 0}>
+            <Card icon="🧩" title="Integrita dat" subtitle="Osiřelý preset, neplatné hodnoty a rozešlé split-skupiny." copyKey="integrity" count={data.checks.integrity.count} error={data.checks.integrity.error} defaultOpen={(data.checks.integrity.count ?? 1) > 0}>
               <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 8, border: "1px solid var(--border)", borderRadius: 9, overflow: "hidden" }}>
                 {data.checks.integrity.breakdown.map((it) => (
                   <IntegrityRow key={it.key} issue={it} />
@@ -185,7 +211,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, on
             </Card>
 
             {/* 5. Přílohy */}
-            <Card icon="📎" title="Přílohy: soubory vs. databáze" subtitle="Metadata v DB bez souboru na disku (nebo naopak)." count={data.checks.attachments.count} defaultOpen={(data.checks.attachments.count ?? 0) > 0}>
+            <Card icon="📎" title="Přílohy: soubory vs. databáze" subtitle="Metadata v DB bez souboru na disku (nebo naopak)." copyKey="attachments" count={data.checks.attachments.count} error={data.checks.attachments.error} defaultOpen={(data.checks.attachments.count ?? 1) > 0}>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8, fontSize: 13 }}>
                 <div>Metadata v DB bez souboru na disku: <strong style={{ color: data.checks.attachments.missingFiles.length > 0 ? "var(--danger)" : "var(--text-muted)" }}>{data.checks.attachments.missingFiles.length}</strong></div>
                 {data.checks.attachments.missingFiles.map((m) => (

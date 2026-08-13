@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { summarizeHealth } from "@/lib/healthSummary";
 
 // ── Tvary z /api/report/health (Date pole přicházejí jako ISO stringy) ──
 export type BlockRef = { id: number; orderNumber: string; type: string; startTime: string; endTime: string };
@@ -25,19 +26,13 @@ export interface UseHealthData {
   data: HealthData | null;
   loading: boolean;
   error: string | null;
-  /** Celkový počet nálezů napříč všemi 5 kontrolami. */
+  /** Celkový počet nálezů napříč spočtenými kontrolami. */
   total: number;
   /** Kolik z 5 kontrol má alespoň jeden nález. */
   badChecks: number;
+  /** Kolik z 5 kontrol se nepodařilo spočítat. */
+  uncomputed: number;
   refetch: () => void;
-}
-
-function countFindings(data: HealthData): { total: number; badChecks: number } {
-  const counts = [
-    data.checks.overlaps.count, data.checks.drift.count, data.checks.outsideHours.count,
-    data.checks.integrity.count, data.checks.attachments.count,
-  ].map((c) => c ?? 0);
-  return { total: counts.reduce((a, c) => a + c, 0), badChecks: counts.filter((c) => c > 0).length };
 }
 
 /**
@@ -70,7 +65,12 @@ export function useHealthData(): UseHealthData {
 
   useEffect(() => { refetch(); }, [refetch]);
 
-  const { total, badChecks } = data ? countFindings(data) : { total: 0, badChecks: 0 };
+  const { total, badChecks, uncomputed } = data
+    ? summarizeHealth([
+        data.checks.overlaps, data.checks.drift, data.checks.outsideHours,
+        data.checks.integrity, data.checks.attachments,
+      ])
+    : { total: 0, badChecks: 0, uncomputed: 0 };
 
-  return { data, loading, error, total, badChecks, refetch };
+  return { data, loading, error, total, badChecks, uncomputed, refetch };
 }
