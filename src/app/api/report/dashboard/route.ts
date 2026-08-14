@@ -164,7 +164,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   }
 
   // Per-machine metrics
-  const machines: Record<string, { utilization: number; productionHours: number; maintenanceHours: number; availableHours: number }> = {};
+  const machines: Record<string, { utilization: number | null; productionHours: number; maintenanceHours: number; availableHours: number }> = {};
   let totalAvailable = 0;
   let totalMaintenance = 0;
 
@@ -188,14 +188,14 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   }
 
   // Daily utilization
-  const dailyUtilization: Array<{ date: string; XL_105: number; XL_106: number }> = [];
+  const dailyUtilization: Array<{ date: string; XL_105: number | null; XL_106: number | null }> = [];
   let cur = rangeStart;
   while (cur <= rangeEnd) {
     const dayStart = pragueToUTC(cur, 0, 0);
     const dayEnd = pragueToUTC(addDaysToCivilDate(cur, 1), 0, 0);
     const dayBlocks = blockInputs.filter((b) => b.startTime < dayEnd && b.endTime > dayStart);
 
-    const entry: { date: string; XL_105: number; XL_106: number } = { date: cur, XL_105: 0, XL_106: 0 };
+    const entry: { date: string; XL_105: number | null; XL_106: number | null } = { date: cur, XL_105: null, XL_106: null };
     for (const machine of MACHINES) {
       const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
       const prodMin = dayBlocks
@@ -351,7 +351,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
   }
 
   // Per-machine metrics
-  const machines: Record<string, { plannedCapacity: number; freeHours: number; availableHours: number }> = {};
+  const machines: Record<string, { plannedCapacity: number | null; freeHours: number; availableHours: number }> = {};
 
   for (const machine of MACHINES) {
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
@@ -365,14 +365,14 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
   }
 
   // Daily capacity (all block types)
-  const dailyCapacity: Array<{ date: string; XL_105: number; XL_106: number }> = [];
+  const dailyCapacity: Array<{ date: string; XL_105: number | null; XL_106: number | null }> = [];
   let cur = rangeStart;
   while (cur <= rangeEnd) {
     const dayStart = pragueToUTC(cur, 0, 0);
     const dayEnd = pragueToUTC(addDaysToCivilDate(cur, 1), 0, 0);
     const dayBlocks = blockInputs.filter((b) => b.startTime < dayEnd && b.endTime > dayStart);
 
-    const entry: { date: string; XL_105: number; XL_106: number } = { date: cur, XL_105: 0, XL_106: 0 };
+    const entry: { date: string; XL_105: number | null; XL_106: number | null } = { date: cur, XL_105: null, XL_106: null };
     for (const machine of MACHINES) {
       const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
       const planned = dayBlocks

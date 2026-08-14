@@ -13,7 +13,7 @@ type Mode = "retro" | "outlook" | "health";
 type TimeRange = "today" | "week" | "month" | "custom";
 
 interface RetroMachineData {
-  utilization: number;
+  utilization: number | null;
   productionHours: number;
   maintenanceHours: number;
   availableHours: number;
@@ -21,7 +21,7 @@ interface RetroMachineData {
 
 interface RetroData {
   machines: Record<string, RetroMachineData>;
-  dailyUtilization: Array<{ date: string; XL_105: number; XL_106: number }>;
+  dailyUtilization: Array<{ date: string; XL_105: number | null; XL_106: number | null }>;
   throughput: number;
   avgLeadTimeDays: number | null;
   maintenanceRatio: number;
@@ -32,14 +32,14 @@ interface RetroData {
 }
 
 interface OutlookMachineData {
-  plannedCapacity: number;
+  plannedCapacity: number | null;
   freeHours: number;
   availableHours: number;
 }
 
 interface OutlookData {
   machines: Record<string, OutlookMachineData>;
-  dailyCapacity: Array<{ date: string; XL_105: number; XL_106: number }>;
+  dailyCapacity: Array<{ date: string; XL_105: number | null; XL_106: number | null }>;
   upcomingMaintenance: Array<{ machine: string; description: string; startTime: string; endTime: string }>;
   pendingReservations: { newCount: number; queueCount: number; oldestWaitingDays: number };
 }
@@ -144,25 +144,28 @@ function SectionHeader({ label }: { label: string }) {
 }
 
 function BarChart({ data, barKeys, colors, labels }: {
-  data: Array<Record<string, number | string>>;
+  data: Array<Record<string, number | string | null>>;
   barKeys: string[];
   colors: string[];
   labels?: string[];
 }) {
-  const maxVal = Math.max(...data.flatMap((d) => barKeys.map((k) => (d[k] as number) ?? 0)), 1);
+  const maxVal = Math.max(...data.flatMap((d) => barKeys.map((k) => (d[k] as number | null) ?? 0)), 1);
   return (
     <div>
       <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 80 }}>
         {data.map((d, i) => (
           <div key={i} style={{ display: "flex", gap: 1, flex: 1 }}>
-            {barKeys.map((k, ki) => (
-              <div key={k} style={{
-                flex: 1, background: colors[ki],
-                borderRadius: "2px 2px 0 0",
-                height: `${Math.max(2, ((d[k] as number) ?? 0) / maxVal * 100)}%`,
-                minHeight: 2,
-              }} title={`${d.date ?? ""}: ${d[k]}%`} />
-            ))}
+            {barKeys.map((k, ki) => {
+              const v = d[k] as number | null;
+              // Den bez směn se NEkreslí jako nulový sloupec — „stroj nejede“ není „nic se nedělá“.
+              if (v == null) return <div key={k} style={{ flex: 1 }} title={`${d.date ?? ""}: stroj nejede`} />;
+              return (
+                <div key={k} style={{
+                  flex: 1, background: colors[ki], borderRadius: "2px 2px 0 0",
+                  height: `${Math.max(2, v / maxVal * 100)}%`, minHeight: 2,
+                }} title={`${d.date ?? ""}: ${v}%`} />
+              );
+            })}
           </div>
         ))}
       </div>
@@ -205,15 +208,15 @@ function RetroView({ data }: { data: RetroData }) {
       <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
         <KpiCard
           label="Vytížení XL 105"
-          value={`${xl105?.utilization ?? 0}%`}
+          value={xl105?.utilization == null ? "—" : `${xl105.utilization}%`}
           subtitle={`${xl105?.productionHours ?? 0} hod. produkce`}
-          color={(xl105?.utilization ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+          color={xl105?.utilization == null ? undefined : xl105.utilization > 100 ? "#f85149" : xl105.utilization >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard
           label="Vytížení XL 106"
-          value={`${xl106?.utilization ?? 0}%`}
+          value={xl106?.utilization == null ? "—" : `${xl106.utilization}%`}
           subtitle={`${xl106?.productionHours ?? 0} hod. produkce`}
-          color={(xl106?.utilization ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+          color={xl106?.utilization == null ? undefined : xl106.utilization > 100 ? "#f85149" : xl106.utilization >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard label="Průtok zakázek" value={data.throughput} subtitle="dokončeno v období" />
         <KpiCard label="Průměrná lead time" value={data.avgLeadTimeDays == null ? "—" : `${String(data.avgLeadTimeDays).replace(".", ",")} d`} subtitle="od založení po dokončení" />
@@ -290,7 +293,9 @@ function OutlookView({ data }: { data: OutlookData }) {
   const machines = ["XL_105", "XL_106"] as const;
   const days = data.dailyCapacity.slice(0, 14);
 
-  function heatColor(pct: number): string {
+  function heatColor(pct: number | null): string {
+    if (pct == null) return "var(--surface-3)";   // stroj nejede
+    if (pct > 100) return "#f85149";              // přeplánováno
     if (pct === 0) return "var(--surface-2)";
     if (pct >= 80) return "#3fb950";
     if (pct >= 50) return "#f0883e";
@@ -303,15 +308,15 @@ function OutlookView({ data }: { data: OutlookData }) {
       <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
         <KpiCard
           label="Kapacita XL 105"
-          value={`${xl105?.plannedCapacity ?? 0}%`}
+          value={xl105?.plannedCapacity == null ? "—" : `${xl105.plannedCapacity}%`}
           subtitle={`${xl105?.freeHours ?? 0} h volných`}
-          color={(xl105?.plannedCapacity ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+          color={xl105?.plannedCapacity == null ? undefined : xl105.plannedCapacity > 100 ? "#f85149" : xl105.plannedCapacity >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard
           label="Kapacita XL 106"
-          value={`${xl106?.plannedCapacity ?? 0}%`}
+          value={xl106?.plannedCapacity == null ? "—" : `${xl106.plannedCapacity}%`}
           subtitle={`${xl106?.freeHours ?? 0} h volných`}
-          color={(xl106?.plannedCapacity ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
+          color={xl106?.plannedCapacity == null ? undefined : xl106.plannedCapacity > 100 ? "#f85149" : xl106.plannedCapacity >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard label="Volné hod. XL 105" value={`${xl105?.freeHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h`} />
         <KpiCard label="Volné hod. XL 106" value={`${xl106?.freeHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h`} />
@@ -339,14 +344,14 @@ function OutlookView({ data }: { data: OutlookData }) {
             <React.Fragment key={m}>
               <div style={{ fontSize: 10, color: "var(--text)", display: "flex", alignItems: "center" }}>{machineLabel(m)}</div>
               {days.map((d) => {
-                const val = (d[m] as number) ?? 0;
+                const val = (d[m] as number | null) ?? null;
                 return (
                   <div key={d.date} style={{
                     height: 24, borderRadius: 3, background: heatColor(val),
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 8, color: val > 0 ? "#fff" : "var(--text-muted)", fontWeight: 600,
-                  }} title={`${d.date}: ${val}%`}>
-                    {val > 0 ? `${val}` : ""}
+                    fontSize: 8, color: val != null && val > 0 ? "#fff" : "var(--text-muted)", fontWeight: 600,
+                  }} title={`${d.date}: ${val == null ? "stroj nejede" : val + " %"}`}>
+                    {val == null ? "" : val > 0 ? `${val}` : ""}
                   </div>
                 );
               })}

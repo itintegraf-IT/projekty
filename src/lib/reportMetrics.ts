@@ -122,9 +122,16 @@ export function computeAvailableHours(
 // 2. computeUtilization
 // ---------------------------------------------------------------------------
 
-/** Procento využití: Math.round((production / available) * 100). Vrací 0 pokud available <= 0. */
-export function computeUtilization(productionHours: number, availableHours: number): number {
-  if (availableHours <= 0) return 0;
+/**
+ * Procento využití. `null` při nulové kapacitě — víkend, odstávka nebo chybějící
+ * šablony směn NEJSOU „nula procent“, ale „není z čeho počítat“. Bez toho rozlišení
+ * vypadá den, kdy stroj nejede, stejně jako den, na který nikdo nic nenaplánoval.
+ *
+ * Nad 100 % se ZÁMĚRNĚ nezastropuje — přeplánování musí být vidět. Odlišit ho barevně
+ * je úkol UI, ne téhle funkce.
+ */
+export function computeUtilization(productionHours: number, availableHours: number): number | null {
+  if (availableHours <= 0) return null;
   return Math.round((productionHours / availableHours) * 100);
 }
 

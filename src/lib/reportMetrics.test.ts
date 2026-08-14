@@ -199,8 +199,13 @@ describe("computeUtilization", () => {
     assert.equal(computeUtilization(80, 80), 100);
   });
 
-  it("0 available → 0%", () => {
-    assert.equal(computeUtilization(10, 0), 0);
+  it("nulová kapacita → null, ne 0 (jinak „stroj nejede“ vypadá jako „nic se nedělá“)", () => {
+    assert.equal(computeUtilization(0, 0), null);
+    assert.equal(computeUtilization(50, 0), null);
+  });
+
+  it("nezastropuje se nad 100 % — číslo má být poctivé", () => {
+    assert.equal(computeUtilization(30, 8), 375);
   });
 
   it("rounds to nearest integer", () => {
