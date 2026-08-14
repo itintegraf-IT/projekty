@@ -27,7 +27,7 @@ interface RetroData {
   maintenanceRatio: number;
   planning: PlanningMetrics;
   plannerActivity: PlannerActivityEntry[];
-  pipeline: { SUBMITTED: number; ACCEPTED: number; QUEUE_READY: number; SCHEDULED: number; REJECTED: number; conversionPercent: number };
+  pipeline: { open: Record<string, number>; closed: Record<string, number>; conversionPercent: number | null };
   logins: { periodCount: number; activeUsers: number };
 }
 
@@ -189,16 +189,18 @@ function RetroView({ data }: { data: RetroData }) {
   if (!data.machines || !data.dailyUtilization) return null;
   const xl105 = data.machines["XL_105"];
   const xl106 = data.machines["XL_106"];
-  const pipelineKeys = ["SUBMITTED", "ACCEPTED", "QUEUE_READY", "SCHEDULED", "REJECTED"] as const;
+  const pipelineOpen = ["SUBMITTED", "ACCEPTED", "QUEUE_READY", "COUNTER_PROPOSED"] as const;
+  const pipelineClosed = ["SCHEDULED", "CONFIRMED", "REJECTED", "WITHDRAWN"] as const;
   const pipelineColors: Record<string, string> = {
-    SUBMITTED: "#f0883e", ACCEPTED: "#3b82f6", QUEUE_READY: "#a371f7",
-    SCHEDULED: "#3fb950", REJECTED: "#f85149",
+    SUBMITTED: "#f0883e", ACCEPTED: "#3b82f6", QUEUE_READY: "#a371f7", COUNTER_PROPOSED: "#d29922",
+    SCHEDULED: "#3fb950", CONFIRMED: "#2ea043", REJECTED: "#f85149", WITHDRAWN: "#8b949e",
   };
   const pipelineLabels: Record<string, string> = {
-    SUBMITTED: "Nové", ACCEPTED: "Přijaté", QUEUE_READY: "Ve frontě",
-    SCHEDULED: "Naplánované", REJECTED: "Zamítnuté",
+    SUBMITTED: "Nové", ACCEPTED: "Přijaté", QUEUE_READY: "Ve frontě", COUNTER_PROPOSED: "Protinávrh",
+    SCHEDULED: "Naplánované", CONFIRMED: "Potvrzené", REJECTED: "Zamítnuté", WITHDRAWN: "Stažené",
   };
-  const pipelineTotal = pipelineKeys.reduce((sum, k) => sum + (data.pipeline[k] ?? 0), 0);
+  const openTotal = pipelineOpen.reduce((s, k) => s + (data.pipeline.open[k] ?? 0), 0);
+  const closedTotal = pipelineClosed.reduce((s, k) => s + (data.pipeline.closed[k] ?? 0), 0);
 
   const chartLabels = data.dailyUtilization.length > 0
     ? [data.dailyUtilization[0].date.slice(5), data.dailyUtilization[data.dailyUtilization.length - 1].date.slice(5)]
@@ -261,27 +263,33 @@ function RetroView({ data }: { data: RetroData }) {
       <SectionHeader label="OBCHOD" />
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Pipeline rezervací</div>
-        {/* Stacked bar */}
-        {pipelineTotal > 0 && (
-          <div style={{ display: "flex", height: 20, borderRadius: 4, overflow: "hidden", marginBottom: 10 }}>
-            {pipelineKeys.map((k) => {
-              const pct = (data.pipeline[k] ?? 0) / pipelineTotal * 100;
-              if (pct === 0) return null;
-              return <div key={k} style={{ width: `${pct}%`, background: pipelineColors[k], minWidth: 2 }} />;
-            })}
-          </div>
-        )}
-        {/* Legend */}
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
-          {pipelineKeys.map((k) => (
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+          Otevřené rezervace — stav k dnešku, nezávisle na období
+        </div>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 12 }}>
+          {pipelineOpen.map((k) => (
             <span key={k} style={{ fontSize: 11, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: pipelineColors[k], display: "inline-block" }} />
-              {pipelineLabels[k]}: {data.pipeline[k] ?? 0}
+              {pipelineLabels[k]}: {data.pipeline.open[k] ?? 0}
             </span>
           ))}
+          {openTotal === 0 && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>žádné</span>}
+        </div>
+
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Uzavřené v období</div>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
+          {pipelineClosed.map((k) => (
+            <span key={k} style={{ fontSize: 11, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: pipelineColors[k], display: "inline-block" }} />
+              {pipelineLabels[k]}: {data.pipeline.closed[k] ?? 0}
+            </span>
+          ))}
+          {closedTotal === 0 && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>žádné</span>}
         </div>
         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-          Konverze: <strong style={{ color: "var(--text)" }}>{data.pipeline.conversionPercent}%</strong> (přijaté → naplánované)
+          Konverze: <strong style={{ color: "var(--text)" }}>
+            {data.pipeline.conversionPercent == null ? "—" : `${data.pipeline.conversionPercent} %`}
+          </strong> (úspěšně vyřízené z uzavřených)
         </div>
       </div>
     </>

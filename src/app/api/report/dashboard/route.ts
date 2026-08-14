@@ -14,6 +14,7 @@ import {
   computePlanStability,
   resolvePlanCoverage,
 } from "@/lib/reportMetrics";
+import { OPEN_STATUSES, CLOSED_STATUSES, computeConversionPercent } from "@/lib/reservationStatus";
 import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
 import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
 import { MACHINES } from "@/lib/machines";
@@ -102,7 +103,7 @@ type RevisionRow = {
 const NON_DECISION_ACTIONS = new Set(["UNDO", "REDO"]);
 
 async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date, endUtc: Date) {
-  const [blocks, revisions, migrationRows, rawWeekShifts, reservations, companyDays] = await Promise.all([
+  const [blocks, revisions, migrationRows, rawWeekShifts, openReservations, closedReservations, companyDays] = await Promise.all([
     prisma.block.findMany({
       where: { startTime: { lt: endUtc }, endTime: { gt: startUtc } },
       select: { id: true, machine: true, type: true, startTime: true, endTime: true, createdAt: true, printCompletedAt: true, printMinutes: true, scheduleBypassed: true },
@@ -130,13 +131,15 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       // Starší legacy bloky degradují bezpečně na elapsed fallback (segments=null).
       where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: new Date(endUtc.getTime() + 28 * 86_400_000) } },
     }),
+    // Dvě RŮZNÉ populace, dřív slepené jedním OR: otevřené = stav k dnešku bez ohledu
+    // na období, uzavřené = ty, které v období skončily. Slepené to způsobovalo, že se
+    // v srpnovém reportu objevily rezervace z března.
     prisma.reservation.findMany({
-      where: {
-        OR: [
-          { createdAt: { gte: startUtc, lt: endUtc } },
-          { status: { in: ["SUBMITTED", "ACCEPTED", "QUEUE_READY"] } },
-        ],
-      },
+      where: { status: { in: [...OPEN_STATUSES] } },
+      select: { status: true },
+    }),
+    prisma.reservation.findMany({
+      where: { status: { in: [...CLOSED_STATUSES] }, createdAt: { gte: startUtc, lt: endUtc } },
       select: { status: true },
     }),
     prisma.companyDay.findMany({
@@ -266,14 +269,15 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     .sort((a, b) => b.actionCount - a.actionCount);
 
   // Pipeline
-  const statusCounts: Record<string, number> = { SUBMITTED: 0, ACCEPTED: 0, QUEUE_READY: 0, SCHEDULED: 0, REJECTED: 0 };
-  for (const r of reservations) {
-    if (r.status in statusCounts) {
-      statusCounts[r.status]++;
-    }
-  }
-  const convDenom = statusCounts.SCHEDULED + statusCounts.REJECTED;
-  const conversionPercent = convDenom > 0 ? Math.round((statusCounts.SCHEDULED / convDenom) * 100) : 0;
+  const countByStatus = (rows: { status: string }[], allowed: readonly string[]) => {
+    const out: Record<string, number> = {};
+    for (const s of allowed) out[s] = 0;
+    for (const r of rows) if (r.status in out) out[r.status]++;
+    return out;
+  };
+  const openCounts = countByStatus(openReservations, OPEN_STATUSES);
+  const closedCounts = countByStatus(closedReservations, CLOSED_STATUSES);
+  const conversionPercent = computeConversionPercent(closedCounts);
 
   // Přihlášení za období
   const loginRows = await prisma.loginLog.findMany({
@@ -299,7 +303,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       stabilityPercent,
     },
     plannerActivity,
-    pipeline: { ...statusCounts, conversionPercent },
+    pipeline: { open: openCounts, closed: closedCounts, conversionPercent },
     logins,
   });
 }
