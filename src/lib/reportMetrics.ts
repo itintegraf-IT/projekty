@@ -88,48 +88,63 @@ export function computeUtilization(productionHours: number, availableHours: numb
 }
 
 // ---------------------------------------------------------------------------
-// 3. computeThroughput
+// 3. Průtok a lead time — nad DOKONČENÝMI zakázkami
 // ---------------------------------------------------------------------------
 
-/** Počet bloků type=ZAKAZKA s printCompletedAt v daném rozsahu (inclusive civil dates). */
-export function computeThroughput(blocks: BlockInput[], rangeStart: string, rangeEnd: string): number {
-  const start = new Date(rangeStart + "T00:00:00Z");
-  const end = new Date(rangeEnd + "T23:59:59.999Z");
+/** Blok s potvrzeným tiskem. Načítá se dotazem na `printCompletedAt`, ne podle polohy v plánu. */
+export type CompletedBlock = {
+  id: number;
+  splitGroupId: number | null;
+  createdAt: Date;
+  printCompletedAt: Date;
+};
 
-  return blocks.filter(
-    (b) =>
-      b.type === "ZAKAZKA" &&
-      b.printCompletedAt !== null &&
-      b.printCompletedAt >= start &&
-      b.printCompletedAt <= end,
-  ).length;
+/** Jedna zakázka: rozdělené kusy jsou sloučené do jednoho záznamu. */
+export type CompletedOrder = { key: string; createdAt: Date; completedAt: Date };
+
+/**
+ * Bloky → zakázky. Rozdělená zakázka je JEDNA zakázka (rozhodnutí Vojty 14. 8. 2026),
+ * proto se kusy slučují přes `splitGroupId`.
+ *
+ * Klíč nese prefix `g`/`b`, protože `Block.id` a `SplitGroup.id` jsou NEZÁVISLÉ
+ * id-prostory — numerická shoda by dvě různé zakázky sloučila v jednu (táž konvence
+ * jako v `blockShades.ts`).
+ *
+ * Skupina si bere NEJSTARŠÍ založení a NEJPOZDĚJŠÍ dokončení: to je poctivá doba
+ * od zadání po dotištění posledního kusu. Kus vzniklý splitem má `createdAt`
+ * v okamžiku rozdělení, takže sám o sobě by dal uměle krátký lead time.
+ */
+export function groupCompletedToOrders(blocks: CompletedBlock[]): CompletedOrder[] {
+  const byKey = new Map<string, CompletedOrder>();
+  for (const b of blocks) {
+    const key = b.splitGroupId != null ? `g${b.splitGroupId}` : `b${b.id}`;
+    const cur = byKey.get(key);
+    if (!cur) {
+      byKey.set(key, { key, createdAt: b.createdAt, completedAt: b.printCompletedAt });
+      continue;
+    }
+    if (b.createdAt.getTime() < cur.createdAt.getTime()) cur.createdAt = b.createdAt;
+    if (b.printCompletedAt.getTime() > cur.completedAt.getTime()) cur.completedAt = b.printCompletedAt;
+  }
+  return [...byKey.values()];
 }
 
-// ---------------------------------------------------------------------------
-// 4. computeAvgLeadTimeDays
-// ---------------------------------------------------------------------------
+/** Počet dokončených zakázek v období. */
+export function computeThroughputFromOrders(orders: CompletedOrder[]): number {
+  return orders.length;
+}
 
-/** Průměrný lead time v dnech pro dokončené ZAKAZKA bloky v rozsahu. Vrací 0 pokud žádné. */
-export function computeAvgLeadTimeDays(blocks: BlockInput[], rangeStart: string, rangeEnd: string): number {
-  const start = new Date(rangeStart + "T00:00:00Z");
-  const end = new Date(rangeEnd + "T23:59:59.999Z");
-
-  const completed = blocks.filter(
-    (b) =>
-      b.type === "ZAKAZKA" &&
-      b.printCompletedAt !== null &&
-      b.printCompletedAt >= start &&
-      b.printCompletedAt <= end,
-  );
-
-  if (completed.length === 0) return 0;
-
-  const totalDays = completed.reduce((sum, b) => {
-    const diffMs = b.printCompletedAt!.getTime() - b.createdAt.getTime();
-    return sum + diffMs / (1000 * 60 * 60 * 24);
-  }, 0);
-
-  return Math.round(totalDays / completed.length);
+/**
+ * Průměrná doba od založení po dokončení, v dnech na jedno desetinné místo.
+ *
+ * `null` (ne 0) při prázdné množině: v tiskárně se hodně zakázek odbaví do 24 h,
+ * takže „0 dní“ je legitimní hodnota a nesmí znamenat zároveň „nevím“.
+ */
+export function computeAvgLeadTimeDaysFromOrders(orders: CompletedOrder[]): number | null {
+  if (orders.length === 0) return null;
+  const totalMs = orders.reduce((sum, o) => sum + (o.completedAt.getTime() - o.createdAt.getTime()), 0);
+  const days = totalMs / orders.length / 86_400_000;
+  return Math.round(days * 10) / 10;
 }
 
 // ---------------------------------------------------------------------------

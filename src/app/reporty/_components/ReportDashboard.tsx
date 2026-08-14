@@ -23,7 +23,7 @@ interface RetroData {
   machines: Record<string, RetroMachineData>;
   dailyUtilization: Array<{ date: string; XL_105: number; XL_106: number }>;
   throughput: number;
-  avgLeadTimeDays: number;
+  avgLeadTimeDays: number | null;
   maintenanceRatio: number;
   planning: PlanningMetrics;
   plannerActivity: PlannerActivityEntry[];
@@ -216,7 +216,7 @@ function RetroView({ data }: { data: RetroData }) {
           color={(xl106?.utilization ?? 0) >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard label="Průtok zakázek" value={data.throughput} subtitle="dokončeno v období" />
-        <KpiCard label="Průměrná lead time" value={`${data.avgLeadTimeDays} d`} subtitle="od vytvoření po dokončení" />
+        <KpiCard label="Průměrná lead time" value={data.avgLeadTimeDays == null ? "—" : `${String(data.avgLeadTimeDays).replace(".", ",")} d`} subtitle="od založení po dokončení" />
       </div>
 
       {/* VYROBA */}

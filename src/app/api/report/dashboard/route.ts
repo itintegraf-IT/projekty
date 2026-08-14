@@ -8,8 +8,9 @@ import {
   computeAvailableHours,
   computeBlockHours,
   computeUtilization,
-  computeThroughput,
-  computeAvgLeadTimeDays,
+  groupCompletedToOrders,
+  computeThroughputFromOrders,
+  computeAvgLeadTimeDaysFromOrders,
   computeMaintenanceRatio,
   computePlanStability,
   resolvePlanCoverage,
@@ -199,9 +200,21 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     cur = addDaysToCivilDate(cur, 1);
   }
 
-  // Throughput & lead time
-  const throughput = computeThroughput(blockInputs, rangeStart, rangeEnd);
-  const avgLeadTimeDays = computeAvgLeadTimeDays(blockInputs, rangeStart, rangeEnd);
+  // Průtok a lead time se počítají nad DOKONČENÝMI zakázkami, ne nad bloky, které
+  // období protínají. Zakázka odklepnutá v období, ale naplánovaná mimo něj, se dřív
+  // nezapočítala nikde (na produkci 3 ze 43 v srpnu 2026). Hranice `startUtc`/`endUtc`
+  // jsou pražské — tím mizí i starý posun 2 h proti zbytku routy.
+  const completedRows = await prisma.block.findMany({
+    where: { type: "ZAKAZKA", printCompletedAt: { gte: startUtc, lt: endUtc } },
+    select: { id: true, splitGroupId: true, createdAt: true, printCompletedAt: true },
+  });
+  const completedOrders = groupCompletedToOrders(
+    completedRows.flatMap((r) =>
+      r.printCompletedAt == null ? [] : [{ id: r.id, splitGroupId: r.splitGroupId, createdAt: r.createdAt, printCompletedAt: r.printCompletedAt }],
+    ),
+  );
+  const throughput = computeThroughputFromOrders(completedOrders);
+  const avgLeadTimeDays = computeAvgLeadTimeDaysFromOrders(completedOrders);
 
   // Maintenance ratio
   const maintenanceRatio = computeMaintenanceRatio(totalMaintenance, totalAvailable);

@@ -5,8 +5,9 @@ import { join } from "node:path";
 import {
   computeAvailableHours,
   computeUtilization,
-  computeThroughput,
-  computeAvgLeadTimeDays,
+  groupCompletedToOrders,
+  computeThroughputFromOrders,
+  computeAvgLeadTimeDaysFromOrders,
   computeMaintenanceRatio,
   computePlanStability,
   resolvePlanCoverage,
@@ -179,49 +180,71 @@ describe("computeUtilization", () => {
 });
 
 // ---------------------------------------------------------------------------
-// computeThroughput
+// groupCompletedToOrders / průtok / lead time
 // ---------------------------------------------------------------------------
-describe("computeThroughput", () => {
-  const blocks = [
-    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105", printMinutes: null },
-    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-15T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105", printMinutes: null },
-    { type: "ZAKAZKA", printCompletedAt: null, createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105", printMinutes: null },
-    { type: "ODSTÁVKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-14T06:00:00Z"), endTime: new Date("2026-04-14T10:00:00Z"), machine: "XL_105", printMinutes: null },
-    { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-20T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-19T06:00:00Z"), endTime: new Date("2026-04-19T10:00:00Z"), machine: "XL_105", printMinutes: null },
-  ];
+describe("groupCompletedToOrders", () => {
+  const D = (iso: string) => new Date(iso);
 
-  it("counts only ZAKAZKA with printCompletedAt in range", () => {
-    assert.equal(computeThroughput(blocks, "2026-04-13", "2026-04-17"), 2);
+  it("rozdělená zakázka na dvou blocích → jedna zakázka", () => {
+    const orders = groupCompletedToOrders([
+      { id: 1, splitGroupId: 7, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-10T12:00:00Z") },
+      { id: 2, splitGroupId: 7, createdAt: D("2026-08-05T08:00:00Z"), printCompletedAt: D("2026-08-11T09:00:00Z") },
+    ]);
+    assert.equal(orders.length, 1);
+    // nejstarší založení a nejpozdější dokončení celé skupiny
+    assert.equal(orders[0].createdAt.toISOString(), "2026-08-01T08:00:00.000Z");
+    assert.equal(orders[0].completedAt.toISOString(), "2026-08-11T09:00:00.000Z");
   });
 
-  it("empty array → 0", () => {
-    assert.equal(computeThroughput([], "2026-04-13", "2026-04-17"), 0);
+  it("nerozdělené bloky jsou samostatné zakázky", () => {
+    const orders = groupCompletedToOrders([
+      { id: 1, splitGroupId: null, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
+      { id: 2, splitGroupId: null, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
+    ]);
+    assert.equal(orders.length, 2);
+  });
+
+  it("Block.id a SplitGroup.id se nesmí splést — stejné číslo, jiný prostor", () => {
+    // blok #7 bez skupiny a skupina 7 jsou dvě různé zakázky
+    const orders = groupCompletedToOrders([
+      { id: 7, splitGroupId: null, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
+      { id: 9, splitGroupId: 7, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
+    ]);
+    assert.equal(orders.length, 2);
   });
 });
 
-// ---------------------------------------------------------------------------
-// computeAvgLeadTimeDays
-// ---------------------------------------------------------------------------
-describe("computeAvgLeadTimeDays", () => {
-  it("average lead time calculation", () => {
-    const blocks = [
-      { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-14T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105", printMinutes: null },
-      { type: "ZAKAZKA", printCompletedAt: new Date("2026-04-16T10:00:00Z"), createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-15T06:00:00Z"), endTime: new Date("2026-04-15T10:00:00Z"), machine: "XL_105", printMinutes: null },
-    ];
-    // Block 1: 4 days, Block 2: 6 days → avg 5
-    const result = computeAvgLeadTimeDays(blocks, "2026-04-13", "2026-04-17");
-    assert.equal(result, 5);
+describe("computeThroughputFromOrders", () => {
+  it("počítá zakázky, ne bloky", () => {
+    const orders = groupCompletedToOrders([
+      { id: 1, splitGroupId: 7, createdAt: new Date("2026-08-01T08:00:00Z"), printCompletedAt: new Date("2026-08-02T08:00:00Z") },
+      { id: 2, splitGroupId: 7, createdAt: new Date("2026-08-01T08:00:00Z"), printCompletedAt: new Date("2026-08-02T08:00:00Z") },
+      { id: 3, splitGroupId: null, createdAt: new Date("2026-08-01T08:00:00Z"), printCompletedAt: new Date("2026-08-02T08:00:00Z") },
+    ]);
+    assert.equal(computeThroughputFromOrders(orders), 2);
   });
 
-  it("empty input → 0", () => {
-    assert.equal(computeAvgLeadTimeDays([], "2026-04-13", "2026-04-17"), 0);
+  it("prázdné → 0", () => {
+    assert.equal(computeThroughputFromOrders([]), 0);
+  });
+});
+
+describe("computeAvgLeadTimeDaysFromOrders", () => {
+  it("průměr s jedním desetinným místem", () => {
+    const orders = [
+      { key: "a", createdAt: new Date("2026-08-01T00:00:00Z"), completedAt: new Date("2026-08-01T12:00:00Z") }, // 0,5 d
+      { key: "b", createdAt: new Date("2026-08-01T00:00:00Z"), completedAt: new Date("2026-08-03T00:00:00Z") }, // 2,0 d
+    ];
+    assert.equal(computeAvgLeadTimeDaysFromOrders(orders), 1.3); // (0,5+2)/2 = 1,25 → 1,3
   });
 
-  it("no completed blocks in range → 0", () => {
-    const blocks = [
-      { type: "ZAKAZKA", printCompletedAt: null, createdAt: new Date("2026-04-10T10:00:00Z"), startTime: new Date("2026-04-13T06:00:00Z"), endTime: new Date("2026-04-13T10:00:00Z"), machine: "XL_105", printMinutes: null },
-    ];
-    assert.equal(computeAvgLeadTimeDays(blocks, "2026-04-13", "2026-04-17"), 0);
+  it("půlden se neztratí zaokrouhlením na celé dny", () => {
+    const orders = [{ key: "a", createdAt: new Date("2026-08-01T00:00:00Z"), completedAt: new Date("2026-08-01T12:00:00Z") }];
+    assert.equal(computeAvgLeadTimeDaysFromOrders(orders), 0.5);
+  });
+
+  it("prázdné → null, ne 0 (nula znamená „hned“, ne „nevím“)", () => {
+    assert.equal(computeAvgLeadTimeDaysFromOrders([]), null);
   });
 });
 
