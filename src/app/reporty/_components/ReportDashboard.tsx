@@ -119,6 +119,9 @@ const BTN_ACTIVE: React.CSSProperties = {
 
 const DOW_LABELS = ["Ne","Po","Út","St","Čt","Pá","So"];
 
+/** Číslo v české podobě — desetinná čárka. Jedno místo, ať se zápis nerozejde. */
+const cz = (n: number | null | undefined) => String(n ?? 0).replace(".", ",");
+
 /** Odznak s počtem nálezů na záložce Kontrolní panel. Vidět i bez otevření. */
 function HealthBadge({ loading, error, total, uncomputed, active }: { loading: boolean; error: string | null; total: number; uncomputed: number; active: boolean }) {
   const base: React.CSSProperties = {
@@ -195,14 +198,14 @@ function RetroView({ data }: { data: RetroData }) {
   const pipelineClosed = ["SCHEDULED", "CONFIRMED", "REJECTED", "WITHDRAWN"] as const;
   const pipelineColors: Record<string, string> = {
     SUBMITTED: "#f0883e", ACCEPTED: "#3b82f6", QUEUE_READY: "#a371f7", COUNTER_PROPOSED: "#d29922",
-    SCHEDULED: "#3fb950", CONFIRMED: "#2ea043", REJECTED: "#f85149", WITHDRAWN: "#8b949e",
+    SCHEDULED: "#3fb950", CONFIRMED: "#1f6feb", REJECTED: "#f85149", WITHDRAWN: "#8b949e",
   };
   const pipelineLabels: Record<string, string> = {
     SUBMITTED: "Nové", ACCEPTED: "Přijaté", QUEUE_READY: "Ve frontě", COUNTER_PROPOSED: "Protinávrh",
     SCHEDULED: "Naplánované", CONFIRMED: "Potvrzené", REJECTED: "Zamítnuté", WITHDRAWN: "Stažené",
   };
-  const openTotal = pipelineOpen.reduce((s, k) => s + (data.pipeline.open[k] ?? 0), 0);
-  const closedTotal = pipelineClosed.reduce((s, k) => s + (data.pipeline.closed[k] ?? 0), 0);
+  const openTotal = pipelineOpen.reduce((s, k) => s + (data.pipeline.open?.[k] ?? 0), 0);
+  const closedTotal = pipelineClosed.reduce((s, k) => s + (data.pipeline.closed?.[k] ?? 0), 0);
 
   const chartLabels = data.dailyUtilization.length > 0
     ? [data.dailyUtilization[0].date.slice(5), data.dailyUtilization[data.dailyUtilization.length - 1].date.slice(5)]
@@ -280,7 +283,7 @@ function RetroView({ data }: { data: RetroData }) {
           {pipelineOpen.map((k) => (
             <span key={k} style={{ fontSize: 11, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: pipelineColors[k], display: "inline-block" }} />
-              {pipelineLabels[k]}: {data.pipeline.open[k] ?? 0}
+              {pipelineLabels[k]}: {data.pipeline.open?.[k] ?? 0}
             </span>
           ))}
           {openTotal === 0 && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>žádné</span>}
@@ -291,7 +294,7 @@ function RetroView({ data }: { data: RetroData }) {
           {pipelineClosed.map((k) => (
             <span key={k} style={{ fontSize: 11, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: pipelineColors[k], display: "inline-block" }} />
-              {pipelineLabels[k]}: {data.pipeline.closed[k] ?? 0}
+              {pipelineLabels[k]}: {data.pipeline.closed?.[k] ?? 0}
             </span>
           ))}
           {closedTotal === 0 && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>žádné</span>}
@@ -315,9 +318,33 @@ function RetroView({ data }: { data: RetroData }) {
  * R3 ji ruší, tohle je jen srovnání do doby, než zmizí.
  */
 function freeHoursValue(m: OutlookMachineData | undefined): string {
-  const over = m?.overbookedHours ?? 0;
-  if (over > 0) return `−${String(over).replace(".", ",")} h`;
-  return `${String(m?.freeHours ?? 0).replace(".", ",")} h`;
+  // Stroj bez směn nemá „0 h volných" — nemá kapacitu vůbec.
+  if (m == null || m.plannedCapacity == null) return "—";
+  if (m.overbookedHours > 0) return `−${cz(m.overbookedHours)} h`;
+  return `${cz(m.freeHours)} h`;
+}
+
+/**
+ * Podtitulek karty kapacity musí přiznat totéž co hodnota nad ním. Dokud se řídil jen
+ * `freeHours ?? 0`, hlásila karta u stroje bez směn „—" a hned pod tím „0 h volných“ —
+ * což se čte jako „stroj je plný". Táž ztráta rozdílu mezi „nevím" a „nula", jakou
+ * etapa opravovala u procent, jen přenesená do hodin.
+ */
+function capacitySubtitle(m: OutlookMachineData | undefined): string {
+  if (m == null || m.plannedCapacity == null) return "stroj nejede";
+  if (m.overbookedHours > 0) return `přeplánováno o ${cz(m.overbookedHours)} h`;
+  return `${cz(m.freeHours)} h volných`;
+}
+
+/**
+ * Barva se řídí TÝMŽ signálem jako podtitulek (`overbookedHours`), ne zaokrouhleným
+ * procentem. Jinak by při 100,4 % vyšel `Math.round` na 100, karta by svítila zeleně
+ * a pod ní stálo „přeplánováno o 0,1 h".
+ */
+function capacityColor(m: OutlookMachineData | undefined): string | undefined {
+  if (m == null || m.plannedCapacity == null) return undefined;
+  if (m.overbookedHours > 0) return "#f85149";
+  return m.plannedCapacity >= 80 ? "#3fb950" : "#f0883e";
 }
 
 function OutlookView({ data }: { data: OutlookData }) {
@@ -343,32 +370,28 @@ function OutlookView({ data }: { data: OutlookData }) {
         <KpiCard
           label="Kapacita XL 105"
           value={xl105?.plannedCapacity == null ? "—" : `${xl105.plannedCapacity}%`}
-          subtitle={(xl105?.overbookedHours ?? 0) > 0
-            ? `přeplánováno o ${String(xl105!.overbookedHours).replace(".", ",")} h`
-            : `${String(xl105?.freeHours ?? 0).replace(".", ",")} h volných`}
-          color={xl105?.plannedCapacity == null ? undefined : xl105.plannedCapacity > 100 ? "#f85149" : xl105.plannedCapacity >= 80 ? "#3fb950" : "#f0883e"}
+          subtitle={capacitySubtitle(xl105)}
+          color={capacityColor(xl105)}
         />
         <KpiCard
           label="Kapacita XL 106"
           value={xl106?.plannedCapacity == null ? "—" : `${xl106.plannedCapacity}%`}
-          subtitle={(xl106?.overbookedHours ?? 0) > 0
-            ? `přeplánováno o ${String(xl106!.overbookedHours).replace(".", ",")} h`
-            : `${String(xl106?.freeHours ?? 0).replace(".", ",")} h volných`}
-          color={xl106?.plannedCapacity == null ? undefined : xl106.plannedCapacity > 100 ? "#f85149" : xl106.plannedCapacity >= 80 ? "#3fb950" : "#f0883e"}
+          subtitle={capacitySubtitle(xl106)}
+          color={capacityColor(xl106)}
         />
         {/* Přeplánovaný stroj nemá „0 h volných", ale schodek. Bez znaménka by tahle karta
             tvrdila „0 h" hned vedle karty kapacity, která hlásí „přeplánováno o 26 h". */}
         <KpiCard
           label="Volné hod. XL 105"
           value={freeHoursValue(xl105)}
-          subtitle={`z ${String(xl105?.availableHours ?? 0).replace(".", ",")} h`}
-          color={(xl105?.overbookedHours ?? 0) > 0 ? "#f85149" : undefined}
+          subtitle={`z ${cz(xl105?.availableHours)} h`}
+          color={capacityColor(xl105)}
         />
         <KpiCard
           label="Volné hod. XL 106"
           value={freeHoursValue(xl106)}
-          subtitle={`z ${String(xl106?.availableHours ?? 0).replace(".", ",")} h`}
-          color={(xl106?.overbookedHours ?? 0) > 0 ? "#f85149" : undefined}
+          subtitle={`z ${cz(xl106?.availableHours)} h`}
+          color={capacityColor(xl106)}
         />
       </div>
 
@@ -398,9 +421,12 @@ function OutlookView({ data }: { data: OutlookData }) {
                 return (
                   <div key={d.date} style={{
                     height: 24, borderRadius: 3, background: heatColor(val),
+                    // Přeplánování a nevytížení sdílejí červenou. Rámeček je odliší tvarem,
+                    // aniž by se do R1 tahala nová barva — legenda níž popisuje obojí.
+                    boxShadow: val != null && val > 100 ? "inset 0 0 0 2px var(--text)" : undefined,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: 8, color: val != null && val > 0 ? "#fff" : "var(--text-muted)", fontWeight: 600,
-                  }} title={`${d.date}: ${val == null ? "stroj nejede" : val + " %"}`}>
+                  }} title={`${d.date}: ${val == null ? "stroj nejede" : val > 100 ? val + " % — přeplánováno" : val + " %"}`}>
                     {val == null ? "" : val > 0 ? `${val}` : ""}
                   </div>
                 );
@@ -408,17 +434,25 @@ function OutlookView({ data }: { data: OutlookData }) {
             </React.Fragment>
           ))}
         </div>
-        {/* Legend */}
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <span style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#3fb950", display: "inline-block" }} /> 80%+
-          </span>
-          <span style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#f0883e", display: "inline-block" }} /> 50-79%
-          </span>
-          <span style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: "#f85149", display: "inline-block" }} /> &lt;50%
-          </span>
+        {/* Legenda MUSÍ vyjmenovat všech pět stavů, které `heatColor` umí. Etapa přidala
+            větev nad 100 % a stav „stroj nejede“, ale legenda o nich nevěděla — červená
+            tak měla dva významy a přeplánovaný den se četl jako nejhorší nevytížení. */}
+        <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
+          {[
+            { c: "#f85149", label: "nad 100 % — přeplánováno", ring: true },
+            { c: "#3fb950", label: "80–100 %", ring: false },
+            { c: "#f0883e", label: "50–79 %", ring: false },
+            { c: "#f85149", label: "pod 50 %", ring: false },
+            { c: "var(--surface-3)", label: "stroj nejede", ring: false },
+          ].map((it) => (
+            <span key={it.label} style={{ fontSize: 9, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
+              <span style={{
+                width: 10, height: 10, borderRadius: 2, background: it.c, display: "inline-block",
+                border: "1px solid var(--border)",
+                boxShadow: it.ring ? "inset 0 0 0 2px var(--text)" : undefined,
+              }} /> {it.label}
+            </span>
+          ))}
         </div>
       </div>
 
@@ -437,7 +471,7 @@ function OutlookView({ data }: { data: OutlookData }) {
                 <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text)" }}>{machineLabel(m.machine)}</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{m.description}</div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
-                  {startDt.toISOString().slice(0, 10)} · {hours} h
+                  {startDt.toISOString().slice(0, 10)} · {cz(hours)} h
                 </div>
               </div>
             );
