@@ -21,6 +21,13 @@ import { MACHINES } from "@/lib/machines";
 
 const ALLOWED_ROLES = new Set(["ADMIN"]);
 
+/**
+ * Hodiny na obrazovku — jedno desetinné místo. Dvě setiny hodiny je 36 sekund,
+ * tedy falešná přesnost u čísla, které vzniklo součtem plánovaných směn.
+ * Poměry (vytížení, ratio údržby) se počítají z PŘESNÝCH hodnot, ne z těchhle.
+ */
+const round1 = (hours: number) => Math.round(hours * 10) / 10;
+
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) {
@@ -182,16 +189,17 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     const clippedHours = (b: (typeof blockInputs)[number]) =>
       printOverlapMinutes(segMap.get(b) ?? null, b, startUtc, endUtc) / 60;
     const sumClipped = (type: string) =>
-      Math.round(blockInputs.filter((b) => b.machine === machine && b.type === type).reduce((s, b) => s + clippedHours(b), 0) * 100) / 100;
+      blockInputs.filter((b) => b.machine === machine && b.type === type).reduce((s, b) => s + clippedHours(b), 0);
 
     const productionHours = sumClipped("ZAKAZKA");
     const maintenanceHours = sumClipped("UDRZBA");
+    // Poměry se počítají z PŘESNÝCH hodin; zaokrouhluje se až to, co jde na obrazovku.
     const utilization = computeUtilization(productionHours, availableHours);
     machines[machine] = {
       utilization,
-      productionHours,
-      maintenanceHours,
-      availableHours,
+      productionHours: round1(productionHours),
+      maintenanceHours: round1(maintenanceHours),
+      availableHours: round1(availableHours),
       maintenanceRatio: computeMaintenanceRatio(maintenanceHours, availableHours),
     };
     totalAvailable += availableHours;
@@ -374,11 +382,11 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     // `freeHours` se ZÁMĚRNĚ neusekává na nule — „0 h volných“ a „přeplánováno o 26 h“
     // jsou dvě různé zprávy a plánovač potřebuje tu druhou. Kladné `overbookedHours`
     // je ta část, o kterou je stroj nad kapacitou.
-    const remaining = Math.round((availableHours - plannedHours) * 100) / 100;
-    const freeHours = Math.max(0, remaining);
-    const overbookedHours = Math.max(0, -remaining);
+    const remaining = availableHours - plannedHours;
+    const freeHours = round1(Math.max(0, remaining));
+    const overbookedHours = round1(Math.max(0, -remaining));
     const plannedCapacity = computeUtilization(plannedHours, availableHours);
-    machines[machine] = { plannedCapacity, freeHours, overbookedHours, availableHours };
+    machines[machine] = { plannedCapacity, freeHours, overbookedHours, availableHours: round1(availableHours) };
   }
 
   // Daily capacity (all block types)
