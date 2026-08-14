@@ -51,7 +51,7 @@ function shiftIntervalsForDay(row: MachineWeekShiftsRow, dateStr: string): Inter
   return out;
 }
 
-/** Sloučí překrývající se intervaly, aby se odstávka neodečetla dvakrát. */
+/** Sloučí překrývající se intervaly, aby se táž minuta nezapočítala (ani neodečetla) dvakrát. */
 function mergeIntervals(list: Interval[]): Interval[] {
   const sorted = [...list].sort((a, b) => a.start - b.start);
   const out: Interval[] = [];
@@ -85,7 +85,7 @@ export function computeAvailableHours(
   const winEnd = pragueToUTC(addDaysToCivilDate(rangeEnd, 1), 0, 0).getTime();
   if (winEnd <= winStart) return 0;
 
-  const shifts: Interval[] = [];
+  const rawShifts: Interval[] = [];
   let cur = addDaysToCivilDate(rangeStart, -1);
   while (cur <= rangeEnd) {
     const weekStart = weekStartStrFromDateStr(cur);
@@ -93,9 +93,15 @@ export function computeAvailableHours(
     const row = weekShifts.find(
       (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek,
     );
-    if (row && row.isActive) shifts.push(...shiftIntervalsForDay(row, cur));
+    if (row && row.isActive) rawShifts.push(...shiftIntervalsForDay(row, cur));
     cur = addDaysToCivilDate(cur, 1);
   }
+
+  // Směny se slučují ze stejného důvodu jako odstávky: `PUT /api/machine-week-shifts` validuje
+  // každou směnu IZOLOVANĚ, takže noční do 08:00 vedle výchozí ranní od 06:00 projde — a průnik
+  // by se do jmenovatele započetl dvakrát. Nafouknutá kapacita podhodnocuje vytížení, takže by
+  // se přeplánování schovalo právě tam, kde má být nejlíp vidět.
+  const shifts = mergeIntervals(rawShifts);
 
   const shutdowns = mergeIntervals(
     companyDayIntervalsFor(machine, companyDays).map((i) => ({
@@ -139,42 +145,84 @@ export function computeUtilization(productionHours: number, availableHours: numb
 // 3. Průtok a lead time — nad DOKONČENÝMI zakázkami
 // ---------------------------------------------------------------------------
 
-/** Blok s potvrzeným tiskem. Načítá se dotazem na `printCompletedAt`, ne podle polohy v plánu. */
+/**
+ * Kus zakázky. Načítá se dotazem na `printCompletedAt`, ne podle polohy v plánu.
+ *
+ * `printCompletedAt` smí být `null`: volající posílá VŠECHNY sourozence dotčených
+ * split-skupin, tedy i ty, které ještě nikdo neodklepl (viz `groupCompletedToOrders`).
+ */
 export type CompletedBlock = {
   id: number;
   splitGroupId: number | null;
   createdAt: Date;
-  printCompletedAt: Date;
+  printCompletedAt: Date | null;
 };
 
 /** Jedna zakázka: rozdělené kusy jsou sloučené do jednoho záznamu. */
 export type CompletedOrder = { key: string; createdAt: Date; completedAt: Date };
 
 /**
- * Bloky → zakázky. Rozdělená zakázka je JEDNA zakázka (rozhodnutí Vojty 14. 8. 2026),
- * proto se kusy slučují přes `splitGroupId`.
+ * Bloky → zakázky dokončené V OKNĚ `[windowStart, windowEnd)`.
  *
- * Klíč nese prefix `g`/`b`, protože `Block.id` a `SplitGroup.id` jsou NEZÁVISLÉ
- * id-prostory — numerická shoda by dvě různé zakázky sloučila v jednu (táž konvence
- * jako v `blockShades.ts`).
+ * Rozdělená zakázka je JEDNA zakázka (rozhodnutí Vojty 14. 8. 2026), proto se kusy
+ * slučují přes `splitGroupId`. Klíč nese prefix `g`/`b`, protože `Block.id`
+ * a `SplitGroup.id` jsou NEZÁVISLÉ id-prostory — numerická shoda by dvě různé
+ * zakázky sloučila v jednu (táž konvence jako v `blockShades.ts`).
  *
  * Skupina si bere NEJSTARŠÍ založení a NEJPOZDĚJŠÍ dokončení: to je poctivá doba
  * od zadání po dotištění posledního kusu. Kus vzniklý splitem má `createdAt`
  * v okamžiku rozdělení, takže sám o sobě by dal uměle krátký lead time.
+ *
+ * ## Proč okno patří SEM, a ne jen do dotazu
+ *
+ * Klíč `g<splitGroupId>` je stabilní napříč obdobími, kdežto dotaz na
+ * `printCompletedAt` uvnitř období vrací jen některé kusy. Zakázka rozdělená přes
+ * hranici (jeden kus 31. 7., druhý 3. 8.) se tak započítala v ČERVENCI I V SRPNU —
+ * součet měsíců nedal rok, přesně ta nemoc, kterou etapa odstranila u hodin. Navíc
+ * se jí v tom druhém období umělo zkrátil lead time, protože do skupiny spadl jen
+ * kus se `createdAt` z okamžiku rozdělení.
+ *
+ * Volající proto posílá ÚPLNÉ skupiny (i kusy dokončené mimo okno i nedokončené)
+ * a rozhodnutí padá tady: zakázka se počítá tomu období, ve kterém byl odklepnut
+ * její POSLEDNÍ kus. Nedokončený sourozenec znamená, že zakázka ještě neskončila —
+ * nezapočítá se nikam.
  */
-export function groupCompletedToOrders(blocks: CompletedBlock[]): CompletedOrder[] {
-  const byKey = new Map<string, CompletedOrder>();
+export function groupCompletedToOrders(
+  blocks: CompletedBlock[],
+  windowStart: Date,
+  windowEnd: Date,
+): CompletedOrder[] {
+  type Acc = { key: string; createdAt: Date; completedAt: Date | null; unfinished: boolean };
+  const byKey = new Map<string, Acc>();
   for (const b of blocks) {
     const key = b.splitGroupId != null ? `g${b.splitGroupId}` : `b${b.id}`;
     const cur = byKey.get(key);
     if (!cur) {
-      byKey.set(key, { key, createdAt: b.createdAt, completedAt: b.printCompletedAt });
+      byKey.set(key, {
+        key,
+        createdAt: b.createdAt,
+        completedAt: b.printCompletedAt,
+        unfinished: b.printCompletedAt == null,
+      });
       continue;
     }
     if (b.createdAt.getTime() < cur.createdAt.getTime()) cur.createdAt = b.createdAt;
-    if (b.printCompletedAt.getTime() > cur.completedAt.getTime()) cur.completedAt = b.printCompletedAt;
+    if (b.printCompletedAt == null) cur.unfinished = true;
+    else if (cur.completedAt == null || b.printCompletedAt.getTime() > cur.completedAt.getTime()) {
+      cur.completedAt = b.printCompletedAt;
+    }
   }
-  return [...byKey.values()];
+
+  const from = windowStart.getTime();
+  const to = windowEnd.getTime();
+  const out: CompletedOrder[] = [];
+  for (const acc of byKey.values()) {
+    if (acc.unfinished || acc.completedAt == null) continue;
+    const done = acc.completedAt.getTime();
+    if (done < from || done >= to) continue;
+    out.push({ key: acc.key, createdAt: acc.createdAt, completedAt: acc.completedAt });
+  }
+  return out;
 }
 
 /** Počet dokončených zakázek v období. */

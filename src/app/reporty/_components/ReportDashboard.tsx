@@ -6,6 +6,7 @@ import { machineLabel } from "@/lib/machines";
 import { ModuleHeader } from "@/components/ModuleHeader";
 import HealthPanel from "./HealthPanel";
 import { useHealthData } from "./useHealthData";
+import { OPEN_STATUSES, CLOSED_STATUSES } from "@/lib/reservationStatus";
 import { KpiCard } from "./KpiCard";
 import { PlanningSection, type PlanningMetrics, type PlannerActivityEntry } from "./PlanningSection";
 
@@ -194,8 +195,10 @@ function RetroView({ data }: { data: RetroData }) {
   if (!data.machines || !data.dailyUtilization) return null;
   const xl105 = data.machines["XL_105"];
   const xl106 = data.machines["XL_106"];
-  const pipelineOpen = ["SUBMITTED", "ACCEPTED", "QUEUE_READY", "COUNTER_PROPOSED"] as const;
-  const pipelineClosed = ["SCHEDULED", "CONFIRMED", "REJECTED", "WITHDRAWN"] as const;
+  // Rozdělení otevřené/uzavřené se bere ze slovníku, ne z vlastní kopie — jinak by devátý
+  // stav shodil jen strážný test slovníku a klient by ho tiše nezobrazil.
+  const pipelineOpen = OPEN_STATUSES;
+  const pipelineClosed = CLOSED_STATUSES;
   const pipelineColors: Record<string, string> = {
     SUBMITTED: "#f0883e", ACCEPTED: "#3b82f6", QUEUE_READY: "#a371f7", COUNTER_PROPOSED: "#d29922",
     SCHEDULED: "#3fb950", CONFIRMED: "#1f6feb", REJECTED: "#f85149", WITHDRAWN: "#8b949e",
@@ -289,7 +292,11 @@ function RetroView({ data }: { data: RetroData }) {
           {openTotal === 0 && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>žádné</span>}
         </div>
 
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Uzavřené v období</div>
+        {/* Ne „uzavřené v období“ — filtr je na datu ZALOŽENÍ, okamžik uzamčení DB neuchová
+            (chybí `rejectedAt`). Popisek to musí říct, jinak si CFO čte jiné číslo, než vidí. */}
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+          Rezervace založené v období, které jsou dnes už uzavřené
+        </div>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
           {pipelineClosed.map((k) => (
             <span key={k} style={{ fontSize: 11, color: "var(--text)", display: "flex", alignItems: "center", gap: 4 }}>
@@ -302,7 +309,7 @@ function RetroView({ data }: { data: RetroData }) {
         <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
           Konverze: <strong style={{ color: "var(--text)" }}>
             {data.pipeline.conversionPercent == null ? "—" : `${data.pipeline.conversionPercent} %`}
-          </strong> (úspěšně vyřízené z uzavřených)
+          </strong> (úspěšně vyřízené z rezervací založených v období a dnes uzavřených)
         </div>
       </div>
     </>

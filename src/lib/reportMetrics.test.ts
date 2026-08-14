@@ -13,6 +13,7 @@ import {
   resolvePlanCoverage,
 } from "./reportMetrics";
 import { printOverlapMinutes } from "./printTimeClient";
+import { addDaysToCivilDate } from "./dateUtils";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,16 @@ function makeRow(machine: string, dayOfWeek: number, flags: ShiftFlags = {}): Ma
     nightStartMin: null,
     nightEndMin: null,
   };
+}
+
+/** Celý týden (Ne–So) stejných řádků pro zadaný `weekStart`. `patch` přepíše cokoliv dál. */
+function makeWeekRows(
+  machine: string,
+  weekStart: string,
+  flags: ShiftFlags,
+  patch: Partial<MachineWeekShiftsRow> = {},
+): MachineWeekShiftsRow[] {
+  return [0, 1, 2, 3, 4, 5, 6].map((dow) => ({ ...makeRow(machine, dow, flags), weekStart, ...patch }));
 }
 
 /** Mon-Fri 6-22 (16h/day), weekend off — default XL_105 weekShifts. */
@@ -185,6 +196,76 @@ describe("computeAvailableHours", () => {
     ];
     assert.equal(computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", rows, shutdown), 8);
   });
+
+  it("překryv noční (do 08:00) s ranní (od 06:00) se NEZAPOČÍTÁ dvakrát — týden 24/7 = 168 h", () => {
+    // `PUT /api/machine-week-shifts` validuje každou směnu izolovaně, takže noční
+    // 22:00–08:00 (600 min = horní povolená mez) vedle výchozí ranní od 06:00 projde.
+    // Bez slučování směn vycházelo 182 h místo 168 h (+2 h/den, tedy +8,3 % kapacity)
+    // — a nafouknutý jmenovatel schová přeplánování.
+    const rows = [
+      // ocas noční z neděle 12. 4. (jiný týden!) pokrývá pondělní 00:00–08:00
+      ...makeWeekRows("XL_105", "2026-04-06", { morningOn: true, afternoonOn: true, nightOn: true }, { nightEndMin: 480 }),
+      ...makeWeekRows("XL_105", "2026-04-13", { morningOn: true, afternoonOn: true, nightOn: true }, { nightEndMin: 480 }),
+    ];
+    const hours = computeAvailableHours("XL_105", "2026-04-13", "2026-04-19", rows, []);
+    assert.equal(hours, 168, "stroj běžící nepřetržitě má za týden 168 h, ne víc");
+  });
+
+  it("parita: součet po dnech = celý rozsah (i v týdnech s přechodem času)", () => {
+    // Souhrnná karta a denní graf jedou přes touž funkci s jiným oknem. Kdyby se
+    // rozešly, karta by tvrdila něco jiného než sloupce pod ní — a u směn přes
+    // půlnoc je to přesně to místo, kde se dá minuta ztratit nebo zdvojit.
+    const cases: Array<{ label: string; rows: MachineWeekShiftsRow[]; from: string; to: string }> = [
+      { label: "pracovní týden 16 h", rows: make16hShifts(), from: "2026-04-13", to: "2026-04-17" },
+      {
+        label: "nepřetržitý provoz s překryvem směn",
+        rows: [
+          ...makeWeekRows("XL_105", "2026-04-06", { morningOn: true, afternoonOn: true, nightOn: true }, { nightEndMin: 480 }),
+          ...makeWeekRows("XL_105", "2026-04-13", { morningOn: true, afternoonOn: true, nightOn: true }, { nightEndMin: 480 }),
+        ],
+        from: "2026-04-13",
+        to: "2026-04-19",
+      },
+      {
+        label: "jarní přechod času (2026-03-29)",
+        rows: makeWeekRows("XL_105", "2026-03-23", { morningOn: true, afternoonOn: true, nightOn: true }),
+        from: "2026-03-23",
+        to: "2026-03-29",
+      },
+      {
+        label: "podzimní přechod času (2026-10-25)",
+        rows: makeWeekRows("XL_105", "2026-10-19", { morningOn: true, afternoonOn: true, nightOn: true }),
+        from: "2026-10-19",
+        to: "2026-10-25",
+      },
+    ];
+
+    for (const c of cases) {
+      const whole = computeAvailableHours("XL_105", c.from, c.to, c.rows, []);
+      let daily = 0;
+      let cur = c.from;
+      while (cur <= c.to) {
+        daily += computeAvailableHours("XL_105", cur, cur, c.rows, []);
+        cur = addDaysToCivilDate(cur, 1);
+      }
+      assert.ok(Math.abs(whole - daily) < 1e-9, `${c.label}: celek ${whole} h ≠ součet dnů ${daily} h`);
+    }
+  });
+
+  it("noční přes přechod času má 7 h na jaře a 9 h na podzim (skutečné hodiny, ne minuty ciferníku)", () => {
+    // Hodiny se počítají z absolutních UTC okamžiků. Kdyby se někdo vrátil k odečítání
+    // minut na ciferníku, obě čísla by vyšla 8 a nikdo by si toho nevšiml — dnes je
+    // hlídá jen tenhle test.
+    // jediná směna v týdnu: noční ze soboty (dow 6), aby v rozsahu nebylo nic jiného
+    const onlySaturdayNight = (weekStart: string) =>
+      makeWeekRows("XL_105", weekStart, {}).map((r) => (r.dayOfWeek === 6 ? { ...r, nightOn: true } : r));
+
+    // So 28. 3. 22:00 CET → Ne 29. 3. 06:00 CEST; v noci se hodina přeskočí
+    assert.equal(computeAvailableHours("XL_105", "2026-03-28", "2026-03-29", onlySaturdayNight("2026-03-23"), []), 7);
+
+    // So 24. 10. 22:00 CEST → Ne 25. 10. 06:00 CET; hodina se opakuje
+    assert.equal(computeAvailableHours("XL_105", "2026-10-24", "2026-10-25", onlySaturdayNight("2026-10-19"), []), 9);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -216,6 +297,10 @@ describe("computeUtilization", () => {
 // ---------------------------------------------------------------------------
 // groupCompletedToOrders / průtok / lead time
 // ---------------------------------------------------------------------------
+// Okno „všechno", kde se testuje jen seskupení, ne příslušnost k období.
+const ANY_FROM = new Date("2000-01-01T00:00:00Z");
+const ANY_TO = new Date("2100-01-01T00:00:00Z");
+
 describe("groupCompletedToOrders", () => {
   const D = (iso: string) => new Date(iso);
 
@@ -223,7 +308,7 @@ describe("groupCompletedToOrders", () => {
     const orders = groupCompletedToOrders([
       { id: 1, splitGroupId: 7, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-10T12:00:00Z") },
       { id: 2, splitGroupId: 7, createdAt: D("2026-08-05T08:00:00Z"), printCompletedAt: D("2026-08-11T09:00:00Z") },
-    ]);
+    ], ANY_FROM, ANY_TO);
     assert.equal(orders.length, 1);
     // nejstarší založení a nejpozdější dokončení celé skupiny
     assert.equal(orders[0].createdAt.toISOString(), "2026-08-01T08:00:00.000Z");
@@ -234,7 +319,7 @@ describe("groupCompletedToOrders", () => {
     const orders = groupCompletedToOrders([
       { id: 1, splitGroupId: null, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
       { id: 2, splitGroupId: null, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
-    ]);
+    ], ANY_FROM, ANY_TO);
     assert.equal(orders.length, 2);
   });
 
@@ -243,8 +328,55 @@ describe("groupCompletedToOrders", () => {
     const orders = groupCompletedToOrders([
       { id: 7, splitGroupId: null, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
       { id: 9, splitGroupId: 7, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-02T08:00:00Z") },
-    ]);
+    ], ANY_FROM, ANY_TO);
     assert.equal(orders.length, 2);
+  });
+
+  // --- příslušnost k období ---
+
+  // Táž skupina rozdělená přes hranici měsíce: kus A doběhl 31. 7., kus B 3. 8.
+  const acrossBorder = [
+    { id: 1, splitGroupId: 7, createdAt: D("2026-07-20T08:00:00Z"), printCompletedAt: D("2026-07-31T10:00:00Z") },
+    { id: 2, splitGroupId: 7, createdAt: D("2026-07-30T08:00:00Z"), printCompletedAt: D("2026-08-03T09:00:00Z") },
+  ];
+  const JUL = [D("2026-06-30T22:00:00Z"), D("2026-07-31T22:00:00Z")] as const; // pražský červenec
+  const AUG = [D("2026-07-31T22:00:00Z"), D("2026-08-31T22:00:00Z")] as const; // pražský srpen
+
+  it("zakázka přes hranici období se počítá JEN v období posledního kusu", () => {
+    // Dřív se objevila v obou (klíč `g7` je stabilní napříč obdobími), takže součet
+    // měsíců nedal rok — a v červenci navíc s uměle krátkým lead time.
+    assert.equal(groupCompletedToOrders(acrossBorder, JUL[0], JUL[1]).length, 0);
+
+    const aug = groupCompletedToOrders(acrossBorder, AUG[0], AUG[1]);
+    assert.equal(aug.length, 1);
+    assert.equal(aug[0].completedAt.toISOString(), "2026-08-03T09:00:00.000Z");
+    // lead time se měří od NEJSTARŠÍHO založení skupiny, ne od okamžiku rozdělení
+    assert.equal(aug[0].createdAt.toISOString(), "2026-07-20T08:00:00.000Z");
+  });
+
+  it("nedokončený sourozenec → zakázka se nezapočítá do žádného období", () => {
+    const rows = [
+      { id: 1, splitGroupId: 7, createdAt: D("2026-08-01T08:00:00Z"), printCompletedAt: D("2026-08-10T12:00:00Z") },
+      { id: 2, splitGroupId: 7, createdAt: D("2026-08-02T08:00:00Z"), printCompletedAt: null },
+    ];
+    assert.equal(groupCompletedToOrders(rows, AUG[0], AUG[1]).length, 0);
+    assert.equal(groupCompletedToOrders(rows, ANY_FROM, ANY_TO).length, 0);
+  });
+
+  it("hranice okna: konec období je VÝLUČNÝ, začátek včetně", () => {
+    const at = (iso: string) => [{ id: 1, splitGroupId: null, createdAt: D("2026-08-01T00:00:00Z"), printCompletedAt: D(iso) }];
+    assert.equal(groupCompletedToOrders(at("2026-07-31T22:00:00Z"), AUG[0], AUG[1]).length, 1, "půlnoc 1. 8. Praha patří srpnu");
+    assert.equal(groupCompletedToOrders(at("2026-08-31T22:00:00Z"), AUG[0], AUG[1]).length, 0, "půlnoc 1. 9. Praha už srpnu nepatří");
+  });
+
+  it("strážný: route dohledává CELÉ split-skupiny, ne jen kusy dokončené v období", () => {
+    // Čistá funkce může rozhodnout správně jen tehdy, když vidí všechny sourozence —
+    // čím ji route nakrmí, ohlídá jen tenhle test.
+    const src = readFileSync(join(process.cwd(), "src/app/api/report/dashboard/route.ts"), "utf8");
+    assert.ok(
+      /splitGroupId:\s*\{\s*in:/.test(src),
+      "chybí druhý dotaz na sourozence — zakázka přes hranici by se počítala v obou obdobích",
+    );
   });
 });
 
@@ -254,7 +386,7 @@ describe("computeThroughputFromOrders", () => {
       { id: 1, splitGroupId: 7, createdAt: new Date("2026-08-01T08:00:00Z"), printCompletedAt: new Date("2026-08-02T08:00:00Z") },
       { id: 2, splitGroupId: 7, createdAt: new Date("2026-08-01T08:00:00Z"), printCompletedAt: new Date("2026-08-02T08:00:00Z") },
       { id: 3, splitGroupId: null, createdAt: new Date("2026-08-01T08:00:00Z"), printCompletedAt: new Date("2026-08-02T08:00:00Z") },
-    ]);
+    ], ANY_FROM, ANY_TO);
     assert.equal(computeThroughputFromOrders(orders), 2);
   });
 

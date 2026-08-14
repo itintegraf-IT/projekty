@@ -139,12 +139,19 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       where: { weekStart: { gte: new Date(startUtc.getTime() - 28 * 86_400_000), lt: new Date(endUtc.getTime() + 28 * 86_400_000) } },
     }),
     // Dvě RŮZNÉ populace, dřív slepené jedním OR: otevřené = stav k dnešku bez ohledu
-    // na období, uzavřené = ty, které v období skončily. Slepené to způsobovalo, že se
+    // na období, uzavřené = kohorta založená v období. Slepené to způsobovalo, že se
     // v srpnovém reportu objevily rezervace z března.
     prisma.reservation.findMany({
       where: { status: { in: [...OPEN_STATUSES] } },
       select: { status: true },
     }),
+    // POZOR: tohle NENÍ „uzavřené v období", ale „založené v období a dnes už uzavřené".
+    // Filtr je na `createdAt`, protože okamžik uzavření se v DB neuchová celý: `Reservation`
+    // má `scheduledAt`, `confirmedAt` i `withdrawnAt`, ale `rejectedAt` CHYBÍ — poctivé
+    // „uzavřeno v období" by tedy vyžadovalo migraci (nový sloupec `rejectedAt` + dopočet
+    // historických řádků), a ta je mimo rozsah téhle etapy. Důsledek, se kterým se počítá:
+    // konverze za už uzavřený měsíc se v čase ještě mění, jak kohorta dobíhá. Popisek v UI
+    // (`ReportDashboard.tsx`) proto říká přesně tohle, ne „uzavřené v období".
     prisma.reservation.findMany({
       where: { status: { in: [...CLOSED_STATUSES] }, createdAt: { gte: startUtc, lt: endUtc } },
       select: { status: true },
@@ -234,11 +241,20 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     where: { type: "ZAKAZKA", printCompletedAt: { gte: startUtc, lt: endUtc } },
     select: { id: true, splitGroupId: true, createdAt: true, printCompletedAt: true },
   });
-  const completedOrders = groupCompletedToOrders(
-    completedRows.flatMap((r) =>
-      r.printCompletedAt == null ? [] : [{ id: r.id, splitGroupId: r.splitGroupId, createdAt: r.createdAt, printCompletedAt: r.printCompletedAt }],
-    ),
-  );
+  // Druhý dotaz na CELÉ split-skupiny: klíč `g<splitGroupId>` je stabilní napříč obdobími,
+  // takže zakázka rozdělená přes hranici měsíce se dřív započetla v obou (a v tom druhém
+  // navíc s uměle krátkým lead time — kus vzniklý splitem má `createdAt` z okamžiku
+  // rozdělení). Sourozenci se berou VŠICHNI, i nedokončení: chybějící `printCompletedAt`
+  // znamená, že zakázka ještě neskončila, takže do žádného období nepatří.
+  const touchedGroupIds = [...new Set(completedRows.map((r) => r.splitGroupId).filter((x): x is number => x != null))];
+  const siblingRows = touchedGroupIds.length === 0 ? [] : await prisma.block.findMany({
+    where: { splitGroupId: { in: touchedGroupIds } },
+    select: { id: true, splitGroupId: true, createdAt: true, printCompletedAt: true },
+  });
+  const piecesById = new Map<number, (typeof completedRows)[number]>();
+  for (const r of [...completedRows, ...siblingRows]) piecesById.set(r.id, r);
+  // Období rozhoduje až uvnitř — zakázka patří tomu, ve kterém doběhl její POSLEDNÍ kus.
+  const completedOrders = groupCompletedToOrders([...piecesById.values()], startUtc, endUtc);
   const throughput = computeThroughputFromOrders(completedOrders);
   const avgLeadTimeDays = computeAvgLeadTimeDaysFromOrders(completedOrders);
 
