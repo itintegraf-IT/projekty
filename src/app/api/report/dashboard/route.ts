@@ -6,7 +6,6 @@ import { isCivilDateString, addDaysToCivilDate, pragueToUTC } from "@/lib/dateUt
 import { serializeWeekShifts } from "@/lib/scheduleValidation";
 import {
   computeAvailableHours,
-  computeBlockHours,
   computeUtilization,
   groupCompletedToOrders,
   computeThroughputFromOrders,
@@ -14,7 +13,6 @@ import {
   computeMaintenanceRatio,
   computePlanStability,
   resolvePlanCoverage,
-  blockDurationHours,
 } from "@/lib/reportMetrics";
 import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
 import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
@@ -172,8 +170,17 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 
   for (const machine of MACHINES) {
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
-    const productionHours = Math.round(computeBlockHours(blockInputs, machine, "ZAKAZKA") * 100) / 100;
-    const maintenanceHours = Math.round(computeBlockHours(blockInputs, machine, "UDRZBA") * 100) / 100;
+    // Souhrn se ořezává STEJNĚ jako denní graf. Dřív se sčítala celá délka bloků, které
+    // období jen protínají, kdežto dostupné hodiny ořezané byly — na produkci 26 h ze
+    // 399 h v srpnu 2026, a tytéž hodiny se započetly znovu i v září. Tímhle zároveň
+    // mizí rozpor mezi kartou a grafem pod ní: obě čísla jedou přes týž `segMap`.
+    const clippedHours = (b: (typeof blockInputs)[number]) =>
+      printOverlapMinutes(segMap.get(b) ?? null, b, startUtc, endUtc) / 60;
+    const sumClipped = (type: string) =>
+      Math.round(blockInputs.filter((b) => b.machine === machine && b.type === type).reduce((s, b) => s + clippedHours(b), 0) * 100) / 100;
+
+    const productionHours = sumClipped("ZAKAZKA");
+    const maintenanceHours = sumClipped("UDRZBA");
     const utilization = computeUtilization(productionHours, availableHours);
     machines[machine] = { utilization, productionHours, maintenanceHours, availableHours };
     totalAvailable += availableHours;
@@ -348,10 +355,10 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
 
   for (const machine of MACHINES) {
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
-    // All block types count as planned
+    // Týž ořez jako v retro režimu i jako v denním grafu níž — viz komentář v `handleRetro`.
     const plannedHours = blockInputs
       .filter((b) => b.machine === machine)
-      .reduce((sum, b) => sum + blockDurationHours(b), 0);
+      .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, startUtc, endUtc) / 60, 0);
     const freeHours = Math.max(0, Math.round((availableHours - plannedHours) * 100) / 100);
     const plannedCapacity = computeUtilization(plannedHours, availableHours);
     machines[machine] = { plannedCapacity, freeHours, availableHours };

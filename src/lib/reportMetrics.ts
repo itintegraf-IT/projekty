@@ -9,20 +9,6 @@ import { resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type BlockInput = {
-  type: string;
-  machine: string;
-  startTime: Date;
-  endTime: Date;
-  printMinutes: number | null;
-  printCompletedAt: Date | null;
-  createdAt: Date;
-};
-
-// ---------------------------------------------------------------------------
 // 1. computeAvailableHours
 // ---------------------------------------------------------------------------
 
@@ -306,28 +292,4 @@ export function resolvePlanCoverage(
   // `<=` schválně: období, které začíná PŘESNĚ v okamžiku spuštění nahrávání,
   // je pokryté celé.
   return { covered: coverageFrom.getTime() <= rangeStartUtc.getTime(), coverageFrom };
-}
-
-// ---------------------------------------------------------------------------
-// 7. computeBlockHours
-// ---------------------------------------------------------------------------
-
-/**
- * Hodiny jednoho bloku pro metriky: ZAKAZKA = printMinutes (tiskový čas — elapsed
- * by u bloku pauznutého přes odstávku nadhodnocoval), fallback elapsed pro legacy
- * bloky s printMinutes=null. Ostatní typy = elapsed. Bypass ZAKAZKA má pm == elapsed.
- */
-export function blockDurationHours(b: BlockInput): number {
-  const elapsedH = (b.endTime.getTime() - b.startTime.getTime()) / 3_600_000;
-  if (b.type !== "ZAKAZKA") return elapsedH;
-  return b.printMinutes != null && Number.isFinite(b.printMinutes) && b.printMinutes > 0
-    ? b.printMinutes / 60
-    : elapsedH;
-}
-
-/** Součet hodin bloků pro daný stroj a typ (ZAKAZKA přes tiskové minuty). */
-export function computeBlockHours(blocks: BlockInput[], machine: string, type: string): number {
-  return blocks
-    .filter((b) => b.machine === machine && b.type === type)
-    .reduce((sum, b) => sum + blockDurationHours(b), 0);
 }

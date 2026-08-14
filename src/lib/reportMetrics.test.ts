@@ -11,8 +11,8 @@ import {
   computeMaintenanceRatio,
   computePlanStability,
   resolvePlanCoverage,
-  computeBlockHours,
 } from "./reportMetrics";
+import { printOverlapMinutes } from "./printTimeClient";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
@@ -442,39 +442,26 @@ describe("resolvePlanCoverage", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// computeBlockHours
-// ---------------------------------------------------------------------------
-describe("computeBlockHours", () => {
-  const mk = (over: Partial<Parameters<typeof computeBlockHours>[0][number]>) => ({
-    type: "ZAKAZKA", machine: "XL_106",
-    startTime: new Date("2026-08-21T18:00:00.000Z"),
-    endTime: new Date("2026-08-23T22:00:00.000Z"), // elapsed 52 h
-    printMinutes: 240 as number | null,
-    printCompletedAt: null, createdAt: new Date("2026-08-01T00:00:00.000Z"),
-    ...over,
-  });
+describe("parita souhrnu a denního grafu", () => {
+  it("součet denních ořezů se rovná ořezu celého okna", () => {
+    // Blok 12. 8. 20:00 → 14. 8. 04:00 UTC (bez segmentů = ořez celého spanu),
+    // okno 12.–13. 8., tedy blok přesahuje zprava.
+    const b = { startTime: new Date("2026-08-12T20:00:00Z"), endTime: new Date("2026-08-14T04:00:00Z") };
+    const winStart = new Date("2026-08-12T00:00:00Z");
+    const winEnd = new Date("2026-08-14T00:00:00Z");
 
-  it("ZAKAZKA s printMinutes → tiskové hodiny, ne elapsed (pauznutý blok)", () => {
-    assert.equal(computeBlockHours([mk({})], "XL_106", "ZAKAZKA"), 4);
-  });
-  it("ZAKAZKA s printMinutes=null (legacy) → elapsed fallback", () => {
-    assert.equal(
-      computeBlockHours([mk({ printMinutes: null, endTime: new Date("2026-08-21T22:00:00.000Z") })], "XL_106", "ZAKAZKA"),
-      4,
-    );
-  });
-  it("UDRZBA ignoruje printMinutes → elapsed", () => {
-    assert.equal(
-      computeBlockHours([mk({ type: "UDRZBA", printMinutes: 999, endTime: new Date("2026-08-21T20:00:00.000Z") })], "XL_106", "UDRZBA"),
-      2,
-    );
-  });
-  it("filtruje stroj a typ", () => {
-    assert.equal(computeBlockHours([mk({ machine: "XL_105" })], "XL_106", "ZAKAZKA"), 0);
-    assert.equal(computeBlockHours([mk({})], "XL_106", "UDRZBA"), 0);
-  });
-  it("prázdný vstup → 0", () => {
-    assert.equal(computeBlockHours([], "XL_106", "ZAKAZKA"), 0);
+    const whole = printOverlapMinutes(null, b, winStart, winEnd);
+
+    let daily = 0;
+    for (const [ds, de] of [
+      ["2026-08-12T00:00:00Z", "2026-08-13T00:00:00Z"],
+      ["2026-08-13T00:00:00Z", "2026-08-14T00:00:00Z"],
+    ]) {
+      daily += printOverlapMinutes(null, b, new Date(ds), new Date(de));
+    }
+    // den 12.: 20:00-24:00 = 240 min; den 13.: celý = 1440 min
+    assert.equal(whole, 1680);
+    assert.equal(daily, 1680);
+    assert.notEqual(whole, (b.endTime.getTime() - b.startTime.getTime()) / 60000); // celý blok = 1920 min
   });
 });
