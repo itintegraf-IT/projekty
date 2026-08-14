@@ -96,7 +96,8 @@ export function PlanningSection({
             <div style={{ flex: 1, height: 8, background: "var(--surface-2)", borderRadius: 4, overflow: "hidden" }}>
               <div style={{ width: `${(a.actionCount / maxActivity) * 100}%`, height: "100%", background: "var(--brand)", borderRadius: 4 }} />
             </div>
-            <span style={{ fontSize: 10, color: "var(--text-muted)", width: 32, textAlign: "right" }}>{a.actionCount}</span>
+            {/* `tabular-nums`: sloupec počtů zůstane zarovnaný i po přepnutí období. */}
+            <span style={{ fontSize: 10, color: "var(--text-muted)", width: 32, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{a.actionCount}</span>
           </div>
         ))}
         {plannerActivity.length === 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Žádná aktivita</div>}

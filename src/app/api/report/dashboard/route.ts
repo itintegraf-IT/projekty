@@ -167,7 +167,9 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   }
 
   // Per-machine metrics
-  const machines: Record<string, { utilization: number | null; productionHours: number; maintenanceHours: number; availableHours: number }> = {};
+  // `maintenanceRatio` je i per stroj — souhrn přes oba stroje ředí odstávku jednoho
+  // kapacitou druhého, takže sám o sobě neřekne, který stroj stojí.
+  const machines: Record<string, { utilization: number | null; productionHours: number; maintenanceHours: number; availableHours: number; maintenanceRatio: number | null }> = {};
   let totalAvailable = 0;
   let totalMaintenance = 0;
 
@@ -185,7 +187,13 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     const productionHours = sumClipped("ZAKAZKA");
     const maintenanceHours = sumClipped("UDRZBA");
     const utilization = computeUtilization(productionHours, availableHours);
-    machines[machine] = { utilization, productionHours, maintenanceHours, availableHours };
+    machines[machine] = {
+      utilization,
+      productionHours,
+      maintenanceHours,
+      availableHours,
+      maintenanceRatio: computeMaintenanceRatio(maintenanceHours, availableHours),
+    };
     totalAvailable += availableHours;
     totalMaintenance += maintenanceHours;
   }
@@ -393,9 +401,12 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     cur = addDaysToCivilDate(cur, 1);
   }
 
-  // Upcoming maintenance
+  // Období může začínat v minulosti, a protože se řadí vzestupně a bere prvních pět,
+  // obsadily „plánované" údržby ty, které už proběhly (měsíční pohled ke 14. 8. vypisoval
+  // dvě údržby z 5. 8.). Filtr na `endTime > now` to řeší u zdroje.
+  const nowMs = Date.now();
   const upcomingMaintenance = blocks
-    .filter((b) => b.type === "UDRZBA")
+    .filter((b) => b.type === "UDRZBA" && b.endTime.getTime() > nowMs)
     .sort((a, b) => a.startTime.getTime() - b.startTime.getTime())
     .map((b) => ({
       machine: b.machine,

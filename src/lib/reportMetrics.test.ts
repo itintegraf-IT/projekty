@@ -290,8 +290,9 @@ describe("computeMaintenanceRatio", () => {
     assert.equal(computeMaintenanceRatio(20, 80), 25);
   });
 
-  it("0 available → 0", () => {
-    assert.equal(computeMaintenanceRatio(10, 0), 0);
+  it("nulová kapacita → null", () => {
+    assert.equal(computeMaintenanceRatio(5, 0), null);
+    assert.equal(computeMaintenanceRatio(10, 0), null);
   });
 });
 

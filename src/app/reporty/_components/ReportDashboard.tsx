@@ -17,6 +17,8 @@ interface RetroMachineData {
   productionHours: number;
   maintenanceHours: number;
   availableHours: number;
+  /** Ratio údržby JEN tohoto stroje — souhrn přes oba ho ředí kapacitou druhého. */
+  maintenanceRatio: number | null;
 }
 
 interface RetroData {
@@ -24,7 +26,7 @@ interface RetroData {
   dailyUtilization: Array<{ date: string; XL_105: number | null; XL_106: number | null }>;
   throughput: number;
   avgLeadTimeDays: number | null;
-  maintenanceRatio: number;
+  maintenanceRatio: number | null;
   planning: PlanningMetrics;
   plannerActivity: PlannerActivityEntry[];
   pipeline: { open: Record<string, number>; closed: Record<string, number>; conversionPercent: number | null };
@@ -213,13 +215,13 @@ function RetroView({ data }: { data: RetroData }) {
         <KpiCard
           label="Vytížení XL 105"
           value={xl105?.utilization == null ? "—" : `${xl105.utilization}%`}
-          subtitle={`${xl105?.productionHours ?? 0} hod. produkce`}
+          subtitle={`${String(xl105?.productionHours ?? 0).replace(".", ",")} hod. produkce`}
           color={xl105?.utilization == null ? undefined : xl105.utilization > 100 ? "#f85149" : xl105.utilization >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard
           label="Vytížení XL 106"
           value={xl106?.utilization == null ? "—" : `${xl106.utilization}%`}
-          subtitle={`${xl106?.productionHours ?? 0} hod. produkce`}
+          subtitle={`${String(xl106?.productionHours ?? 0).replace(".", ",")} hod. produkce`}
           color={xl106?.utilization == null ? undefined : xl106.utilization > 100 ? "#f85149" : xl106.utilization >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard label="Průtok zakázek" value={data.throughput} subtitle="dokončeno v období" />
@@ -241,12 +243,20 @@ function RetroView({ data }: { data: RetroData }) {
         <div>
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>Údržba ratio</div>
-            <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)" }}>{data.maintenanceRatio}%</div>
+            <div style={{ fontSize: 26, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
+              {data.maintenanceRatio == null ? "—" : `${data.maintenanceRatio}%`}
+            </div>
             <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>čas údržby / celkový čas</div>
+            {/* Souhrn přes oba stroje ředí odstávku jednoho kapacitou druhého — proto i per stroj. */}
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+              {machineLabel("XL_105")}: {xl105?.maintenanceRatio == null ? "—" : `${xl105.maintenanceRatio}%`}
+              {" · "}
+              {machineLabel("XL_106")}: {xl106?.maintenanceRatio == null ? "—" : `${xl106.maintenanceRatio}%`}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <KpiCard label="Produkce XL 105" value={`${xl105?.productionHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h dostupných`} />
-            <KpiCard label="Produkce XL 106" value={`${xl106?.productionHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h dostupných`} />
+            <KpiCard label="Produkce XL 105" value={`${String(xl105?.productionHours ?? 0).replace(".", ",")} h`} subtitle={`z ${String(xl105?.availableHours ?? 0).replace(".", ",")} h dostupných`} />
+            <KpiCard label="Produkce XL 106" value={`${String(xl106?.productionHours ?? 0).replace(".", ",")} h`} subtitle={`z ${String(xl106?.availableHours ?? 0).replace(".", ",")} h dostupných`} />
           </div>
         </div>
       </div>
@@ -296,6 +306,20 @@ function RetroView({ data }: { data: RetroData }) {
   );
 }
 
+/**
+ * Hodnota karty „Volné hod." — u přeplánovaného stroje ZÁPORNÁ, ne useknutá nula.
+ *
+ * Nula by na kartě stála přímo vedle karty kapacity, která u téhož stroje hlásí
+ * „přeplánováno o 26 h" — dvě čísla, jeden stroj, protimluv. Schodek se znaménkem
+ * říká totéž jako sousední karta, jen v hodinách volna. Karta je duplicitní a etapa
+ * R3 ji ruší, tohle je jen srovnání do doby, než zmizí.
+ */
+function freeHoursValue(m: OutlookMachineData | undefined): string {
+  const over = m?.overbookedHours ?? 0;
+  if (over > 0) return `−${String(over).replace(".", ",")} h`;
+  return `${String(m?.freeHours ?? 0).replace(".", ",")} h`;
+}
+
 function OutlookView({ data }: { data: OutlookData }) {
   if (!data.dailyCapacity || !data.machines) return null;
   const xl105 = data.machines["XL_105"];
@@ -332,8 +356,20 @@ function OutlookView({ data }: { data: OutlookData }) {
             : `${String(xl106?.freeHours ?? 0).replace(".", ",")} h volných`}
           color={xl106?.plannedCapacity == null ? undefined : xl106.plannedCapacity > 100 ? "#f85149" : xl106.plannedCapacity >= 80 ? "#3fb950" : "#f0883e"}
         />
-        <KpiCard label="Volné hod. XL 105" value={`${xl105?.freeHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h`} />
-        <KpiCard label="Volné hod. XL 106" value={`${xl106?.freeHours ?? 0} h`} subtitle={`z ${xl106?.availableHours ?? 0} h`} />
+        {/* Přeplánovaný stroj nemá „0 h volných", ale schodek. Bez znaménka by tahle karta
+            tvrdila „0 h" hned vedle karty kapacity, která hlásí „přeplánováno o 26 h". */}
+        <KpiCard
+          label="Volné hod. XL 105"
+          value={freeHoursValue(xl105)}
+          subtitle={`z ${String(xl105?.availableHours ?? 0).replace(".", ",")} h`}
+          color={(xl105?.overbookedHours ?? 0) > 0 ? "#f85149" : undefined}
+        />
+        <KpiCard
+          label="Volné hod. XL 106"
+          value={freeHoursValue(xl106)}
+          subtitle={`z ${String(xl106?.availableHours ?? 0).replace(".", ",")} h`}
+          color={(xl106?.overbookedHours ?? 0) > 0 ? "#f85149" : undefined}
+        />
       </div>
 
       {/* KAPACITA */}
@@ -419,8 +455,9 @@ function OutlookView({ data }: { data: OutlookData }) {
           </div>
           <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
             Nejstarší čekající: <strong style={{ color: data.pendingReservations.oldestWaitingDays > 3 ? "#f85149" : "var(--text)" }}>
-              {data.pendingReservations.oldestWaitingDays} dní
+              {data.pendingReservations.newCount === 0 ? "—" : `${data.pendingReservations.oldestWaitingDays} dní`}
             </strong>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>stav k dnešku, nezávisle na období</div>
           </div>
         </div>
       </div>

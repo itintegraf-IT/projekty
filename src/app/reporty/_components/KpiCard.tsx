@@ -26,7 +26,8 @@ export function KpiCard({
       padding: "14px 16px", flex: "1 1 0",
     }}>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: color ?? "var(--text)" }}>{value}</div>
+      {/* `tabular-nums`: číslice mají stejnou šířku, takže hodnota při přepnutí období neposkakuje. */}
+      <div style={{ fontSize: 26, fontWeight: 700, color: color ?? "var(--text)", fontVariantNumeric: "tabular-nums" }}>{value}</div>
       {subtitle && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{subtitle}</div>}
     </div>
   );

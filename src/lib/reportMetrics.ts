@@ -199,9 +199,9 @@ export function computeAvgLeadTimeDaysFromOrders(orders: CompletedOrder[]): numb
 // 5. computeMaintenanceRatio
 // ---------------------------------------------------------------------------
 
-/** Procento údržby z dostupných hodin. Vrací 0 pokud available <= 0. */
-export function computeMaintenanceRatio(maintenanceHours: number, availableHours: number): number {
-  if (availableHours <= 0) return 0;
+/** Procento údržby z dostupných hodin. `null` při nulové kapacitě — viz `computeUtilization`. */
+export function computeMaintenanceRatio(maintenanceHours: number, availableHours: number): number | null {
+  if (availableHours <= 0) return null;
   return Math.round((maintenanceHours / availableHours) * 100);
 }
 
