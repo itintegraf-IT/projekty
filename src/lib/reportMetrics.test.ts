@@ -61,13 +61,13 @@ function make16hShifts(machine = "XL_105"): MachineWeekShiftsRow[] {
 describe("computeAvailableHours", () => {
   it("Mon-Fri 16h shifts over a full work week → 80h", () => {
     // 2026-04-13 Mon .. 2026-04-17 Fri
-    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", make16hShifts());
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", make16hShifts(), []);
     assert.equal(result, 80);
   });
 
   it("weekend only → 0h", () => {
     // 2026-04-18 Sat, 2026-04-19 Sun
-    const result = computeAvailableHours("XL_105", "2026-04-18", "2026-04-19", make16hShifts());
+    const result = computeAvailableHours("XL_105", "2026-04-18", "2026-04-19", make16hShifts(), []);
     assert.equal(result, 0);
   });
 
@@ -77,7 +77,7 @@ describe("computeAvailableHours", () => {
     const monIdx = shifts.findIndex((r) => r.dayOfWeek === 1);
     shifts[monIdx] = makeRow("XL_105", 1, { morningOn: true });
     // Mon 8h + Tue-Fri 16h*4 = 72
-    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", shifts);
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", shifts, []);
     assert.equal(result, 72);
   });
 
@@ -86,12 +86,12 @@ describe("computeAvailableHours", () => {
     const tueIdx = shifts.findIndex((r) => r.dayOfWeek === 2);
     shifts[tueIdx] = makeRow("XL_105", 2, { isActive: false, morningOn: true, afternoonOn: true });
     // Tue disabled, Mon + Wed-Fri = 4 * 16 = 64
-    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", shifts);
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", shifts, []);
     assert.equal(result, 64);
   });
 
   it("single day", () => {
-    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", make16hShifts());
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", make16hShifts(), []);
     assert.equal(result, 16);
   });
 
@@ -100,7 +100,7 @@ describe("computeAvailableHours", () => {
       ...make16hShifts("XL_106"),
       makeRow("XL_105", 1, { morningOn: true, afternoonOn: true }),
     ];
-    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts, []);
     assert.equal(result, 16);
   });
 
@@ -113,7 +113,7 @@ describe("computeAvailableHours", () => {
       ...makeRow("XL_105", 1, { morningOn: true, afternoonOn: true }),
       morningEndMin: 780, // 13:00
     };
-    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts, []);
     assert.equal(result, 15);
   });
 
@@ -126,7 +126,7 @@ describe("computeAvailableHours", () => {
       ...makeRow("XL_105", 1, { morningOn: true, afternoonOn: true }),
       morningStartMin: 420, // 7:00
     };
-    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts);
+    const result = computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", shifts, []);
     assert.equal(result, 15);
   });
 
@@ -138,7 +138,7 @@ describe("computeAvailableHours", () => {
         morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
         nightStartMin: null, nightEndMin: null },
     ];
-    const hours = computeAvailableHours("XL_106", "2026-04-19", "2026-04-19", weekShifts);
+    const hours = computeAvailableHours("XL_106", "2026-04-19", "2026-04-19", weekShifts, []);
     assert.equal(hours, 2, "Ne NIGHT přispívá jen 2h (22-24) na dni Ne; tail patří Po");
   });
 
@@ -153,8 +153,37 @@ describe("computeAvailableHours", () => {
         morningStartMin: null, morningEndMin: null, afternoonStartMin: null, afternoonEndMin: null,
         nightStartMin: null, nightEndMin: null },
     ];
-    const hours = computeAvailableHours("XL_106", "2026-04-20", "2026-04-20", weekShifts);
+    const hours = computeAvailableHours("XL_106", "2026-04-20", "2026-04-20", weekShifts, []);
     assert.equal(hours, 6, "Po dostane tail z Ne NIGHT (6h)");
+  });
+
+  it("celozávodní odstávka (machine = null) se odečte OBĚMA strojům", () => {
+    const rows = [makeRow("XL_105", 1, { morningOn: true, afternoonOn: true })]; // po 6-22 = 16 h
+    const shutdown = [{ machine: null, startDate: "2026-04-13T04:00:00.000Z", endDate: "2026-04-13T12:00:00.000Z" }];
+    // 2026-04-13 je pondělí; 04:00-12:00 UTC = 06:00-14:00 Praha = celá ranní směna
+    assert.equal(computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", rows, []), 16);
+    assert.equal(computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", rows, shutdown), 8);
+  });
+
+  it("odstávka jednoho stroje se druhého netýká", () => {
+    const rows = [makeRow("XL_106", 1, { morningOn: true, afternoonOn: true })];
+    const shutdown = [{ machine: "XL_105", startDate: "2026-04-13T04:00:00.000Z", endDate: "2026-04-13T12:00:00.000Z" }];
+    assert.equal(computeAvailableHours("XL_106", "2026-04-13", "2026-04-13", rows, shutdown), 16);
+  });
+
+  it("odstávka mimo směny neudělá záporné hodiny", () => {
+    const rows = [makeRow("XL_105", 1, { morningOn: true })]; // po 6-14 = 8 h
+    const shutdown = [{ machine: null, startDate: "2026-04-12T00:00:00.000Z", endDate: "2026-04-12T22:00:00.000Z" }]; // neděle
+    assert.equal(computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", rows, shutdown), 8);
+  });
+
+  it("dvě překrývající se odstávky se neodečtou dvakrát", () => {
+    const rows = [makeRow("XL_105", 1, { morningOn: true, afternoonOn: true })]; // 16 h
+    const shutdown = [
+      { machine: null, startDate: "2026-04-13T04:00:00.000Z", endDate: "2026-04-13T12:00:00.000Z" },
+      { machine: null, startDate: "2026-04-13T06:00:00.000Z", endDate: "2026-04-13T10:00:00.000Z" },
+    ];
+    assert.equal(computeAvailableHours("XL_105", "2026-04-13", "2026-04-13", rows, shutdown), 8);
   });
 });
 

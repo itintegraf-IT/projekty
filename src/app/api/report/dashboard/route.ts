@@ -171,7 +171,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   let totalMaintenance = 0;
 
   for (const machine of MACHINES) {
-    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts);
+    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
     const productionHours = Math.round(computeBlockHours(blockInputs, machine, "ZAKAZKA") * 100) / 100;
     const maintenanceHours = Math.round(computeBlockHours(blockInputs, machine, "UDRZBA") * 100) / 100;
     const utilization = computeUtilization(productionHours, availableHours);
@@ -190,7 +190,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 
     const entry: { date: string; XL_105: number; XL_106: number } = { date: cur, XL_105: 0, XL_106: 0 };
     for (const machine of MACHINES) {
-      const avail = computeAvailableHours(machine, cur, cur, weekShifts);
+      const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
       const prodMin = dayBlocks
         .filter((b) => b.machine === machine && b.type === "ZAKAZKA")
         .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd), 0);
@@ -347,7 +347,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
   const machines: Record<string, { plannedCapacity: number; freeHours: number; availableHours: number }> = {};
 
   for (const machine of MACHINES) {
-    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts);
+    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
     // All block types count as planned
     const plannedHours = blockInputs
       .filter((b) => b.machine === machine)
@@ -367,7 +367,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
 
     const entry: { date: string; XL_105: number; XL_106: number } = { date: cur, XL_105: 0, XL_106: 0 };
     for (const machine of MACHINES) {
-      const avail = computeAvailableHours(machine, cur, cur, weekShifts);
+      const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
       const planned = dayBlocks
         .filter((b) => b.machine === machine)
         .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd), 0) / 60;

@@ -3,7 +3,8 @@
  * Čisté funkce bez DB závislostí — snadno testovatelné.
  */
 
-import { addDaysToCivilDate } from "./dateUtils";
+import { addDaysToCivilDate, pragueToUTC } from "./dateUtils";
+import { companyDayIntervalsFor } from "./printTimeClient";
 import { resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 
@@ -25,56 +26,110 @@ type BlockInput = {
 // 1. computeAvailableHours
 // ---------------------------------------------------------------------------
 
+export type CompanyDayRow = { machine?: string | null; startDate: string | Date; endDate: string | Date };
+
+type Interval = { start: number; end: number };
+
 /**
- * Spočítá dostupné pracovní hodiny stroje v rozsahu civil date (inclusive).
- * Zdroj: MachineWeekShifts (flags + fixní časy směn 6/14/22).
+ * Pražská minuta dne → absolutní UTC čas.
+ *
+ * Minuta smí být i 1440 a víc: `SHIFT_EDIT_RANGES` dovoluje konec odpolední (a začátek
+ * noční) nastavit přesně na 1440 = půlnoc, což je 00:00 NÁSLEDUJÍCÍHO dne.
+ * `pragueToUTC` bere hodinu jen 0–23, takže se přebytek převede na posun dne — jinak
+ * by report na takové směně spadl.
+ */
+function pragueMinuteToUtcMs(dayStr: string, min: number): number {
+  const dayOffset = Math.floor(min / 1440);
+  const rest = min - dayOffset * 1440;
+  const day = dayOffset === 0 ? dayStr : addDaysToCivilDate(dayStr, dayOffset);
+  return pragueToUTC(day, Math.floor(rest / 60), rest % 60).getTime();
+}
+
+/** Absolutní UTC intervaly směn jednoho dne. Noční se dělí na dnešek a ocas po půlnoci. */
+function shiftIntervalsForDay(row: MachineWeekShiftsRow, dateStr: string): Interval[] {
+  const at = (dayStr: string, min: number) => pragueMinuteToUtcMs(dayStr, min);
+  const nextDay = addDaysToCivilDate(dateStr, 1);
+  const out: Interval[] = [];
+  for (const shift of ["MORNING", "AFTERNOON", "NIGHT"] as const) {
+    const b = resolveShiftBounds(row, shift);
+    if (!b) continue;
+    if (b.endMin > b.startMin) {
+      out.push({ start: at(dateStr, b.startMin), end: at(dateStr, b.endMin) });
+    } else {
+      // Noční přes půlnoc patří ke dni SVÉHO STARTU (týž model jako `isDateTimeActive`).
+      const midnight = pragueToUTC(nextDay, 0, 0).getTime();
+      out.push({ start: at(dateStr, b.startMin), end: midnight });
+      out.push({ start: midnight, end: at(nextDay, b.endMin) });
+    }
+  }
+  return out;
+}
+
+/** Sloučí překrývající se intervaly, aby se odstávka neodečetla dvakrát. */
+function mergeIntervals(list: Interval[]): Interval[] {
+  const sorted = [...list].sort((a, b) => a.start - b.start);
+  const out: Interval[] = [];
+  for (const iv of sorted) {
+    const last = out[out.length - 1];
+    if (last && iv.start <= last.end) last.end = Math.max(last.end, iv.end);
+    else out.push({ ...iv });
+  }
+  return out;
+}
+
+/**
+ * Dostupné pracovní hodiny stroje v rozsahu civil date (inclusive), **po odečtení odstávek**.
+ *
+ * Bez odečtení tvrdil report o týdnu celozávodní dovolené „0 % ze 152 dostupných hodin“
+ * místo poctivého „0 z 0“ — čitatel odstávku respektuje (expanze tisku v ní vrátí
+ * START_NOT_RUNNABLE), jmenovatel ji dřív ignoroval. Na produkci 153,9 h v prosinci 2026.
+ *
+ * Směny se staví i pro den PŘED rozsahem: noční směna patří ke dni svého startu a do
+ * okna zasahuje ocasem po půlnoci. Ořez oknem pak zajistí, že se počítají jen hodiny
+ * uvnitř zvoleného období.
  */
 export function computeAvailableHours(
   machine: string,
   rangeStart: string,
   rangeEnd: string,
   weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayRow[],
 ): number {
-  let totalMin = 0;
-  let cur = rangeStart;
+  const winStart = pragueToUTC(rangeStart, 0, 0).getTime();
+  const winEnd = pragueToUTC(addDaysToCivilDate(rangeEnd, 1), 0, 0).getTime();
+  if (winEnd <= winStart) return 0;
 
+  const shifts: Interval[] = [];
+  let cur = addDaysToCivilDate(rangeStart, -1);
   while (cur <= rangeEnd) {
     const weekStart = weekStartStrFromDateStr(cur);
     const dayOfWeek = new Date(cur + "T12:00:00Z").getUTCDay();
     const row = weekShifts.find(
       (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek,
     );
-    if (row && row.isActive) {
-      // MORNING + AFTERNOON celé (neprekračují půlnoc).
-      for (const shift of ["MORNING", "AFTERNOON"] as const) {
-        const b = resolveShiftBounds(row, shift);
-        if (b) totalMin += b.endMin - b.startMin;
-      }
-      // NIGHT: jen [startMin, 1440) dnes.
-      const night = resolveShiftBounds(row, "NIGHT");
-      if (night && night.endMin < night.startMin) {
-        totalMin += 1440 - night.startMin;
-      }
-    }
-    // Tail z PŘEDCHOZÍHO dne: NIGHT(X-1) přispívá [0, prevEnd) dni X.
-    const prevDate = (() => {
-      const d = new Date(cur + "T12:00:00Z");
-      d.setUTCDate(d.getUTCDate() - 1);
-      return d.toISOString().slice(0, 10);
-    })();
-    const prevWeekStart = weekStartStrFromDateStr(prevDate);
-    const prevDow = new Date(prevDate + "T12:00:00Z").getUTCDay();
-    const prev = weekShifts.find(
-      (w) => w.machine === machine && w.weekStart === prevWeekStart && w.dayOfWeek === prevDow,
-    );
-    if (prev && prev.isActive && prev.nightOn) {
-      const b = resolveShiftBounds(prev, "NIGHT");
-      if (b && b.endMin < b.startMin) totalMin += b.endMin;
-    }
+    if (row && row.isActive) shifts.push(...shiftIntervalsForDay(row, cur));
     cur = addDaysToCivilDate(cur, 1);
   }
 
-  return totalMin / 60;
+  const shutdowns = mergeIntervals(
+    companyDayIntervalsFor(machine, companyDays).map((i) => ({
+      start: i.start.getTime(),
+      end: i.end.getTime(),
+    })),
+  );
+
+  let ms = 0;
+  for (const iv of shifts) {
+    const s = Math.max(iv.start, winStart);
+    const e = Math.min(iv.end, winEnd);
+    if (e <= s) continue;
+    let free = e - s;
+    for (const sd of shutdowns) {
+      free -= Math.max(0, Math.min(e, sd.end) - Math.max(s, sd.start));
+    }
+    ms += Math.max(0, free);
+  }
+  return ms / 3_600_000;
 }
 
 // ---------------------------------------------------------------------------
