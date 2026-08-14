@@ -351,7 +351,7 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
   }
 
   // Per-machine metrics
-  const machines: Record<string, { plannedCapacity: number | null; freeHours: number; availableHours: number }> = {};
+  const machines: Record<string, { plannedCapacity: number | null; freeHours: number; overbookedHours: number; availableHours: number }> = {};
 
   for (const machine of MACHINES) {
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
@@ -359,9 +359,14 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     const plannedHours = blockInputs
       .filter((b) => b.machine === machine)
       .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, startUtc, endUtc) / 60, 0);
-    const freeHours = Math.max(0, Math.round((availableHours - plannedHours) * 100) / 100);
+    // `freeHours` se ZÁMĚRNĚ neusekává na nule — „0 h volných“ a „přeplánováno o 26 h“
+    // jsou dvě různé zprávy a plánovač potřebuje tu druhou. Kladné `overbookedHours`
+    // je ta část, o kterou je stroj nad kapacitou.
+    const remaining = Math.round((availableHours - plannedHours) * 100) / 100;
+    const freeHours = Math.max(0, remaining);
+    const overbookedHours = Math.max(0, -remaining);
     const plannedCapacity = computeUtilization(plannedHours, availableHours);
-    machines[machine] = { plannedCapacity, freeHours, availableHours };
+    machines[machine] = { plannedCapacity, freeHours, overbookedHours, availableHours };
   }
 
   // Daily capacity (all block types)

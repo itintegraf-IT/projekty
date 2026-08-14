@@ -34,6 +34,8 @@ interface RetroData {
 interface OutlookMachineData {
   plannedCapacity: number | null;
   freeHours: number;
+  /** Kladné číslo — o kolik hodin je stroj nad kapacitou; 0 když se plán vejde. */
+  overbookedHours: number;
   availableHours: number;
 }
 
@@ -309,13 +311,17 @@ function OutlookView({ data }: { data: OutlookData }) {
         <KpiCard
           label="Kapacita XL 105"
           value={xl105?.plannedCapacity == null ? "—" : `${xl105.plannedCapacity}%`}
-          subtitle={`${xl105?.freeHours ?? 0} h volných`}
+          subtitle={(xl105?.overbookedHours ?? 0) > 0
+            ? `přeplánováno o ${String(xl105!.overbookedHours).replace(".", ",")} h`
+            : `${String(xl105?.freeHours ?? 0).replace(".", ",")} h volných`}
           color={xl105?.plannedCapacity == null ? undefined : xl105.plannedCapacity > 100 ? "#f85149" : xl105.plannedCapacity >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard
           label="Kapacita XL 106"
           value={xl106?.plannedCapacity == null ? "—" : `${xl106.plannedCapacity}%`}
-          subtitle={`${xl106?.freeHours ?? 0} h volných`}
+          subtitle={(xl106?.overbookedHours ?? 0) > 0
+            ? `přeplánováno o ${String(xl106!.overbookedHours).replace(".", ",")} h`
+            : `${String(xl106?.freeHours ?? 0).replace(".", ",")} h volných`}
           color={xl106?.plannedCapacity == null ? undefined : xl106.plannedCapacity > 100 ? "#f85149" : xl106.plannedCapacity >= 80 ? "#3fb950" : "#f0883e"}
         />
         <KpiCard label="Volné hod. XL 105" value={`${xl105?.freeHours ?? 0} h`} subtitle={`z ${xl105?.availableHours ?? 0} h`} />
