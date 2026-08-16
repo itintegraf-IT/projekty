@@ -389,3 +389,43 @@ jediný zdroj pravdy je `shortcutLetter`/`isShortcut` v
 `src/lib/keyboardShortcuts.ts`. **Nikde nepsat `e.key === "<malé písmeno>"`.**
 A při hledání příčiny nesmí seznam „co přežije reload" obsahovat jen server,
 DB a `localStorage` — patří tam i stav klávesnice a prohlížeče u uživatele.
+
+---
+
+## P22 — Čitatel a jmenovatel se musí počítat nad touž množinou
+
+**Co se stalo (14. 8. 2026, průzkum `/reporty`):** Průzkum reportů našel čtyři
+nezávislé vady, které měly **jeden a týž tvar**: horní a dolní část zlomku se
+počítala nad jinou množinou.
+
+- Bloky se do produkčních hodin sčítaly **celé**, i když období jen protínaly,
+  kdežto dostupné hodiny ve jmenovateli ořezané byly → na produkci 26 h ze 399 h
+  v srpnu (6,5 %), a tytéž hodiny se započetly znovu i v září (až 12 %).
+- Celozávodní odstávku respektoval **čitatel** (expanze tisku v ní vrátí
+  `START_NOT_RUNNABLE`), ale **jmenovatel** ne → týden dovolené se vykázal jako
+  „0 % ze 152 dostupných hodin" místo poctivého „0 z 0". Prosinec 2026: 153,9 h.
+- Průtok se počítal nad bloky **protínajícími období**, ne nad **dokončenými**
+  v období → zakázka odklepnutá v srpnu, ale naplánovaná na září, se nezapočítala
+  nikde. Na produkci 3 ze 43 (7 %).
+- Trychtýř rezervací měl v čitateli jen část stavů, které patřily do jmenovatele
+  → `CONFIRMED` (koncový úspěch) z čitatele vypadl, zamítnutá rezervace ve
+  jmenovateli zůstala. **Konverze tím klesala rychleji, čím lépe proces fungoval.**
+
+Chyba téhle třídy jde vždycky jedním směrem, nejde poznat z jednoho čísla
+(zlomek sám o sobě vypadá rozumně) a projeví se až tím, že **součet dvanácti
+měsíčních reportů nedá rok**.
+
+**A nejde o vadu, které by byl člověk po pochopení imunní.** Oprava sama ji
+dvakrát zopakovala a odhalila ji až adversariální revize:
+- Pomocník `mergeIntervals` vznikl osm řádků nad sumací, použil se na odstávky
+  a **na směny ne** → překryv dvou směn se do jmenovatele počítal dvakrát
+  (nepřetržitý stroj 182 h týdně místo 168, tedy −8 % na vytížení).
+- Oprava dvojího započtení hodin přes hranici období ji zároveň **znovu zavedla
+  u průtoku** — rozdělená zakázka s kusy po obou stranách hranice se započítala
+  v obou obdobích.
+
+**Pravidlo:** U každé metriky tvaru „X z Y" napsat u obou stran **jednou větou,
+nad jakou množinou se počítá**, a ověřit, že jsou to tytéž hranice — časové okno,
+filtr strojů, filtr stavů. Kde jde součet rozložit (denně, po strojích), přidat
+**strážný test parity**: součet částí se musí rovnat celku. Ten test je jediné,
+co tuhle třídu vad chytí dřív než uživatel — a chytil by i obě regrese výše.

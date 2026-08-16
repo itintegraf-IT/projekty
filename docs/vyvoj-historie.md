@@ -2,6 +2,86 @@
 
 > Vytaženo z CLAUDE.md 14. 7. 2026 při zeštíhlení (aby se always-loaded soubor nedostal přes 40 KB práh). Detailní plány: `docs/superpowers/plans/`. Blow-by-blow: git historie. Živá pravidla zůstala v `CLAUDE.md`.
 
+## Reporty — správnost čísel, etapa R1 (14. 8. 2026)
+
+Průzkum stránky `/reporty` (správnost hodnot, vhodnost metrik, vizuál) našel 30 nálezů.
+R1 řeší **jen ty, kde stránka ukazuje nesprávné číslo**; vizuál je R2, přeskládání R3.
+
+Spec: `docs/superpowers/specs/2026-08-14-reporty-spravnost-cisel-design.md`
+· plán: `docs/superpowers/plans/2026-08-14-reporty-spravnost-cisel.md`
+· průzkum: artifact „Reporty — průzkum a návrh"
+
+### Změřeno nad produkční databází, ne odhadnuto
+
+Pořadí oprav se řídilo dopadem na ostrých datech — a to pořadí je **jiné, než by
+se čekalo z kódu**. Vada, která v kódu vypadá nejhůř (neořezané bloky), je na
+datech až třetí.
+
+| Vada | Dopad na produkci |
+| --- | --- |
+| Průtok ztrácel dokončené zakázky | **3 ze 43** v srpnu (7 %) |
+| Bloky se neořezávaly na období | **26 h ze 399 h** v srpnu; týchž 26 h i v září (až 12 %) |
+| Odstávky se počítaly jako kapacita | **153,9 h** v prosinci (vánoční), 40 h v září/říjnu/listopadu |
+| Chybějící stavy rezervací, konverze | dnes 0 — produkce má 5 rezervací |
+| Půlnoc v UTC místo pražské | dnes 0 — žádné noční odklepnutí |
+
+### Co se opravilo
+
+**Průtok a lead time** se počítají nad **dokončenými zakázkami** (dotaz na
+`printCompletedAt` v období), ne nad bloky protínajícími období. Rozdělená zakázka
+je **jedna** (klíč `g<splitGroupId>` / `b<id>` — id-prostory jsou nezávislé) a
+započítá se tomu období, ve kterém doběhl **poslední** kus. Lead time bere nejstarší
+`createdAt` a nejpozdější dokončení z ÚPLNÉ skupiny; jedno desetinné místo, prázdná
+množina vrací `null`, ne 0.
+
+**`computeAvailableHours` přepsána od základu** — staví absolutní UTC intervaly směn
+a odečítá od nich odstávky (`CompanyDay.machine = null` znamená OBA stroje, pravidlo
+sdílené s `companyDayIntervalsFor`). Intervaly se slučují, takže překryv dvou směn
+se nepočítá dvakrát.
+
+**Souhrn se ořezává týmž `printOverlapMinutes` a týmž `segMap` jako denní graf**,
+takže karta a graf pod ní přestaly být dvě definice. `computeBlockHours`
+i `blockDurationHours` zrušeny — po opravě neměly volajícího.
+
+**`computeUtilization` vrací `number | null`.** Víkend, odstávka a chybějící šablony
+směn nejsou „nula procent", ale „není z čeho počítat". Propisuje se to až do grafu
+a heatmapy: den, kdy stroj nejede, se odlišil od dne bez práce.
+
+**Přeplánování přestalo být schované třemi vrstvami** — `freeHours` se neusekává,
+přibylo `overbookedHours`, a nad 100 % už karta nesvítí zeleně.
+
+**Rezervace:** slovník osmi stavů v `src/lib/reservationStatus.ts`, oddělené populace
+(otevřené = stav k dnešku · uzavřené = kohorta z období) a konverze jako **úspěšně
+vyřízené ze všech uzavřených** (rozhodnutí Vojty).
+
+### Vedlejší zisk, se kterým spec nepočítal
+
+Přepis dostupnosti opravil i **nesoulad na přechodech času**. Stará verze sčítala
+minuty ciferníku, takže noční směna měla vždy 8 h; ve skutečnosti má noc z 28. na
+29. 3. **sedm** hodin a z 24. na 25. 10. **devět**. Čitatel (`printOverlapMinutes`
+nad razítky bloků) v reálném čase pracoval odjakživa. Roční součet se nemění.
+
+### Známá omezení
+
+- **„Uzavřené v období" jsou ve skutečnosti „založené v období a dnes uzavřené".**
+  `Reservation` má `scheduledAt`, `confirmedAt` i `withdrawnAt`, ale **`rejectedAt`
+  chybí**, takže poctivý filtr by chtěl migraci. Důsledek: konverze za už uzavřený
+  měsíc se v čase ještě mění, jak kohorta dobíhá. Popisek v UI to říká přesně.
+- **Strážný test slovníku stavů je sebereferenční** — porovnává tři konstanty z téhož
+  souboru. Devátý stav by prošel zeleně a z trychtýře zmizel. Účinná pojistka by
+  musela měřit proti zápisové cestě rezervací.
+- **Výhled u driftnutého bloku počítá elapsed místo `printMinutes`** (`segments === null`
+  → fallback na celý span včetně pauz). Vědomý kompromis: obě strany degradují stejně.
+- Tichý ořez heatmapy na 14 dní, `--brand` jako barva písma (kontrast 1,22 : 1) a
+  19 napevno zapsaných barev zůstávají na R2/R3.
+
+### Poučení
+
+Viz `docs/POUCENI.md` **P22 — Čitatel a jmenovatel se musí počítat nad touž množinou.**
+Stojí za zapamatování hlavně proto, že **oprava sama tuhle vadu dvakrát zopakovala**
+a odhalila ji až adversariální revize: `mergeIntervals` se nepoužilo na směny a
+oprava dvojího započtení hodin ji znovu zavedla u průtoku.
+
 ## Kontrolní panel — přesnost a čitelnost (13. 8. 2026)
 
 Vojta otevřel Kontrolní panel na ostrých datech a viděl `Split-skupina s méně než
