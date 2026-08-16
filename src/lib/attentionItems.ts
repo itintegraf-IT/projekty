@@ -79,7 +79,11 @@ export type AttentionInput = {
 /** Desetinná čárka. Jedno místo, ať se zápis nerozejde se zbytkem reportu. */
 const cz = (n: number) => String(n).replace(".", ",");
 
-const plural = (n: number, one: string, few: string, many: string) =>
+/**
+ * České skloňování po číslovce. Exportované, protože týž tvar potřebuje
+ * i seznam rezervací ve Výhledu — bez něj tam stálo „čeká 1 dní“.
+ */
+export const plural = (n: number, one: string, few: string, many: string) =>
   n === 1 ? one : n < 5 ? few : many;
 
 /**

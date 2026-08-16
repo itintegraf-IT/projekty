@@ -4,7 +4,7 @@ import React from "react";
 import { machineLabel } from "@/lib/machines";
 import { KpiCard } from "./KpiCard";
 import { heatToneFor, reportTypeScale, reportRadius } from "@/lib/reportTokens";
-import { ATTENTION_THRESHOLDS } from "@/lib/attentionItems";
+import { ATTENTION_THRESHOLDS, plural } from "@/lib/attentionItems";
 import { SectionHeader, DOW_LABELS, cz, type OutlookData, type OutlookMachineData } from "./reportShared";
 
 /**
@@ -240,7 +240,7 @@ export function OutlookView({ data }: { data: OutlookData }) {
                   <span style={{
                     fontSize: reportTypeScale.xs, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums",
                     color: r.waitingDays > ATTENTION_THRESHOLDS.reservationWaitingDays ? "var(--status-bad)" : "var(--text-muted)",
-                  }}>čeká {r.waitingDays} dní</span>
+                  }}>čeká {r.waitingDays} {plural(r.waitingDays, "den", "dny", "dní")}</span>
                 </div>
               ))}
               <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginTop: 8 }}>
