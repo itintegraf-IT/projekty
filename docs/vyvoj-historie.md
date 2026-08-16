@@ -1861,3 +1861,111 @@ devátý stav by neshodil nic.
   etapu, evidováno v testu.
 - **`contrast.ts` ořezává mimo gamut po kanálech**, prohlížeč gamut-mapuje.
   Přeměřeno: největší odchylka ΔE 0,023, žádné tvrzení se neotáčí.
+
+---
+
+## Etapa Reporty R3 — přeskládání stránky (16. 8. 2026)
+
+Třetí a poslední etapa nad `/reporty`. R1 srovnala čísla, R2 je udělala
+čitelnými, R3 řeší, že stránka nikde neodpovídala na otázku, se kterou ji
+člověk otevírá: **musím dnes něco řešit?**
+
+Nasazeno: **ne** — jede společně s Pantone paritou, Kontrolním panelem, R1 a R2.
+
+Předcházel jí **průzkum čtyř nezávislých rešerší** (`docs/audits/2026-08-16-reporty-pruzkum-metrik.md`),
+jehož závěry se do R3 promítly jen jedním bodem — prokliky. Zbytek je podklad
+pro R4.
+
+### Co přibylo
+
+**Stavový pás nad záložkami.** Vypisuje jen to, co vyžaduje pozornost, a vede
+tam, kde se to řeší. Vlastní endpoint `GET /api/report/attention`, **záměrně
+nezávislý na zvoleném období** — přeplánovaný stroj příští týden je problém
+i při pohledu na loňský leden. Horizont je pevných 30 dní.
+
+**Kontrolní panel se do pásu počítá na KLIENTOVI, ne na serveru.** `useHealthData`
+ho stahuje při vstupu do Reportů a jeho kontroly skenují disk kvůli přílohám;
+druhý běh na každé načtení stránky by byl zbytečně drahý. Obojí ale prochází
+týmž čistým modulem `src/lib/attentionItems.ts`, takže věty a prahy mají jediný
+zdroj pravdy.
+
+### Co zmizelo
+
+- **Karty „Produkce XL 105/106" a „Volné hod. XL 105/106"** — duplicity. Hodnoty
+  se přestěhovaly do podtitulků karet Vytížení a Kapacita.
+- **Jmenovitý žebříček „Aktivita plánovačů"** (rozhodl Vojta). Počet uložení není
+  výkon — kdo řeší jednu složitou přestavbu, má jedno uložení; kdo šťouchá
+  bloky, desítky. Souhrnná čísla o zásazích a stabilitě zůstala.
+- **Tichý ořez heatmapy na 14 dní.** API vracelo celé období, klient kreslil
+  prvních 14 — při měsíčním pohledu mizelo 17 dní bez zmínky.
+
+### Co se změnilo
+
+- Karty seskupené podle otázky: **VÝROBA · PRŮCHOD ZAKÁZEK · PLÁNOVÁNÍ · OBCHOD**
+- Heatmapa pokryje celé období (strop 120 dní, **přiznaný** větou)
+- Rizika mají čísla zakázek místo pouhých počtů; údržby přiznávají skrytý zbytek
+- 19 hodnot paddingu → škála `reportSpace` (odloženo z R2, čekalo na tohle rozvržení)
+- `ReportDashboard.tsx` 641 → 325 řádků; `RetroView`, `OutlookView` a `reportShared`
+  mají vlastní soubory
+
+### Co se NEpostavilo a proč
+
+**Prokliky z dlaždic.** Spec jich sliboval pět, postavily se dva. `/` umí jediný
+parametr `?highlight=<blockId>` — a ani ten není skok, id se překládá na
+`orderNumber` a předává jako textový filtr. `machine` ani `date` neexistují.
+Doplnit je znamená sáhnout na `PlannerPage.tsx`, který nemá žádné pokrytí testy;
+nepoměr rizika a užitku. Zapsáno jako kandidát na samostatnou drobnost.
+
+### Co našly revize — a proč to stojí za přečtení
+
+Etapa měla **pět revizí ve dvou vlnách** a našly dohromady dvacet nálezů. Čtyři
+z nich byly vážné a **všechny čtyři byly chyby v mém návrhu, ne v provedení**.
+
+**1. Verdikt pásu z třicetidenního součtu.** Volná kapacita v pozdějších týdnech
+umazala špičku v tom nejbližším: stroj naplněný příští týden po–pá na 150 % vyšel
+proti prázdnému zbytku horizontu jako „120 h plánu proti 352 h kapacity" a pás
+k tomu tvrdil „oba stroje v kapacitě", zatímco heatmapa vedle svítila pěti
+červenými dny. Přepočet po dnech opravil naráz i tři další nálezy — falešné
+„mimo pracovní dobu", fantomové přeplánování u nenaseedovaných týdnů
+(`MachineWeekShifts` se seedují líně, takže neotevřený týden vypadá jako nulová
+kapacita) a větu „přeplánován o 0 h".
+
+**2. Pás mlčel, zatímco seznam pod ním svítil čtyřmi červenými řádky.** Pás bral
+jen `SUBMITTED`, seznam v RIZIKA i `QUEUE_READY` — a barvil řádky **týmž prahem**.
+Rozdělením na dvě položky s jiným textem („bez odezvy" vs. „čeká na naplánování")
+se rozdíl stal informací místo protimluvu.
+
+**3. Klidná věta tvrdila výsledek třiceti kontrol i tam, kde neproběhla ani jedna.**
+U stroje bez naseedovaných směn pás neposoudil nic a přesto psal „ani jeden stroj
+není v příštích 30 dnech nad kapacitou". Endpoint teď vrací `checkedDaysByMachine`
+a věta se podle toho řídí. Pás zároveň dostal **třetí stav** — do té doby vypisoval
+tučné „Nic nevyžaduje pozornost." i ve chvíli, kdy o kontrolách nevěděl nic
+a na sousední záložce svítil odznak „!".
+
+**4. Zrušení `slice(0, 14)` odstranilo nechtěnou pojistku.** V Chrome má
+`<input type="date">` segmentované pole a React `onChange` padá po každém
+segmentu; při přepisování roku vznikne na okamžik platné datum s rokem 0002 →
+rozsah přes 700 000 dní → 2,2 milionu DOM uzlů a zamrzlá záložka. Doplněn strop
+120 dní na klientovi **a 400 dní na serveru** (denní smyčka byla hangovatelná
+i před R3, jen to `slice` maskoval).
+
+Menší, ale poučné: **tři ze čtyř odkazů pásu vedly na `/reporty`**, kde uživatel
+už stojí — režim je lokální stav bez URL, takže `<a>` znamenal plný reload
+a přistání na výchozí záložce. „Kontrolní panel →" z Výhledu tedy tiše zahodil
+záložku, na které člověk byl. Test to nechytil, protože ověřoval jen
+`href.length > 0`. Cíl je nově typ (`kind: "tab" | "href"`) a test hlídá seznam
+existujících cest.
+
+### Známá omezení
+
+- **Dlaždice heatmapy je při 100,4 % zelená**, zatímco karta i pás hlásí
+  přeplánování — `heatToneFor` dostává už zaokrouhlené procento. Není to regrese
+  R3, původní `heatColor` měla tutéž vadu; oprava vyžaduje poslat z API
+  nezaokrouhlenou hodnotu.
+- **Pás se po otevření stránky neobnoví.** Razítko v hlavičce proto přiznává,
+  že platí jen pro kapacitu a rezervace; položky Kontrolního panelu se
+  přepočítávají při každém renderu.
+- **Detektor holých rozměrů nehlídá `margin`, `gap`, `width`, `height`** ani
+  `paddingBottom`. Přiznáno v komentáři testu.
+- **Třetí stroj** by se objevil v pásu, ale ne v heatmapě a kartách —
+  `["XL_105","XL_106"]` je v obou pohledech natvrdo.
