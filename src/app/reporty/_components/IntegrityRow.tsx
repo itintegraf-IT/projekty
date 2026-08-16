@@ -1,16 +1,17 @@
 "use client";
 
 import React, { useState } from "react";
+import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
 import type { IntegrityIssue } from "./useHealthData";
 import CheckExplainer from "./CheckExplainer";
 
 const TH: React.CSSProperties = {
-  textAlign: "left", fontSize: 10, letterSpacing: ".09em", textTransform: "uppercase",
+  textAlign: "left", fontSize: reportTypeScale.xs, letterSpacing: ".09em", textTransform: "uppercase",
   color: "var(--text-muted)", fontWeight: 600, padding: "8px 11px",
   background: "var(--surface-2)", borderBottom: "1px solid var(--border)",
 };
 const TD: React.CSSProperties = {
-  padding: "9px 11px", borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: 13,
+  padding: "9px 11px", borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: reportTypeScale.md,
 };
 
 function fmtDateTime(iso: string): string {
@@ -55,7 +56,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
       <div
         onClick={() => expandable && setOpen((o) => !o)}
         style={{
-          display: "flex", alignItems: "center", gap: 9, padding: "9px 13px", fontSize: 13,
+          display: "flex", alignItems: "center", gap: 9, padding: "9px 13px", fontSize: reportTypeScale.md,
           cursor: expandable ? "pointer" : "default", userSelect: "none",
         }}
       >
@@ -64,12 +65,12 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
         <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{
             fontVariantNumeric: "tabular-nums", fontWeight: 700,
-            color: uncomputed ? "var(--warning-text)" : bad ? "var(--danger)" : "var(--text-muted)",
+            color: uncomputed ? "var(--warning-text)" : bad ? "var(--status-bad)" : "var(--text-muted)",
           }}>
             {uncomputed ? "nespočteno" : issue.count}
           </span>
           {expandable && (
-            <span style={{ color: "var(--text-muted)", fontSize: 11, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
+            <span style={{ color: "var(--text-muted)", fontSize: reportTypeScale.sm, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
           )}
         </span>
       </div>
@@ -77,7 +78,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
       {/* Důvod se vypisuje i bez `error` — holé „nespočteno" bez vysvětlení
           a bez možnosti rozbalit je slepá ulička. */}
       {uncomputed && (
-        <div style={{ padding: "0 13px 10px 29px", fontSize: 12, color: "var(--warning-text)" }}>
+        <div style={{ padding: "0 13px 10px 29px", fontSize: reportTypeScale.base, color: "var(--warning-text)" }}>
           Kontrola se nespočetla: {issue.error ?? "důvod neznámý"}
         </div>
       )}
@@ -85,7 +86,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
       {/* Nález bez položek se nedá rozbalit — bez téhle hlášky svítí červené číslo,
           na které nejde kliknout a nikde není proč. */}
       {bad && issue.items.length === 0 && (
-        <div style={{ padding: "0 13px 10px 29px", fontSize: 12, color: "var(--text-muted)" }}>
+        <div style={{ padding: "0 13px 10px 29px", fontSize: reportTypeScale.base, color: "var(--text-muted)" }}>
           Detaily nejsou k dispozici.
         </div>
       )}
@@ -93,7 +94,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
       {open && expandable && (
         <div style={{ padding: "0 13px 13px" }}>
           <CheckExplainer copyKey={issue.key} />
-          <div style={{ overflowX: "auto", marginTop: 8, border: "1px solid var(--border)", borderRadius: 9 }}>
+          <div style={{ overflowX: "auto", marginTop: 8, border: "1px solid var(--border)", borderRadius: reportRadius.lg }}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 520 }}>
               <thead>
                 <tr>
@@ -108,19 +109,19 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
                   <tr key={item.id}>
                     <td style={TD}>
                       <span style={{ fontWeight: 600 }}>{item.orderNumber || `#${item.id}`}</span>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{fmtDateTime(item.startTime)}</div>
+                      <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>{fmtDateTime(item.startTime)}</div>
                     </td>
-                    <td style={{ ...TD, fontWeight: 700, fontSize: 12 }}>{item.machine}</td>
+                    <td style={{ ...TD, fontWeight: 700, fontSize: reportTypeScale.base }}>{item.machine}</td>
                     {/* Rozešlá skupina může vypsat i deset polí — bez stropu a lámání
                         by jedno dlouhé slovo (popis, specifikace) roztáhlo tabulku. */}
                     <td style={{ ...TD, color: "var(--text-muted)", maxWidth: 420, overflowWrap: "anywhere" }}>{item.detail}</td>
                     <td style={TD}>
                       {canJump(issue.key, item.orderNumber) ? (
-                        <a href={`/?highlight=${item.id}`} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
+                        <a href={`/?highlight=${item.id}`} style={{ color: "var(--brand-text)", textDecoration: "none", fontSize: reportTypeScale.md, fontWeight: 600, whiteSpace: "nowrap" }}>
                           Otevřít v plánu →
                         </a>
                       ) : (
-                        <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>v plánu nedohledatelný</span>
+                        <span style={{ fontSize: reportTypeScale.base, color: "var(--text-muted)", whiteSpace: "nowrap" }}>v plánu nedohledatelný</span>
                       )}
                     </td>
                   </tr>
@@ -129,7 +130,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
             </table>
           </div>
           {issue.count !== null && issue.count > issue.items.length && (
-            <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--text-muted)" }}>
+            <div style={{ marginTop: 6, fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>
               Zobrazeno {issue.items.length} z {issue.count} nálezů.
             </div>
           )}

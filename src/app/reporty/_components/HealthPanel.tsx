@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { machineLabel } from "@/lib/machines";
+import { reportTypeScale, reportGlyph, reportRadius } from "@/lib/reportTokens";
 import type { BlockRef, HealthData } from "./useHealthData";
 import IntegrityRow from "./IntegrityRow";
 import CheckExplainer from "./CheckExplainer";
@@ -20,7 +21,18 @@ interface HealthPanelProps {
   onRefresh: () => void;
 }
 
-const TYPE_CHIP: Record<string, string> = { ZAKAZKA: "#1a6bcc", REZERVACE: "#7c3aed", UDRZBA: "#c0392b" };
+/**
+ * Odstíny podle plánovače (`blockStyles.ts`), ne vlastní sada: údržba tu dřív
+ * byla ČERVENÁ, zatímco v plánu je zelená — týž typ bloku měl dvě barvy podle
+ * toho, na kterou obrazovku se člověk díval, a červená jinde v aplikaci
+ * znamená problém. Bílý text na sytém podkladu navíc dával v tmavém režimu
+ * 3,15–3,43:1, tedy pod AA; pilulka s 22% tónem to řeší v obou režimech.
+ */
+const TYPE_TONE: Record<string, string> = {
+  ZAKAZKA: "var(--type-zakazka)",
+  REZERVACE: "var(--type-rezervace)",
+  UDRZBA: "var(--type-udrzba)",
+};
 const TYPE_LABEL: Record<string, string> = { ZAKAZKA: "ZAKÁZKA", REZERVACE: "REZERVACE", UDRZBA: "ÚDRŽBA" };
 
 function fmtDateTime(iso: string): string {
@@ -32,13 +44,19 @@ function jumpHref(blockId: number): string {
 
 function Chip({ type }: { type: string }) {
   return (
-    <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".04em", padding: "2px 6px", borderRadius: 5, color: "#fff", background: TYPE_CHIP[type] ?? "var(--surface-3)" }}>
+    <span style={{
+      fontSize: reportTypeScale.xs, fontWeight: 800, letterSpacing: ".04em", padding: "2px 6px", borderRadius: reportRadius.sm,
+      color: TYPE_TONE[type] ?? "var(--text-muted)",
+      background: TYPE_TONE[type]
+        ? `color-mix(in oklab, ${TYPE_TONE[type]} 22%, transparent)`
+        : "var(--surface-3)",
+    }}>
       {TYPE_LABEL[type] ?? type}
     </span>
   );
 }
 function Jump({ id }: { id: number }) {
-  return <a href={jumpHref(id)} style={{ color: "var(--brand)", textDecoration: "none", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>Otevřít v plánu →</a>;
+  return <a href={jumpHref(id)} style={{ color: "var(--brand-text)", textDecoration: "none", fontSize: reportTypeScale.md, fontWeight: 600, whiteSpace: "nowrap" }}>Otevřít v plánu →</a>;
 }
 
 function Card({ title, subtitle, icon, count, error, copyKey, children }: {
@@ -61,7 +79,7 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
     : bad
       ? "var(--danger)"
       : "color-mix(in oklab, var(--success) 55%, var(--border))";
-  const pillColor = uncomputed ? "var(--warning-text)" : bad ? "var(--danger)" : "var(--success)";
+  const pillColor = uncomputed ? "var(--warning-text)" : bad ? "var(--status-bad)" : "var(--status-ok)";
   const pillBg = uncomputed
     ? "color-mix(in oklab, var(--warning) 20%, transparent)"
     : bad
@@ -70,30 +88,30 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
   return (
     <div style={{
       background: "var(--surface)", border: "1px solid var(--border)",
-      borderLeft: `3px solid ${edge}`, borderRadius: 11, overflow: "hidden",
+      borderLeft: `3px solid ${edge}`, borderRadius: reportRadius.lg, overflow: "hidden",
     }}>
       <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 15px", cursor: "pointer", userSelect: "none" }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, background: "var(--surface-2)" }}>{icon}</div>
+        <div style={{ width: 32, height: 32, borderRadius: reportRadius.md, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: reportGlyph.sm, background: "var(--surface-2)" }}>{icon}</div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{subtitle}</div>
+          <div style={{ fontWeight: 600, fontSize: reportTypeScale.lg }}>{title}</div>
+          <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginTop: 2 }}>{subtitle}</div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 11 }}>
           <span style={{
-            fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999, fontVariantNumeric: "tabular-nums",
+            fontSize: reportTypeScale.base, fontWeight: 800, padding: "4px 11px", borderRadius: reportRadius.pill, fontVariantNumeric: "tabular-nums",
             color: pillColor, background: pillBg,
           }}>{
             // Tři stavy, ale „nespočteno" má dvě podoby: kontrola vůbec neproběhla
             // (count === null), nebo proběhla jen zčásti — číslo pak platí, ale není úplné.
             uncomputed ? (count === null ? "nespočteno" : `${count} · neúplné`) : bad ? count : "✓ 0"
           }</span>
-          <span style={{ color: "var(--text-muted)", fontSize: 12, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
+          <span style={{ color: "var(--text-muted)", fontSize: reportTypeScale.base, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
         </div>
       </div>
       {open && (
         <div style={{ borderTop: "1px solid var(--border)", padding: "10px 15px 15px" }}>
           {uncomputed && (
-            <div style={{ fontSize: 12, color: "var(--warning-text)", marginBottom: 8 }}>
+            <div style={{ fontSize: reportTypeScale.base, color: "var(--warning-text)", marginBottom: 8 }}>
               Kontrola se nespočetla: {error ?? "důvod neznámý"}
             </div>
           )}
@@ -103,7 +121,7 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
               selhání, které má panel odhalovat. Částečný výsledek (count != null)
               smysl má, ten se ukáže. */}
           {count === null
-            ? <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 8 }}>Data nejsou k dispozici — kontrola neproběhla.</div>
+            ? <div style={{ fontSize: reportTypeScale.base, color: "var(--text-muted)", marginTop: 8 }}>Data nejsou k dispozici — kontrola neproběhla.</div>
             : children}
         </div>
       )}
@@ -111,10 +129,10 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
   );
 }
 
-const TH: React.CSSProperties = { textAlign: "left", fontSize: 10, letterSpacing: ".09em", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: 600, padding: "9px 12px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)" };
-const TD: React.CSSProperties = { padding: "10px 12px", borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: 13 };
+const TH: React.CSSProperties = { textAlign: "left", fontSize: reportTypeScale.xs, letterSpacing: ".09em", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: 600, padding: "9px 12px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)" };
+const TD: React.CSSProperties = { padding: "10px 12px", borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: reportTypeScale.md };
 function TableWrap({ children }: { children: React.ReactNode }) {
-  return <div style={{ overflowX: "auto", marginTop: 8, border: "1px solid var(--border)", borderRadius: 9 }}><table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560 }}>{children}</table></div>;
+  return <div style={{ overflowX: "auto", marginTop: 8, border: "1px solid var(--border)", borderRadius: reportRadius.lg }}><table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560 }}>{children}</table></div>;
 }
 
 /**
@@ -125,7 +143,7 @@ function TableWrap({ children }: { children: React.ReactNode }) {
 function Truncated({ count, shown }: { count: number | null; shown: number }) {
   if (count === null || count <= shown) return null;
   return (
-    <div style={{ marginTop: 6, fontSize: 11.5, color: "var(--text-muted)" }}>
+    <div style={{ marginTop: 6, fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>
       Zobrazeno {shown} z {count} nálezů.
     </div>
   );
@@ -135,15 +153,15 @@ function BlockCell({ r }: { r: BlockRef }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <Chip type={r.type} />
       <span style={{ fontWeight: 600 }}>{r.orderNumber || `#${r.id}`}</span>
-      <span style={{ fontSize: 11, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(r.startTime)}–{fmtDateTime(r.endTime)}</span>
+      <span style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(r.startTime)}–{fmtDateTime(r.endTime)}</span>
     </div>
   );
 }
 
 export default function HealthPanel({ data, loading, error, total, badChecks, uncomputed, onRefresh }: HealthPanelProps) {
-  const sectionLabel: React.CSSProperties = { fontSize: 12, color: "var(--brand)", fontWeight: 600, borderBottom: "1px solid var(--border)", paddingBottom: 4, marginBottom: 12 };
+  const sectionLabel: React.CSSProperties = { fontSize: reportTypeScale.base, color: "var(--brand-text)", fontWeight: 600, borderBottom: "1px solid var(--border)", paddingBottom: 4, marginBottom: 12 };
   const refreshBtn = (
-    <button onClick={onRefresh} disabled={loading} style={{ background: "var(--brand)", color: "var(--brand-contrast)", border: "1px solid var(--brand)", borderRadius: 8, padding: "9px 15px", fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1, whiteSpace: "nowrap" }}>
+    <button onClick={onRefresh} disabled={loading} style={{ background: "var(--brand)", color: "var(--brand-contrast)", border: "1px solid var(--brand)", borderRadius: reportRadius.md, padding: "9px 15px", fontSize: reportTypeScale.md, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1, whiteSpace: "nowrap" }}>
       ↻ {loading ? "Kontroluji…" : "Překontrolovat teď"}
     </button>
   );
@@ -153,24 +171,24 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
       <div style={sectionLabel}>Kontrolní panel</div>
 
       {error && (
-        <div style={{ padding: "12px 16px", borderRadius: 8, background: "color-mix(in oklab, var(--danger) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)", color: "var(--danger)", fontSize: 13 }}>
-          Chyba kontroly: {error} <button onClick={onRefresh} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--brand)", cursor: "pointer", fontWeight: 600 }}>Zkusit znovu</button>
+        <div style={{ padding: "12px 16px", borderRadius: reportRadius.md, background: "color-mix(in oklab, var(--danger) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)", color: "var(--status-bad)", fontSize: reportTypeScale.md }}>
+          Chyba kontroly: {error} <button onClick={onRefresh} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--brand-text)", cursor: "pointer", fontWeight: 600 }}>Zkusit znovu</button>
         </div>
       )}
 
       {!error && data && (
         <>
           {/* Souhrnný proužek */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: `1px solid ${total > 0 ? "color-mix(in oklab, var(--danger) 45%, var(--border))" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 45%, var(--border))" : "color-mix(in oklab, var(--success) 40%, var(--border))"}`, borderRadius: 12, padding: "16px 18px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: `1px solid ${total > 0 ? "color-mix(in oklab, var(--danger) 45%, var(--border))" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 45%, var(--border))" : "color-mix(in oklab, var(--success) 40%, var(--border))"}`, borderRadius: reportRadius.lg, padding: "16px 18px", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 250 }}>
               {/* Ikona MUSÍ žloutnout spolu s rámečkem a nadpisem — zelené ✓ vedle
                   nadpisu „Bez nálezu (neúplně)" tvrdí přesně to, co panel odhaluje. */}
-              <div style={{ width: 42, height: 42, borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: total > 0 ? "color-mix(in oklab, var(--danger) 22%, transparent)" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 22%, transparent)" : "color-mix(in oklab, var(--success) 20%, transparent)" }}>{total > 0 ? "⚠️" : uncomputed > 0 ? "⚠" : "✓"}</div>
+              <div style={{ width: 42, height: 42, borderRadius: reportRadius.lg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: reportGlyph.lg, background: total > 0 ? "color-mix(in oklab, var(--danger) 22%, transparent)" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 22%, transparent)" : "color-mix(in oklab, var(--success) 20%, transparent)" }}>{total > 0 ? "⚠️" : uncomputed > 0 ? "⚠" : "✓"}</div>
               <div>
-                <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", color: total > 0 ? "var(--danger)" : uncomputed > 0 ? "var(--warning-text)" : "var(--success)" }}>
+                <div style={{ fontSize: reportTypeScale.hero, fontWeight: 700, lineHeight: 1.1, fontVariantNumeric: "tabular-nums", color: total > 0 ? "var(--status-bad)" : uncomputed > 0 ? "var(--warning-text)" : "var(--status-ok)" }}>
                   {total > 0 ? `${total} ${total === 1 ? "problém" : total < 5 ? "problémy" : "problémů"}` : uncomputed > 0 ? "Bez nálezu (neúplně)" : "Vše v pořádku"}
                 </div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>
+                <div style={{ fontSize: reportTypeScale.base, color: "var(--text-muted)", marginTop: 3 }}>
                   {total > 0 ? `v ${badChecks} z 5 kontrol · ` : uncomputed > 0 ? "5 kontrol · " : "5 kontrol bez nálezu · "}
                   {uncomputed > 0 ? `${uncomputed} ${uncomputed === 1 ? "kontrola nespočtena" : uncomputed < 5 ? "kontroly nespočteny" : "kontrol nespočteno"} · ` : ""}
                   kontrola {fmtDateTime(data.checkedAt)}
@@ -189,7 +207,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
                 <tbody>
                   {data.checks.overlaps.items.map((p, i) => (
                     <tr key={i}>
-                      <td style={{ ...TD, fontWeight: 700, fontSize: 12 }}>{machineLabel(p.machine)}</td>
+                      <td style={{ ...TD, fontWeight: 700, fontSize: reportTypeScale.base }}>{machineLabel(p.machine)}</td>
                       <td style={TD}><BlockCell r={p.a} /></td>
                       <td style={TD}><BlockCell r={p.b} /></td>
                       <td style={{ ...TD, color: "var(--warning-text)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{p.overlapMinutes} m</td>
@@ -208,8 +226,8 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
                 <tbody>
                   {data.checks.drift.items.map((d) => (
                     <tr key={d.id}>
-                      <td style={TD}><span style={{ fontWeight: 600 }}>{d.orderNumber || `#${d.id}`}</span><div style={{ fontSize: 11, color: "var(--text-muted)" }}>start {fmtDateTime(d.startTime)}</div></td>
-                      <td style={{ ...TD, fontWeight: 700, fontSize: 12 }}>{machineLabel(d.machine)}</td>
+                      <td style={TD}><span style={{ fontWeight: 600 }}>{d.orderNumber || `#${d.id}`}</span><div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>start {fmtDateTime(d.startTime)}</div></td>
+                      <td style={{ ...TD, fontWeight: 700, fontSize: reportTypeScale.base }}>{machineLabel(d.machine)}</td>
                       <td style={{ ...TD, color: "var(--text-muted)", textDecoration: "line-through", fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(d.storedEnd)}</td>
                       <td style={{ ...TD, color: "var(--warning-text)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{d.expectedEnd ? fmtDateTime(d.expectedEnd) : "nelze spočítat"}</td>
                       <td style={TD}><Jump id={d.id} /></td>
@@ -228,7 +246,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
                   {data.checks.outsideHours.items.map((d) => (
                     <tr key={d.id}>
                       <td style={{ ...TD, fontWeight: 600 }}>{d.orderNumber || `#${d.id}`}</td>
-                      <td style={{ ...TD, fontWeight: 700, fontSize: 12 }}>{machineLabel(d.machine)}</td>
+                      <td style={{ ...TD, fontWeight: 700, fontSize: reportTypeScale.base }}>{machineLabel(d.machine)}</td>
                       <td style={{ ...TD, fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(d.startTime)}</td>
                       <td style={TD}><Jump id={d.id} /></td>
                     </tr>
@@ -240,7 +258,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
 
             {/* 4. Integrita dat */}
             <Card icon="🧩" title="Integrita dat" subtitle="Osiřelý preset, neplatné hodnoty a rozešlé split-skupiny." copyKey="integrity" count={data.checks.integrity.count} error={data.checks.integrity.error}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 8, border: "1px solid var(--border)", borderRadius: 9, overflow: "hidden" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 1, marginTop: 8, border: "1px solid var(--border)", borderRadius: reportRadius.lg, overflow: "hidden" }}>
                 {data.checks.integrity.breakdown.map((it) => (
                   <IntegrityRow key={it.key} issue={it} />
                 ))}
@@ -249,14 +267,14 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
 
             {/* 5. Přílohy */}
             <Card icon="📎" title="Přílohy: soubory vs. databáze" subtitle="Metadata v DB bez souboru na disku (nebo naopak)." copyKey="attachments" count={data.checks.attachments.count} error={data.checks.attachments.error}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8, fontSize: 13 }}>
-                <div>Metadata v DB bez souboru na disku: <strong style={{ color: data.checks.attachments.missingFiles.length > 0 ? "var(--danger)" : "var(--text-muted)" }}>{data.checks.attachments.missingFiles.length}</strong></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8, fontSize: reportTypeScale.md }}>
+                <div>Metadata v DB bez souboru na disku: <strong style={{ color: data.checks.attachments.missingFiles.length > 0 ? "var(--status-bad)" : "var(--text-muted)" }}>{data.checks.attachments.missingFiles.length}</strong></div>
                 {data.checks.attachments.missingFiles.map((m) => (
-                  <div key={m.id} style={{ fontSize: 12, color: "var(--text-muted)" }}>· rezervace {m.reservationId} · {m.originalName} <code style={{ color: "var(--text-muted)" }}>({m.storageKey})</code></div>
+                  <div key={m.id} style={{ fontSize: reportTypeScale.base, color: "var(--text-muted)" }}>· rezervace {m.reservationId} · {m.originalName} <code style={{ color: "var(--text-muted)" }}>({m.storageKey})</code></div>
                 ))}
-                <div style={{ marginTop: 4 }}>Soubor na disku bez metadat: <strong style={{ color: data.checks.attachments.orphanFiles.length > 0 ? "var(--danger)" : "var(--text-muted)" }}>{data.checks.attachments.orphanFiles.length}</strong></div>
+                <div style={{ marginTop: 4 }}>Soubor na disku bez metadat: <strong style={{ color: data.checks.attachments.orphanFiles.length > 0 ? "var(--status-bad)" : "var(--text-muted)" }}>{data.checks.attachments.orphanFiles.length}</strong></div>
                 {data.checks.attachments.orphanFiles.map((o, i) => (
-                  <div key={i} style={{ fontSize: 12, color: "var(--text-muted)" }}>· rezervace {o.reservationId} · <code>{o.storageKey}</code></div>
+                  <div key={i} style={{ fontSize: reportTypeScale.base, color: "var(--text-muted)" }}>· rezervace {o.reservationId} · <code>{o.storageKey}</code></div>
                 ))}
               </div>
             </Card>
@@ -264,7 +282,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
         </>
       )}
 
-      {loading && !data && <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Spouštím kontroly…</div>}
+      {loading && !data && <div style={{ color: "var(--text-muted)", fontSize: reportTypeScale.md }}>Spouštím kontroly…</div>}
     </div>
   );
 }
