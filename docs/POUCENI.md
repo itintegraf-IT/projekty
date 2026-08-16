@@ -491,3 +491,44 @@ hnout achromatická osa. Rozbitá verze dělala z bílé azurovou. Jeden řádek
 platí nezávisle na tom, co měříš — něco, co musí vyjít i kdyby všechny vstupní
 hodnoty byly jiné. Test typu „A je větší než B" ověří jen pořadí a přežije
 i hrubě špatnou implementaci.
+
+---
+
+## P24 — Souhrn přes období zamlčí špičku uvnitř něj
+
+**Kdy:** 16. 8. 2026, etapa „Reporty R3 — přeskládání stránky".
+
+Nový stavový pás měl hlásit, že je stroj přeplánovaný. Postavil jsem verdikt na
+**součtu přes třicetidenní horizont**: naplánované hodiny minus dostupná kapacita.
+
+Stroj naplněný příští týden po–pá na **150 % každý den** vyšel proti prázdnému
+zbytku horizontu jako `120 h plánu proti 352 h kapacity` — tedy v pořádku. Pás
+k tomu napsal **„Nic nevyžaduje pozornost. Oba stroje v kapacitě"**, zatímco
+heatmapa přímo pod ním svítila pěti červenými dny.
+
+Volná kapacita v pozdějších týdnech **umazala špičku v tom nejbližším**. Součet
+je z definice slepý k rozložení uvnitř sčítaného rozsahu.
+
+Táž vada má víc podob a všechny se objevily v jedné etapě:
+- **Pás vs. karta.** Karta „Kapacita" bere rozdíl přes celé zvolené období, pás
+  sčítá přetečení po dnech. Na týchž datech řeknou opak a ani jeden se nemýlí —
+  jen odpovídají na jinou otázku. Musí to být vidět v textu, jinak to vypadá
+  jako chyba.
+- **Jmenovatel, na který se nesáhlo.** Den bez kapacity se přeskakuje, takže
+  u stroje s nenaseedovanými týdny směn pás neposoudil ani jeden den — a přesto
+  psal „ani jeden stroj není v příštích 30 dnech nad kapacitou". Tvrdil výsledek
+  třiceti kontrol, z nichž neproběhla žádná.
+
+**Pravidlo:** U metriky, která má hlásit problém, se ptej, **jestli ho neumí
+zprůměrovat pryč**. Souhrn přes období se hodí na „kolik nás to stálo", ne na
+„je něco špatně" — tam patří maximum nebo počet překročení, ne součet. A když
+metrika některé vstupy přeskakuje, **počítej kolik jich přeskočila** a nikdy
+netvrď víc, než na kolika jsi je opravdu ověřil.
+
+Vedlejší poučení téže etapy, stejné třídy: **odkaz, který vede na stránku, kde
+uživatel právě stojí, je horší než žádný odkaz.** Tři položky pásu měly
+`href="/reporty"`, přičemž záložka je lokální stav bez URL — kliknutí tedy
+udělalo plný reload a přistálo na výchozí záložce, takže „Kontrolní panel →"
+z Výhledu tiše zahodilo záložku, na které člověk byl. Test to nechytil, protože
+ověřoval `href.length > 0`. **Test na existenci řetězce není test na to, že
+odkaz někam vede** — cíl musí být z uzavřeného seznamu skutečných cest.
