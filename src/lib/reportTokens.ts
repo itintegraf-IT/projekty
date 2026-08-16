@@ -31,7 +31,10 @@ export const reportGlyph = { sm: 16, lg: 20 } as const;
 
 /** Poloměry. Krok `md` je schválně shodný s `uiStyles.ts`, ať tlačítka sedí. */
 export const reportRadius = {
-  xs: 4,     // čtverečky legendy, dlaždice heatmapy
+  // 3, ne 4: krok se používá i na čtverečcích legendy 9×9 a 10×10 px, kde je
+  // poloměr 4 px skoro polovina strany a ze čtverečku se stane kolečko
+  // s useknutými boky. Na dlaždici heatmapy (28 px) je rozdíl neznatelný.
+  xs: 3,     // čtverečky legendy, dlaždice heatmapy
   sm: 6,     // chipy, malá tlačítka
   md: 8,     // tlačítka, vstupy
   lg: 10,    // karty
