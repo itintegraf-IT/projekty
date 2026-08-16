@@ -133,7 +133,12 @@ export async function GET() {
     const waiting: WaitingReservation[] = submitted.map((r) => ({
       id: r.id,
       orderNumber: r.code || `#${r.id}`,
-      waitingDays: Math.floor((nowMs - r.createdAt.getTime()) / 86_400_000),
+      // `Math.round`, ne `floor` — SHODNĚ s `oldestWaitingDays` v dashboard route.
+      // Obě čísla jsou vidět na téže stránce a při `floor` by se u čekání 3,6 dne
+      // rozešla (pás „3 dny", karta „4 dny"), a protože práh je ostrý `> 3`,
+      // rozešel by se i verdikt. Zarovnává se NOVÝ kód na existující chování,
+      // ne naopak — měnit dnešní číslo není téma R3.
+      waitingDays: Math.round((nowMs - r.createdAt.getTime()) / 86_400_000),
     }));
 
     return NextResponse.json({ checkedAt: new Date().toISOString(), overbooked, waiting });

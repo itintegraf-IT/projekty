@@ -834,7 +834,13 @@ git commit -m "feat(reporty): Retrospektiva seskupená podle otázek, bez jmenov
 - Upravit: `src/app/api/report/dashboard/route.ts`
 
 **Rozhraní:**
-- Poskytuje (Task 7): `pendingReservations.items: Array<{ id: number; orderNumber: string; description: string; waitingDays: number; status: string }>` + `shownOf: number`
+- Poskytuje (Task 7): `pendingReservations.items: Array<{ id: number; code: string; requestText: string; waitingDays: number; status: string }>` + `totalCount: number`
+
+> **OVĚŘENO PROTI SCHÉMATU (opraveno po Tasku 2).** Model `Reservation` **nemá** pole `orderNumber` ani `description`, jak plán původně psal. Skutečnost:
+> - **`code String @unique @default("")`** — číslo rezervace, které uživatel vidí (renderuje ho `src/app/rezervace/_components/ReservationList.tsx:86` jako `{r.code || "…"}`). Sloupec je NOT NULL s prázdným defaultem, takže fallback patří na `code || "#" + id`, ne na `?? null`.
+> - **`requestText String? @db.Text`** — nejbližší k popisu. Je nullable.
+>
+> Použij tyhle názvy. Kdyby v UI `requestText` působil příliš dlouze (je to volný text požadavku, ne krátký popis), ořízni ho v komponentě, ne v API.
 
 - [ ] **Krok 1: Rozšířit dotaz a odpověď**
 
@@ -848,9 +854,11 @@ const pendingAll = [...submitted, ...queueReady]
   .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 const pendingItems = pendingAll.slice(0, PENDING_LIST_LIMIT).map((r) => ({
   id: r.id,
-  orderNumber: r.orderNumber ?? `#${r.id}`,
-  description: r.description ?? "",
-  waitingDays: Math.floor((Date.now() - r.createdAt.getTime()) / 86_400_000),
+  code: r.code || `#${r.id}`,
+  requestText: r.requestText ?? "",
+  // `Math.round` shodně s `oldestWaitingDays` o pár řádků níž i se stavovým
+  // pásem — tři čísla o čekání na jedné stránce se nesmí rozejít.
+  waitingDays: Math.round((Date.now() - r.createdAt.getTime()) / 86_400_000),
   status: r.status,
 }));
 ```
@@ -926,7 +934,7 @@ Mřížku obal kontejnerem, který se posouvá sám:
 
 - [ ] **Krok 4: Rezervace jako seznam**
 
-Nahraď dvě KPI karty seznamem z `data.pendingReservations.items`. Řádek: číslo zakázky (tučně) · popis (tlumeně, `flex: 1`) · „čeká N dní" (tabular-nums). Pod seznamem `{newCount} nové · {queueCount} ve frontě k plánování` a přiznaný strop, když `totalCount > items.length`.
+Nahraď dvě KPI karty seznamem z `data.pendingReservations.items`. Řádek: `code` (tučně) · `requestText` (tlumeně, `flex: 1`, ořezaný) · „čeká N dní" (tabular-nums). Pod seznamem `{newCount} nové · {queueCount} ve frontě k plánování` a přiznaný strop, když `totalCount > items.length`.
 
 Řádek **není** odkaz na `/?highlight=` — to je id BLOKU, ne rezervace. Celý panel dostane odkaz `/rezervace` v hlavičce.
 

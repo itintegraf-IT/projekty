@@ -87,7 +87,14 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       severity: "bad",
       title: `${machineLabel(m.machine)} přeplánován o ${cz(m.overbookedHours)} h`,
       detail: "plán nad kapacitou stroje",
-      when: `${m.overbookedDays} ${plural(m.overbookedDays, "den", "dny", "dní")} z ${ATTENTION_THRESHOLDS.overbookedHorizonDays}`,
+      // Nula dní není chyba výpočtu: den bez kapacity (víkend, celozávodní
+      // odstávka) se do počtu přeplánovaných dní nezapočítá, protože vytížení
+      // je tam nedefinované. Stroj přeplánovaný VÝHRADNĚ mimo pracovní dobu by
+      // tedy dostal větu „0 dní z 30", což se čte jako protimluv. Ten případ
+      // dostane vlastní text — a je to zároveň užitečnější informace.
+      when: m.overbookedDays > 0
+        ? `${m.overbookedDays} ${plural(m.overbookedDays, "den", "dny", "dní")} z ${ATTENTION_THRESHOLDS.overbookedHorizonDays}`
+        : "mimo pracovní dobu",
       href: "/reporty",
       linkLabel: "Výhled →",
     });
@@ -107,14 +114,20 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
 
   // Rezervace se slučují do JEDNÉ položky — pás má být krátký a čitelný na
   // jeden pohled. Seznam s čísly zakázek je v sekci RIZIKA ve Výhledu.
+  //
+  // POZOR na rozdíl proti kartě „Čekající na zpracování" ve Výhledu: ta počítá
+  // SUBMITTED i QUEUE_READY, pás jen SUBMITTED. Není to nedopatření — jsou to
+  // dva různé stavy. QUEUE_READY někdo převzal a čeká na místo v plánu;
+  // SUBMITTED nikdo neotevřel. Pás hlásí druhé, a text to musí říct, jinak
+  // vypadají dvě různá čísla na téže stránce jako protimluv.
   const late = input.waiting.filter((r) => r.waitingDays > ATTENTION_THRESHOLDS.reservationWaitingDays);
   if (late.length > 0) {
     const longest = Math.max(...late.map((r) => r.waitingDays));
     items.push({
       key: "reservations:waiting",
       severity: "warn",
-      title: `${late.length} ${plural(late.length, "rezervace čeká", "rezervace čekají", "rezervací čeká")} na zpracování`,
-      detail: `déle než ${thresholdDays()}`,
+      title: `${late.length} ${plural(late.length, "rezervace bez odezvy", "rezervace bez odezvy", "rezervací bez odezvy")}`,
+      detail: `nikdo je zatím nepřevzal, čekají déle než ${thresholdDays()}`,
       when: `nejdéle ${longest} ${plural(longest, "den", "dny", "dní")}`,
       href: "/rezervace",
       linkLabel: "Rezervace →",

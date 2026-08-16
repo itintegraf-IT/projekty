@@ -68,6 +68,29 @@ describe("attentionItems — prahy", () => {
   });
 });
 
+describe("attentionItems — hraniční případy přeplánování", () => {
+  it("nula přeplánovaných dní nevypíše „0 dní z 30“, ale důvod", () => {
+    // Nastane, když bloky leží výhradně na dnech s nulovou kapacitou (víkend,
+    // celozávodní odstávka) — vytížení je tam nedefinované, takže se den do
+    // počtu nezapočítá, ale hodiny nad kapacitou existují.
+    const items = buildAttentionItems({
+      ...calm,
+      overbooked: [{ machine: "XL_106", overbookedHours: 8, overbookedDays: 0 }],
+    });
+    assert.equal(items.length, 1);
+    assert.doesNotMatch(items[0].when, /^0 /);
+    assert.match(items[0].when, /mimo pracovní dobu/);
+  });
+
+  it("nenulový počet dní se vypisuje i s horizontem", () => {
+    const items = buildAttentionItems({
+      ...calm,
+      overbooked: [{ machine: "XL_106", overbookedHours: 8, overbookedDays: 6 }],
+    });
+    assert.match(items[0].when, /6 dní z 30/);
+  });
+});
+
 describe("attentionItems — Kontrolní panel", () => {
   it("nálezy hlásí jako bad, nespočtené kontroly jako warn", () => {
     const bad = buildAttentionItems({ ...calm, health: { loaded: true, total: 3, uncomputed: 0 } });
