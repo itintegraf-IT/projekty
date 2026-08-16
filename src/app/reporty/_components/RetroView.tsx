@@ -6,7 +6,7 @@ import { OPEN_STATUSES, CLOSED_STATUSES } from "@/lib/reservationStatus";
 import { KpiCard } from "./KpiCard";
 import { PlanningSection } from "./PlanningSection";
 import { pipelineToneFor, reportTypeScale, reportRadius } from "@/lib/reportTokens";
-import { SectionHeader, BarChart, type RetroData } from "./reportShared";
+import { SectionHeader, BarChart, cz, type RetroData } from "./reportShared";
 
 /**
  * Barva hodnoty na KPI kartě vytížení — TŘI pásma, shodně s `capacityColor`
@@ -47,62 +47,63 @@ export function RetroView({ data }: { data: RetroData }) {
 
   return (
     <>
-      {/* KPI row */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+      {/* VYROBA */}
+      <SectionHeader label="VÝROBA" />
+      {/* Karty stojí u grafu, kterého se týkají. Dřív byly čtyři nesourodé
+          dlaždice nad všemi sekcemi a čtenář si musel domýšlet, ke které
+          otázce která patří. */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "stretch" }}>
+        {/* Podtitulek nese hodiny, které dřív ukazovaly samostatné karty
+            „Produkce XL 105/106". Ty byly duplicitou vytížení (procento je
+            právě podíl těchhle dvou čísel), ale hodiny samy o sobě informaci
+            nesou — proto se stěhují sem, ne do koše. */}
         <KpiCard
           label="Vytížení XL 105"
           value={xl105?.utilization == null ? "—" : `${xl105.utilization}%`}
-          subtitle={`${String(xl105?.productionHours ?? 0).replace(".", ",")} hod. produkce`}
+          subtitle={`${cz(xl105?.productionHours ?? 0)} z ${cz(xl105?.availableHours ?? 0)} h dostupných`}
           color={utilizationColor(xl105?.utilization ?? null)}
         />
         <KpiCard
           label="Vytížení XL 106"
           value={xl106?.utilization == null ? "—" : `${xl106.utilization}%`}
-          subtitle={`${String(xl106?.productionHours ?? 0).replace(".", ",")} hod. produkce`}
+          subtitle={`${cz(xl106?.productionHours ?? 0)} z ${cz(xl106?.availableHours ?? 0)} h dostupných`}
           color={utilizationColor(xl106?.utilization ?? null)}
         />
-        <KpiCard label="Průtok zakázek" value={data.throughput} subtitle="dokončeno v období" />
-        <KpiCard label="Průměrná lead time" value={data.avgLeadTimeDays == null ? "—" : `${String(data.avgLeadTimeDays).replace(".", ",")} d`} subtitle="od založení po dokončení" />
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14, flex: "1 1 0" }}>
+          <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 4 }}>Údržba ratio</div>
+          <div style={{ fontSize: reportTypeScale.display, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
+            {data.maintenanceRatio == null ? "—" : `${data.maintenanceRatio}%`}
+          </div>
+          <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2 }}>čas údržby / celkový čas</div>
+          {/* Souhrn přes oba stroje ředí odstávku jednoho kapacitou druhého — proto i per stroj. */}
+          <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+            {machineLabel("XL_105")}: {xl105?.maintenanceRatio == null ? "—" : `${xl105.maintenanceRatio}%`}
+            {" · "}
+            {machineLabel("XL_106")}: {xl106?.maintenanceRatio == null ? "—" : `${xl106.maintenanceRatio}%`}
+          </div>
+        </div>
+      </div>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
+        <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Denní vytížení</div>
+        <BarChart
+          data={data.dailyUtilization}
+          barKeys={["XL_105", "XL_106"]}
+          colors={["var(--series-a)", "var(--series-b)"]}
+          labels={chartLabels}
+        />
       </div>
 
-      {/* VYROBA */}
-      <SectionHeader label="VÝROBA" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
-          <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Denní vytížení</div>
-          <BarChart
-            data={data.dailyUtilization}
-            barKeys={["XL_105", "XL_106"]}
-            colors={["var(--series-a)", "var(--series-b)"]}
-            labels={chartLabels}
-          />
-        </div>
-        <div>
-          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14, marginBottom: 12 }}>
-            <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 4 }}>Údržba ratio</div>
-            <div style={{ fontSize: reportTypeScale.display, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
-              {data.maintenanceRatio == null ? "—" : `${data.maintenanceRatio}%`}
-            </div>
-            <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2 }}>čas údržby / celkový čas</div>
-            {/* Souhrn přes oba stroje ředí odstávku jednoho kapacitou druhého — proto i per stroj. */}
-            <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
-              {machineLabel("XL_105")}: {xl105?.maintenanceRatio == null ? "—" : `${xl105.maintenanceRatio}%`}
-              {" · "}
-              {machineLabel("XL_106")}: {xl106?.maintenanceRatio == null ? "—" : `${xl106.maintenanceRatio}%`}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <KpiCard label="Produkce XL 105" value={`${String(xl105?.productionHours ?? 0).replace(".", ",")} h`} subtitle={`z ${String(xl105?.availableHours ?? 0).replace(".", ",")} h dostupných`} />
-            <KpiCard label="Produkce XL 106" value={`${String(xl106?.productionHours ?? 0).replace(".", ",")} h`} subtitle={`z ${String(xl106?.availableHours ?? 0).replace(".", ",")} h dostupných`} />
-          </div>
-        </div>
+      {/* PRUCHOD ZAKAZEK */}
+      <SectionHeader label="PRŮCHOD ZAKÁZEK" />
+      <div style={{ display: "flex", gap: 12 }}>
+        <KpiCard label="Průtok zakázek" value={data.throughput} subtitle="dokončeno v období" />
+        <KpiCard label="Průměrná lead time" value={data.avgLeadTimeDays == null ? "—" : `${cz(data.avgLeadTimeDays)} d`} subtitle="od založení po dokončení" />
       </div>
 
       {/* PLANOVANI */}
       <SectionHeader label="PLÁNOVÁNÍ" />
       <PlanningSection
         planning={data.planning}
-        plannerActivity={data.plannerActivity}
         logins={data.logins}
       />
 
