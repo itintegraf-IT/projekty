@@ -362,3 +362,30 @@ nebo se na ně výslovně zeptat. Zúžení zapsané do specu se stává nedotkn
 pravdou pro každé další review; od té chvíle už ho nikdo nezpochybní. A obava
 z vedlejšího efektu se řeší pojistkou proti tomu efektu, ne vypnutím
 požadované funkce.
+
+---
+
+## P21 — Zkratka porovnávaná přes `e.key` je vypnutelná Caps Lockem
+
+**Co se stalo (13. 8. 2026, produkce):** Plánovači přestaly z ničeho nic
+fungovat VŠECHNY klávesové zkratky (Ctrl+C/X/V/Z/Y). Nespravil to reload
+stránky ani restart Chromu, druhému uživateli přitom všechno fungovalo. Vypadalo
+to na poškozený účet nebo rozbitá data — audit produkční DB ale ukázal roli
+`PLANOVAT` v pořádku, `tokenVersion` netknutý, preference normální, serverové
+logy čisté a poslední deploy dva dny starý. Příčinou byl **zapnutý Caps Lock**:
+handler porovnával `e.key === "c"` doslova s malým písmenem, jenže
+`KeyboardEvent.key` nese znak tak, jak by se NAPSAL — s Caps Lockem `"C"`.
+Každá písmenná zkratka tím tiše propadla, zatímco `Delete` a `Esc` (pojmenované
+klávesy) fungovaly dál a myš také, takže aplikace působila zdravě.
+
+Diagnózu zdržel předpoklad „přežije reload ⇒ je to na serveru nebo v datech".
+Ve skutečnosti přežije reload i **stav klávesnice**, protože ten není součástí
+stránky. Rozhodl až test za deset sekund: napsat `c` do hledacího pole a
+podívat se, jestli se objeví `c`, nebo `C`.
+
+**Pravidlo:** Písmennou zkratku odvozovat z `e.code` (fyzická klávesa `KeyC`,
+nezávislá na Caps Locku i na rozložení), s `e.key.toLowerCase()` jako zálohou —
+jediný zdroj pravdy je `shortcutLetter`/`isShortcut` v
+`src/lib/keyboardShortcuts.ts`. **Nikde nepsat `e.key === "<malé písmeno>"`.**
+A při hledání příčiny nesmí seznam „co přežije reload" obsahovat jen server,
+DB a `localStorage` — patří tam i stav klávesnice a prohlížeče u uživatele.

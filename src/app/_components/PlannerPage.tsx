@@ -35,6 +35,7 @@ import { Lock, Unlock } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import DatePickerField from "./DatePickerField";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
+import { isShortcut } from "@/lib/keyboardShortcuts";
 import { ZoomSlider } from "@/components/ZoomSlider";
 import { useNotifications } from "@/hooks/useNotifications";
 import { NotificationBell } from "@/components/NotificationBell";
@@ -2636,18 +2637,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return;
       }
       if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key === "z" && !e.shiftKey) {
+      if (isShortcut(e, "z") && !e.shiftKey) {
         e.preventDefault();
         void undoMgr();
         return;
       }
-      if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+      if (isShortcut(e, "y") || (isShortcut(e, "z") && e.shiftKey)) {
         e.preventDefault();
         void redoMgr();
         return;
       }
       // Priorita: skupinové operace, pokud je vybráno více bloků lasem
-      if (e.key === "c" && selectedBlockIdsRef.current.size > 0) {
+      if (isShortcut(e, "c") && selectedBlockIdsRef.current.size > 0) {
         e.preventDefault();
         const group = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
         clipboardGroupRef.current = group;
@@ -2657,7 +2658,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast(`Zkopírováno ${group.length} bloků. Ctrl+V je vloží za poslední, nebo klikni jinam.`, "info");
         return;
       }
-      if (e.key === "x" && selectedBlockIdsRef.current.size > 0) {
+      if (isShortcut(e, "x") && selectedBlockIdsRef.current.size > 0) {
         e.preventDefault();
         const group = blocksRef.current.filter((b) => selectedBlockIdsRef.current.has(b.id));
         // Cut = přesun (batch PUT) — zamčený/vytištěný blok se přesunout nesmí (parita s dragem)
@@ -2673,13 +2674,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast(`Vyříznuto ${group.length} bloků. Ctrl+V je přesune za poslední.`, "info");
         return;
       }
-      if (e.key === "v" && clipboardGroupRef.current.length > 0) {
+      if (isShortcut(e, "v") && clipboardGroupRef.current.length > 0) {
         e.preventDefault();
         void handleGroupPaste();
         return;
       }
       // Fallback: jednoblokové operace
-      if (e.key === "c" && selectedBlockRef.current) {
+      if (isShortcut(e, "c") && selectedBlockRef.current) {
         e.preventDefault();
         setCopiedBlock(selectedBlockRef.current);
         setIsCut(false);
@@ -2691,7 +2692,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast("Blok zkopírován. Ctrl+V vloží těsně za originál, nebo klikni jinam pro jiné místo.", "info");
         return;
       }
-      if (e.key === "x" && selectedBlockRef.current) {
+      if (isShortcut(e, "x") && selectedBlockRef.current) {
         e.preventDefault();
         const sel = selectedBlockRef.current;
         // Cut = přesun existujícího bloku (PUT) — zamčený/vytištěný blok se přesunout nesmí,
@@ -2709,12 +2710,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return;
       }
       // Ctrl+C / Ctrl+X bez jakéhokoliv výběru — explicitní toast místo silent no-op
-      if (e.key === "c" || e.key === "x") {
+      if (isShortcut(e, "c") || isShortcut(e, "x")) {
         e.preventDefault();
         showToast("Žádný blok není vybrán. Nejdřív klikni na blok nebo vyber skupinu.", "info");
         return;
       }
-      if (e.key === "v") {
+      if (isShortcut(e, "v")) {
         e.preventDefault();
         handlePaste();
       }
