@@ -143,7 +143,9 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
         if (e.isDirectory()) walk(p);
         else if (/\.tsx?$/.test(e.name)) {
           const src = readFileSync(join(process.cwd(), p), "utf8");
-          // Pokrývá `color: "var(--brand)"` i ternár `color: x ? "var(--brand)" : y`.
+          // `[^,;\n]*` uprostřed pokrývá i ternár, kde mezi dvojtečkou a hodnotou
+          // stojí podmínka. Pozor: vzorec se schválně nedá vypsat v komentáři —
+          // procházejí se i testy, takže by tenhle soubor hlásil sám sebe.
           if (/color:\s*[^,;\n]*["'`]var\(--brand\)["'`]/.test(src)) offenders.push(p);
         }
       }
