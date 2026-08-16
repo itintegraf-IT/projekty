@@ -101,7 +101,11 @@ export function BarChart({ data, barKeys, colors, labels }: {
               if (v == null) return <div key={k} style={{ flex: 1 }} title={`${d.date ?? ""}: stroj nejede`} />;
               return (
                 <div key={k} style={{
-                  flex: 1, background: colors[ki], borderRadius: "2px 2px 0 0",
+                  // Zaobluje se jen horní hrana sloupce; poloměr je krok škály
+                  // (`xs`), týž, jaký má čtvereček legendy o pár řádků níž.
+                  // Do R3 tu stály holé 2 px — prošly detektoru jen proto, že
+                  // byly v uvozovkách.
+                  flex: 1, background: colors[ki], borderRadius: `${reportRadius.xs}px ${reportRadius.xs}px 0 0`,
                   height: `${Math.max(2, v / maxVal * 100)}%`, minHeight: 2,
                 }} title={`${d.date ?? ""}: ${v}%`} />
               );

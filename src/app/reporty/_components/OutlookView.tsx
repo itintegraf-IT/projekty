@@ -37,23 +37,51 @@ function capacityColor(m: OutlookMachineData | undefined): string | undefined {
 const MAINTENANCE_LIMIT = 5;
 
 /**
+ * Kolik dní heatmapa nejvýš vykreslí. Strop je v UI PŘIZNANÝ, ne tichý.
+ *
+ * Není to kosmetika, je to pojistka proti zamrznutí záložky. `<input
+ * type="date">` má v Chrome segmentované pole a `onChange` padá po KAŽDÉM
+ * segmentu: jakmile uživatel v poli „Od" přepisuje rok a napíše první číslici,
+ * vznikne validní datum s rokem 0002. Rozsah pak má ~739 000 dní, mřížka
+ * ~2,2 milionu uzlů a záložka je mrtvá dřív, než stihne dopsat zbytek roku.
+ * Server takový rozsah vrátí bez námitek — obrana patří sem, ke kreslení.
+ *
+ * 120 dní je nad každým smysluplným obdobím (čtvrtletí má 92), takže běžný
+ * pohled se ořezu nikdy nedotkne.
+ */
+const HEATMAP_MAX_DAYS = 120;
+
+/**
  * Nad tolik dní se do dlaždice heatmapy dvouciferné číslo nevejde.
  *
- * Práh se počítá z POČTU DNÍ, ne z měření DOM: komponenta se renderuje i na
- * serveru a obě strany musí vykreslit totéž, jinak React hlásí neshodu
- * hydratace. Týdenní i čtrnáctidenní pohled tak zůstává s čísly, měsíční je
- * jen barevná mapa — hodnotu u něj nese `title` dlaždice.
+ * Práh se počítá z POČTU DNÍ, ne z měření skutečné šířky dlaždice: den-count
+ * je předvídatelný a nepotřebuje ani `ResizeObserver`, ani render navíc.
+ * (Dřívější znění tvrdilo, že měřit DOM nejde kvůli neshodě hydratace, protože
+ * se komponenta renderuje i na serveru. To je nepravda: `ReportDashboard` drží
+ * `data` v `useState(null)` a plní je až `useEffect` → fetch, takže se
+ * `OutlookView` na serveru nevykreslí nikdy. Důvod je jednoduchost, ne SSR.)
+ *
+ * 40 je zvolené tak, aby čísla přežila CELÝ měsíční pohled: při 31 dnech je
+ * dlaždice na 1440px monitoru ~39 px a dvouciferné číslo v 10px písmu potřebuje
+ * ~12 px, na 1024px vychází mez kolem 45 dní. Předchozích 20 vypínalo čísla už
+ * od 21. dne, tedy pro každý měsíc — a to je vada přístupnosti, ne vzhledu:
+ * `heatToneFor` staví splnění WCAG 1.4.1 na tom, že hodnotu nese číslo
+ * v dlaždici. Bez čísla zbude jediný nositel `title`, dostupný jen myší.
  */
-const HEATMAP_NUMBERS_MAX_DAYS = 20;
+const HEATMAP_NUMBERS_MAX_DAYS = 40;
 
 export function OutlookView({ data }: { data: OutlookData }) {
   if (!data.dailyCapacity || !data.machines) return null;
   const xl105 = data.machines["XL_105"];
   const xl106 = data.machines["XL_106"];
   const machines = ["XL_105", "XL_106"] as const;
-  // Celé zvolené období. Ořez na 14 dní tu byl bez jakékoliv zmínky, takže
-  // při měsíčním pohledu zmizelo 17 dní a nikdo se to nedozvěděl.
-  const days = data.dailyCapacity;
+  // Celé zvolené období, jen s tvrdým stropem proti nesmyslnému rozsahu.
+  // Původní ořez na 14 dní tu byl bez jakékoliv zmínky, takže při měsíčním
+  // pohledu zmizelo 17 dní a nikdo se to nedozvěděl — proto se ten, který
+  // zůstal, pod mřížkou vypisuje.
+  const allDays = data.dailyCapacity;
+  const days = allDays.length > HEATMAP_MAX_DAYS ? allDays.slice(0, HEATMAP_MAX_DAYS) : allDays;
+  const daysTruncated = allDays.length > days.length;
   const showNumbers = days.length <= HEATMAP_NUMBERS_MAX_DAYS;
 
   const maintenance = data.upcomingMaintenance.slice(0, MAINTENANCE_LIMIT);
@@ -165,6 +193,13 @@ export function OutlookView({ data }: { data: OutlookData }) {
             );
           })}
         </div>
+        {/* Ořez se PŘIZNÁVÁ. Tichý by byl horší než žádný: mřížka končící
+            uprostřed období vypadá jako by dál nic naplánovaného nebylo. */}
+        {daysTruncated && (
+          <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 6 }}>
+            Zobrazeno prvních {HEATMAP_MAX_DAYS} z {allDays.length.toLocaleString("cs-CZ")} dní období.
+          </div>
+        )}
         {!showNumbers && (
           <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 6 }}>
             Při delším období se čísla do dlaždic nevejdou — hodnotu ukáže najetí myší.
@@ -174,10 +209,28 @@ export function OutlookView({ data }: { data: OutlookData }) {
 
       {/* RIZIKA */}
       <SectionHeader label="RIZIKA" />
+      {/* `minWidth: 0` na OBOU buňkách, ne jen na té s volným textem: grid items
+          mají `min-width: auto`, tedy min-content, takže jediné dlouhé slovo
+          (popis údržby bývá `SERVIS_XL105_VYMENA_VALCU_…` bez mezer) roztáhne
+          sloupec a s ním celou stránku do vodorovného posunu. Přesně tomu se
+          o pár řádků výš vědomě předchází u heatmapy vlastním kontejnerem. */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Planned maintenance */}
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
-          <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Plánované údržby</div>
+        <div style={{ minWidth: 0, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>Plánované údržby</div>
+            {/* Rozsah se přiznává stejně jako u sousedního panelu rezervací —
+                ten svoje „stav k dnešku, nezávisle na období" říká nahlas,
+                zatímco tenhle panel ze zvoleného období JEDE a mlčel o tom.
+                Při období „Dnes" pak vlevo stálo „Žádné plánované údržby",
+                i když jsou tři příští týden. Datumy se berou z `dailyCapacity`
+                (ne z oříznutého `days`) — to je celé zvolené období. */}
+            {allDays.length > 0 && (
+              <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2 }}>
+                ze zvoleného období {allDays[0].date} – {allDays[allDays.length - 1].date}, jen dosud neproběhlé
+              </div>
+            )}
+          </div>
           {maintenance.map((m, i) => {
             const startDt = new Date(m.startTime);
             const endDt = new Date(m.endTime);
@@ -189,7 +242,9 @@ export function OutlookView({ data }: { data: OutlookData }) {
               // nic nebylo.
               <div key={i} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: i < maintenance.length - 1 ? "1px solid var(--border)" : "none" }}>
                 <div style={{ fontSize: reportTypeScale.sm, fontWeight: 600, color: "var(--text)" }}>{machineLabel(m.machine)}</div>
-                <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)" }}>{m.description}</div>
+                {/* Volný text z bloku ÚDRŽBA — `overflowWrap: "anywhere"` je týž
+                    vzor, jaký drží sloupec Detail v `IntegrityRow`. */}
+                <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", overflowWrap: "anywhere" }}>{m.description}</div>
                 <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)" }}>
                   {startDt.toISOString().slice(0, 10)} · {cz(hours)} h
                 </div>
@@ -206,7 +261,7 @@ export function OutlookView({ data }: { data: OutlookData }) {
           )}
         </div>
         {/* Pending reservations */}
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
+        <div style={{ minWidth: 0, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
           {/* Odkaz patří do hlavičky panelu, ne na řádek: `id` v seznamu je id
               REZERVACE, kdežto `/?highlight=` očekává id BLOKU. Řádek by tedy
               vedl na cizí zakázku, nebo na žádnou. */}
@@ -222,8 +277,12 @@ export function OutlookView({ data }: { data: OutlookData }) {
           ) : (
             <>
               {pendingItems.map((r, i) => (
+                // `center`, ne `baseline`: prostřední span má `overflow: hidden`,
+                // čímž se z něj stává scroll container — ten baseline nesdílí,
+                // syntetizuje si ji z dolní hrany border boxu a text požadavku
+                // se pak proti sousedům posadí o 2–3 px výš.
                 <div key={r.id} style={{
-                  display: "flex", alignItems: "baseline", gap: 8,
+                  display: "flex", alignItems: "center", gap: 8,
                   marginBottom: 6, paddingBottom: 6,
                   borderBottom: i < pendingItems.length - 1 ? "1px solid var(--border)" : "none",
                 }}>

@@ -70,6 +70,40 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
+/**
+ * `fontSize` / `borderRadius` / `padding` a jejich hodnota — číslo, řetězec
+ * v uvozovkách, nebo šablonový literál. Řetězcový zápis se hlídá stejně jako
+ * holé číslo: v React inline stylech je `padding: "13px 17px"` úplně běžný
+ * a s dřívějším vzorcem (číslice MUSELA stát hned za dvojtečkou) prošel.
+ * Nebyla to teorie — dřívější commit přepsal `padding: 0` na `padding: "0"`
+ * a jediné, co tím získal, bylo projít vlastním detektorem.
+ */
+const DIM_PROP = /\b(?:fontSize|borderRadius|padding)\s*:\s*(-?\d[\d.]*|"[^"\n]*"|'[^'\n]*'|`[^`\n]*`)/g;
+
+/**
+ * Holé rozměry v jednom kusu zdroje. Vrací celé nalezené zápisy, ať je v hlášce
+ * vidět, co přesně se má převést na škálu.
+ *
+ * Projde (a NESMÍ se hlásit):
+ *  - `padding: \`${reportSpace.md}px ${reportSpace.lg}px\`` — interpolace se
+ *    zahazují, zbylé `px px` už žádné číslo nenese;
+ *  - `padding: "0"` a `padding: \`0 ${reportSpace.md}px\`` — nula není krok
+ *    škály, je to reset;
+ *  - `borderRadius: "50%"` — procento je tvar (kolečko), ne krok pixelové škály,
+ *    `reportRadius` ho vyjádřit neumí.
+ */
+function bareDimensionHits(src: string): string[] {
+  const out: string[] = [];
+  for (const m of stripComments(src).matchAll(DIM_PROP)) {
+    const raw = m[1];
+    if (/^-?\d/.test(raw)) { out.push(m[0].trim()); continue; }
+    const inner = raw.slice(1, -1).replace(/\$\{[^}]*\}/g, "");
+    const numbers = inner.match(/\d+(?:\.\d+)?%?/g) ?? [];
+    if (numbers.some((n) => !n.endsWith("%") && Number(n) !== 0)) out.push(m[0].trim());
+  }
+  return out;
+}
+
 const MODES = ["light", "dark"] as const;
 /** Podklady, na kterých text reálně stojí. --surface-3 je jen výplň, ne pozadí textu. */
 const TEXT_BACKDROPS = ["surface", "bg", "surface-2"] as const;
@@ -180,11 +214,44 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
     // píše jako řetězec (`padding: "0"`): není to krok škály, je to reset.
     const offenders: string[] = [];
     for (const f of REPORT_DIRS.flatMap(sourceFiles)) {
-      const src = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
-      const hits = [...src.matchAll(/\b(?:fontSize|borderRadius|padding)\s*:\s*-?\d[\d.]*/g)];
-      if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits.map((h) => h[0]))].join(", ")}`);
+      const hits = bareDimensionHits(readFileSync(join(process.cwd(), f), "utf8"));
+      if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits)].join(", ")}`);
     }
     assert.deepEqual(offenders, [], "rozměry v /reporty patří na škály reportTokens");
+  });
+
+  it("detektor rozměrů se nedá obejít uvozovkou ani backtickem", () => {
+    // Bez tohohle testu se detektor obejde znovu za měsíc: hlídá sám sebe jen
+    // potud, pokud je zapsané, CO ještě chytit má. Vzorky jsou doslova ty, které
+    // dřívějším vzorcem (číslice hned za dvojtečkou) prošly.
+    const shouldCatch = [
+      `<div style={{ padding: "13px 17px", fontSize: "9px", borderRadius: "4px" }} />`,
+      "<div style={{ padding: `13px 17px` }} />",
+      `<div style={{ padding: '5px' }} />`,
+    ];
+    for (const line of shouldCatch) {
+      assert.ok(bareDimensionHits(line).length > 0, `neodhaleno: ${line}`);
+    }
+    // První vzorek nese TŘI vady, ne jednu — hláška musí vyjmenovat všechny,
+    // jinak se opravují po jedné a test spadne pokaždé znovu.
+    assert.equal(bareDimensionHits(shouldCatch[0]).length, 3);
+  });
+
+  it("detektor rozměrů propouští škálu, nulu i procenta", () => {
+    // Druhá polovina téhož: detektor, který hlásí i legitimní zápis, se za
+    // týden vypne celý.
+    const shouldPass = [
+      "<div style={{ padding: `${reportSpace.md}px ${reportSpace.lg}px` }} />",
+      "<div style={{ padding: `0 ${reportSpace.md}px ${reportSpace.md}px` }} />",
+      `<div style={{ padding: "0" }} />`,
+      `<div style={{ borderRadius: "50%" }} />`,
+      "<div style={{ fontSize: reportTypeScale.sm, borderRadius: reportRadius.lg }} />",
+      // Komentář s ukázkou holého rozměru je text, ne kód.
+      `// padding: "13px 17px" tady být nesmí`,
+    ];
+    for (const line of shouldPass) {
+      assert.deepEqual(bareDimensionHits(line), [], `falešný poplach: ${line}`);
+    }
   });
 
   it("--brand se nikde v repu nepoužívá jako barva písma", () => {

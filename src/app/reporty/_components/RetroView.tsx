@@ -52,7 +52,9 @@ export function RetroView({ data }: { data: RetroData }) {
       {/* Karty stojí u grafu, kterého se týkají. Dřív byly čtyři nesourodé
           dlaždice nad všemi sekcemi a čtenář si musel domýšlet, ke které
           otázce která patří. */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "stretch" }}>
+      {/* `flexWrap` jako v `PlanningSection`: tři karty vedle sebe se na úzkém
+          okně mají zalomit, ne přetéct ven z panelu. */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 12, alignItems: "stretch", flexWrap: "wrap" }}>
         {/* Podtitulek nese hodiny, které dřív ukazovaly samostatné karty
             „Produkce XL 105/106". Ty byly duplicitou vytížení (procento je
             právě podíl těchhle dvou čísel), ale hodiny samy o sobě informaci
@@ -69,7 +71,11 @@ export function RetroView({ data }: { data: RetroData }) {
           subtitle={`${cz(xl106?.productionHours ?? 0)} z ${cz(xl106?.availableHours ?? 0)} h dostupných`}
           color={utilizationColor(xl106?.utilization ?? null)}
         />
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md, flex: "1 1 0" }}>
+        {/* Vnitřek MUSÍ být týž jako u `KpiCard` vedle (`md` svisle, `lg`
+            vodorovně). Ručně psaná karta měla dokola 12 px, takže popisek
+            i hodnota začínaly o 4 px vlevo proti oběma sousedům — v jedné řadě
+            tří karet je to vidět jako křivá hrana. */}
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: `${reportSpace.md}px ${reportSpace.lg}px`, flex: "1 1 0" }}>
           <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 4 }}>Údržba ratio</div>
           <div style={{ fontSize: reportTypeScale.display, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
             {data.maintenanceRatio == null ? "—" : `${data.maintenanceRatio}%`}

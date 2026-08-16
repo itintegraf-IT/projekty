@@ -44,8 +44,12 @@ function jumpHref(blockId: number): string {
 
 function Chip({ type }: { type: string }) {
   return (
+    // Vnitřek zůstává ASYMETRICKÝ (4 svisle / 8 vodorovně), jen převedený na
+    // škálu. Jednotné `reportSpace.xs` dokola svislý vnitřek zdvojnásobilo
+    // a vodorovný zmenšilo — z pilulky se stal vysoký úzký obdélník, tedy
+    // změna tvaru, ne velikosti.
     <span style={{
-      fontSize: reportTypeScale.xs, fontWeight: 800, letterSpacing: ".04em", padding: reportSpace.xs, borderRadius: reportRadius.sm,
+      fontSize: reportTypeScale.xs, fontWeight: 800, letterSpacing: ".04em", padding: `${reportSpace.xs}px ${reportSpace.sm}px`, borderRadius: reportRadius.sm,
       color: TYPE_TONE[type] ?? "var(--text-muted)",
       background: TYPE_TONE[type]
         ? `color-mix(in oklab, ${TYPE_TONE[type]} 22%, transparent)`
