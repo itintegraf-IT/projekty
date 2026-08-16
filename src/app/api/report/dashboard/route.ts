@@ -54,6 +54,30 @@ export async function GET(request: NextRequest) {
   if (rangeStart > rangeEnd) {
     return NextResponse.json({ error: "rangeStart musí být <= rangeEnd" }, { status: 400 });
   }
+  /*
+   * Strop délky období. Denní smyčky obou režimů jedou `while (cur <= rangeEnd)`
+   * a uvnitř filtrují pole bloků, takže délka rozsahu se propisuje do doby
+   * odpovědi lineárně — a rozsah zadává uživatel.
+   *
+   * Není to teoretická obrana: v Chrome má `<input type="date">` segmentované
+   * pole a React `onChange` padá po každém doplněném segmentu. Když někdo
+   * v poli „Od" přepisuje rok a napíše první číslici, vznikne na okamžik
+   * platné datum s rokem 0002 → rozsah přes 700 000 dní. Dřív to server
+   * poslušně počítal a odpověď šla do desítek MB.
+   *
+   * 400 dní pokryje rok i s rezervou; delší období report stejně nemá jak
+   * smysluplně vykreslit (heatmapa má vlastní strop na 120 dní).
+   */
+  const MAX_RANGE_DAYS = 400;
+  const rangeDays = Math.round(
+    (pragueToUTC(rangeEnd, 0, 0).getTime() - pragueToUTC(rangeStart, 0, 0).getTime()) / 86_400_000,
+  ) + 1;
+  if (rangeDays > MAX_RANGE_DAYS) {
+    return NextResponse.json(
+      { error: `Období je příliš dlouhé (${rangeDays} dní). Report zvládne nejvýš ${MAX_RANGE_DAYS} dní.` },
+      { status: 400 },
+    );
+  }
 
   try {
     const startUtc = pragueToUTC(rangeStart, 0, 0);
