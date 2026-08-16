@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
+import { reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 
 /**
  * Jedna KPI dlaždice reportu. Vytaženo z `ReportDashboard.tsx`, aby ji mohly
@@ -24,7 +24,7 @@ export function KpiCard({
   return (
     <div style={{
       background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg,
-      padding: "14px 16px", flex: "1 1 0",
+      padding: `${reportSpace.md}px ${reportSpace.lg}px`, flex: "1 1 0",
     }}>
       <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 4 }}>{label}</div>
       {/* `tabular-nums`: číslice mají stejnou šířku, takže hodnota při přepnutí období neposkakuje. */}

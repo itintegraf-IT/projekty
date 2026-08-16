@@ -3,7 +3,7 @@
 import React from "react";
 import { machineLabel } from "@/lib/machines";
 import { KpiCard } from "./KpiCard";
-import { heatToneFor, reportTypeScale, reportRadius } from "@/lib/reportTokens";
+import { heatToneFor, reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 import { ATTENTION_THRESHOLDS, plural } from "@/lib/attentionItems";
 import { SectionHeader, DOW_LABELS, cz, type OutlookData, type OutlookMachineData } from "./reportShared";
 
@@ -83,7 +83,7 @@ export function OutlookView({ data }: { data: OutlookData }) {
 
       {/* KAPACITA */}
       <SectionHeader label="KAPACITA" />
-      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
         <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Heatmapa vytížení</div>
         {/* Posouvá se MŘÍŽKA ve vlastním kontejneru, ne stránka: měsíční období má
             31 sloupců a vodorovný posun celé stránky by rozhoupal i sekce, které
@@ -176,7 +176,7 @@ export function OutlookView({ data }: { data: OutlookData }) {
       <SectionHeader label="RIZIKA" />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Planned maintenance */}
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
           <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Plánované údržby</div>
           {maintenance.map((m, i) => {
             const startDt = new Date(m.startTime);
@@ -206,7 +206,7 @@ export function OutlookView({ data }: { data: OutlookData }) {
           )}
         </div>
         {/* Pending reservations */}
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
           {/* Odkaz patří do hlavičky panelu, ne na řádek: `id` v seznamu je id
               REZERVACE, kdežto `/?highlight=` očekává id BLOKU. Řádek by tedy
               vedl na cizí zakázku, nebo na žádnou. */}

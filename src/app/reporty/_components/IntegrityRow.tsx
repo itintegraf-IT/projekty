@@ -1,18 +1,25 @@
 "use client";
 
 import React, { useState } from "react";
-import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
+import { reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 import type { IntegrityIssue } from "./useHealthData";
 import CheckExplainer from "./CheckExplainer";
 
 const TH: React.CSSProperties = {
   textAlign: "left", fontSize: reportTypeScale.xs, letterSpacing: ".09em", textTransform: "uppercase",
-  color: "var(--text-muted)", fontWeight: 600, padding: "8px 11px",
+  color: "var(--text-muted)", fontWeight: 600, padding: `${reportSpace.sm}px ${reportSpace.md}px`,
   background: "var(--surface-2)", borderBottom: "1px solid var(--border)",
 };
 const TD: React.CSSProperties = {
-  padding: "9px 11px", borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: reportTypeScale.md,
+  padding: `${reportSpace.sm}px ${reportSpace.md}px`, borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: reportTypeScale.md,
 };
+
+/**
+ * Odsazení poznámky pod řádkem. Levý okraj srovnává text pod POPISEK řádku,
+ * ne pod tečku: 12 (vnitřek řádku) + 7 (tečka) + 9 (mezera) = 28, tedy
+ * `xl + xs`. Kdo změní vnitřek řádku nebo mezeru, mění i tohle.
+ */
+const NOTE_PADDING = `0 ${reportSpace.md}px ${reportSpace.sm}px ${reportSpace.xl + reportSpace.xs}px`;
 
 function fmtDateTime(iso: string): string {
   return new Date(iso).toLocaleString("cs-CZ", {
@@ -59,7 +66,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
       <div
         onClick={() => expandable && setOpen((o) => !o)}
         style={{
-          display: "flex", alignItems: "center", gap: 9, padding: "9px 13px", fontSize: reportTypeScale.md,
+          display: "flex", alignItems: "center", gap: 9, padding: `${reportSpace.sm}px ${reportSpace.md}px`, fontSize: reportTypeScale.md,
           cursor: expandable ? "pointer" : "default", userSelect: "none",
         }}
       >
@@ -81,7 +88,7 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
       {/* Důvod se vypisuje i bez `error` — holé „nespočteno" bez vysvětlení
           a bez možnosti rozbalit je slepá ulička. */}
       {uncomputed && (
-        <div style={{ padding: "0 13px 10px 29px", fontSize: reportTypeScale.base, color: "var(--warning-text)" }}>
+        <div style={{ padding: NOTE_PADDING, fontSize: reportTypeScale.base, color: "var(--warning-text)" }}>
           Kontrola se nespočetla: {issue.error ?? "důvod neznámý"}
         </div>
       )}
@@ -89,13 +96,13 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
       {/* Nález bez položek se nedá rozbalit — bez téhle hlášky svítí červené číslo,
           na které nejde kliknout a nikde není proč. */}
       {bad && issue.items.length === 0 && (
-        <div style={{ padding: "0 13px 10px 29px", fontSize: reportTypeScale.base, color: "var(--text-muted)" }}>
+        <div style={{ padding: NOTE_PADDING, fontSize: reportTypeScale.base, color: "var(--text-muted)" }}>
           Detaily nejsou k dispozici.
         </div>
       )}
 
       {open && expandable && (
-        <div style={{ padding: "0 13px 13px" }}>
+        <div style={{ padding: `0 ${reportSpace.md}px ${reportSpace.md}px` }}>
           <CheckExplainer copyKey={issue.key} />
           <div style={{ overflowX: "auto", marginTop: 8, border: "1px solid var(--border)", borderRadius: reportRadius.lg }}>
             <table style={{ borderCollapse: "collapse", width: "100%", minWidth: 520 }}>

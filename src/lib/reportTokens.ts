@@ -42,6 +42,24 @@ export const reportRadius = {
 } as const;
 
 /**
+ * Odsazení. Odloženo z R2, protože sjednocovat padding před přeskládáním by
+ * znamenalo sáhnout na každý řádek dvakrát. Před R3 bylo v /reporty
+ * 19 různých hodnot.
+ *
+ * Hodnoty se na kroky převádějí ZAOKROUHLENÍM NA NEJBLIŽŠÍ, shoda uprostřed
+ * (6, 10, 14) padá na nižší krok — u těsných vnitřků chipů a odznaků je
+ * zvětšení vidět víc než zmenšení. Co na krok nesedí ani přibližně, se skládá
+ * ze dvou kroků (odsazení 29 px pod ikonou → `xl + xs`).
+ */
+export const reportSpace = {
+  xs: 4,   // těsné vnitřky chipů
+  sm: 8,   // řádky seznamu
+  md: 12,  // vnitřek panelu
+  lg: 16,  // vnitřek karty
+  xl: 24,  // mezera mezi sekcemi
+} as const;
+
+/**
  * Barva tečky u stavu rezervace.
  *
  * Osm stavů se mapuje na stavovou čtveřici PODLE VÝZNAMU, ne na osm vlastních

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   parseColor, contrastRatio, mixOklab, simulateCvd, oklabDistance, type Rgb,
 } from "./contrast";
-import { reportTypeScale, reportGlyph, reportRadius, pipelineToneFor, heatToneFor } from "./reportTokens";
+import { reportTypeScale, reportGlyph, reportRadius, reportSpace, pipelineToneFor, heatToneFor } from "./reportTokens";
 import { RESERVATION_STATUSES } from "./reservationStatus";
 
 /**
@@ -56,6 +56,14 @@ function sourceFiles(dir: string): string[] {
   }
   return out;
 }
+
+/**
+ * Kde všude report žije. `src/components/report/` přibylo v R3 se stavovým
+ * pásem — a kdyby zůstalo mimo záběr, detektory by o něm mlčely a přitom by
+ * dál tvrdily „v /reporty nic není". Složky se PROCHÁZEJÍ (`sourceFiles` jde
+ * i do podsložek), soubory se nevypisují.
+ */
+const REPORT_DIRS = ["src/app/reporty", "src/components/report"];
 
 /** Zahodí komentáře, ať detektory nehlásí text vysvětlivek jako kód. */
 function stripComments(src: string): string {
@@ -151,7 +159,7 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
     // znaků zpět" — ta v repu plném krátkých českých vysvětlivek nad stylovým
     // řádkem vypínala skoro každý nález, a stačil i `https://` na témž řádku.
     const offenders: string[] = [];
-    for (const f of sourceFiles("src/app/reporty")) {
+    for (const f of REPORT_DIRS.flatMap(sourceFiles)) {
       const src = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
       const hits = [
         ...src.matchAll(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|["'`](?:white|black|red|green|blue|orange|yellow|grey|gray)["'`]/g),
@@ -159,6 +167,24 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
       if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits.map((h) => h[0]))].join(", ")}`);
     }
     assert.deepEqual(offenders, [], "barvy v /reporty patří do tokenů");
+  });
+
+  it("v /reporty nezůstala žádná holá velikost ani odsazení", () => {
+    // Táž pojistka jako u barev, jen pro rozměry: `fontSize`, `borderRadius` a
+    // `padding` patří na `reportTypeScale` / `reportRadius` / `reportSpace`.
+    // Bez detektoru se škála udrží přesně do prvního „jen o dva pixely",
+    // a report měl před R2/R3 dvanáct velikostí písma a devatenáct odsazení.
+    //
+    // Hlídá se `padding:` PŘESNĚ, ne `padding*` — `paddingBottom` a spol. na
+    // škále zatím nejsou a předstírat opak by bylo horší než mlčet. Nula se
+    // píše jako řetězec (`padding: "0"`): není to krok škály, je to reset.
+    const offenders: string[] = [];
+    for (const f of REPORT_DIRS.flatMap(sourceFiles)) {
+      const src = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
+      const hits = [...src.matchAll(/\b(?:fontSize|borderRadius|padding)\s*:\s*-?\d[\d.]*/g)];
+      if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits.map((h) => h[0]))].join(", ")}`);
+    }
+    assert.deepEqual(offenders, [], "rozměry v /reporty patří na škály reportTokens");
   });
 
   it("--brand se nikde v repu nepoužívá jako barva písma", () => {
@@ -207,6 +233,12 @@ describe("škály", () => {
   it("piktogramy nejsou stupně písma, ale jsou definované", () => {
     assert.equal(reportGlyph.sm, 16);
     assert.equal(reportGlyph.lg, 20);
+  });
+
+  it("odsazení je vzestupné a bez duplicit", () => {
+    const s = Object.values(reportSpace);
+    assert.deepEqual(s, [...s].sort((a, b) => a - b));
+    assert.equal(new Set(s).size, s.length);
   });
 
   it("poloměry jsou vzestupné a pilulka je poslední", () => {

@@ -10,7 +10,7 @@ import { AttentionBand } from "@/components/report/AttentionBand";
 import { RetroView } from "./RetroView";
 import { OutlookView } from "./OutlookView";
 import type { RetroData, OutlookData } from "./reportShared";
-import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
+import { reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 
 type Mode = "retro" | "outlook" | "health";
 type TimeRange = "today" | "week" | "month" | "custom";
@@ -64,7 +64,7 @@ function computeRange(
 
 const BTN_BASE: React.CSSProperties = {
   height: 30,
-  padding: "0 10px",
+  padding: `0 ${reportSpace.sm}px`,
   borderRadius: reportRadius.sm,
   border: "1px solid var(--border)",
   fontSize: reportTypeScale.base,
@@ -96,7 +96,7 @@ const BTN_ACTIVE: React.CSSProperties = {
  */
 function HealthBadge({ loading, error, total, uncomputed, active }: { loading: boolean; error: string | null; total: number; uncomputed: number; active: boolean }) {
   const base: React.CSSProperties = {
-    fontSize: reportTypeScale.sm, fontWeight: 800, lineHeight: 1, padding: "3px 7px", borderRadius: reportRadius.pill,
+    fontSize: reportTypeScale.sm, fontWeight: 800, lineHeight: 1, padding: `${reportSpace.xs}px ${reportSpace.sm}px`, borderRadius: reportRadius.pill,
     fontVariantNumeric: "tabular-nums", minWidth: 18, textAlign: "center",
   };
   if (loading) return <span style={{ ...base, color: active ? "var(--brand-contrast)" : "var(--text-muted)", opacity: 0.7 }}>…</span>;
@@ -228,7 +228,7 @@ export default function ReportDashboard() {
               onChange={(e) => setCustomStart(e.target.value)}
               style={{
                 height: 28,
-                padding: "0 6px",
+                padding: `0 ${reportSpace.xs}px`,
                 borderRadius: reportRadius.sm,
                 border: "1px solid var(--border)",
                 background: "var(--surface-2)",
@@ -244,7 +244,7 @@ export default function ReportDashboard() {
               onChange={(e) => setCustomEnd(e.target.value)}
               style={{
                 height: 28,
-                padding: "0 6px",
+                padding: `0 ${reportSpace.xs}px`,
                 borderRadius: reportRadius.sm,
                 border: "1px solid var(--border)",
                 background: "var(--surface-2)",
@@ -258,7 +258,7 @@ export default function ReportDashboard() {
       </ModuleHeader>
 
       {/* Body */}
-      <div style={{ padding: 24 }}>
+      <div style={{ padding: reportSpace.xl }}>
         {/* V Kontrolním panelu se pás nekreslí — ukazoval by sám na sebe. */}
         {mode !== "health" && attention.ready && (
           <AttentionBand
@@ -298,7 +298,7 @@ export default function ReportDashboard() {
             {error && (
               <div
                 style={{
-                  padding: "12px 16px",
+                  padding: `${reportSpace.md}px ${reportSpace.lg}px`,
                   borderRadius: reportRadius.md,
                   background: "color-mix(in oklab, var(--danger) 8%, transparent)",
                   border: "1px solid color-mix(in oklab, var(--danger) 25%, transparent)",

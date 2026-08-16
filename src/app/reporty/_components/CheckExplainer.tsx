@@ -2,7 +2,7 @@
 
 import React from "react";
 import { copyFor } from "@/lib/healthCheckCopy";
-import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
+import { reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 
 /**
  * Dvojice vět nad tabulkou nálezů: co porušení znamená a co s ním udělat.
@@ -15,7 +15,7 @@ export default function CheckExplainer({ copyKey }: { copyKey: string }) {
     <div
       style={{
         background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: reportRadius.lg,
-        padding: "10px 13px", marginTop: 8, fontSize: reportTypeScale.base, lineHeight: 1.55, color: "var(--text-muted)",
+        padding: `${reportSpace.sm}px ${reportSpace.md}px`, marginTop: 8, fontSize: reportTypeScale.base, lineHeight: 1.55, color: "var(--text-muted)",
         display: "flex", flexDirection: "column", gap: 6,
       }}
     >

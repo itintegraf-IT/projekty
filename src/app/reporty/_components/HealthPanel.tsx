@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { machineLabel } from "@/lib/machines";
-import { reportTypeScale, reportGlyph, reportRadius } from "@/lib/reportTokens";
+import { reportTypeScale, reportGlyph, reportRadius, reportSpace } from "@/lib/reportTokens";
 import type { BlockRef, HealthData } from "./useHealthData";
 import IntegrityRow from "./IntegrityRow";
 import CheckExplainer from "./CheckExplainer";
@@ -45,7 +45,7 @@ function jumpHref(blockId: number): string {
 function Chip({ type }: { type: string }) {
   return (
     <span style={{
-      fontSize: reportTypeScale.xs, fontWeight: 800, letterSpacing: ".04em", padding: "2px 6px", borderRadius: reportRadius.sm,
+      fontSize: reportTypeScale.xs, fontWeight: 800, letterSpacing: ".04em", padding: reportSpace.xs, borderRadius: reportRadius.sm,
       color: TYPE_TONE[type] ?? "var(--text-muted)",
       background: TYPE_TONE[type]
         ? `color-mix(in oklab, ${TYPE_TONE[type]} 22%, transparent)`
@@ -94,7 +94,7 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
       background: "var(--surface)", border: "1px solid var(--border)",
       borderLeft: `3px solid ${edge}`, borderRadius: reportRadius.lg, overflow: "hidden",
     }}>
-      <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 13, padding: "13px 15px", cursor: "pointer", userSelect: "none" }}>
+      <div onClick={() => setOpen((o) => !o)} style={{ display: "flex", alignItems: "center", gap: 13, padding: `${reportSpace.md}px ${reportSpace.lg}px`, cursor: "pointer", userSelect: "none" }}>
         <div style={{ width: 32, height: 32, borderRadius: reportRadius.md, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: reportGlyph.sm, background: "var(--surface-2)" }}>{icon}</div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: reportTypeScale.lg }}>{title}</div>
@@ -102,7 +102,7 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 11 }}>
           <span style={{
-            fontSize: reportTypeScale.base, fontWeight: 800, padding: "4px 11px", borderRadius: reportRadius.pill, fontVariantNumeric: "tabular-nums",
+            fontSize: reportTypeScale.base, fontWeight: 800, padding: `${reportSpace.xs}px ${reportSpace.md}px`, borderRadius: reportRadius.pill, fontVariantNumeric: "tabular-nums",
             color: pillColor, background: pillBg,
           }}>{
             // Tři stavy, ale „nespočteno" má dvě podoby: kontrola vůbec neproběhla
@@ -113,7 +113,7 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
         </div>
       </div>
       {open && (
-        <div style={{ borderTop: "1px solid var(--border)", padding: "10px 15px 15px" }}>
+        <div style={{ borderTop: "1px solid var(--border)", padding: `${reportSpace.sm}px ${reportSpace.lg}px ${reportSpace.lg}px` }}>
           {uncomputed && (
             <div style={{ fontSize: reportTypeScale.base, color: "var(--warning-text)", marginBottom: 8 }}>
               Kontrola se nespočetla: {error ?? "důvod neznámý"}
@@ -133,8 +133,8 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
   );
 }
 
-const TH: React.CSSProperties = { textAlign: "left", fontSize: reportTypeScale.xs, letterSpacing: ".09em", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: 600, padding: "9px 12px", background: "var(--surface-2)", borderBottom: "1px solid var(--border)" };
-const TD: React.CSSProperties = { padding: "10px 12px", borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: reportTypeScale.md };
+const TH: React.CSSProperties = { textAlign: "left", fontSize: reportTypeScale.xs, letterSpacing: ".09em", textTransform: "uppercase", color: "var(--text-muted)", fontWeight: 600, padding: `${reportSpace.sm}px ${reportSpace.md}px`, background: "var(--surface-2)", borderBottom: "1px solid var(--border)" };
+const TD: React.CSSProperties = { padding: `${reportSpace.sm}px ${reportSpace.md}px`, borderBottom: "1px solid var(--border)", verticalAlign: "middle", fontSize: reportTypeScale.md };
 function TableWrap({ children }: { children: React.ReactNode }) {
   return <div style={{ overflowX: "auto", marginTop: 8, border: "1px solid var(--border)", borderRadius: reportRadius.lg }}><table style={{ borderCollapse: "collapse", width: "100%", minWidth: 560 }}>{children}</table></div>;
 }
@@ -165,7 +165,7 @@ function BlockCell({ r }: { r: BlockRef }) {
 export default function HealthPanel({ data, loading, error, total, badChecks, uncomputed, onRefresh }: HealthPanelProps) {
   const sectionLabel: React.CSSProperties = { fontSize: reportTypeScale.base, color: "var(--brand-text)", fontWeight: 600, borderBottom: "1px solid var(--border)", paddingBottom: 4, marginBottom: 12 };
   const refreshBtn = (
-    <button onClick={onRefresh} disabled={loading} style={{ background: "var(--brand)", color: "var(--brand-contrast)", border: "1px solid var(--brand)", borderRadius: reportRadius.md, padding: "9px 15px", fontSize: reportTypeScale.md, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1, whiteSpace: "nowrap" }}>
+    <button onClick={onRefresh} disabled={loading} style={{ background: "var(--brand)", color: "var(--brand-contrast)", border: "1px solid var(--brand)", borderRadius: reportRadius.md, padding: `${reportSpace.sm}px ${reportSpace.lg}px`, fontSize: reportTypeScale.md, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1, whiteSpace: "nowrap" }}>
       ↻ {loading ? "Kontroluji…" : "Překontrolovat teď"}
     </button>
   );
@@ -175,7 +175,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
       <div style={sectionLabel}>Kontrolní panel</div>
 
       {error && (
-        <div style={{ padding: "12px 16px", borderRadius: reportRadius.md, background: "color-mix(in oklab, var(--danger) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)", color: "var(--status-bad)", fontSize: reportTypeScale.md }}>
+        <div style={{ padding: `${reportSpace.md}px ${reportSpace.lg}px`, borderRadius: reportRadius.md, background: "color-mix(in oklab, var(--danger) 10%, transparent)", border: "1px solid color-mix(in oklab, var(--danger) 30%, transparent)", color: "var(--status-bad)", fontSize: reportTypeScale.md }}>
           Chyba kontroly: {error} <button onClick={onRefresh} style={{ marginLeft: 8, background: "none", border: "none", color: "var(--brand-text)", cursor: "pointer", fontWeight: 600 }}>Zkusit znovu</button>
         </div>
       )}
@@ -183,7 +183,7 @@ export default function HealthPanel({ data, loading, error, total, badChecks, un
       {!error && data && (
         <>
           {/* Souhrnný proužek */}
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: `1px solid ${total > 0 ? "color-mix(in oklab, var(--danger) 45%, var(--border))" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 45%, var(--border))" : "color-mix(in oklab, var(--success) 40%, var(--border))"}`, borderRadius: reportRadius.lg, padding: "16px 18px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", background: "var(--surface)", border: `1px solid ${total > 0 ? "color-mix(in oklab, var(--danger) 45%, var(--border))" : uncomputed > 0 ? "color-mix(in oklab, var(--warning) 45%, var(--border))" : "color-mix(in oklab, var(--success) 40%, var(--border))"}`, borderRadius: reportRadius.lg, padding: reportSpace.lg, marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, flex: 1, minWidth: 250 }}>
               {/* Ikona MUSÍ žloutnout spolu s rámečkem a nadpisem — zelené ✓ vedle
                   nadpisu „Bez nálezu (neúplně)" tvrdí přesně to, co panel odhaluje. */}

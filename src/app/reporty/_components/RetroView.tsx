@@ -5,7 +5,7 @@ import { machineLabel } from "@/lib/machines";
 import { OPEN_STATUSES, CLOSED_STATUSES } from "@/lib/reservationStatus";
 import { KpiCard } from "./KpiCard";
 import { PlanningSection } from "./PlanningSection";
-import { pipelineToneFor, reportTypeScale, reportRadius } from "@/lib/reportTokens";
+import { pipelineToneFor, reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 import { SectionHeader, BarChart, cz, type RetroData } from "./reportShared";
 
 /**
@@ -69,7 +69,7 @@ export function RetroView({ data }: { data: RetroData }) {
           subtitle={`${cz(xl106?.productionHours ?? 0)} z ${cz(xl106?.availableHours ?? 0)} h dostupných`}
           color={utilizationColor(xl106?.utilization ?? null)}
         />
-        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14, flex: "1 1 0" }}>
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md, flex: "1 1 0" }}>
           <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 4 }}>Údržba ratio</div>
           <div style={{ fontSize: reportTypeScale.display, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
             {data.maintenanceRatio == null ? "—" : `${data.maintenanceRatio}%`}
@@ -83,7 +83,7 @@ export function RetroView({ data }: { data: RetroData }) {
           </div>
         </div>
       </div>
-      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
         <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Denní vytížení</div>
         <BarChart
           data={data.dailyUtilization}
@@ -109,7 +109,7 @@ export function RetroView({ data }: { data: RetroData }) {
 
       {/* OBCHOD */}
       <SectionHeader label="OBCHOD" />
-      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
         <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Pipeline rezervací</div>
         <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>
           Otevřené rezervace — stav k dnešku, nezávisle na období

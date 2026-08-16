@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { AttentionItem } from "@/lib/attentionItems";
-import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
+import { reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 
 const toneOf = (s: AttentionItem["severity"]) =>
   s === "bad" ? "var(--status-bad)" : "var(--status-warn)";
@@ -43,7 +43,7 @@ export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
         <>
           <div style={{
             display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap",
-            padding: "11px 14px 9px", borderBottom: "1px solid var(--border)",
+            padding: `${reportSpace.md}px ${reportSpace.md}px ${reportSpace.sm}px`, borderBottom: "1px solid var(--border)",
           }}>
             <span style={{ fontSize: reportTypeScale.md, fontWeight: 700 }}>Vyžaduje pozornost</span>
             <span style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>
@@ -58,7 +58,7 @@ export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
           </div>
           {items.map((it, i) => (
             <div key={it.key} style={{
-              display: "flex", alignItems: "center", gap: 10, padding: "9px 14px",
+              display: "flex", alignItems: "center", gap: 10, padding: `${reportSpace.sm}px ${reportSpace.md}px`,
               fontSize: reportTypeScale.md,
               borderTop: i === 0 ? "none" : "1px solid var(--border)",
             }}>
@@ -81,7 +81,7 @@ export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
                 <button
                   type="button"
                   onClick={() => onSwitchTab(it.target.kind === "tab" ? it.target.tab : "retro")}
-                  style={{ ...linkStyle, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                  style={{ ...linkStyle, background: "none", border: "none", padding: "0", cursor: "pointer" }}
                 >
                   {it.target.label}
                 </button>
@@ -90,7 +90,7 @@ export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
           ))}
         </>
       ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px", fontSize: reportTypeScale.md }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: reportSpace.md, fontSize: reportTypeScale.md }}>
           <span style={{
             width: 20, height: 20, borderRadius: reportRadius.pill, flexShrink: 0,
             background: "var(--status-ok)", color: "var(--status-on)",
