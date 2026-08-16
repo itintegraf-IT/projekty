@@ -34,11 +34,37 @@ export interface OutlookMachineData {
   availableHours: number;
 }
 
+/** Jedna čekající rezervace v seznamu RIZIK. Tvar vrací `/api/report/dashboard`. */
+export interface PendingReservationItem {
+  /** Id REZERVACE, ne bloku — nedá se předat do `/?highlight=`. */
+  id: number;
+  /** Číslo rezervace, jak ho vidí uživatel; API dosazuje `#id`, když je prázdné. */
+  code: string;
+  /** Volný text požadavku. Může být dlouhý i prázdný, ořez patří do komponenty. */
+  requestText: string;
+  waitingDays: number;
+  status: string;
+}
+
 export interface OutlookData {
   machines: Record<string, OutlookMachineData>;
   dailyCapacity: Array<{ date: string; XL_105: number | null; XL_106: number | null }>;
   upcomingMaintenance: Array<{ machine: string; description: string; startTime: string; endTime: string }>;
-  pendingReservations: { newCount: number; queueCount: number; oldestWaitingDays: number };
+  pendingReservations: {
+    newCount: number;
+    queueCount: number;
+    /**
+     * Počítá se JEN ze stavu SUBMITTED, kdežto `items` nese i QUEUE_READY.
+     * Obě čísla se proto můžou rozejít („nejstarší 4 dny" nad seznamem s
+     * položkou čekající 9 dní) a od R3 se `oldestWaitingDays` ZÁMĚRNĚ
+     * nevykresluje — doba čekání je u každé položky seznamu zvlášť.
+     */
+    oldestWaitingDays: number;
+    /** Nejdéle čekající, oříznuté na pět; strop je v UI přiznaný. */
+    items: PendingReservationItem[];
+    /** Kolik jich čeká celkem — bez ohledu na strop seznamu. */
+    totalCount: number;
+  };
 }
 
 export const DOW_LABELS = ["Ne","Po","Út","St","Čt","Pá","So"];
