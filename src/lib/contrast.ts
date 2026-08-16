@@ -45,7 +45,17 @@ function srgbToOklab(rgb: Rgb): [number, number, number] {
   ];
 }
 
-/** OKLCH → sRGB. Barvy mimo gamut se ořežou do 0–1, jako to dělá prohlížeč. */
+/**
+ * OKLCH → sRGB. Barvy mimo gamut se ořezávají po kanálech do 0–1.
+ *
+ * Prohlížeč podle CSS Color 4 §13 gamut-mapuje (snižuje chromu při zachování
+ * světlosti), takže se to o kousek liší — a 13 tokenů projektu mimo gamut
+ * skutečně leží. Přeměřeno správným postupem: největší odchylka je ΔE 0,023
+ * (`--status-warn`) a **žádné tvrzení strážného testu se tím neotočí**
+ * (nejtěsnější dvojice 4,77 : 1 zůstává 4,77 : 1). Ořez je tu proto úmyslné
+ * zjednodušení, ne nedopatření; kdyby rezervy klesly pod ~0,1, je potřeba
+ * doplnit skutečné gamut-mapování.
+ */
 export function oklchToSrgb(l: number, c: number, h: number): Rgb {
   const rad = (h * Math.PI) / 180;
   return oklabToSrgb(l, c * Math.cos(rad), c * Math.sin(rad));
@@ -101,16 +111,27 @@ export function mixOklab(a: Rgb, b: Rgb, ratio: number): Rgb {
   );
 }
 
-// Viénotova projekce v prostoru LMS (Hunt-Pointer-Estevez).
+/*
+ * Viénot–Brettel–Mollon 1999, projekce v prostoru LMS.
+ *
+ * POZOR: matice a projekční koeficienty níž tvoří JEDEN NEDĚLITELNÝ PÁR.
+ * Koeficienty (0.494207, 1.24827, 2.02344, 2.52581) jsou odvozené právě z týhle
+ * matice; s jinou LMS maticí (třeba normalizovanou Hunt-Pointer-Estevez
+ * 0.31399/0.63951/…) dají nesmysl, který navíc vypadá jako simulace — bílá se
+ * změní na azurovou a modrá se zbarví, ačkoliv u dichromata musí obojí zůstat
+ * beze změny. Tuhle záměnu tenhle soubor jednu revizi obsahoval; odhalil ji
+ * invariant „šedá zůstane šedá", ne kontrola vzorců okem. Ten invariant je
+ * proto v `contrast.test.ts` a nesmí se odtud smazat.
+ */
 const RGB_TO_LMS = [
-  [0.31399, 0.63951, 0.04649],
-  [0.15537, 0.75789, 0.08670],
-  [0.01775, 0.10945, 0.87259],
+  [17.8824, 43.5161, 4.11935],
+  [3.45565, 27.1554, 3.86714],
+  [0.0299566, 0.184309, 1.46709],
 ];
 const LMS_TO_RGB = [
-  [5.47221, -4.64190, 0.16963],
-  [-1.12520, 2.29317, -0.16780],
-  [0.02980, -0.19318, 1.16364],
+  [0.080944, -0.130504, 0.116721],
+  [-0.0102485, 0.0540194, -0.113615],
+  [-0.000365294, -0.00412163, 0.693513],
 ];
 const apply = (m: number[][], v: number[]) =>
   m.map((row) => row[0] * v[0] + row[1] * v[1] + row[2] * v[2]);

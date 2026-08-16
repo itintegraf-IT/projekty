@@ -48,6 +48,12 @@ function toneBackground(tone: MonitorChipTone): string {
 
 function toneColor(tone: MonitorChipTone): string {
   switch (tone) {
+    // POZOR, není to přehlédnutí: `--success` má na vlastní 22% pilulce ve
+    // světlém režimu 2,39 : 1, tedy touž vadu jako `wait` o řádek níž. Opravit
+    // ji znamená sáhnout na `--success` v planneru, Monitoru i adminu naráz —
+    // vlastní etapa. Eviduje to strážný test v `reportTokens.test.ts`, který
+    // tvrdí, že `--danger`/`--success`/`--info` jsou ZATÍM pod AA; až je někdo
+    // opraví, test spadne a přivede sem.
     case "ok":     return "var(--success)";
     // --warning je na světlém podkladu 1,86:1 — jako PÍSMO neviditelné. Chip
     // stojí na color-mix(warning 22 %), kde --warning-text dává 4,93:1.

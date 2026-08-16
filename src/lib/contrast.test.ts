@@ -71,6 +71,49 @@ describe("contrast — míchání a barvoslepost", () => {
     assert.ok(l > relativeLuminance(status) && l < relativeLuminance(surface));
   });
 
+  /*
+   * Tyhle tři invarianty jsou jediné, co odhalí záměnu LMS matice za jinou.
+   * Simulace se špatným párem matic a koeficientů vypadá jako simulace — vrací
+   * barvy, ne chybu — a rozdíly mezi tokeny z ní vycházejí řádově stejné, takže
+   * projde i porovnání „červená/zelená splývá víc než modrá/jantarová" níž.
+   * Prozradí ji až to, že posune achromatickou osu. Nesmazat.
+   */
+  it("achromatická osa se simulací nesmí hnout", () => {
+    for (const v of [0, 0.25, 0.5, 0.75, 1]) {
+      for (const kind of ["deuteranopia", "protanopia"] as const) {
+        const out = simulateCvd([v, v, v], kind);
+        for (const ch of out) {
+          assert.ok(
+            Math.abs(ch - v) < 0.01,
+            `šedá ${v} se při ${kind} změnila na ${toHex(out)}`,
+          );
+        }
+      }
+    }
+  });
+
+  it("modrá a žlutá leží na ose, kterou dichromat vidí — nesmí se změnit", () => {
+    for (const [name, rgb] of [["modrá", [0, 0, 1]], ["žlutá", [1, 1, 0]]] as const) {
+      for (const kind of ["deuteranopia", "protanopia"] as const) {
+        const d = oklabDistance(rgb as Rgb, simulateCvd(rgb as Rgb, kind));
+        assert.ok(d < 0.02, `${name} se při ${kind} posunula o ΔOKLab ${d.toFixed(3)}`);
+      }
+    }
+  });
+
+  it("červená a zelená naopak splynou k žlutozelené", () => {
+    // Doplněk předchozího testu: samotná neměnnost by šla splnit i identitou.
+    const red = simulateCvd([1, 0, 0], "deuteranopia");
+    const green = simulateCvd([0, 1, 0], "deuteranopia");
+    assert.ok(oklabDistance([1, 0, 0], red) > 0.15, "červená se změnit MUSÍ");
+    assert.ok(oklabDistance([0, 1, 0], green) > 0.15, "zelená se změnit MUSÍ");
+    assert.ok(red[2] < 0.3 && green[2] < 0.3, "obě míří do žlutozelené, ne do modré");
+    // Jádro věci: nejen že se obě pohnou, ale pohnou se K SOBĚ.
+    const before = oklabDistance([1, 0, 0], [0, 1, 0]);
+    const after = oklabDistance(red, green);
+    assert.ok(after < before / 2, `sblížení: ${before.toFixed(3)} → ${after.toFixed(3)}`);
+  });
+
   it("deuteranopie sblíží červenou se zelenou, ale ne modrou se žlutou", () => {
     const red = oklchToSrgb(0.5, 0.2, 25);
     const green = oklchToSrgb(0.5, 0.14, 150);

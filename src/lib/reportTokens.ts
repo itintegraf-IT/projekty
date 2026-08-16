@@ -74,6 +74,17 @@ export type HeatTone = {
   text: string;
   /** Má dlaždice dostat druhý, nebarevný signál (rámeček)? */
   overbooked: boolean;
+  /**
+   * Čárkovaný obrys pro „stroj nejede".
+   *
+   * `--surface-3` (nejede) a `--surface-2` (nula) mají vzájemný kontrast
+   * 1,13 : 1 a obě dlaždice se kreslí prázdné, takže je pouhým okem nešlo
+   * rozeznat — přitom legenda je vypisuje jako dva stavy a celý smysl toho
+   * rozdílu je, že „stroj nejede" NENÍ nula. Obrys ten rozdíl nese tvarem,
+   * ne odstínem. Vrací ho `heatToneFor`, aby si ho mřížka a legenda nemohly
+   * vyložit každá jinak.
+   */
+  dashed: boolean;
 };
 
 /**
@@ -86,15 +97,37 @@ export type HeatTone = {
  * jako přeplánovaný a dřív je stránka varovala stejně naléhavě — červená měla
  * v legendě dva různé významy.
  *
- * `overbooked` nese rámeček, protože po simulaci deuteranopie je dvojice
- * over/warn na ΔOKLab 0,022 — pro deuteranopa jsou to tytéž barvy. Přeplánování
- * je jediný stav, který znamená „zasáhni hned", takže barva na něj sama nestačí.
+ * **Barva NENÍ nositelem hodnoty — číslo v dlaždici ano.** Škála červená ·
+ * jantarová · zelená je pro dichromata z principu nerozlišitelná; přeměřeno
+ * správnou simulací (Viénot–Brettel) jsou nejtěsnější dvojice ve světlém režimu
+ * `bad`/`warn` ΔOKLab 0,004, `bad`/`ok` 0,059 a `ok`/`warn` 0,059, tedy hluboko
+ * pod prahem 0,12, který si etapa uložila u sérií grafu. Nejde to spravit
+ * volbou odstínů — jde to spravit jedině opuštěním semaforové škály, což by
+ * ale zahodilo okamžitě čitelné „zelená = dobře". Proto se každá barevná
+ * dlaždice vykresluje s číslem: informaci nese ono, barva jen urychluje hledání
+ * (WCAG 1.4.1 tím je splněné, barva není jediný prostředek).
+ *
+ * `overbooked` přesto dostává rámeček navíc: přeplánování je jediný stav, který
+ * znamená „zasáhni hned", a u toho se nespoléháme ani na to, že si člověk čísla
+ * přečte. Rámeček kreslí `--status-on`, ne `--text` — na vlastní výplni dá
+ * 6,67 : 1 místo 2,71 : 1, tedy nad prahem 3 : 1 pro netextový obsah.
+ *
+ * Dřívější znění tohohle komentáře uvádělo pro `bad`/`warn` hodnotu 0,022 a
+ * `ok`/`warn` označovalo za bezpečné. Obojí bylo spočítané rozbitou simulací
+ * (nesourodý pár LMS matic, opraveno 16. 8. 2026) — viz `contrast.ts`.
  */
 export function heatToneFor(pct: number | null): HeatTone {
-  if (pct == null) return { fill: "var(--surface-3)", text: "var(--text-muted)", overbooked: false };
-  if (pct > 100) return { fill: "var(--status-bad)", text: "var(--status-on)", overbooked: true };
-  if (pct === 0) return { fill: "var(--surface-2)", text: "var(--text-muted)", overbooked: false };
-  if (pct >= 80) return { fill: "var(--status-ok)", text: "var(--status-on)", overbooked: false };
-  if (pct >= 50) return { fill: "var(--status-warn)", text: "var(--status-on)", overbooked: false };
-  return { fill: "var(--status-idle)", text: "var(--status-on)", overbooked: false };
+  const plain = { text: "var(--text-muted)", overbooked: false, dashed: false };
+  const filled = { text: "var(--status-on)", overbooked: false, dashed: false };
+  // `pct == null` chytá i `undefined`; NaN propadne až na poslední řádek, kde
+  // dostane `--status-idle` — dlaždice se pak vykreslí barevně, ale bez čísla
+  // (render píše hodnotu jen pro `pct > 0`). Ve zdroji dat NaN vzniknout nemůže,
+  // API vrací číslo nebo `null`; kdyby začalo, projeví se to prázdnou modrošedou
+  // dlaždicí, ne pádem.
+  if (pct == null) return { ...plain, fill: "var(--surface-3)", dashed: true };
+  if (pct > 100) return { ...filled, fill: "var(--status-bad)", overbooked: true };
+  if (pct === 0) return { ...plain, fill: "var(--surface-2)" };
+  if (pct >= 80) return { ...filled, fill: "var(--status-ok)" };
+  if (pct >= 50) return { ...filled, fill: "var(--status-warn)" };
+  return { ...filled, fill: "var(--status-idle)" };
 }

@@ -124,21 +124,30 @@ const DOW_LABELS = ["Ne","Po","Út","St","Čt","Pá","So"];
 /** Číslo v české podobě — desetinná čárka. Jedno místo, ať se zápis nerozejde. */
 const cz = (n: number | null | undefined) => String(n ?? 0).replace(".", ",");
 
-/** Odznak s počtem nálezů na záložce Kontrolní panel. Vidět i bez otevření. */
+/**
+ * Odznak s počtem nálezů na záložce Kontrolní panel. Vidět i bez otevření.
+ *
+ * Výplň je SYTÁ, ne `color-mix(… , transparent)`, a to schválně: odznak sedí na
+ * tlačítku záložky, které je v aktivním stavu žluté (`--brand`). Průsvitná
+ * pilulka tu žlutou pouští skrz, takže zelené ✓ dávalo v tmavém režimu 1,30 : 1
+ * a ⚠ dokonce 1,23 : 1 — nečitelné přesně na záložce, kterou má člověk
+ * otevřenou. Sytá výplň je na podkladu nezávislá a dvojici výplň/`--status-on`
+ * navíc měří strážný test (5,97–10,38 : 1).
+ */
 function HealthBadge({ loading, error, total, uncomputed, active }: { loading: boolean; error: string | null; total: number; uncomputed: number; active: boolean }) {
   const base: React.CSSProperties = {
     fontSize: reportTypeScale.sm, fontWeight: 800, lineHeight: 1, padding: "3px 7px", borderRadius: reportRadius.pill,
     fontVariantNumeric: "tabular-nums", minWidth: 18, textAlign: "center",
   };
   if (loading) return <span style={{ ...base, color: active ? "var(--brand-contrast)" : "var(--text-muted)", opacity: 0.7 }}>…</span>;
-  if (error) return <span style={{ ...base, background: "color-mix(in oklab, var(--warning) 25%, transparent)", color: "var(--warning-text)" }} title={`Kontrolu nešlo načíst: ${error}`}>!</span>;
-  if (total > 0) return <span style={{ ...base, background: "var(--danger)", color: "var(--status-on)" }}>{total}</span>;
+  if (error) return <span style={{ ...base, background: "var(--status-warn)", color: "var(--status-on)" }} title={`Kontrolu nešlo načíst: ${error}`}>!</span>;
+  if (total > 0) return <span style={{ ...base, background: "var(--status-bad)", color: "var(--status-on)" }}>{total}</span>;
   // Nespočtená kontrola NESMÍ propadnout na zelené ✓. Bez téhle větve platilo:
   // kontrola selže, ostatní jsou čisté → total === 0 → odznak hlásí „v pořádku",
   // uživatel do panelu vůbec neklikne a o selhání se nedozví. `error` výš chytá
   // jen pád celého fetche, ne dílčí kontrolu.
-  if (uncomputed > 0) return <span style={{ ...base, background: "color-mix(in oklab, var(--warning) 25%, transparent)", color: "var(--warning-text)" }} title={`${uncomputed === 1 ? "1 kontrola se nespočetla" : `${uncomputed} kontroly se nespočetly`} — otevři Kontrolní panel`}>⚠</span>;
-  return <span style={{ ...base, background: "color-mix(in oklab, var(--success) 22%, transparent)", color: "var(--status-ok)" }}>✓</span>;
+  if (uncomputed > 0) return <span style={{ ...base, background: "var(--status-warn)", color: "var(--status-on)" }} title={`${uncomputed === 1 ? "1 kontrola se nespočetla" : `${uncomputed} kontroly se nespočetly`} — otevři Kontrolní panel`}>⚠</span>;
+  return <span style={{ ...base, background: "var(--status-ok)", color: "var(--status-on)" }}>✓</span>;
 }
 
 function SectionHeader({ label }: { label: string }) {
@@ -196,12 +205,22 @@ function BarChart({ data, barKeys, colors, labels }: {
 }
 
 /**
- * Barva hodnoty na KPI kartě vytížení. Stejné meze jako heatmapa, jen nula se
- * řeší jinak: `heatToneFor` jí dává `--surface-2` jako VÝPLŇ dlaždice, což by
- * na kartě znamenalo číslo v barvě podkladu, tedy neviditelnou hodnotu.
+ * Barva hodnoty na KPI kartě vytížení — TŘI pásma, shodně s `capacityColor`
+ * v záložce Výhled. Etapa R2 měla měnit barvy, ne meze.
+ *
+ * Navázat kartu na `heatToneFor` je svůdné a je to chyba: heatmapa má pásem
+ * pět, protože rozlišuje „stroj nejede" od nuly a nevytížení od varování.
+ * Karta by tím dostala dvě nová pásma, která na ní nikdy nebyla — stroj na
+ * 42 % by z oranžové („pozor") přeskočil na modrošedou („nic se neděje") a
+ * hlavně: karta „Kapacita" v sousední záložce by týž stroj na týchž 42 %
+ * barvila dál oranžově. Dvě karty téže veličiny, dvě barvy podle záložky.
+ * Přesně ten rozpor, který etapa odstraňovala u chipů typu bloku.
  */
-const utilizationColor = (pct: number | null): string | undefined =>
-  pct == null ? undefined : pct === 0 ? "var(--status-idle)" : heatToneFor(pct).fill;
+const utilizationColor = (pct: number | null): string | undefined => {
+  if (pct == null) return undefined;
+  if (pct > 100) return "var(--status-bad)";
+  return pct >= 80 ? "var(--status-ok)" : "var(--status-warn)";
+};
 
 function RetroView({ data }: { data: RetroData }) {
   if (!data.machines || !data.dailyUtilization) return null;
@@ -428,10 +447,16 @@ function OutlookView({ data }: { data: OutlookData }) {
                 return (
                   <div key={d.date} style={{
                     height: 28, borderRadius: reportRadius.xs, background: tone.fill,
-                    // Přeplánování si drží rámeček i po rozdělení barev: po simulaci
-                    // deuteranopie je dvojice over/warn na ΔOKLab 0,022, tedy pro
-                    // deuteranopa táž barva. Je to jediný stav, který volá po zásahu.
-                    boxShadow: tone.overbooked ? "inset 0 0 0 2px var(--text)" : undefined,
+                    // Barva sama nestačí: červená, jantarová a zelená jsou pro
+                    // dichromata vzájemně nerozlišitelné (ΔOKLab 0,004–0,059).
+                    // Hodnotu proto nese číslo v dlaždici, ne odstín — a stav,
+                    // který volá po zásahu, dostane navíc rámeček. Podrobnosti
+                    // v docstringu `heatToneFor`.
+                    boxShadow: tone.overbooked ? "inset 0 0 0 2px var(--status-on)" : undefined,
+                    // Prázdná dlaždice „stroj nejede" se od prázdné nuly liší
+                    // jedině tvarem — odstíny mají kontrast 1,13 : 1.
+                    border: tone.dashed ? "1px dashed var(--text-muted)" : undefined,
+                    boxSizing: "border-box",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontSize: reportTypeScale.xs, color: tone.text, fontWeight: 600,
                   }} title={`${d.date}: ${val == null ? "stroj nejede" : val > 100 ? val + " % — přeplánováno" : val + " %"}`}>
@@ -442,26 +467,33 @@ function OutlookView({ data }: { data: OutlookData }) {
             </React.Fragment>
           ))}
         </div>
-        {/* Legenda MUSÍ vyjmenovat všech šest stavů, které `heatToneFor` umí.
-            Do R1 jich uměla pět a dva z nich sdílely červenou — přeplánovaný den
-            se pak četl jako nejhorší nevytížení. */}
+        {/* Legenda si barvy NEOPISUJE — protahuje zástupné procento touž funkcí
+            `heatToneFor`, jakou kreslí mřížka, takže se od ní nemůže rozejít.
+            Přesně tenhle rozchod měla R1: přibyla větev „nad 100 %" a stav
+            „stroj nejede", legenda o nich nevěděla a červená měla dva významy.
+            Čtvereček je 12 px, ne 10: při 1px okraji a 2px rámečku by z 10px
+            zbyly 4 px skutečné barvy a klíč by neukazoval to, co popisuje. */}
         <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-          {[
-            { c: "var(--status-bad)", label: "nad 100 % — přeplánováno", ring: true },
-            { c: "var(--status-ok)", label: "80–100 %", ring: false },
-            { c: "var(--status-warn)", label: "50–79 %", ring: false },
-            { c: "var(--status-idle)", label: "pod 50 %", ring: false },
-            { c: "var(--surface-2)", label: "0 %", ring: false },
-            { c: "var(--surface-3)", label: "stroj nejede", ring: false },
-          ].map((it) => (
-            <span key={it.label} style={{ fontSize: reportTypeScale.xs, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
-              <span style={{
-                width: 10, height: 10, borderRadius: reportRadius.xs, background: it.c, display: "inline-block",
-                border: "1px solid var(--border)",
-                boxShadow: it.ring ? "inset 0 0 0 2px var(--text)" : undefined,
-              }} /> {it.label}
-            </span>
-          ))}
+          {([
+            { pct: 120, label: "nad 100 % — přeplánováno" },
+            { pct: 90, label: "80–100 %" },
+            { pct: 60, label: "50–79 %" },
+            { pct: 30, label: "pod 50 %" },
+            { pct: 0, label: "0 %" },
+            { pct: null, label: "stroj nejede" },
+          ] as Array<{ pct: number | null; label: string }>).map((it) => {
+            const tone = heatToneFor(it.pct);
+            return (
+              <span key={it.label} style={{ fontSize: reportTypeScale.xs, display: "flex", alignItems: "center", gap: 3, color: "var(--text-muted)" }}>
+                <span style={{
+                  width: 12, height: 12, borderRadius: reportRadius.xs, background: tone.fill,
+                  display: "inline-block", boxSizing: "border-box",
+                  border: tone.dashed ? "1px dashed var(--text-muted)" : "1px solid var(--border)",
+                  boxShadow: tone.overbooked ? "inset 0 0 0 2px var(--status-on)" : undefined,
+                }} /> {it.label}
+              </span>
+            );
+          })}
         </div>
       </div>
 

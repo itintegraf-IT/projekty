@@ -6,14 +6,25 @@ import {
   parseColor, contrastRatio, mixOklab, simulateCvd, oklabDistance, type Rgb,
 } from "./contrast";
 import { reportTypeScale, reportGlyph, reportRadius, pipelineToneFor, heatToneFor } from "./reportTokens";
+import { RESERVATION_STATUSES } from "./reservationStatus";
 
-const CSS = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+/**
+ * Komentáře se ZAHAZUJÍ dřív, než se cokoliv hledá. Bez toho platilo, že
+ * dočasně zakomentovaná deklarace („/* --status-bad: #ff0000; *\/") vyhraje
+ * jako poslední výskyt a test měří barvu, která na stránce vůbec není — a to
+ * oběma směry, umí chybu vyrobit i zamaskovat.
+ */
+const CSS = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8")
+  .replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
  * Vytáhne hodnotu tokenu ze SKUTEČNÉHO globals.css. Test nesmí mít vlastní
  * kopii hodnot — jinak hlídá sám sebe a token se může v CSS tiše rozejít.
  *
- * Světlá větev = vše před `.dark {`, tmavá = blok `.dark { … }`.
+ * Světlá větev = vše před `.dark {`, tmavá = blok `.dark { … }`. Je to hrubé
+ * dělení: cokoliv za `.dark {` se počítá jako tmavé, včetně případných bloků
+ * `:root:not(.dark)` na konci souboru. Dnes tam žádná deklarace tokenu není a
+ * hlídá to test „dělení na větve odpovídá skutečné struktuře souboru" níž.
  */
 function tokenValue(name: string, mode: "light" | "dark"): string {
   const darkAt = CSS.indexOf(".dark {");
@@ -33,6 +44,22 @@ function tokenColor(name: string, mode: "light" | "dark"): Rgb {
   const rgb = parseColor(value);
   assert.ok(rgb, `token --${name} (${mode}) má nečitelnou hodnotu: ${value}`);
   return rgb;
+}
+
+/** Všechny `.ts`/`.tsx` pod zadanou složkou, rekurzivně. */
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(join(process.cwd(), dir), { withFileTypes: true })) {
+    const p = `${dir}/${e.name}`;
+    if (e.isDirectory()) out.push(...sourceFiles(p));
+    else if (/\.tsx?$/.test(e.name)) out.push(p);
+  }
+  return out;
+}
+
+/** Zahodí komentáře, ať detektory nehlásí text vysvětlivek jako kód. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
 const MODES = ["light", "dark"] as const;
@@ -117,41 +144,32 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
     assert.ok(ratio < 4.5, `--brand ve světlém režimu už je ${ratio.toFixed(2)}:1 — sjednoť ho s --brand-text`);
   });
 
-  it("v /reporty nezůstal žádný hex ani rgba literál", () => {
-    const files = [
-      "src/app/reporty/_components/ReportDashboard.tsx",
-      "src/app/reporty/_components/HealthPanel.tsx",
-      "src/app/reporty/_components/IntegrityRow.tsx",
-      "src/app/reporty/_components/KpiCard.tsx",
-      "src/app/reporty/_components/PlanningSection.tsx",
-      "src/app/reporty/_components/CheckExplainer.tsx",
-    ];
-    for (const f of files) {
-      const src = readFileSync(join(process.cwd(), f), "utf8");
-      const hits = [...src.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g)]
-        .filter((m) => !src.slice(Math.max(0, m.index! - 60), m.index!).includes("//"));
-      assert.equal(hits.length, 0, `${f} obsahuje literál: ${hits.map((h) => h[0]).join(", ")}`);
+  it("v /reporty nezůstal žádný barevný literál", () => {
+    // Složka se PROCHÁZÍ, neuvádí se seznamem: pevný výčet by sedmou komponentu
+    // nikdy nezkontroloval, a přitom by test dál tvrdil „v /reporty nic není".
+    // Komentáře se zahazují celé (`stripComments`), ne heuristikou „`//` do 60
+    // znaků zpět" — ta v repu plném krátkých českých vysvětlivek nad stylovým
+    // řádkem vypínala skoro každý nález, a stačil i `https://` na témž řádku.
+    const offenders: string[] = [];
+    for (const f of sourceFiles("src/app/reporty")) {
+      const src = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
+      const hits = [
+        ...src.matchAll(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|["'`](?:white|black|red|green|blue|orange|yellow|grey|gray)["'`]/g),
+      ];
+      if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits.map((h) => h[0]))].join(", ")}`);
     }
+    assert.deepEqual(offenders, [], "barvy v /reporty patří do tokenů");
   });
 
   it("--brand se nikde v repu nepoužívá jako barva písma", () => {
     // Hlídá i planner a Monitor, ne jen /reporty — vada je táž.
-    const offenders: string[] = [];
-    const walk = (dir: string) => {
-      for (const e of readdirSync(join(process.cwd(), dir), { withFileTypes: true })) {
-        const p = `${dir}/${e.name}`;
-        if (e.isDirectory()) walk(p);
-        else if (/\.tsx?$/.test(e.name)) {
-          const src = readFileSync(join(process.cwd(), p), "utf8");
-          // `[^,;\n]*` uprostřed pokrývá i ternár, kde mezi dvojtečkou a hodnotou
-          // stojí podmínka. Pozor: vzorec se schválně nedá vypsat v komentáři —
-          // procházejí se i testy, takže by tenhle soubor hlásil sám sebe.
-          if (/color:\s*[^,;\n]*["'`]var\(--brand\)["'`]/.test(src)) offenders.push(p);
-        }
-      }
-    };
-    ["src/app", "src/components", "src/lib"].forEach(walk);
-    assert.deepEqual([...new Set(offenders)], [], "--brand jako color: patří na --brand-text");
+    // `[^,;\n]*` uprostřed pokrývá i ternár, kde mezi dvojtečkou a hodnotou
+    // stojí podmínka. Pozor: vzorec se schválně nedá vypsat v komentáři —
+    // procházejí se i testy, takže by tenhle soubor hlásil sám sebe.
+    const offenders = ["src/app", "src/components", "src/lib", "src/hooks"]
+      .flatMap(sourceFiles)
+      .filter((p) => /color:\s*[^,;\n]*["'`]var\(--brand\)["'`]/.test(readFileSync(join(process.cwd(), p), "utf8")));
+    assert.deepEqual(offenders, [], "--brand jako color: patří na --brand-text");
   });
 
   it("--danger, --success a --info jsou ZATÍM pod AA jako text ve světlém režimu", () => {
@@ -199,10 +217,41 @@ describe("škály", () => {
 });
 
 describe("mapování stavů na tokeny", () => {
-  it("každý z 8 stavů rezervace dostane tón", () => {
-    for (const s of ["SUBMITTED", "ACCEPTED", "QUEUE_READY", "COUNTER_PROPOSED",
-                     "SCHEDULED", "CONFIRMED", "REJECTED", "WITHDRAWN"]) {
-      assert.match(pipelineToneFor(s), /^var\(--[\w-]+\)$/, `stav ${s}`);
+  /*
+   * Očekávané mapování se vypisuje CELÉ a porovnává se se slovníkem
+   * `reservationStatus.ts`, který slibuje „nový stav → doplnit sem, jinak shodí
+   * strážný test". S ručním výčtem uvnitř testu to neplatilo: devátý stav by
+   * prošel a v pipeline by se objevila šedá tečka bez významu — přesně ta vada,
+   * kvůli které slovník vznikl.
+   *
+   * Nejde použít zkratku „žádný stav nesmí vrátit --text-muted": WITHDRAWN ji
+   * vrací legitimně (stažená rezervace se má ztlumit). Rozdíl mezi „záměrně
+   * tlumený" a „propadl záchytem" nejde poznat z návratové hodnoty, jedině
+   * z toho, že je stav v tabulce vyjmenovaný.
+   */
+  const EXPECTED_TONES: Record<string, string> = {
+    SUBMITTED: "var(--status-warn)",
+    COUNTER_PROPOSED: "var(--status-warn)",
+    ACCEPTED: "var(--status-idle)",
+    QUEUE_READY: "var(--status-idle)",
+    SCHEDULED: "var(--status-ok)",
+    CONFIRMED: "var(--status-ok)",
+    REJECTED: "var(--status-bad)",
+    WITHDRAWN: "var(--text-muted)",
+  };
+
+  it("tabulka očekávání pokrývá přesně slovník stavů — ani víc, ani míň", () => {
+    assert.deepEqual(
+      Object.keys(EXPECTED_TONES).sort(),
+      [...RESERVATION_STATUSES].sort(),
+      "přibyl nebo zmizel stav rezervace — doplň ho do pipelineToneFor i sem",
+    );
+  });
+
+  it("mapování drží význam, ne jen tvar", () => {
+    // Bez porovnání hodnot by prohození REJECTED ↔ CONFIRMED prošlo.
+    for (const [status, tone] of Object.entries(EXPECTED_TONES)) {
+      assert.equal(pipelineToneFor(status), tone, `stav ${status}`);
     }
   });
 
@@ -220,10 +269,13 @@ describe("mapování stavů na tokeny", () => {
   });
 
   it("jen přeplánování nese druhý, nebarevný signál", () => {
-    // Po simulaci deuteranopie je over/warn na ΔOKLab 0,022 — pro deuteranopa
-    // je to táž barva. Přeplánování je přitom jediný stav, který znamená
-    // „zasáhni hned", takže rámeček není zdobení, ale nosič informace.
-    assert.equal(heatToneFor(120).overbooked, true);
+    // Semaforová škála je pro dichromata nerozlišitelná (ΔOKLab 0,004–0,059 po
+    // Viénot–Brettel simulaci), hodnotu proto nese číslo v dlaždici. Rámeček
+    // dostává navíc jediný stav, který volá po okamžitém zásahu — u něj se
+    // nespoléháme ani na to, že si člověk to číslo přečte.
+    for (const pct of [101, 120, 999]) {
+      assert.equal(heatToneFor(pct).overbooked, true, `pct=${pct}`);
+    }
     for (const pct of [null, 0, 30, 60, 90, 100]) {
       assert.equal(heatToneFor(pct).overbooked, false, `pct=${pct}`);
     }
@@ -242,5 +294,60 @@ describe("mapování stavů na tokeny", () => {
     assert.equal(heatToneFor(60).text, "var(--status-on)");
     assert.equal(heatToneFor(0).text, "var(--text-muted)");
     assert.equal(heatToneFor(null).text, "var(--text-muted)");
+  });
+
+  it("čárkovaný obrys má JEN „stroj nejede“", () => {
+    // Prázdná nula a prázdné „nejede“ mají odstíny na 1,13 : 1 — pouhým okem
+    // je nešlo rozeznat, přestože legenda slibuje dva různé stavy.
+    assert.equal(heatToneFor(null).dashed, true);
+    for (const pct of [0, 30, 60, 90, 100, 120]) {
+      assert.equal(heatToneFor(pct).dashed, false, `pct=${pct}`);
+    }
+  });
+
+  it("krajní a nesmyslné vstupy nespadnou a chovají se předvídatelně", () => {
+    // Záporné vytížení ani NaN z API nepřijdou (vrací číslo nebo null), ale
+    // dokud to není zapsané, není to pravda — jen domněnka.
+    assert.equal(heatToneFor(-5).fill, "var(--status-idle)");
+    assert.equal(heatToneFor(0.5).fill, "var(--status-idle)");
+    assert.equal(heatToneFor(100.5).fill, "var(--status-bad)");
+    assert.equal(heatToneFor(NaN).fill, "var(--status-idle)");
+    assert.equal(heatToneFor(NaN).overbooked, false);
+  });
+});
+
+describe("předpoklady, na kterých strážný test stojí", () => {
+  it("dělení na větve odpovídá skutečné struktuře souboru", () => {
+    // `tokenValue` bere za tmavou větev VŠECHNO od `.dark {` do konce souboru.
+    // Platí to jen dokud za ním nestojí deklarace tokenu v jiném scope —
+    // `:root:not(.dark)`, `@media print` apod. by se změřily jako tmavé, i když
+    // patří světlému režimu.
+    const darkAt = CSS.indexOf(".dark {");
+    const tail = CSS.slice(darkAt);
+    const closeAt = tail.indexOf("\n}");
+    assert.ok(closeAt > 0, "blok .dark musí být ukončený");
+    const after = tail.slice(closeAt);
+    const stray = [...after.matchAll(/^\s*--[\w-]+:/gm)];
+    assert.deepEqual(
+      stray.map((m) => m[0].trim()),
+      [],
+      "za blokem .dark přibyla deklarace tokenu — dělení na větve už neplatí, uprav tokenValue",
+    );
+  });
+
+  it("žádný měřený token nemá alfa složku, kterou parseColor neumí", () => {
+    // `parseColor` vrací null pro `oklch(L C H / a)` i osmiznakový hex; kdyby
+    // takový zápis přistál v měřeném tokenu, spadlo by to na „nečitelná
+    // hodnota". Test to říká rovnou a jmenovitě.
+    const measured = [
+      "brand-text", "status-bad", "status-ok", "status-warn", "status-idle", "status-on",
+      "series-a", "series-b", "type-zakazka", "type-rezervace", "type-udrzba",
+      "surface", "surface-2", "background", "warning-text", "danger", "success", "info",
+    ];
+    for (const mode of MODES) {
+      for (const name of measured) {
+        assert.ok(tokenColor(name, mode), `--${name} (${mode})`);
+      }
+    }
   });
 });

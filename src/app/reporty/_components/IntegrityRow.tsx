@@ -45,11 +45,14 @@ export default function IntegrityRow({ issue }: { issue: IntegrityIssue }) {
   const bad = (issue.count ?? 0) > 0;
   const expandable = bad && issue.items.length > 0;
 
+  // Tečka je 7px tvar nesoucí stav řádku — WCAG 1.4.11 chce 3 : 1 vůči podkladu.
+  // `--warning` dává na kartě 1,86 : 1 a ztlumená zelená 2,20 : 1. Stavová
+  // čtveřice je změřená (≥ 5 : 1) a je to týž signál jako hrana karty výš.
   const dotColor = uncomputed
-    ? "var(--warning)"
+    ? "var(--status-warn)"
     : bad
-      ? "var(--danger)"
-      : "color-mix(in oklab, var(--success) 70%, transparent)";
+      ? "var(--status-bad)"
+      : "var(--status-ok)";
 
   return (
     <div style={{ background: "var(--surface)" }}>

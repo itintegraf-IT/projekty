@@ -74,11 +74,15 @@ function Card({ title, subtitle, icon, count, error, copyKey, children }: {
   // naklikat všech pět karet, aby zjistil kterou.
   const uncomputed = count === null || error != null;
   const bad = (count ?? 0) > 0;
+  // Hrana je 3px tvar nesoucí stav, takže spadá pod WCAG 1.4.11 (3 : 1 vůči
+  // podkladu) — ne pod pravidla pro výplně. `--warning` na kartě dává 1,86 : 1
+  // a ztlumená zelená 2,10 : 1; obojí je pod prahem. Stavová čtveřice je
+  // změřená (≥ 5 : 1), takže hranu unese bez výjimky.
   const edge = uncomputed
-    ? "var(--warning)"
+    ? "var(--status-warn)"
     : bad
-      ? "var(--danger)"
-      : "color-mix(in oklab, var(--success) 55%, var(--border))";
+      ? "var(--status-bad)"
+      : "var(--status-ok)";
   const pillColor = uncomputed ? "var(--warning-text)" : bad ? "var(--status-bad)" : "var(--status-ok)";
   const pillBg = uncomputed
     ? "color-mix(in oklab, var(--warning) 20%, transparent)"

@@ -3,6 +3,7 @@
 import React from "react";
 import { formatPragueDate } from "@/lib/dateUtils";
 import { KpiCard } from "./KpiCard";
+import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
 
 /**
  * Metriky sekce PLÁNOVÁNÍ, jak je počítá `GET /api/report/dashboard` (retro režim).
@@ -80,27 +81,30 @@ export function PlanningSection({
           />
         </div>
         {!covered && (
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>
+          <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginTop: 8 }}>
             {coverageLabel
               ? `Data o změnách plánu jsou k dispozici od ${coverageLabel}.`
               : "Zatím nejsou k dispozici žádná data o změnách plánu."}
           </div>
         )}
       </div>
-      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: 14 }}>
         {/* Počet ULOŽENÍ na uživatele, ne počet změněných polí — viz komentář v route. */}
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>Aktivita plánovačů</div>
+        <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Aktivita plánovačů</div>
         {plannerActivity.map((a) => (
           <div key={a.username} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 11, width: 80, flexShrink: 0, color: "var(--text)" }}>{a.username}</span>
-            <div style={{ flex: 1, height: 8, background: "var(--surface-2)", borderRadius: 4, overflow: "hidden" }}>
-              <div style={{ width: `${(a.actionCount / maxActivity) * 100}%`, height: "100%", background: "var(--brand)", borderRadius: 4 }} />
+            <span style={{ fontSize: reportTypeScale.sm, width: 80, flexShrink: 0, color: "var(--text)" }}>{a.username}</span>
+            {/* Výplň je `--series-a`, ne `--brand`: žlutá dávala na `--surface-2`
+                kontrast 1,12 : 1, takže jediný graf téhle sekce nebyl ve světlém
+                režimu vidět vůbec. Token prošel jako výplň grafu (≥ 3 : 1). */}
+            <div style={{ flex: 1, height: 8, background: "var(--surface-2)", borderRadius: reportRadius.xs, overflow: "hidden" }}>
+              <div style={{ width: `${(a.actionCount / maxActivity) * 100}%`, height: "100%", background: "var(--series-a)", borderRadius: reportRadius.xs }} />
             </div>
             {/* `tabular-nums`: sloupec počtů zůstane zarovnaný i po přepnutí období. */}
-            <span style={{ fontSize: 10, color: "var(--text-muted)", width: 32, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{a.actionCount}</span>
+            <span style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", width: 32, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{a.actionCount}</span>
           </div>
         ))}
-        {plannerActivity.length === 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Žádná aktivita</div>}
+        {plannerActivity.length === 0 && <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>Žádná aktivita</div>}
       </div>
     </div>
   );
