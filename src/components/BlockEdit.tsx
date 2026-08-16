@@ -1122,7 +1122,7 @@ export function BlockEdit({
         {canEdit && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
             <Switch checked={locked} onCheckedChange={setLocked} />
-            <Label style={{ fontSize: 11, color: locked ? "var(--brand)" : "var(--text-muted)", cursor: "pointer" }}>
+            <Label style={{ fontSize: 11, color: locked ? "var(--brand-text)" : "var(--text-muted)", cursor: "pointer" }}>
               <Lock size={11} strokeWidth={1.5} style={{ display: "inline-block", verticalAlign: "middle", marginRight: 4 }} />Zamčený blok
             </Label>
           </div>

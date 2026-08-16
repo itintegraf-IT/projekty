@@ -49,7 +49,9 @@ function toneBackground(tone: MonitorChipTone): string {
 function toneColor(tone: MonitorChipTone): string {
   switch (tone) {
     case "ok":     return "var(--success)";
-    case "wait":   return "var(--warning)";
+    // --warning je na světlém podkladu 1,86:1 — jako PÍSMO neviditelné. Chip
+    // stojí na color-mix(warning 22 %), kde --warning-text dává 4,93:1.
+    case "wait":   return "var(--warning-text)";
     case "brand":  return "var(--brand-contrast)";
     // Bílá je tu záměrný literál, ne token: --danger je sytá červená stejná v obou
     // motivech, takže --text by na ní ve světlém režimu zmizel.
