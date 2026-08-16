@@ -1,4 +1,4 @@
-import { machineLabel } from "@/lib/machines";
+import { MACHINES, machineLabel } from "@/lib/machines";
 
 /**
  * Stavový pás nad záložkami Reportů — co vyžaduje pozornost.
@@ -67,6 +67,15 @@ const cz = (n: number) => String(n).replace(".", ",");
 const plural = (n: number, one: string, few: string, many: string) =>
   n === 1 ? one : n < 5 ? few : many;
 
+/**
+ * Práh ve dnech se objevuje ve dvou větách a skloňuje se — při změně konstanty
+ * na 1 nebo 5 by natvrdo psané „dny" přestalo sedět.
+ */
+const thresholdDays = () => {
+  const d = ATTENTION_THRESHOLDS.reservationWaitingDays;
+  return `${d} ${plural(d, "den", "dny", "dní")}`;
+};
+
 export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
   const items: AttentionItem[] = [];
 
@@ -105,7 +114,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       key: "reservations:waiting",
       severity: "warn",
       title: `${late.length} ${plural(late.length, "rezervace čeká", "rezervace čekají", "rezervací čeká")} na zpracování`,
-      detail: `déle než ${ATTENTION_THRESHOLDS.reservationWaitingDays} dny`,
+      detail: `déle než ${thresholdDays()}`,
       when: `nejdéle ${longest} ${plural(longest, "den", "dny", "dní")}`,
       href: "/rezervace",
       linkLabel: "Rezervace →",
@@ -132,7 +141,10 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
  * Když se Kontrolní panel nenačetl, o kontrolách mlčí.
  */
 export function attentionCalmSentence(input: AttentionInput): string {
-  const checked = ["oba stroje v kapacitě", `žádná rezervace nečeká déle než ${ATTENTION_THRESHOLDS.reservationWaitingDays} dny`];
+  // „Oba stroje" by se stalo lží ve chvíli, kdy `MACHINES` dostane třetí prvek —
+  // a věta o klidném stavu je poslední místo, kde chceme tiché nepřesnosti.
+  const machinesPhrase = MACHINES.length === 2 ? "oba stroje v kapacitě" : "všechny stroje v kapacitě";
+  const checked = [machinesPhrase, `žádná rezervace nečeká déle než ${thresholdDays()}`];
   if (input.health.loaded) checked.push("kontroly bez nálezu");
   return `${checked.join(" · ")}.`;
 }
