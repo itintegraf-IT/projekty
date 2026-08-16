@@ -6,7 +6,7 @@ import { logger } from "@/lib/logger";
 import { MACHINES } from "@/lib/machines";
 import { todayPragueDateStr, addDaysToCivilDate, pragueToUTC } from "@/lib/dateUtils";
 import { serializeWeekShifts } from "@/lib/scheduleValidation";
-import { computeAvailableHours, computeUtilization } from "@/lib/reportMetrics";
+import { computeAvailableHours } from "@/lib/reportMetrics";
 import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
 import {
   ATTENTION_THRESHOLDS,
@@ -26,11 +26,17 @@ import {
  * Kontrolní panel tenhle endpoint NEPOČÍTÁ — klient ho má z `useHealthData`
  * a jeho kontroly skenují disk kvůli přílohám. Viz `src/lib/attentionItems.ts`.
  *
- * Aritmetika přeplánování je ZÁMĚRNĚ táž jako v `handleOutlook`
- * (`/api/report/dashboard`): dostupné hodiny minus tiskové minuty VŠECH typů
- * bloků ořezané oknem, přes `blockReportSegments` + `printOverlapMinutes`.
- * Kdyby si pás počítal hodiny po svém, tvrdil by nad kartou Kapacity ve
- * Výhledu jiné číslo než ta karta sama.
+ * Vstupy jsou ZÁMĚRNĚ tytéž jako v `handleOutlook` (`/api/report/dashboard`):
+ * tiskové minuty všech typů bloků ořezané oknem, přes `blockReportSegments`
+ * + `printOverlapMinutes`, se segmenty jen pro ZAKAZKA.
+ *
+ * **Číslo se ale s kartou Kapacity shodovat NEBUDE, a je to správně.** Karta
+ * počítá zvolené období (`today`/`week`/`month`/`custom`, klidně s polovinou
+ * v minulosti) a bere rozdíl přes celý rozsah; pás jede pevných 30 dní dopředu
+ * a sčítá přetečení PO DNECH. Jsou to dvě různé otázky — „vešel se plán do
+ * vybraného období?" versus „je některý z příštích 30 dní nad kapacitou?".
+ * Proto pás v hlavičce říká „nezávisle na zvoleném období" a proto nese
+ * horizont i v textu položky.
  */
 
 /** Hodiny na obrazovku — jedno desetinné místo, shodně s reportovými kartami. */
@@ -98,30 +104,47 @@ export async function GET() {
       const plannedMinutes = (winStart: Date, winEnd: Date) =>
         machineBlocks.reduce((s, b) => s + printOverlapMinutes(segMap.get(b) ?? null, b, winStart, winEnd), 0);
 
-      const available = computeAvailableHours(machine, today, horizonLastDay, weekShifts, companyDays);
-      const planned = plannedMinutes(startUtc, endUtc) / 60;
-      const overHours = planned - available;
-      // Nulová kapacita není „nekonečné přeplánování" — je to „není z čeho počítat“,
-      // stejné rozlišení, jaké dělá `computeUtilization`.
-      if (available <= 0 || overHours <= 0) continue;
-
-      // Kolik jednotlivých dní horizontu je nad kapacitou. NEMUSÍ jít o souvislý
-      // úsek — proto se hlásí počet dní, ne rozsah „od–do", který by souvislost
-      // sliboval.
+      /*
+       * Verdikt se skládá PO DNECH, ne z třicetidenního součtu.
+       *
+       * Součet byl původní návrh a byl špatně: volná kapacita v pozdějších
+       * týdnech umazala špičku v tom nejbližším. Stroj naplněný příští týden
+       * po–pá na 150 % vyšel proti prázdnému zbytku horizontu jako „120 h
+       * plánu proti 352 h kapacity", tedy v pořádku — a pás k tomu tvrdil
+       * „oba stroje v kapacitě", zatímco heatmapa vedle svítila pěti
+       * červenými dny. Tvrdit „je uklizeno" bez ověření je přesně to, kvůli
+       * čemu má odznak Kontrolního panelu tři stavy.
+       *
+       * Počítá se jen den, který kapacitu MÁ a překračuje ji. Den s nulovou
+       * kapacitou a naplánovanou prací je jiná vada — „blok mimo provoz
+       * stroje" — a tu hlásí Kontrolní panel vlastní kontrolou. Kdyby ji pás
+       * počítal jako přeplánování, hlásil by dvakrát totéž a navíc by
+       * vyráběl fantomy: `MachineWeekShifts` se seedují líně, takže týden,
+       * který nikdo neotevřel v administraci, vypadá jako nulová kapacita.
+       */
       let overDays = 0;
+      let overHours = 0;
       let cur = today;
       while (cur <= horizonLastDay) {
         const dayStart = pragueToUTC(cur, 0, 0);
         const dayEnd = pragueToUTC(addDaysToCivilDate(cur, 1), 0, 0);
         const dayAvail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
-        const pct = computeUtilization(plannedMinutes(dayStart, dayEnd) / 60, dayAvail);
-        if (pct != null && pct > 100) overDays++;
+        const dayPlanned = plannedMinutes(dayStart, dayEnd) / 60;
+        if (dayAvail > 0 && dayPlanned > dayAvail) {
+          overDays++;
+          overHours += dayPlanned - dayAvail;
+        }
         cur = addDaysToCivilDate(cur, 1);
       }
 
+      // Práh je na ZAOKROUHLENÉ hodnotě. Bez toho projde přetečení o dvě
+      // minuty jako věta „přeplánován o 0 h“.
+      const rounded = round1(overHours);
+      if (overDays === 0 || !(rounded > 0)) continue;
+
       overbooked.push({
         machine,
-        overbookedHours: round1(overHours),
+        overbookedHours: rounded,
         overbookedDays: overDays,
       });
     }

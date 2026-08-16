@@ -18,11 +18,17 @@ const toneOf = (s: AttentionItem["severity"]) =>
  * hotové z `attentionItems.ts`, aby měly jediný zdroj pravdy sdílený se
  * serverem.
  */
-export function AttentionBand({ items, calm, checkedAt }: {
+export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
   items: AttentionItem[];
   calm: string;
   checkedAt: string | null;
+  /** Přepnutí záložky NA MÍSTĚ. Viz `AttentionTarget` — odkaz to být nemůže. */
+  onSwitchTab: (tab: "retro" | "outlook" | "health") => void;
 }) {
+  const linkStyle: React.CSSProperties = {
+    fontSize: reportTypeScale.md, fontWeight: 600, color: "var(--brand-text)",
+    textDecoration: "none", whiteSpace: "nowrap",
+  };
   const alert = items.length > 0;
   const edge = alert
     ? "color-mix(in oklab, var(--status-bad) 40%, var(--border))"
@@ -66,10 +72,20 @@ export function AttentionBand({ items, calm, checkedAt }: {
                   {it.when}
                 </span>
               )}
-              <a href={it.href} style={{
-                fontSize: reportTypeScale.md, fontWeight: 600, color: "var(--brand-text)",
-                textDecoration: "none", whiteSpace: "nowrap",
-              }}>{it.linkLabel}</a>
+              {it.target.kind === "href" ? (
+                <a href={it.target.href} style={linkStyle}>{it.target.label}</a>
+              ) : (
+                // Tlačítko, ne odkaz: cíl je záložka téže stránky, kterou drží
+                // lokální stav. `<a>` by udělal reload a přistál na výchozí
+                // záložce — tedy hůř než kdyby tam odkaz nebyl vůbec.
+                <button
+                  type="button"
+                  onClick={() => onSwitchTab(it.target.kind === "tab" ? it.target.tab : "retro")}
+                  style={{ ...linkStyle, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                >
+                  {it.target.label}
+                </button>
+              )}
             </div>
           ))}
         </>

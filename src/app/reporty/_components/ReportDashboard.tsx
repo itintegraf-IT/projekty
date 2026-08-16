@@ -693,7 +693,12 @@ export default function ReportDashboard() {
       <div style={{ padding: 24 }}>
         {/* V Kontrolním panelu se pás nekreslí — ukazoval by sám na sebe. */}
         {mode !== "health" && attention.ready && (
-          <AttentionBand items={attention.items} calm={attention.calm} checkedAt={attention.checkedAt} />
+          <AttentionBand
+            items={attention.items}
+            calm={attention.calm}
+            checkedAt={attention.checkedAt}
+            onSwitchTab={setMode}
+          />
         )}
         {mode === "health" ? (
           <HealthPanel

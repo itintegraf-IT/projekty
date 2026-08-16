@@ -69,17 +69,13 @@ describe("attentionItems — prahy", () => {
 });
 
 describe("attentionItems — hraniční případy přeplánování", () => {
-  it("nula přeplánovaných dní nevypíše „0 dní z 30“, ale důvod", () => {
-    // Nastane, když bloky leží výhradně na dnech s nulovou kapacitou (víkend,
-    // celozávodní odstávka) — vytížení je tam nedefinované, takže se den do
-    // počtu nezapočítá, ale hodiny nad kapacitou existují.
+  it("položka vždy nese horizont, ve kterém přeplánování platí", () => {
+    // Bez horizontu se „přeplánován o 26 h" čte jako tvrzení o celém plánu.
     const items = buildAttentionItems({
       ...calm,
-      overbooked: [{ machine: "XL_106", overbookedHours: 8, overbookedDays: 0 }],
+      overbooked: [{ machine: "XL_106", overbookedHours: 8, overbookedDays: 3 }],
     });
-    assert.equal(items.length, 1);
-    assert.doesNotMatch(items[0].when, /^0 /);
-    assert.match(items[0].when, /mimo pracovní dobu/);
+    assert.match(items[0].when, /z 30/);
   });
 
   it("nenulový počet dní se vypisuje i s horizontem", () => {
@@ -126,8 +122,7 @@ describe("attentionItems — odkazy", () => {
     });
     assert.equal(items.length, 4);
     for (const it of items) {
-      assert.ok(it.href && it.href.length > 0, `${it.key} nemá odkaz`);
-      assert.ok(it.linkLabel && it.linkLabel.length > 0, `${it.key} nemá popisek odkazu`);
+      assert.ok(it.target.label.length > 0, `${it.key} nemá popisek cíle`);
     }
   });
 
@@ -137,9 +132,21 @@ describe("attentionItems — odkazy", () => {
       waiting: [{ id: 1, orderNumber: "25-1043", waitingDays: 9 }],
       health: { loaded: true, total: 1, uncomputed: 0 },
     });
-    // `/` umí jen ?highlight=<id>; machine ani date neexistují.
+    // Původní verze měla u tří položek `href: "/reporty"`. Tam se ale
+    // uživatel už NACHÁZÍ a záložka je lokální stav bez URL, takže odkaz
+    // způsobil reload a přistání na výchozí záložce — hůř než no-op.
+    // Cesta v `href` proto musí být z tohohle seznamu; přepnutí záložky
+    // není odkaz, ale `kind: "tab"`.
+    const REAL_ROUTES = ["/rezervace", "/"];
     for (const it of items) {
-      assert.doesNotMatch(it.href!, /[?&](machine|date)=/, `${it.key} používá neexistující parametr`);
+      if (it.target.kind === "href") {
+        const path = it.target.href.split("?")[0];
+        assert.ok(REAL_ROUTES.includes(path), `${it.key} vede na neexistující cestu ${it.target.href}`);
+        assert.doesNotMatch(it.target.href, /[?&](machine|date)=/, `${it.key} používá neexistující parametr`);
+        assert.notEqual(path, "/reporty", `${it.key} odkazuje na stránku, na které uživatel stojí`);
+      } else {
+        assert.ok(["retro", "outlook", "health"].includes(it.target.tab), `${it.key} má neznámou záložku`);
+      }
     }
   });
 });
@@ -150,6 +157,7 @@ describe("attentionItems — klidný stav", () => {
     assert.match(s, /stroj/i);
     assert.match(s, /rezervac/i);
     assert.match(s, /kontrol/i);
+    assert.match(s, /30/, "musí říct, v jakém horizontu to platí");
   });
 
   it("věta nikdy netvrdí víc, než co se ověřilo", () => {

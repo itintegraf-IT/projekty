@@ -36,9 +36,24 @@ export type AttentionItem = {
   detail: string;
   /** Pravý sloupec — rozsah nebo doba čekání. */
   when: string;
-  href: string;
-  linkLabel: string;
+  target: AttentionTarget;
 };
+
+/**
+ * Kam položka vede.
+ *
+ * `tab` NENÍ odkaz, ale přepnutí záložky na místě. Původně to odkaz byl
+ * (`href: "/reporty"`) a nefungoval: režim je lokální `useState`, stránka
+ * žádný query parametr nečte a `<a>` na vlastní URL udělá plný reload — takže
+ * „Výhled →" z Retrospektivy skončilo zase na Retrospektivě a „Kontrolní
+ * panel →" z Výhledu dokonce tiše zahodilo záložku, na které člověk stál.
+ * Mrtvý odkaz je horší než žádný; tenhle byl ještě horší než mrtvý.
+ *
+ * `href` zůstává jen tam, kde se opravdu jde na jinou stránku.
+ */
+export type AttentionTarget =
+  | { kind: "tab"; tab: "retro" | "outlook" | "health"; label: string }
+  | { kind: "href"; href: string; label: string };
 
 export type OverbookedMachine = {
   machine: string;
@@ -87,16 +102,8 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       severity: "bad",
       title: `${machineLabel(m.machine)} přeplánován o ${cz(m.overbookedHours)} h`,
       detail: "plán nad kapacitou stroje",
-      // Nula dní není chyba výpočtu: den bez kapacity (víkend, celozávodní
-      // odstávka) se do počtu přeplánovaných dní nezapočítá, protože vytížení
-      // je tam nedefinované. Stroj přeplánovaný VÝHRADNĚ mimo pracovní dobu by
-      // tedy dostal větu „0 dní z 30", což se čte jako protimluv. Ten případ
-      // dostane vlastní text — a je to zároveň užitečnější informace.
-      when: m.overbookedDays > 0
-        ? `${m.overbookedDays} ${plural(m.overbookedDays, "den", "dny", "dní")} z ${ATTENTION_THRESHOLDS.overbookedHorizonDays}`
-        : "mimo pracovní dobu",
-      href: "/reporty",
-      linkLabel: "Výhled →",
+      when: `${m.overbookedDays} ${plural(m.overbookedDays, "den", "dny", "dní")} z ${ATTENTION_THRESHOLDS.overbookedHorizonDays}`,
+      target: { kind: "tab", tab: "outlook", label: "Výhled →" },
     });
   }
 
@@ -107,8 +114,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       title: `${input.health.total} ${plural(input.health.total, "nález", "nálezy", "nálezů")} v datech`,
       detail: "Kontrolní panel našel nesrovnalosti",
       when: "",
-      href: "/reporty",
-      linkLabel: "Kontrolní panel →",
+      target: { kind: "tab", tab: "health", label: "Kontrolní panel →" },
     });
   }
 
@@ -129,8 +135,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       title: `${late.length} ${plural(late.length, "rezervace bez odezvy", "rezervace bez odezvy", "rezervací bez odezvy")}`,
       detail: `nikdo je zatím nepřevzal, čekají déle než ${thresholdDays()}`,
       when: `nejdéle ${longest} ${plural(longest, "den", "dny", "dní")}`,
-      href: "/rezervace",
-      linkLabel: "Rezervace →",
+      target: { kind: "href", href: "/rezervace", label: "Rezervace →" },
     });
   }
 
@@ -141,8 +146,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       title: `${input.health.uncomputed} ${plural(input.health.uncomputed, "kontrola se nespočetla", "kontroly se nespočetly", "kontrol se nespočetlo")}`,
       detail: "výsledek není úplný",
       when: "",
-      href: "/reporty",
-      linkLabel: "Kontrolní panel →",
+      target: { kind: "tab", tab: "health", label: "Kontrolní panel →" },
     });
   }
 
@@ -154,10 +158,15 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
  * Když se Kontrolní panel nenačetl, o kontrolách mlčí.
  */
 export function attentionCalmSentence(input: AttentionInput): string {
-  // „Oba stroje" by se stalo lží ve chvíli, kdy `MACHINES` dostane třetí prvek —
-  // a věta o klidném stavu je poslední místo, kde chceme tiché nepřesnosti.
-  const machinesPhrase = MACHINES.length === 2 ? "oba stroje v kapacitě" : "všechny stroje v kapacitě";
-  const checked = [machinesPhrase, `žádná rezervace nečeká déle než ${thresholdDays()}`];
+  // Věta musí říct i ROZSAH, ve kterém to platí. „Oba stroje v kapacitě" bez
+  // horizontu se čte jako tvrzení o celém plánu — a přitom se ověřovalo jen
+  // příštích 30 dní. („Oba" navíc přestane platit, až `MACHINES` dostane
+  // třetí prvek.)
+  const machinesWord = MACHINES.length === 2 ? "ani jeden stroj" : "žádný stroj";
+  const checked = [
+    `${machinesWord} není v příštích ${ATTENTION_THRESHOLDS.overbookedHorizonDays} dnech nad kapacitou`,
+    `žádná rezervace nečeká bez odezvy déle než ${thresholdDays()}`,
+  ];
   if (input.health.loaded) checked.push("kontroly bez nálezu");
   return `${checked.join(" · ")}.`;
 }
