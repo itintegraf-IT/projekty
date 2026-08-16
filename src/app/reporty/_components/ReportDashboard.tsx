@@ -6,6 +6,8 @@ import { machineLabel } from "@/lib/machines";
 import { ModuleHeader } from "@/components/ModuleHeader";
 import HealthPanel from "./HealthPanel";
 import { useHealthData } from "./useHealthData";
+import { useAttentionData } from "./useAttentionData";
+import { AttentionBand } from "@/components/report/AttentionBand";
 import { OPEN_STATUSES, CLOSED_STATUSES } from "@/lib/reservationStatus";
 import { KpiCard } from "./KpiCard";
 import { PlanningSection, type PlanningMetrics, type PlannerActivityEntry } from "./PlanningSection";
@@ -554,6 +556,11 @@ export default function ReportDashboard() {
   // Data Kontrolního panelu — fetch jednou při vstupu, krmí odznak i panel.
   const health = useHealthData();
 
+  // Stavový pás — serverová část z /api/report/attention, Kontrolní panel z dat,
+  // která už klient má. `loaded: health.data != null` znamená „nevíme" i při
+  // chybě fetche, takže pás o kontrolách raději mlčí, než aby tvrdil, že je čisto.
+  const attention = useAttentionData({ loaded: health.data != null, total: health.total, uncomputed: health.uncomputed });
+
   const { start, end } = computeRange(timeRange, today, customStart, customEnd);
 
   const fetchData = useCallback(async () => {
@@ -684,6 +691,10 @@ export default function ReportDashboard() {
 
       {/* Body */}
       <div style={{ padding: 24 }}>
+        {/* V Kontrolním panelu se pás nekreslí — ukazoval by sám na sebe. */}
+        {mode !== "health" && attention.ready && (
+          <AttentionBand items={attention.items} calm={attention.calm} checkedAt={attention.checkedAt} />
+        )}
         {mode === "health" ? (
           <HealthPanel
             data={health.data}
