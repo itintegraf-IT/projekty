@@ -4,6 +4,7 @@ import {
   ATTENTION_THRESHOLDS,
   buildAttentionItems,
   attentionCalmSentence,
+  attentionIsFullyVerified,
   type AttentionInput,
 } from "./attentionItems";
 
@@ -18,13 +19,13 @@ describe("attentionItems — prahy", () => {
   it("rezervace pod prahem se nehlásí, nad prahem ano", () => {
     const under = buildAttentionItems({
       ...calm,
-      waiting: [{ id: 1, orderNumber: "25-1043", waitingDays: ATTENTION_THRESHOLDS.reservationWaitingDays }],
+      waiting: [{ id: 1, orderNumber: "25-1043", status: "SUBMITTED", waitingDays: ATTENTION_THRESHOLDS.reservationWaitingDays }],
     });
     assert.equal(under.length, 0, "přesně na prahu se ještě nehlásí");
 
     const over = buildAttentionItems({
       ...calm,
-      waiting: [{ id: 1, orderNumber: "25-1043", waitingDays: ATTENTION_THRESHOLDS.reservationWaitingDays + 1 }],
+      waiting: [{ id: 1, orderNumber: "25-1043", status: "SUBMITTED", waitingDays: ATTENTION_THRESHOLDS.reservationWaitingDays + 1 }],
     });
     assert.equal(over.length, 1);
     assert.equal(over[0].severity, "warn");
@@ -35,8 +36,8 @@ describe("attentionItems — prahy", () => {
     const items = buildAttentionItems({
       ...calm,
       waiting: [
-        { id: 1, orderNumber: "25-1043", waitingDays: 5 },
-        { id: 2, orderNumber: "25-1051", waitingDays: 4 },
+        { id: 1, orderNumber: "25-1043", status: "SUBMITTED", waitingDays: 5 },
+        { id: 2, orderNumber: "25-1051", status: "SUBMITTED", waitingDays: 4 },
       ],
     });
     assert.equal(items.length, 1);
@@ -48,7 +49,7 @@ describe("attentionItems — prahy", () => {
     const items = buildAttentionItems({
       ...calm,
       overbooked: [{ machine: "XL_106", overbookedHours: 26.4, overbookedDays: 6 }],
-      waiting: [{ id: 1, orderNumber: "25-1043", waitingDays: 5 }],
+      waiting: [{ id: 1, orderNumber: "25-1043", status: "SUBMITTED", waitingDays: 5 }],
     });
     assert.equal(items.length, 2);
     assert.equal(items[0].severity, "bad");
@@ -117,7 +118,7 @@ describe("attentionItems — odkazy", () => {
   it("každá položka vede někam, kde se to dá řešit", () => {
     const items = buildAttentionItems({
       overbooked: [{ machine: "XL_106", overbookedHours: 26.4, overbookedDays: 6 }],
-      waiting: [{ id: 1, orderNumber: "25-1043", waitingDays: 5 }],
+      waiting: [{ id: 1, orderNumber: "25-1043", status: "SUBMITTED", waitingDays: 5 }],
       health: { loaded: true, total: 3, uncomputed: 1 },
     });
     assert.equal(items.length, 4);
@@ -129,7 +130,7 @@ describe("attentionItems — odkazy", () => {
   it("odkazy míří jen na cesty, které v aplikaci existují", () => {
     const items = buildAttentionItems({
       overbooked: [{ machine: "XL_106", overbookedHours: 1, overbookedDays: 1 }],
-      waiting: [{ id: 1, orderNumber: "25-1043", waitingDays: 9 }],
+      waiting: [{ id: 1, orderNumber: "25-1043", status: "SUBMITTED", waitingDays: 9 }],
       health: { loaded: true, total: 1, uncomputed: 0 },
     });
     // Původní verze měla u tří položek `href: "/reporty"`. Tam se ale
@@ -175,5 +176,66 @@ describe("attentionItems — čísla v češtině", () => {
     });
     assert.match(items[0].title, /26,4/);
     assert.doesNotMatch(items[0].title, /26\.4/);
+  });
+});
+
+describe("attentionItems — fronta rezervací", () => {
+  it("QUEUE_READY dostane VLASTNÍ položku, ne mlčení", () => {
+    // Pás bral původně jen SUBMITTED, zatímco seznam v RIZIKA počítá obojí
+    // a barví řádky týmž prahem — pás tedy mlčel, zatímco pod ním svítily
+    // čtyři červené řádky.
+    const items = buildAttentionItems({
+      ...calm,
+      waiting: [
+        { id: 1, orderNumber: "R-101", status: "QUEUE_READY", waitingDays: 9 },
+        { id: 2, orderNumber: "R-102", status: "QUEUE_READY", waitingDays: 6 },
+      ],
+    });
+    assert.equal(items.length, 1);
+    assert.match(items[0].title, /2 rezervace čekají na naplánování/);
+    assert.match(items[0].when, /9/);
+  });
+
+  it("oba stavy naráz dají dvě položky s různým textem", () => {
+    const items = buildAttentionItems({
+      ...calm,
+      waiting: [
+        { id: 1, orderNumber: "R-101", status: "QUEUE_READY", waitingDays: 9 },
+        { id: 2, orderNumber: "R-102", status: "SUBMITTED", waitingDays: 5 },
+      ],
+    });
+    assert.equal(items.length, 2);
+    const keys = items.map((i) => i.key);
+    assert.ok(keys.includes("reservations:unanswered"));
+    assert.ok(keys.includes("reservations:queued"));
+    assert.notEqual(items[0].title, items[1].title);
+  });
+});
+
+describe("attentionItems — co pás smí tvrdit", () => {
+  const withDays = (d: Record<string, number>) => ({ ...calm, checkedDaysByMachine: d });
+
+  it("neposouzený stroj se v klidné větě NEZMÍNÍ", () => {
+    // Nenaseedované týdny směn = žádný den s kapacitou = pás neověřil nic.
+    const s = attentionCalmSentence(withDays({ XL_105: 0, XL_106: 0 }));
+    assert.doesNotMatch(s, /kapacit/i, "o kapacitě nesmí tvrdit nic");
+    assert.match(s, /rezervac/i, "co ověřeno bylo, se uvést má");
+  });
+
+  it("posouzený jen jeden stroj → věta jmenuje jeho, ne „ani jeden“", () => {
+    const s = attentionCalmSentence(withDays({ XL_105: 30, XL_106: 0 }));
+    assert.doesNotMatch(s, /ani jeden stroj/);
+    assert.match(s, /XL 105/);
+  });
+
+  it("posouzeny oba → souhrnná formulace", () => {
+    const s = attentionCalmSentence(withDays({ XL_105: 30, XL_106: 22 }));
+    assert.match(s, /ani jeden stroj/);
+  });
+
+  it("pás NENÍ plně ověřený, dokud nedoběhne Kontrolní panel", () => {
+    assert.equal(attentionIsFullyVerified({ ...calm, health: { loaded: false, total: 0, uncomputed: 0 } }), false);
+    assert.equal(attentionIsFullyVerified(withDays({ XL_105: 0, XL_106: 30 })), false);
+    assert.equal(attentionIsFullyVerified(withDays({ XL_105: 30, XL_106: 30 })), true);
   });
 });

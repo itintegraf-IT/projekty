@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import {
   buildAttentionItems,
   attentionCalmSentence,
+  attentionIsFullyVerified,
   type AttentionItem,
   type HealthInput,
   type OverbookedMachine,
@@ -15,7 +16,12 @@ import {
  * (`checkedAt` + dvě pole) — kdyby se rozešel, `tsc` to nechytí, JSON z fetche
  * je pro typový systém neprůhledný.
  */
-type ServerPart = { checkedAt: string; overbooked: OverbookedMachine[]; waiting: WaitingReservation[] };
+type ServerPart = {
+  checkedAt: string;
+  overbooked: OverbookedMachine[];
+  waiting: WaitingReservation[];
+  checkedDaysByMachine?: Record<string, number>;
+};
 
 export type UseAttentionData = {
   /** `false` = pás se NEVYKRESLÍ. Buď se ještě nenačetl, nebo fetch selhal. */
@@ -23,6 +29,12 @@ export type UseAttentionData = {
   items: AttentionItem[];
   calm: string;
   checkedAt: string | null;
+  /**
+   * Ví pás dost na to, aby směl tvrdit „nic nevyžaduje pozornost"?
+   * `false` znamená, že se buď nedopočítal Kontrolní panel, nebo některý
+   * stroj neměl v horizontu ani jeden den s kapacitou.
+   */
+  fullyVerified: boolean;
 };
 
 /**
@@ -58,14 +70,22 @@ export function useAttentionData(health: HealthInput): UseAttentionData {
   }, []);
 
   if (failed || server == null) {
-    return { ready: false, items: [], calm: "", checkedAt: null };
+    return { ready: false, items: [], calm: "", checkedAt: null, fullyVerified: false };
   }
 
-  const input = { overbooked: server.overbooked, waiting: server.waiting, health };
+  const input = {
+    overbooked: server.overbooked,
+    waiting: server.waiting,
+    health,
+    checkedDaysByMachine: server.checkedDaysByMachine,
+  };
   return {
     ready: true,
     items: buildAttentionItems(input),
     calm: attentionCalmSentence(input),
     checkedAt: server.checkedAt,
+    // Když Kontrolní panel ještě nedoběhl (nebo selhal) nebo některý stroj
+    // neměl v horizontu ani jeden den s kapacitou, pás NESMÍ tvrdit klid.
+    fullyVerified: attentionIsFullyVerified(input),
   };
 }

@@ -62,7 +62,13 @@ export type OverbookedMachine = {
   overbookedDays: number;
 };
 
-export type WaitingReservation = { id: number; orderNumber: string; waitingDays: number };
+export type WaitingReservation = {
+  id: number;
+  orderNumber: string;
+  /** `SUBMITTED` = nikdo neotevřel · `QUEUE_READY` = převzato, čeká na místo v plánu. */
+  status: string;
+  waitingDays: number;
+};
 
 /**
  * `loaded: false` znamená „nevíme", ne „je čisto". Rozdíl je podstatný: bez
@@ -74,6 +80,12 @@ export type AttentionInput = {
   overbooked: OverbookedMachine[];
   waiting: WaitingReservation[];
   health: HealthInput;
+  /**
+   * Kolik dní horizontu šlo u kterého stroje posoudit. Den bez kapacity se
+   * přeskakuje, takže tohle číslo NENÍ vždycky rovno horizontu — a klidná
+   * věta se podle něj řídí. Chybějící klíč znamená „neposuzováno".
+   */
+  checkedDaysByMachine?: Record<string, number>;
 };
 
 /** Desetinná čárka. Jedno místo, ať se zápis nerozejde se zbytkem reportu. */
@@ -105,7 +117,7 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       key: `overbooked:${m.machine}`,
       severity: "bad",
       title: `${machineLabel(m.machine)} přeplánován o ${cz(m.overbookedHours)} h`,
-      detail: "plán nad kapacitou stroje",
+      detail: "některý den nad kapacitou stroje",
       when: `${m.overbookedDays} ${plural(m.overbookedDays, "den", "dny", "dní")} z ${ATTENTION_THRESHOLDS.overbookedHorizonDays}`,
       target: { kind: "tab", tab: "outlook", label: "Výhled →" },
     });
@@ -122,22 +134,43 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
     });
   }
 
-  // Rezervace se slučují do JEDNÉ položky — pás má být krátký a čitelný na
-  // jeden pohled. Seznam s čísly zakázek je v sekci RIZIKA ve Výhledu.
-  //
-  // POZOR na rozdíl proti kartě „Čekající na zpracování" ve Výhledu: ta počítá
-  // SUBMITTED i QUEUE_READY, pás jen SUBMITTED. Není to nedopatření — jsou to
-  // dva různé stavy. QUEUE_READY někdo převzal a čeká na místo v plánu;
-  // SUBMITTED nikdo neotevřel. Pás hlásí druhé, a text to musí říct, jinak
-  // vypadají dvě různá čísla na téže stránce jako protimluv.
+  /*
+   * Rezervace se dělí na DVĚ položky podle stavu, ne na jednu.
+   *
+   * Původně pás bral jen `SUBMITTED`, kdežto seznam v sekci RIZIKA počítá
+   * i `QUEUE_READY` — a barví řádky TÝMŽ prahem. Vznikl tím protimluv na
+   * jedné obrazovce: pás hlásil „nic nevyžaduje pozornost", zatímco pod ním
+   * svítily čtyři červené řádky s čekáním 6–9 dní.
+   *
+   * Sloučit je do jedné položky by ale zamlžilo rozdíl, který je věcný:
+   * „bez odezvy" znamená, že se na to nikdo nepodíval; „čeká na naplánování"
+   * znamená, že někdo převzal a shání místo v plánu. Jsou to dvě různé
+   * činnosti pro dva různé lidi.
+   */
   const late = input.waiting.filter((r) => r.waitingDays > ATTENTION_THRESHOLDS.reservationWaitingDays);
-  if (late.length > 0) {
-    const longest = Math.max(...late.map((r) => r.waitingDays));
-    items.push({
-      key: "reservations:waiting",
-      severity: "warn",
-      title: `${late.length} ${plural(late.length, "rezervace bez odezvy", "rezervace bez odezvy", "rezervací bez odezvy")}`,
+  const groups: Array<{ key: string; statuses: string[]; noun: (n: number) => string; detail: string }> = [
+    {
+      key: "reservations:unanswered",
+      statuses: ["SUBMITTED"],
+      noun: (n) => plural(n, "rezervace bez odezvy", "rezervace bez odezvy", "rezervací bez odezvy"),
       detail: `nikdo je zatím nepřevzal, čekají déle než ${thresholdDays()}`,
+    },
+    {
+      key: "reservations:queued",
+      statuses: ["QUEUE_READY"],
+      noun: (n) => plural(n, "rezervace čeká na naplánování", "rezervace čekají na naplánování", "rezervací čeká na naplánování"),
+      detail: `převzaté, ale zatím bez místa v plánu`,
+    },
+  ];
+  for (const g of groups) {
+    const rows = late.filter((r) => g.statuses.includes(r.status));
+    if (rows.length === 0) continue;
+    const longest = Math.max(...rows.map((r) => r.waitingDays));
+    items.push({
+      key: g.key,
+      severity: "warn",
+      title: `${rows.length} ${g.noun(rows.length)}`,
+      detail: g.detail,
       when: `nejdéle ${longest} ${plural(longest, "den", "dny", "dní")}`,
       target: { kind: "href", href: "/rezervace", label: "Rezervace →" },
     });
@@ -159,18 +192,48 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
 
 /**
  * Věta pro klidný stav. Vyjmenovává, co bylo ověřeno — a NIKDY netvrdí víc.
- * Když se Kontrolní panel nenačetl, o kontrolách mlčí.
+ *
+ * Dvě věci, které se sem musely doplnit, protože věta jinak lhala:
+ *  - Když se Kontrolní panel nenačetl, o kontrolách mlčí (`loaded: false`).
+ *  - Když stroj nemá v horizontu ani jeden den s kapacitou (nenaseedované
+ *    týdny směn), pás ho neposuzoval — a věta „ani jeden stroj není nad
+ *    kapacitou" pak tvrdila výsledek třiceti kontrol, z nichž neproběhla
+ *    žádná.
  */
 export function attentionCalmSentence(input: AttentionInput): string {
-  // Věta musí říct i ROZSAH, ve kterém to platí. „Oba stroje v kapacitě" bez
-  // horizontu se čte jako tvrzení o celém plánu — a přitom se ověřovalo jen
-  // příštích 30 dní. („Oba" navíc přestane platit, až `MACHINES` dostane
-  // třetí prvek.)
-  const machinesWord = MACHINES.length === 2 ? "ani jeden stroj" : "žádný stroj";
-  const checked = [
-    `${machinesWord} není v příštích ${ATTENTION_THRESHOLDS.overbookedHorizonDays} dnech nad kapacitou`,
-    `žádná rezervace nečeká bez odezvy déle než ${thresholdDays()}`,
-  ];
+  const checked: string[] = [];
+
+  const days = input.checkedDaysByMachine;
+  const posouzeno = days == null
+    ? MACHINES.slice()
+    : MACHINES.filter((m) => (days[m] ?? 0) > 0);
+
+  if (posouzeno.length === MACHINES.length) {
+    // „Oba" přestane platit, až `MACHINES` dostane třetí prvek.
+    const word = MACHINES.length === 2 ? "ani jeden stroj" : "žádný stroj";
+    checked.push(`${word} není v příštích ${ATTENTION_THRESHOLDS.overbookedHorizonDays} dnech nad kapacitou`);
+  } else if (posouzeno.length > 0) {
+    checked.push(`${posouzeno.map(machineLabel).join(" a ")} v příštích ${ATTENTION_THRESHOLDS.overbookedHorizonDays} dnech nad kapacitou není`);
+  }
+  // Když neposouzen ani jeden stroj, o kapacitě se prostě mlčí.
+
+  checked.push(`žádná rezervace nečeká déle než ${thresholdDays()}`);
   if (input.health.loaded) checked.push("kontroly bez nálezu");
+
   return `${checked.join(" · ")}.`;
+}
+
+/**
+ * Ví pás vůbec dost na to, aby směl tvrdit „nic nevyžaduje pozornost"?
+ *
+ * Kontrolní panel se stahuje zvlášť a doběhne později — nebo vůbec. Bez
+ * tohohle rozlišení pás vypsal tučné „Nic nevyžaduje pozornost." ve chvíli,
+ * kdy o kontrolách nevěděl nic, a na sousední záložce přitom svítil odznak
+ * „!". Odznak má kvůli témuž riziku tři stavy; pás měl dva.
+ */
+export function attentionIsFullyVerified(input: AttentionInput): boolean {
+  if (!input.health.loaded) return false;
+  const days = input.checkedDaysByMachine;
+  if (days == null) return true;
+  return MACHINES.every((m) => (days[m] ?? 0) > 0);
 }

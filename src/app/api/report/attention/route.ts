@@ -83,9 +83,14 @@ export async function GET() {
       prisma.companyDay.findMany({
         where: { startDate: { lt: endUtc }, endDate: { gt: startUtc } },
       }),
+      // SUBMITTED i QUEUE_READY. Pás je rozlišuje na dvě položky s jiným
+      // textem — „bez odezvy" (nikdo neotevřel) a „čeká na naplánování"
+      // (někdo převzal). Brát jen SUBMITTED bylo chybou: seznam v sekci
+      // RIZIKA počítá obojí a barví řádky TÝMŽ prahem, takže pás mlčel,
+      // zatímco pod ním svítily čtyři červené řádky.
       prisma.reservation.findMany({
-        where: { status: "SUBMITTED" },
-        select: { id: true, code: true, createdAt: true },
+        where: { status: { in: ["SUBMITTED", "QUEUE_READY"] } },
+        select: { id: true, code: true, status: true, createdAt: true },
       }),
     ]);
 
@@ -99,6 +104,7 @@ export async function GET() {
     }
 
     const overbooked: OverbookedMachine[] = [];
+    const checkedDaysByMachine: Record<string, number> = {};
     for (const machine of MACHINES) {
       const machineBlocks = blocks.filter((b) => b.machine === machine);
       const plannedMinutes = (winStart: Date, winEnd: Date) =>
@@ -124,21 +130,32 @@ export async function GET() {
        */
       let overDays = 0;
       let overHours = 0;
+      // Kolik dní horizontu vůbec šlo posoudit. Den bez kapacity se
+      // přeskakuje (viz komentář výš) — a když se přeskočí všechny, pás
+      // neověřil NIC a nesmí tvrdit, že je uklizeno. Bez tohohle čísla
+      // hlásil „ani jeden stroj není v příštích 30 dnech nad kapacitou"
+      // i u stroje, kterému nikdo nenaseedoval jediný týden směn.
+      let checkedDays = 0;
       let cur = today;
       while (cur <= horizonLastDay) {
         const dayStart = pragueToUTC(cur, 0, 0);
         const dayEnd = pragueToUTC(addDaysToCivilDate(cur, 1), 0, 0);
         const dayAvail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
         const dayPlanned = plannedMinutes(dayStart, dayEnd) / 60;
-        if (dayAvail > 0 && dayPlanned > dayAvail) {
-          overDays++;
-          overHours += dayPlanned - dayAvail;
+        if (dayAvail > 0) {
+          checkedDays++;
+          if (dayPlanned > dayAvail) {
+            overDays++;
+            overHours += dayPlanned - dayAvail;
+          }
         }
         cur = addDaysToCivilDate(cur, 1);
       }
 
       // Práh je na ZAOKROUHLENÉ hodnotě. Bez toho projde přetečení o dvě
       // minuty jako věta „přeplánován o 0 h“.
+      checkedDaysByMachine[machine] = checkedDays;
+
       const rounded = round1(overHours);
       if (overDays === 0 || !(rounded > 0)) continue;
 
@@ -156,6 +173,7 @@ export async function GET() {
     const waiting: WaitingReservation[] = submitted.map((r) => ({
       id: r.id,
       orderNumber: r.code || `#${r.id}`,
+      status: r.status,
       // `Math.round`, ne `floor` — SHODNĚ s `oldestWaitingDays` v dashboard route.
       // Obě čísla jsou vidět na téže stránce a při `floor` by se u čekání 3,6 dne
       // rozešla (pás „3 dny", karta „4 dny"), a protože práh je ostrý `> 3`,
@@ -164,7 +182,13 @@ export async function GET() {
       waitingDays: Math.round((nowMs - r.createdAt.getTime()) / 86_400_000),
     }));
 
-    return NextResponse.json({ checkedAt: new Date().toISOString(), overbooked, waiting });
+    return NextResponse.json({
+      checkedAt: new Date().toISOString(),
+      overbooked,
+      waiting,
+      checkedDaysByMachine,
+      horizonDays: ATTENTION_THRESHOLDS.overbookedHorizonDays,
+    });
   } catch (err) {
     if (isAppError(err)) return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     logger.error("[report/attention] neočekávaná chyba", err);

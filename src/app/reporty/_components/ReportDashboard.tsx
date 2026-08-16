@@ -265,6 +265,7 @@ export default function ReportDashboard() {
             items={attention.items}
             calm={attention.calm}
             checkedAt={attention.checkedAt}
+            fullyVerified={attention.fullyVerified}
             onSwitchTab={setMode}
           />
         )}

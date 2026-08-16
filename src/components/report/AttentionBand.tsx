@@ -18,10 +18,12 @@ const toneOf = (s: AttentionItem["severity"]) =>
  * hotové z `attentionItems.ts`, aby měly jediný zdroj pravdy sdílený se
  * serverem.
  */
-export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
+export function AttentionBand({ items, calm, checkedAt, fullyVerified, onSwitchTab }: {
   items: AttentionItem[];
   calm: string;
   checkedAt: string | null;
+  /** `false` → místo tučného „Nic nevyžaduje pozornost" se přizná neúplnost. */
+  fullyVerified: boolean;
   /** Přepnutí záložky NA MÍSTĚ. Viz `AttentionTarget` — odkaz to být nemůže. */
   onSwitchTab: (tab: "retro" | "outlook" | "health") => void;
 }) {
@@ -30,9 +32,19 @@ export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
     textDecoration: "none", whiteSpace: "nowrap",
   };
   const alert = items.length > 0;
+  /*
+   * TŘI stavy, ne dva — stejně jako odznak Kontrolního panelu.
+   *
+   * Bez prostředního stavu pás vypsal tučné „Nic nevyžaduje pozornost.“ ve
+   * chvíli, kdy o kontrolách nevěděl vůbec nic (fetch health ještě neběžel
+   * nebo selhal), a na sousední záložce přitom svítil jantarový odznak „!“.
+   * Dvě protichůdná tvrzení ve stejné hlavičce.
+   */
   const edge = alert
     ? "color-mix(in oklab, var(--status-bad) 40%, var(--border))"
-    : "color-mix(in oklab, var(--status-ok) 40%, var(--border))";
+    : fullyVerified
+      ? "color-mix(in oklab, var(--status-ok) 40%, var(--border))"
+      : "color-mix(in oklab, var(--status-warn) 40%, var(--border))";
 
   return (
     <div style={{
@@ -47,7 +59,13 @@ export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
           }}>
             <span style={{ fontSize: reportTypeScale.md, fontWeight: 700 }}>Vyžaduje pozornost</span>
             <span style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)" }}>
-              stav k {checkedAt
+              {/* Razítko platí JEN pro kapacitu a rezervace — ty přicházejí
+                  z jednoho fetche. Položky Kontrolního panelu se počítají
+                  z `useHealthData` při každém renderu, takže po kliknutí na
+                  „Překontrolovat teď" se v pásu objeví nový počet nálezů pod
+                  starým časem. Popisek to musí přiznat, jinak razítko lže
+                  o části obsahu. */}
+              kapacita a rezervace k {checkedAt
                 ? new Date(checkedAt).toLocaleString("cs-CZ", {
                     timeZone: "Europe/Prague", day: "numeric", month: "numeric",
                     hour: "2-digit", minute: "2-digit",
@@ -90,14 +108,20 @@ export function AttentionBand({ items, calm, checkedAt, onSwitchTab }: {
           ))}
         </>
       ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: reportSpace.md, fontSize: reportTypeScale.md }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: `${reportSpace.md}px ${reportSpace.lg}px`, fontSize: reportTypeScale.md }}>
           <span style={{
             width: 20, height: 20, borderRadius: reportRadius.pill, flexShrink: 0,
-            background: "var(--status-ok)", color: "var(--status-on)",
+            background: fullyVerified ? "var(--status-ok)" : "var(--status-warn)",
+            color: "var(--status-on)",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: reportTypeScale.base, fontWeight: 800,
-          }}>✓</span>
-          <span><b style={{ fontWeight: 650 }}>Nic nevyžaduje pozornost.</b> {calm}</span>
+          }}>{fullyVerified ? "✓" : "⚠"}</span>
+          <span>
+            <b style={{ fontWeight: 650 }}>
+              {fullyVerified ? "Nic nevyžaduje pozornost." : "Zatím bez nálezu, ale ne všechno se podařilo ověřit."}
+            </b>{" "}
+            {calm}
+          </span>
         </div>
       )}
     </div>
