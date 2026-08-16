@@ -429,3 +429,65 @@ nad jakou množinou se počítá**, a ověřit, že jsou to tytéž hranice — 
 filtr strojů, filtr stavů. Kde jde součet rozložit (denně, po strojích), přidat
 **strážný test parity**: součet částí se musí rovnat celku. Ten test je jediné,
 co tuhle třídu vad chytí dřív než uživatel — a chytil by i obě regrese výše.
+
+---
+
+## P23 — Sytá barva umí být dobrý podklad a nepoužitelné písmo zároveň
+
+**Kdy:** 16. 8. 2026, etapa „Reporty R2 — Tokeny a čitelnost".
+
+Projekt měl pravidlo „barvy vždy přes tokeny, nikdy hex" a stránka `/reporty` ho
+porušovala na 23 místech. Při opravě se ale ukázalo, že **dodržet ho nestačí** —
+špatně čitelné byly i tokeny samotné, změřeno ve světlém režimu jako barva písma:
+
+| Token | kontrast | kde se tak používal |
+| --- | --- | --- |
+| `--brand` | **1,22 : 1** | odkazy „Otevřít v plánu →", hlavičky sekcí, zámek bloku |
+| `--success` | 2,78 : 1 | zelené „✓ 0" v Kontrolním panelu |
+| `--warning` | 1,86 : 1 | chip čekání v Monitoru u stroje |
+| `--danger` | 3,42 : 1 | červené číslo nálezu |
+
+Všechny čtyři jsou přitom **jako podklad v pořádku** — `--brand` s `--brand-contrast`
+je čitelný a tak je zamýšlený. Vada nevzniká v hodnotě tokenu, ale v tom, že se
+sytý odstín použije v roli, pro kterou nevznikl. Tomu žádné „používej tokeny"
+nezabrání.
+
+Dvě věci to zhoršovaly:
+- **V tmavém režimu byly všechny čtyři v pořádku** (5,2–13,4 : 1). Kdo vyvíjí
+  v tmavém režimu, vadu nikdy neuvidí.
+- **Neexistoval žádný test, který by kontrast počítal.** Hodnoty se volily od oka
+  a od oka i kontrolovaly, takže `--brand` na 1,22 : 1 přežil v repu měsíce.
+
+Táž vada dopadla i na barvy míchané ručně: v heatmapě `/reporty` bylo bílé číslo
+na čtyřech sytých dlaždicích (2,53–3,68 : 1) — a protože dlaždice byly napevno
+zapsané hexy, nečitelné to bylo **v obou režimech**, ne jen ve světlém.
+
+**Pravidlo:** Nová barva se nezavádí od oka. Změř ji (`src/lib/contrast.ts`) **v roli,
+ve které bude stát** — text na skutečném podkladu, ne token v izolaci — a **v obou
+režimech**. Když sytý odstín neprojde jako písmo, nezesvětluj ho: vznikne sourozenec
+`--*-text`, protože jako podklad je správný. Výsledek zapiš do strážného testu, který
+hodnoty **čte ze skutečného `globals.css`**, ne z kopie — kopie hlídá sama sebe.
+
+A pro barvu, která něco rozlišuje (série grafu, stupně heatmapy), kontrast nestačí:
+dvě barvy se stejným jasem mají poměr 1 : 1 a přesto můžou být dokonale odlišné.
+Měř i **vzdálenost po simulaci barvosleposti**. Právě ta ukázala, že semaforová
+škála červená · jantarová · zelená je pro dichromata nerozlišitelná (ΔOKLab
+0,004–0,059 při prahu 0,12) — proto v heatmapě nese hodnotu **číslo v dlaždici**
+a stav volající po zásahu má navíc rámeček.
+
+### Dovětek: měřicí nástroj je taky kód a taky se musí ověřit
+
+Simulace barvosleposti, kterou celá tahle argumentace používala, byla **první
+revizi rozbitá**: kombinovala LMS matici z jedné metody s projekčními koeficienty
+z druhé. Nespadla — vracela barvy. Rozdíly mezi tokeny vycházely řádově podobně,
+takže „červená a zelená splývají víc než modrá a jantarová" platilo i s ní.
+Původní čísla ve specu (0,022) byla o řád mimo a designové rozhodnutí se o ně
+opíralo.
+
+Odhalil to teprve **invariant, ne kontrola vzorců okem**: u dichromata se nesmí
+hnout achromatická osa. Rozbitá verze dělala z bílé azurovou. Jeden řádek testu.
+
+**Pravidlo:** Když si na měření napíšeš nástroj, napiš k němu invariant, který
+platí nezávisle na tom, co měříš — něco, co musí vyjít i kdyby všechny vstupní
+hodnoty byly jiné. Test typu „A je větší než B" ověří jen pořadí a přežije
+i hrubě špatnou implementaci.

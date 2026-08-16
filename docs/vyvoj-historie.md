@@ -1749,3 +1749,115 @@ se ptalo „platí to, co komentář tvrdí" místo „odpovídá diff zadání"
 signál, že něco chybí, by dal proklik — a ten komentář, tvářící se jako
 dokumentace hotové věci, důvod k prokliku sebral. Chybějící komentář by aspoň
 nelhal.
+
+---
+
+## Etapa Reporty R2 — tokeny a čitelnost (16. 8. 2026)
+
+Druhá ze tří etap nad `/reporty`. R1 srovnala čísla, R2 řeší, že **správné číslo
+je k ničemu, když ho není vidět**. R3 (přeskládání stránky) zůstává otevřená.
+
+Nasazeno: **ne** — jede společně s Kontrolním panelem, R1 a migrací Pantone.
+
+### Co bylo špatně (změřeno, ne odhadnuto)
+
+Stránka obcházela tokeny na 23 místech napevno zapsanou barvou. Horší ale bylo,
+že **nestačilo pravidlo dodržet** — nečitelné byly i tokeny samotné. Ve světlém
+režimu jako barva písma: `--brand` 1,22 : 1 · `--success` 2,78 : 1 · `--warning`
+1,86 : 1 · `--danger` 3,42 : 1. Všechny čtyři jsou přitom **jako podklad
+v pořádku**; vada je v použití sytého odstínu v roli, pro kterou nevznikl.
+
+V tmavém režimu byly všechny v pořádku (5,2–13,4 : 1), takže kdo vyvíjí v tmavém,
+vadu nikdy neviděl. A v repu nebyl žádný test, který by kontrast počítal.
+
+Bílé číslo na dlaždicích heatmapy mělo 2,53–3,68 : 1 — a protože dlaždice byly
+napevno zapsané hexy, nečitelné to bylo **v obou režimech**.
+
+### Co vzniklo
+
+- **`src/lib/contrast.ts`** — měřicí modul: OKLCH → sRGB, WCAG kontrast,
+  míchání v OKLab, simulace deuteranopie/protanopie, vzdálenost v OKLab.
+- **`src/lib/reportTokens.ts`** — `reportTypeScale` (podlaha 10 px, 12 velikostí
+  → 7), `reportGlyph`, `reportRadius` (12 → 5), `pipelineToneFor`, `heatToneFor`.
+- **11 nových tokenů** v obou větvích `globals.css`: `--brand-text`, stavová
+  čtveřice `--status-bad`/`-ok`/`-warn`/`-idle` + `--status-on`, série grafu
+  `--series-a`/`-b`, typy bloku `--type-zakazka`/`-rezervace`/`-udrzba`.
+- **`src/lib/reportTokens.test.ts`** — strážný test, který hodnoty **čte ze
+  skutečného `globals.css`**, ne z kopie.
+
+### Rozhodnutí, která stojí za zapamatování
+
+**Stavová čtveřice je pojmenovaná podle závažnosti, ne podle pásem heatmapy.**
+Slouží proto obojímu — dlaždici i „tady je problém" v Kontrolním panelu. Varianta
+se sourozenci `--danger-text`/`--success-text` (jak to udělal `--warning-text`)
+by znamenala dvě jména pro tutéž tmavě červenou.
+
+**Jedna rodina pro text i výplň.** Ve světlém režimu je stavová barva tmavá,
+takže funguje jako písmo na světlé kartě i jako podklad pod bílým číslem;
+v tmavém zrcadlově. `--status-on` se překlápí s režimem.
+
+**Údržba byla v Kontrolním panelu červená, v plánu zelená.** Vyšlo to najevo při
+hledání odstínů pro chipy typu. Nové `--type-*` tokeny berou odstíny z
+`blockStyles.ts`, takže týž typ bloku má na obou obrazovkách touž barvu.
+
+**`--danger`, `--success` a `--info` se mimo `/reporty` NEOPRAVUJÍ.** Používá je
+planner, Monitor i admin; plošná změna je vlastní etapa. Strážný test to zapisuje
+jako **obrácené tvrzení** — až je někdo opraví, spadne a přivede ho k seznamu.
+
+### Změřený dopad
+
+| Prvek | Před | Po |
+| --- | --- | --- |
+| odkazy „Otevřít v plánu →" | 1,22 : 1 | 5,39 : 1 |
+| číslo v dlaždici heatmapy | 2,53–3,68 : 1 | 5,97–10,38 : 1 |
+| zelené ✓ na otevřené záložce (tmavý) | 1,30 : 1 | 6,80 : 1 |
+| pruh aktivity plánovačů | 1,12 : 1 | 3,49 : 1 |
+| rámeček přeplánování | 2,71 : 1 | 6,67 : 1 |
+| chip „čekání" v Monitoru (světlý) | 1,61 : 1 | 4,87 : 1 |
+
+### Co našly závěrečné revize
+
+Tři nezávislé revize (soulad se zadáním · změřená čitelnost · adversariální)
+našly dohromady čtyři věci, které bylo nutné opravit — a jedna z nich je
+nejzávažnější nález celé etapy.
+
+**Simulace barvosleposti byla rozbitá.** `contrast.ts` kombinoval LMS matici
+z jedné metody s projekčními koeficienty z druhé. **Nespadl — vracel barvy**,
+jen jiné: bílá se měnila na azurovou. Rozdíly mezi tokeny vycházely řádově
+podobně, takže test „červená/zelená splývá víc než modrá/jantarová" prošel
+i s ním. Po opravě je pravda horší, než spec tvrdil: nejde jen o dvojici
+`bad`/`warn` (0,022 → skutečně 0,004), ale o **celou semaforovou škálu** —
+`bad`/`ok` i `ok`/`warn` jsou na 0,059 při prahu 0,12. Nejde to spravit volbou
+odstínů; hodnotu proto nese **číslo v dlaždici** a barva je jen pomůcka pro
+hledání. Série grafu naopak obstály i po opravě (0,298–0,365).
+
+Odhalil to invariant „šedá zůstane šedá", ne kontrola vzorců. Je teď v testu.
+
+**Regrese z plánu:** `utilizationColor` navázaná na `heatToneFor` dostala dvě
+pásma navíc, takže stroj na 42 % zmodral místo oranžové — a karta „Kapacita"
+v sousední záložce ho na týchž 42 % barvila dál oranžově. Vráceno na původní
+tři pásma; etapa měla měnit barvy, ne meze.
+
+**Odznak na otevřené záložce** míchal podklad s `transparent`, takže skrz něj
+prosvítalo žluté `--brand` tlačítka. Sytá výplň to řeší a zároveň odstraňuje
+metodickou vadu testu: `color-mix` s `transparent` prohlížeč skládá v sRGB,
+kdežto test počítal v OKLab a marže vycházely o 0,2–0,3 vyšší.
+
+**Strážný test šel obejít.** Zahazoval nálezy podle heuristiky „`//` do 60 znaků
+zpět", což v repu plném krátkých komentářů nad stylovým řádkem vypínalo skoro
+vše — stačil i `https://` na témž řádku. Prohlížel pevný seznam šesti souborů
+(sedmý by nikdy nezkontroloval), bral i **zakomentovanou** deklaraci jako
+vítěze kaskády, a stavy rezervací měl opsané ručně místo ze slovníku, takže
+devátý stav by neshodil nic.
+
+### Známá omezení
+
+- **Semaforová škála zůstává pro dichromaty nerozlišitelná.** Řešitelné jedině
+  opuštěním zelená/jantarová/červená, což by zahodilo okamžitou čitelnost pro
+  většinu. WCAG 1.4.1 je splněné číslem v dlaždici.
+- **Padding se nesjednotil** — 19 hodnot zůstává. Odloženo do R3 vědomě: sáhnout
+  na ně teď znamená sáhnout na každý řádek dvakrát.
+- **`--danger`/`--success`/`--info` jako text mimo `/reporty`** — čeká na vlastní
+  etapu, evidováno v testu.
+- **`contrast.ts` ořezává mimo gamut po kanálech**, prohlížeč gamut-mapuje.
+  Přeměřeno: největší odchylka ΔE 0,023, žádné tvrzení se neotáčí.
