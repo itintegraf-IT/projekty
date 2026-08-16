@@ -360,7 +360,9 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     }),
     prisma.reservation.findMany({
       where: { status: { in: ["SUBMITTED", "QUEUE_READY"] } },
-      select: { status: true, createdAt: true },
+      // `id`/`code`/`requestText` kvůli jmennému seznamu v sekci RIZIKA — bez nich
+      // by pole v odpovědi tiše vycházela `undefined` a `tsc` by to nechytil.
+      select: { id: true, code: true, requestText: true, status: true, createdAt: true },
     }),
     prisma.companyDay.findMany({
       where: { startDate: { lt: endUtc }, endDate: { gt: startUtc } },
@@ -448,6 +450,26 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     oldestWaitingDays = Math.round((Date.now() - oldest.getTime()) / (1000 * 60 * 60 * 24));
   }
 
+  // Seznam pro sekci RIZIKA — počty samy o sobě nejdou odbavit, chybí u nich,
+  // KTERÁ zakázka čeká. Strop 5 je přiznaný v UI („Zobrazeny 3 z 7“).
+  const PENDING_LIST_LIMIT = 5;
+  const pendingAll = [...submitted, ...queueReady]
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const pendingItems = pendingAll.slice(0, PENDING_LIST_LIMIT).map((r) => ({
+    id: r.id,
+    // `code` je NOT NULL s prázdným defaultem, takže fallback je `||`, ne `??` —
+    // stejně jako v `ReservationList`, kde uživatel číslo rezervace vidí.
+    code: r.code || `#${r.id}`,
+    // Model nemá `description`; `requestText` je volný text požadavku a je nullable.
+    // Případný ořez patří do UI, ne sem.
+    requestText: r.requestText ?? "",
+    // `Math.round` shodně s `oldestWaitingDays` o pár řádků výš i se stavovým
+    // pásem (`/api/report/attention`) — tři čísla o čekání na jedné stránce
+    // se nesmí rozejít.
+    waitingDays: Math.round((Date.now() - r.createdAt.getTime()) / (1000 * 60 * 60 * 24)),
+    status: r.status,
+  }));
+
   return NextResponse.json({
     machines,
     dailyCapacity,
@@ -456,6 +478,8 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
       newCount: submitted.length,
       queueCount: queueReady.length,
       oldestWaitingDays,
+      items: pendingItems,
+      totalCount: pendingAll.length,
     },
   });
 }
