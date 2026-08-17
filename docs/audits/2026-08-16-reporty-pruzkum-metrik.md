@@ -62,7 +62,24 @@ Dokumentace je veřejná na `onlinehelp.prinect-lounge.com` a **příklad zaří
 
 Pořadí podle síly doložení. U každé položky rozhodnutí, které umožní — metrika, u které to nejde formulovat, do reportu nepatří.
 
-### 5.1 Dodržení termínu expedice (OTD)
+### 5.1 Dodržení termínu expedice (OTD) — ❌ NEMĚŘITELNÉ, vzorec níže je vadný
+
+> **Zrušeno 17. 8. 2026 (Vojta).** Tisk **není finální zpracování** — po něm jde
+> zakázka na další stroje (dokončovací operace), které aplikace nemodeluje.
+> `printCompletedAt` je tedy konec JEDNÉ etapy, kdežto `deadlineExpedice` je
+> termín, kdy má hotové zboží odejít k zákazníkovi. Porovnávat je proti sobě
+> nedává smysl v žádném směru: tisk může skončit týden před expedicí a zakázka
+> stejně odejde pozdě, protože dokončení trvalo dýl.
+>
+> Doplňkově ověřeno ve schématu: **okamžik skutečné expedice se nikam neukládá.**
+> `expeditionPublishedAt` znamená „zařazeno do expedice" (plánovací úkon, viz
+> `FIELD_LABELS` v `auditFormatters.ts`), ne odeslání.
+>
+> **OTD proto z dnešních dat spočítat nejde a nemá se aproximovat.** Patří mezi
+> to, co čeká na ERP (kap. 6) — spolu s celou dokončovací větví výrobního postupu.
+> Dopad na 5.2 viz tam.
+
+
 
 ```
 zakázka (klíč splitGroupId ?? Block.id) je včas ⟺
@@ -75,7 +92,20 @@ Logika porovnání už existuje — `isPastExpeditionDeadline` (`src/lib/deadlin
 
 **Rozhodnutí:** jestli plán plní svůj účel — a před podpisem IML smluv s termíny, kolik jich firma dnes reálně drží.
 
-### 5.2 Posouvání termínu — POVINNÁ dvojice k 5.1
+### 5.2 Posouvání termínu — ⏸ ODLOŽENO, modul expedice se nepoužívá
+
+> **Odloženo 17. 8. 2026 (Vojta): „modul expedice zatím nepoužíváme."**
+> Mechanika metriky je v pořádku a na rozdíl od 5.1 nemá vadu ve vzorci —
+> `printCompletedAt` vůbec nepoužívá, takže ji „tisk není finální zpracování"
+> netrefuje. Postavit ji ale znamená měřit disciplínu v poli, které patří
+> k nenasazenému modulu. Pole `deadlineExpedice` je sice vyplněné u ~60 %
+> zakázek (měření 17. 8.), ale co ta čísla znamenají, když se podle nich
+> neexpeduje, není jasné.
+>
+> **Vrátit se k tomu, až se modul expedice spustí.** Text níž je platný zadání,
+> jen se zatím nerealizuje.
+
+
 
 ```
 % zakázek, kterým se deadlineExpedice aspoň jednou posunul + medián posunu ve dnech
