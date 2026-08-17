@@ -540,13 +540,24 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           showToast(body.error ?? "Chyba úpravy pracovní doby", "error");
           return;
         }
-        // Server vrací updated rows pro tento week+machine — zmergujeme je do state.
-        const updatedRows = (await res.json().catch(() => null)) as MachineWeekShiftsRow[] | null;
-        if (updatedRows && Array.isArray(updatedRows)) {
+        // Server vrací obálku { rows, longerBlocks } (Fix round 1) — rows pro tento
+        // week+machine zmergujeme do state, longerBlocks jen informuje o blocích,
+        // kterým se konec PRODLOUŽIL (nevystěhovaly se, takže 409 nenastala).
+        const body = (await res.json().catch(() => null)) as
+          | { rows?: MachineWeekShiftsRow[]; longerBlocks?: CascadeBlock[] }
+          | null;
+        if (body?.rows && Array.isArray(body.rows)) {
+          const updatedRows = body.rows;
           setMachineWeekShifts((prev) => {
             const without = prev.filter((r) => !(r.machine === machine && r.weekStart === weekStart));
             return [...without, ...updatedRows];
           });
+        }
+        if (Array.isArray(body?.longerBlocks) && body.longerBlocks.length > 0) {
+          showToast(
+            `U ${body.longerBlocks.length} zakázek se prodloužil spočítaný konec — jejich příští úprava odsune navazující zakázky. Zkontroluj je v plánu.`,
+            "info",
+          );
         }
       } catch (err) {
         console.error("[updateShiftBounds] failed", err);
@@ -3457,7 +3468,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 showToast(body.error ?? "Chyba úpravy pracovní doby", "error");
                 return;
               }
+              // Tahle cesta si lokální stav nemergeuje sama (spoléhá na refetch níž),
+              // ale tělo úspěchu pořád nese `longerBlocks` (Fix round 1) — přečíst
+              // dřív, než ho zahodí `refetchWeekShifts()`.
+              const body = (await res.json().catch(() => null)) as { longerBlocks?: CascadeBlock[] } | null;
               await refetchWeekShifts();
+              if (Array.isArray(body?.longerBlocks) && body.longerBlocks.length > 0) {
+                showToast(
+                  `U ${body.longerBlocks.length} zakázek se prodloužil spočítaný konec — jejich příští úprava odsune navazující zakázky. Zkontroluj je v plánu.`,
+                  "info",
+                );
+              }
             } catch (err) {
               console.error("[plannerCascade confirm] failed", err);
               showToast("Chyba úpravy pracovní doby", "error");

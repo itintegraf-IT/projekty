@@ -284,7 +284,7 @@ export function MachineWorkHoursWeek() {
   };
 
   type SaveResult =
-    | { ok: true }
+    | { ok: true; longerCount: number }
     | { ok: false; cascade: CascadeBlock[]; longerCount: number; machine: string };
 
   const submitSave = async (
@@ -296,6 +296,7 @@ export function MachineWorkHoursWeek() {
     // adresné force-potvrzení JEN stroje z dialogu — force se nesmí rozlít na
     // stroje, jejichž konflikty nikdo neviděl (proto se tu netočí přes MACHINES).
     const targets: readonly string[] = onlyMachine ? [onlyMachine] : MACHINES;
+    let longerCount = 0;
     for (const machine of targets) {
       const machineRows = snapshot[machine];
       if (!machineRows) continue;
@@ -340,8 +341,15 @@ export function MachineWorkHoursWeek() {
         }
         throw new Error(body.error ?? `Chyba ukládání (${machine})`);
       }
+      // Úspěch: 200 tělo je od Fix round 1 obálka `{ rows, longerBlocks }` (dřív holé
+      // pole řádků) — `rows` tady nepotřebujeme (lokální stav se dotáhne přes `load()`
+      // na konci celé operace), ale `longerBlocks` je jediný způsob, jak se dozvědět
+      // o blocích, kterým se tímto uložením konec PRODLOUŽIL (nevystěhovaly se, takže
+      // 409 nenastala — bez čtení úspěšného těla by o nich uživatel nevěděl vůbec).
+      const body = (await res.json().catch(() => null)) as { longerBlocks?: CascadeBlock[] } | null;
+      if (Array.isArray(body?.longerBlocks)) longerCount += body.longerBlocks.length;
     }
-    return { ok: true };
+    return { ok: true, longerCount };
   };
 
   const runSave = async (force: boolean, onlyMachine?: string) => {
@@ -358,11 +366,15 @@ export function MachineWorkHoursWeek() {
         setCascadeBlocks(result.cascade);
         setCascadeMachine(result.machine);
         setCascadeLongerCount(result.longerCount);
-        // `original` může být zastaralé, pokud tahle operace stihla uložit stroje
-        // PŘED tím blokovaným — dotáhnout ho, ať dirty-check po zavření dialogu nelže.
-        void load();
+        // ÚMYSLNĚ ŽÁDNÝ `load()` tady — přepsal by živé `rows` serverovou (starou)
+        // hodnotou PŘESNĚ pro stroj, který uživatel právě edituje a jehož editaci
+        // dialog ukazuje. Po „Zrušit změnu" by tak rozeditovaná změna, která kaskádu
+        // vyvolala, ze stránky beze stopy zmizela. `original` je pro tenhle flow jen
+        // kosmetický `dirty` flag (žádný payload se z něj neskládá) a sám se dorovná
+        // finálním `await load()` po dokončení CELÉ sekvence uložení (Fix round 1).
         return;
       }
+      let longerCount = result.longerCount;
       if (onlyMachine) {
         // Právě force-uložený stroj byl jediný, na kterém uživatel kaskádu VIDĚL
         // a potvrdil. Zbylé stroje za ním v pořadí ještě nebyly vůbec zkoušeny —
@@ -376,13 +388,24 @@ export function MachineWorkHoursWeek() {
             setCascadeBlocks(next.cascade);
             setCascadeMachine(next.machine);
             setCascadeLongerCount(next.longerCount);
-            void load();
+            // Stejný důvod jako výš — žádný `load()`.
             return;
           }
+          longerCount += next.longerCount;
         }
       }
       await load();
       showToast("Pracovní doba uložena.", "success");
+      if (longerCount > 0) {
+        // Neblokující upozornění na latentní detonátor (viz `longerBlocksSentence`
+        // v `cascadeDialogText.ts`) — týká se i uložení, které NEvyvolalo dialog
+        // (čisté zkrácení bez vystěhování bloku), takže se sem musí dostat i mimo
+        // kaskádovou větev výše.
+        showToast(
+          `U ${longerCount} zakázek se prodloužil spočítaný konec — jejich příští úprava odsune navazující zakázky. Zkontroluj je v plánu.`,
+          "info",
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Chyba ukládání";
       setError(msg);

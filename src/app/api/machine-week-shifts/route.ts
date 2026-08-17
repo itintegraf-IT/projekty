@@ -438,7 +438,16 @@ export async function PUT(req: Request) {
 
     emitSSE("schedule:changed", { sourceUserId: session.id });
     logger.info("[machine-week-shifts PUT] updated", { machine, weekStart: parsedWeek, force, userId: session.id });
-    return NextResponse.json(updated.map(serializeRow));
+    // Fix round 1 (recenze 3+4): úspěšné uložení může samo o sobě obsahovat bloky,
+    // kterým se konec PRODLOUŽIL (`newlyLonger`) — ty nikdy nevyvolají 409 (nic se
+    // nevystěhovalo), takže dřív o nich uživatel nevěděl vůbec. Tělo je proto obálka
+    // `{ rows, longerBlocks }` místo dřívějšího holého pole řádků — POZOR, má dva
+    // konzumenty v `PlannerPage.tsx` a jeden v `MachineWorkHoursWeek.tsx`, všechny
+    // aktualizované na nový tvar ve stejném commitu.
+    return NextResponse.json({
+      rows: updated.map(serializeRow),
+      longerBlocks: (cascadeHolder.value?.newlyLonger ?? []).map(serializeCascadeBlock),
+    });
   } catch (err) {
     if (isAppError(err) && err.code === "CONFLICT" && err.message === "SHIFT_SHRINK_CASCADE") {
       return NextResponse.json({
