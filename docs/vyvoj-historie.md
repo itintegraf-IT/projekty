@@ -1709,14 +1709,16 @@ proklik a tabulka scénář → důkaz: `.superpowers/sdd/2026-08-13-pripominky-
    výjimka, jakou už měla fronta. `src/lib/monitorView.ts`,
    `src/components/monitor/MonitorView.tsx`.
 
-3. **Hover bublina v plánu jde na vnější stranu mřížky.**
-   (`ff7cf704`) Staré pravidlo „vpravo, pokud se vejde" u bloku v levém
-   sloupci (XL 105) spolehlivě zakrylo celý sousední sloupec (XL 106) i se
-   zakázkami na něm. Nové pravidlo rozhoduje podle vodorovného středu bloku
-   vůči středu OKNA (ne podle počtu sloupců — platí i kdyby strojů přibylo):
-   blok vlevo od středu → bublina vlevo, blok vpravo → bublina vpravo. Když
-   se bublina na vnější stranu celá nevejde, ořízne se do vlastního sloupce
-   — pořád lepší než zakrýt cizí stroj. `src/components/planner/BlockCard.tsx`.
+3. **Hover bublina v plánu jde na vnější stranu mřížky.** — ⚠️ **PŘEKONÁNO
+   17. 8. 2026, viz sekce „Hover bublina se zarovnává ke sloupci stroje" níž.**
+   (`ff7cf704`, oprava háku `66861d17`) Staré pravidlo „vpravo, pokud se vejde"
+   u bloku v levém sloupci (XL 105) spolehlivě zakrylo celý sousední sloupec
+   (XL 106) i se zakázkami na něm. Nové pravidlo rozhodovalo podle vodorovného
+   středu bloku vůči středu mřížky: blok vlevo od středu → bublina vlevo, blok
+   vpravo → bublina vpravo. Když se bublina na vnější stranu celá nevešla,
+   ořízla se do vlastního sloupce. **Právě ten ořez byl vada:** vlevo od XL 105
+   je jen 116 px, takže se tam bublina nevešla NIKDY a pokaždé přetekla přes
+   levou hranu vlastní karty s chipy. `src/components/planner/BlockCard.tsx`.
 
 4. **Hledání v plánu ruší klik do prázdné plochy i Esc; gesta ho zrušit
    nesmí.** (`6b61756f`, dodatek `da72ff0a`) Komentář nad `clearSearch()`
@@ -2087,3 +2089,56 @@ proti skutečnosti**.
 **Před nasazením ověřit pokrytí `MachineWeekShifts` na produkci.** Kbelík „chybí
 rozvrh" tu neznalost sice zviditelní, ale když bude velká, je sekce k ničemu.
 Dotaz je v `docs/audits/2026-08-16-reporty-pruzkum-metrik.md`, kap. 8.
+
+---
+
+## Hover bublina se zarovnává ke sloupci stroje (17. 8. 2026)
+
+**Připomínka plánovače:** „U XL105 vyskakuje okno s detaily na špatné straně
+a překáží to jak u pohledu, tak pre-pressu a MTZ při změně stavu zakázky.
+U XL106 to funguje správně – šlo by to prosím sjednotit?"
+
+**Příčina.** Pravidlo „bublina jde vždy na vnější stranu mřížky" (13. 8. 2026,
+bod 3 sekce výš) stálo na předpokladu zapsaném v komentáři: *„Vlevo od levého
+sloupce je časová osa, kde je jen čas: překryv tam nikoho nestojí informaci."*
+Vlevo od sloupce XL 105 je ale `DATE_COL_W` (44) + `TIME_COL_W` (72) = **116 px**
+proti **250 px**, které bublina potřebuje. Ořez na okraj okna ji proto pokaždé
+přiskřípl k levé hraně obrazovky a zbylých ~134 px přeteklo do sloupce XL 105 —
+přesně přes chipy D/M/E/P, číslo zakázky a popis, tedy přes to, co DTP a MTZ
+odklepávají. U XL 106 tatáž logika vycházela na pravou část karty (mini-chipy,
+split pilulka), kde nic podstatného není; proto to vypadalo jako dvě různá
+pravidla, i když šlo o jedno. Zapsáno jako `docs/POUCENI.md` → **P28**.
+
+**Nové pravidlo.** Bublina se zarovná **pravou hranou ke sloupci stroje, na
+kterém hovorovaný blok leží**. Splní tím obojí naráz: nepřepadne do sousedního
+stroje (co řešila oprava ze 13. 8.) a nezakryje levou hranu vlastní karty (co
+hlásí plánovač). Oba stroje se chovají doslova stejně, jen posunuté o šířku
+sloupce — což je přesně to „sjednocení", o které šlo.
+
+**Kód.**
+- `src/lib/plannerHoverTooltip.ts` (nový) — `hoverTooltipLeft()`, `TOOLTIP_W`,
+  `TOOLTIP_MARGIN`. Čistá funkce právě proto, že starý výpočet byl výraz uvnitř
+  JSX, kde nešlo ověřit ani spočítat, co dělá. Test `plannerHoverTooltip.test.ts`
+  drží mimo jiné tvrzení „oba stroje se chovají identicky" a explicitní regresní
+  test, že se bublina u levého sloupce už nelepí k okraji okna.
+- `src/app/_components/TimelineGrid.tsx` — sloupec stroje dostal hák
+  `data-machine-col`. Hák `data-timeline-grid` zanikl: rozhodovat se podle
+  STŘEDU mřížky přestalo dávat smysl ve chvíli, kdy strana bubliny přestala
+  být volbou. Byl to jeho jediný konzument.
+- `src/components/planner/BlockCard.tsx` — místo `placeLeft`/`gridCenterX`/ořezu
+  jen odečet geometrie a volání helperu. Fallback, když se hák nenajde: pravá
+  hrana samotné karty (sloupec vyplňuje na 3 px přesně).
+
+**Co pravidlo neřeší.** Sloupec užší než ~260 px (otevřený editační,
+notifikační i DTP panel naráz na malé obrazovce) bublinu nepojme a ta přeteče
+přes jeho levou hranu; drží se jen to, že neopustí obrazovku. Řešením by bylo
+zúžit bublinu podle sloupce, ne měnit stranu — neuděláno, stav se v provozu
+zatím neobjevil.
+
+**Ověření.** `npm run build` čistý, 1310/1310 testů, proklik v běžící appce
+(Playwright, viewport 1600×900, otevřený Job Builder): XL 105 → bublina
+367–607 px při sloupci 116–617 px; XL 106 → 940–1180 px při sloupci 689–1190 px.
+V obou případech chipy vlevo na kartě zůstaly odkryté a bublina se nedotkla
+sousedního stroje. Vedlejší zjištění: se starým ořezem na okno by bublina u
+XL 106 skončila na 1350–1590 px, tedy **přes panel Job Builderu** — nové
+pravidlo ji drží uvnitř mřížky i tam.

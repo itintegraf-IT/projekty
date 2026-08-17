@@ -7,6 +7,7 @@ import { isParkedDrift } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
 import { BLOCK_STYLES, BLOCK_OVERDUE_ALARM, BLOCK_PRINT_DONE, OVERDUE_ALARM, getBlockStyleKey, tint } from "@/lib/blockStyles";
 import { isOverdueUnacknowledged } from "@/lib/overdueState";
+import { hoverTooltipLeft, TOOLTIP_W } from "@/lib/plannerHoverTooltip";
 import {
   civilDateToUTCMidnight,
   formatPragueDateShort,
@@ -1459,41 +1460,27 @@ export function BlockCard({
         />
       )}
 
-      {/* ── Hover tooltip iOS-style pro malé bloky (< 60px) — portálovaný mimo stacking context ── */}
+      {/* ── Hover bublina — portálovaná mimo stacking context. Ukazuje se nad KAŽDOU
+             kartou kromě údržby (`showTooltip` výš), ne jen nad nízkými; poznámka
+             „pro malé bloky (< 60px)" tu visela od doby, kdy podmínka na výšku
+             existovala, a od jejího zrušení lhala. ── */}
       {showTooltip && hovered && (() => {
         const rect = blockCardRef.current?.getBoundingClientRect();
         if (!rect || typeof document === "undefined") return null;
-        const tooltipW = 240;
-        const margin = 10;
         const vw = window.innerWidth;
         const vh = window.innerHeight;
-        // Bublina jde VŽDY na vnější stranu mřížky, ne „vpravo, když se vejde".
-        // Sloupce strojů leží vedle sebe, takže bublina napravo od bloku v XL 105
-        // spolehlivě zakryje celý sloupec XL 106 i se sousedními zakázkami
-        // (připomínka tiskařů 13. 8. 2026). Rozhoduje vodorovný střed bloku vůči
-        // středu MŘÍŽKY (čas. osa + sloupce strojů), ne okna — pravidlo platí i
-        // kdyby strojů přibylo.
+        // Bublina se zarovná pravou hranou ke sloupci VLASTNÍHO stroje: nepřepadne
+        // do sousedního sloupce a zároveň nezakryje levou hranu karty s chipy
+        // D/M/E/P. Pravidlo, jeho odůvodnění i to, co neřeší, viz
+        // `src/lib/plannerHoverTooltip.ts` — tady zůstává jen odečet geometrie.
         //
-        // NE `vw / 2`: mřížka okno nevyplňuje, napravo od ní sedí editační panel,
-        // notifikační panel a DtpPanel (`PlannerPage.tsx`) — se šířkou okna by
-        // se u otevřených panelů střed mřížky posunul o stovky pixelů doleva a
-        // bublina by u bloku ve skutečnosti vlevo (podle okna „vpravo") stejně
-        // přepadla do sousedního sloupce (regrese vady, kterou tahle etapa
-        // opravovala). Když hák `[data-timeline-grid]` nenajdeme (mřížka se
-        // nestihla vykreslit), spadneme na `vw / 2` — obrazovka u stroje nesmí
-        // kvůli bublině spadnout.
-        //
-        // Vlevo od levého sloupce je časová osa, kde je jen čas: překryv tam
-        // nikoho nestojí informaci.
-        const gridEl = blockCardRef.current?.closest("[data-timeline-grid]");
-        const gridRect = gridEl?.getBoundingClientRect();
-        const gridCenterX = gridRect ? gridRect.left + gridRect.width / 2 : vw / 2;
-        const blockCenterX = rect.left + rect.width / 2;
-        const placeLeft = blockCenterX < gridCenterX;
-        const rawLeft = placeLeft ? rect.left - margin - tooltipW : rect.right + margin;
-        // Ořez na okraje okna. Když se bublina na vnější stranu nevejde celá,
-        // překryje kus VLASTNÍHO sloupce — pořád lepší než zakrýt cizí stroj.
-        const left = Math.max(margin, Math.min(rawLeft, vw - tooltipW - margin));
+        // Když hák `[data-machine-col]` nenajdeme (mřížka se nestihla vykreslit),
+        // spadneme na pravou hranu samotné karty. Ta sloupec vyplňuje na 3 px
+        // přesně (`left: 3` + `calc(100% - 6px)` níž v souboru), takže je to
+        // věrná náhrada — a obrazovka u stroje kvůli bublině spadnout nesmí.
+        const colEl = blockCardRef.current?.closest("[data-machine-col]");
+        const columnRight = colEl?.getBoundingClientRect().right ?? rect.right + 3;
+        const left = hoverTooltipLeft({ columnRight, viewportWidth: vw });
         const top = Math.max(8, Math.min(rect.top, vh - 220));
         // Format time
         const startD = new Date(block.startTime);
@@ -1522,7 +1509,7 @@ export function BlockCard({
             position: "fixed",
             left,
             top,
-            width: tooltipW,
+            width: TOOLTIP_W,
             zIndex: Z_OVERLAY.floating,
             background: "rgba(28,28,30,0.88)",
             backdropFilter: "blur(24px)",

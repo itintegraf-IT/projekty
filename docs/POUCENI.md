@@ -599,3 +599,32 @@ v komentáři tvářit jako uzavření té třídy. Když oprava pokrývá jen �
 povrchu, na který se stejná chyba vejde, napsat to výslovně jako otevřený dluh
 — jinak si to za pár týdnů někdo přečte jako hotovou věc a další stejnou vadu
 nikdo nebude hledat.
+
+---
+
+## P28 — Pravidlo „umísti prvek na stranu X" platí, jen když se na stranu X vejde
+
+**Co se stalo (13.–17. 8. 2026, hover bublina na kartě bloku):** Na připomínku
+tiskařů, že bublina napravo od zakázky v XL 105 zakrývá celý sloupec XL 106,
+vzniklo pravidlo „bublina jde **vždy na vnější stranu mřížky**" — u levého
+sloupce doleva, u pravého doprava. Odůvodnění v komentáři znělo: „Vlevo od
+levého sloupce je časová osa, kde je jen čas: překryv tam nikoho nestojí
+informaci."
+
+Nikdo neověřil, že vlevo od sloupce XL 105 je `DATE_COL_W` + `TIME_COL_W` =
+**116 px**, zatímco bublina potřebuje **250 px**. Nevešla se tam ani jednou —
+pojistka proti odchodu z obrazovky ji pokaždé přiskřípla k levému okraji okna
+a zbylých ~134 px přeteklo přes **levou hranu vlastní karty**, tedy přes chipy
+D/M/E/P, číslo zakázky a popis. Pravidlo tak od prvního dne dělalo pravý opak
+toho, co slibovalo: místo aby překryv odsunulo tam, kde nevadí, přesunulo ho
+z cizího sloupce na to nejdůležitější místo vlastní karty. Pre-press a MTZ
+nahlásili, že u XL 105 nevidí, co odklepávají; u XL 106 tatáž logika vycházela
+na neškodnou pravou část karty, takže vypadala jako „správné chování", a rozdíl
+mezi stroji vypadal jako dvě různá pravidla, i když šlo o jedno.
+
+**Pravidlo:** Než se do kódu zapíše umístění prvku podle strany („vlevo",
+„vpravo", „na vnější stranu"), spočítej, kolik místa na té straně **skutečně
+je**, a porovnej to s rozměrem prvku. Když se nevejde, ořez ho někam přesune —
+a to „někam" je pak skutečné chování, ne to napsané v komentáři. Umístění, které
+závisí na geometrii, patří do čisté funkce s testem (`plannerHoverTooltip.ts`),
+ne do výrazu uvnitř JSX, kde ho nikdo nemůže spočítat ani ověřit.

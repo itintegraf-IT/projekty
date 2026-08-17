@@ -1616,13 +1616,7 @@ export default function TimelineGrid({
       {header}
 
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", minHeight: 0, backgroundColor: "var(--timeline-bg)" }}>
-        {/* data-timeline-grid: stabilní hák pro BlockCard hover bublinu (I3, oprava
-            13. 8. 2026) — bublina se má rozhodovat podle středu TÉHLE mřížky (čas.
-            osa + sloupce strojů), ne podle středu celého okna, protože napravo od
-            mřížky sedí editační/notifikační panely a DtpPanel, které si o šířku
-            okna ukrajují. */}
         <div
-          data-timeline-grid
           style={{ height: totalHeight, display: "flex" }}
           // Klik kamkoliv do mřížky ruší hledání. Visí ZÁMĚRNĚ tady, ne na sloupci
           // stroje: plánovač, který si zakázku našel, na ni typicky klikne — a čeká,
@@ -1877,9 +1871,20 @@ export default function TimelineGrid({
                     })}
                   </div>
                 )}
+              {/* Sloupec stroje. Atribut `data-machine-col` je stabilní hák pro hover
+                  bublinu v BlockCard (oprava 17. 8. 2026): bublina se zarovnává pravou
+                  hranou k TOMUTO sloupci — jen tak nepřepadne do sousedního stroje
+                  a zároveň nezakryje levou hranu vlastní karty s chipy D/M/E/P.
+                  Pravidlo i jeho odůvodnění žijí v `src/lib/plannerHoverTooltip.ts`.
+                  Předchůdce `data-timeline-grid` na obalu mřížky zanikl: rozhodovat
+                  se podle STŘEDU mřížky přestalo dávat smysl ve chvíli, kdy strana
+                  bubliny přestala být volbou.
+                  POZOR: komentář patří SEM, ne dovnitř `ContextMenuTrigger asChild` —
+                  ten smí obalovat právě jeden prvek. */}
               <ContextMenu>
               <ContextMenuTrigger asChild>
               <div
+                data-machine-col
                 ref={(el) => { colRefs.current[colIdx] = el; }}
                 style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 0, backgroundColor: "var(--timeline-bg)" }}
                 onMouseDown={canEdit ? (e) => {
