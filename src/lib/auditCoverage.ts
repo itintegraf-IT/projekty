@@ -130,6 +130,10 @@ const FIELD_DRIVEN_ACTIONS: ReadonlySet<string> = new Set([
   "AUTO_REFLOW",
   // Servisní skript `scripts/fix-existing-overlaps.ts` (`field: "startTime"`).
   "OVERLAP_FIX",
+  // Servisní skript `scripts/revert-cascade-20260817.ts` — vrácení kaskády chain pushe
+  // po incidentu 17. 8. 2026. Tvary `field`: složené `startTime/endTime` u vrácených
+  // bloků, samostatné `endTime` a `printMinutes` u korekce 18088.
+  "INCIDENT_REVERT",
 ]);
 
 /** Akce s vlastním rozborem `field`+`newValue` (pět tvarů, viz `coveredColumns`). */
