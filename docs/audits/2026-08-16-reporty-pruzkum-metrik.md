@@ -8,6 +8,33 @@
 
 ---
 
+## ⛔ STAV K 17. 8. 2026 — R4b ZASTAVENA. Přečti tohle, než z kapitoly 5 začneš cokoliv stavět.
+
+R4a (kaskáda kapacity) se postavila a nasadila. **R4b „metriky výsledku" byla
+zastavena rozhodnutím Vojty**, protože se při přípravě ukázalo, že se v kapitole 5
+opíráme o tři předpoklady, které neplatí:
+
+1. **Plán pokrývá jen tiskovou etapu.** Po tisku jde zakázka na dokončovací stroje,
+   které aplikace nemodeluje → **5.1 OTD je neměřitelné** (viz tam).
+2. **Modul expedice se nepoužívá** → **5.2 posouvání termínu odloženo** (viz tam).
+3. **Aplikace se plně rozjela až v srpnu 2026.** Bloků na měsíc: duben 17 → srpen 59
+   za pouhých 17 dnů; odklepnutí do července prakticky nulová, v srpnu 49.
+   **Kapacitní poměry z historických dat jsou artefakt zavádění, ne stav výroby** —
+   čtvrtletní vytíženost XL 105 vychází 23 %, za samotný srpen ~40 %.
+   **První důvěryhodné čtvrtletí skončí kolem 31. 10. 2026.**
+
+**Co to znamená pro pokračování:** metriky z kapitoly 5 nejsou špatné nápady, ale
+stavěly by se na datech, která zatím neunesou závěr. Vrátit se k nim po 31. 10.,
+a to v tomhle pořadí podle odolnosti vůči výše uvedenému: **5.5 připravenost
+k nájezdu** (jede z `AuditLog`, plná historie, čistě tisková etapa) → **5.6 podíl
+IML** (po opravě podle poznámky tam) → **5.3 kalibrace normy** (potřebuje hustší
+odklepávání).
+
+Nezávisle na datech a **s tvrdým termínem 1. 11. 2026** zůstává `orderNumber`
+jako spojovací klíč pro Abru (kap. 6 + 8.3).
+
+---
+
 ## 1. Opravy chybných předpokladů
 
 Zadání rešerší obsahovalo tvrzení, která se ukázala jako nesprávná. Uvádím je, protože bez oponentury by celé větve průzkumu vypadly.
