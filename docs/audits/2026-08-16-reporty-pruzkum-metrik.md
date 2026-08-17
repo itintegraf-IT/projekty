@@ -230,10 +230,31 @@ délka 2–15. Rozpad počtu bloků na jedno číslo:
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Kolik čísel | 281 | 46 | 5 | 1 | 1 | 1 | **1** | **1** |
 
-Jeden až tři bloky na číslo je legitimní (split, OBÁLKA/VNITŘKY). **Čísla s 22
-a 81 bloky legitimní nejsou** — to jsou skoro jistě zástupné hodnoty. Potvrzuje
-to závěr kapitoly 6: `orderNumber` dnes jako spojovací klíč nefunguje a před
-go-live Abry (1. 11. 2026) potřebuje validovaný formát.
+Jeden až tři bloky na číslo je legitimní (split, OBÁLKA/VNITŘKY). Dvě krajní
+hodnoty jsou ale něco jiného, než to na první pohled vypadá:
+
+| `orderNumber` | Bloků | Rozsah |
+| --- | --- | --- |
+| `HARM` | 81 | 3. 6. 2026 – 25. 3. 2027 |
+| `ALBI` | 22 | 11. 9. 2026 – 5. 2. 2027 |
+| `18648` | 6 | 13. 5. 2026 – 2. 9. 2026 |
+
+**Nejsou to zástupné hodnoty ani balast — jsou to jména zákazníků.** Plánovač
+si pod ně rezervuje kapacitu tři čtvrtě roku dopředu, tedy na práci, u které
+konkrétní číslo zakázky ještě neexistuje. Je to legitimní provozní postup,
+který plán musí umět.
+
+**Co to znamená pro napojení Abry (kap. 6): naivní oprava by rozbila reálný
+workflow.** Kdyby `orderNumber` dostal jen validovaný číselný formát, dopředná
+rezervace kapacity by přestala jít zadat. Řešení proto musí odlišit dva různé
+stavy — potvrzenou zakázku s číslem a rezervovanou kapacitu pro zákazníka —
+buď samostatným polem zákazníka s nepovinným číslem, nebo příznakem
+„předběžná". **Rozhodnout se musí dřív, než se Pace napojí.**
+
+Reportů se to naštěstí netýká: identita zakázky je v aplikaci
+`splitGroupId ?? Block.id`, ne `orderNumber` (viz 5.1). Kdyby ale někdo
+postavil metriku klíčovanou na `orderNumber`, slil by 81 nesouvisejících
+zakázek do jedné.
 
 ---
 
