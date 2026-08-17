@@ -410,6 +410,18 @@ async function main() {
   // čistý resize konce (jen `endTime`) je stejně čistě poziční jako přesun (obě pole).
   const groupTargets: GroupTarget[] = revKeys.map(({ r, keys }) => {
     const fields = keys as AlsoField[];
+    // Stejný guard jako `buildAlsoTarget` (ř. 263) — `partial` capture ve `withRevision`
+    // (`src/lib/revision.server.ts:581`) zapíše revizní řádek i beze změny, takže prázdná
+    // revize v DB reálně existuje. Bez tohoto guardu by takový cíl prošel čistotou i
+    // `checkTarget` (nemá co porovnávat) a `--apply` by udělal `rtx.block.update({ data: {} })` —
+    // tichý bump `Block.updatedAt` (`@updatedAt`) bez auditu a bez revize, který rozbije
+    // cizí `expectedUpdatedAt`.
+    if (fields.length === 0) {
+      throw new Error(
+        `Revize #${r.id} bloku ${r.blockId} nemá žádný rozdíl v before/after — skript neví, co vrátit, ` +
+        "a odmítá to.",
+      );
+    }
     return {
       blockId: r.blockId,
       orderNumber: r.orderNumber,

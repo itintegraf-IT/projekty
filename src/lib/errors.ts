@@ -56,6 +56,8 @@ export function errorStatus(code: AppErrorCode): number {
       return 409;
     case "SCHEDULE_VIOLATION":
       return 422;
+    case "MEASUREMENT_FAILED":
+      return 500;
     default:
       return 500;
   }

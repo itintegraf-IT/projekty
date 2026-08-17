@@ -152,7 +152,10 @@ aplikace sama ví, že je špatné — a je to jediný člověk, který to nemů
 - Rozsah z **klientského** detektoru `blockCalendarDrift` (`printTimeClient.ts:244`), protože ten
   jediný umí posoudit jeden blok. **Odložené bloky vyloučit** (`isParkedDrift` z
   `calendarDriftUi.ts`) — vědomé odložení není porucha, kterou má tiskař vidět.
-- Zobrazení: čas ztlumit a doplnit značku `⚠ čas se přepočítává`. Velikosti **výhradně** přes
+- Zobrazení: doplnit značku `⚠ nesedí na kalendář` (`MonitorDriftNote`). **Ztlumení textu
+  NEPŘIDÁVAT** — bylo by no-op: rodičovský řádek osy na Monitoru už je celý `--text-muted`,
+  takže vlastní barva na časovém spanu by nic neměnila (ověřeno implementací, `MonitorHeroTiming.tsx`,
+  M3 fix roundu finální recenze). Signál nese výhradně značka. Velikosti **výhradně** přes
   `monitorTypeScale` (`monitorTypography.ts`) — hlídá to strážný test regulárem nad zdrojáky.
   Nesmí to vytlačit tlačítko HOTOVO (rozpočty `tiskarBlockView.ts`).
 

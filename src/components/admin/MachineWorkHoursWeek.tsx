@@ -186,6 +186,11 @@ export function MachineWorkHoursWeek() {
   // `rows` — jinak by ho mezitím přepsal `load()` volaný při otevření dialogu
   // a klik na „Uložit i přesto" by odeslal starou, needitovanou podobu směn.
   const saveSnapshotRef = useRef<Record<string, WeekShiftsRow[]>>({});
+  // Kolik zakázek dostalo delší konec na strojích uložených PŘED tím, co právě vyvolalo
+  // dialog (M8, fix round 2) — `confirmCascade` ho protáhne do navazujícího `runSave` jako
+  // `carryLongerCount`, ať závěrečný toast po potvrzení kaskády sečte VŠECHNY stroje, ne jen
+  // ten poslední vynucený.
+  const cascadeCarryLongerCountRef = useRef(0);
 
   const weekDates = useMemo(() => weekDatesFromStart(weekStart), [weekStart]);
   const weekStartStr = useMemo(() => isoDateStr(weekStart), [weekStart]);
@@ -285,7 +290,7 @@ export function MachineWorkHoursWeek() {
 
   type SaveResult =
     | { ok: true; longerCount: number }
-    | { ok: false; cascade: CascadeBlock[]; longerCount: number; machine: string };
+    | { ok: false; cascade: CascadeBlock[]; longerCount: number; priorLongerCount: number; machine: string };
 
   const submitSave = async (
     snapshot: Record<string, WeekShiftsRow[]>,
@@ -333,11 +338,16 @@ export function MachineWorkHoursWeek() {
         };
         if (res.status === 409 && body.error === "SHIFT_SHRINK_CASCADE" && Array.isArray(body.conflictingBlocks)) {
           // M5 (fix round finální recenze): `longerCount` z LOOPU (stroje uložené PŘED
-          // tímhle 409) se jinak zahodí — sečíst i je, jinak závěrečný toast po potvrzení
-          // kaskády podhodnotí počet zakázek s prodlouženým koncem.
+          // tímhle 409) se jinak zahodí — sečíst i je do prognózy pro DIALOG (`longerCount`
+          // níž, zahrnuje i informativní odhad odmítnutého stroje ze `body.longerBlocks`).
+          // `priorLongerCount` je TA SAMÁ hodnota BEZ tohoto odmítnutého odhadu — jen stroje,
+          // které se opravdu zapsaly. `runSave` ji nese jako `carryLongerCount` přes
+          // `confirmCascade` do vynuceného zápisu (M8, fix round 2), ať závěrečný toast po
+          // potvrzení kaskády nepodhodnotí počet zakázek s prodlouženým koncem.
           return {
             ok: false,
             cascade: body.conflictingBlocks,
+            priorLongerCount: longerCount,
             longerCount: longerCount + (Array.isArray(body.longerBlocks) ? body.longerBlocks.length : 0),
             machine: body.machine ?? machine,
           };
@@ -355,7 +365,7 @@ export function MachineWorkHoursWeek() {
     return { ok: true, longerCount };
   };
 
-  const runSave = async (force: boolean, onlyMachine?: string) => {
+  const runSave = async (force: boolean, onlyMachine?: string, carryLongerCount = 0) => {
     setBusy(true);
     setError(null);
     savingRef.current = true;
@@ -366,9 +376,13 @@ export function MachineWorkHoursWeek() {
       const snapshot = saveSnapshotRef.current;
       const result = await submitSave(snapshot, force, onlyMachine);
       if (!result.ok) {
+        // M8 (fix round 2): `carryLongerCount` nese počet ze strojů uložených PŘED touhle
+        // operací (protažený přes `confirmCascade`, viz `cascadeCarryLongerCountRef`) — bez
+        // něj by druhá kaskáda v řadě ztratila i to, co sem `confirmCascade` už protáhl.
+        cascadeCarryLongerCountRef.current = carryLongerCount + result.priorLongerCount;
         setCascadeBlocks(result.cascade);
         setCascadeMachine(result.machine);
-        setCascadeLongerCount(result.longerCount);
+        setCascadeLongerCount(carryLongerCount + result.longerCount);
         // ÚMYSLNĚ ŽÁDNÝ `load()` tady — přepsal by živé `rows` serverovou (starou)
         // hodnotou PŘESNĚ pro stroj, který uživatel právě edituje a jehož editaci
         // dialog ukazuje. Po „Zrušit změnu" by tak rozeditovaná změna, která kaskádu
@@ -377,7 +391,7 @@ export function MachineWorkHoursWeek() {
         // finálním `await load()` po dokončení CELÉ sekvence uložení (Fix round 1).
         return;
       }
-      let longerCount = result.longerCount;
+      let longerCount = carryLongerCount + result.longerCount;
       if (onlyMachine) {
         // Právě force-uložený stroj byl jediný, na kterém uživatel kaskádu VIDĚL
         // a potvrdil. Zbylé stroje za ním v pořadí ještě nebyly vůbec zkoušeny —
@@ -388,9 +402,12 @@ export function MachineWorkHoursWeek() {
         for (const machine of remaining) {
           const next = await submitSave(snapshot, false, machine);
           if (!next.ok) {
+            // Stejný důvod jako výš — `longerCount` tu už nese A+B (case z předchozích
+            // kol), takže se protáhne dál stejnou cestou přes `cascadeCarryLongerCountRef`.
+            cascadeCarryLongerCountRef.current = longerCount + next.priorLongerCount;
             setCascadeBlocks(next.cascade);
             setCascadeMachine(next.machine);
-            setCascadeLongerCount(next.longerCount);
+            setCascadeLongerCount(longerCount + next.longerCount);
             // Stejný důvod jako výš — žádný `load()`.
             return;
           }
@@ -423,14 +440,18 @@ export function MachineWorkHoursWeek() {
 
   const confirmCascade = async () => {
     const machine = cascadeMachine;
+    // M8 (fix round 2): vytáhnout carry PŘED vynulováním refu, jinak by se protáhla nula.
+    const carry = cascadeCarryLongerCountRef.current;
+    cascadeCarryLongerCountRef.current = 0;
     setCascadeBlocks(null);
     setCascadeMachine(null);
     setCascadeLongerCount(0);
     if (!machine) return;
-    await runSave(true, machine);
+    await runSave(true, machine, carry);
   };
 
   const cancelCascade = () => {
+    cascadeCarryLongerCountRef.current = 0;
     setCascadeBlocks(null);
     setCascadeMachine(null);
     setCascadeLongerCount(0);
