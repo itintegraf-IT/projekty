@@ -45,6 +45,7 @@ import { BlockNotesDialog } from "@/components/BlockNotesDialog";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 import type { NoteRole } from "@/lib/blockNotePermissions";
 import { MonitorView } from "@/components/monitor/MonitorView";
+import { viewDaysBack, viewDaysAhead } from "@/lib/tiskarViewRange";
 import { BlockDetail } from "@/components/BlockDetail";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ShutdownManager } from "@/components/planner/ShutdownManager";
@@ -914,7 +915,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (!ok) showToast("Nepodařilo se označit jako přečtené", "error");
   }
 
-  const effectiveDaysBack = isTiskar ? 1 : daysBack;
+  const effectiveDaysBack = viewDaysBack(isTiskar, daysBack);
   const viewStart = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -effectiveDaysBack), 0, 0);
 
   // "Přejít na" blok mimo rozsah — ref pro čekající scroll + výběr bloku po změně daysBack/daysAhead
@@ -924,9 +925,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const target = pendingScrollMs.current;
     if (target === null) return;
     pendingScrollMs.current = null;
-    // effectiveDaysBack (ne "holý" daysBack) — u TISKAŘE je pevně 1 bez ohledu
-    // na daysBack state, přesně jako viewStart výš; jinak by se cíl scrollu
-    // počítal vůči jinému řádku 0, než jaký ve skutečnosti kreslí TimelineGrid.
+    // effectiveDaysBack (ne "holý" daysBack) — u TISKAŘE je pevný
+    // (TISKAR_DAYS_BACK) bez ohledu na daysBack state, přesně jako viewStart
+    // výš; jinak by se cíl scrollu počítal vůči jinému řádku 0, než jaký ve
+    // skutečnosti kreslí TimelineGrid.
     const newViewStart = pragueToUTC(addDaysToCivilDate(todayPragueDateStr(), -effectiveDaysBack), 0, 0);
     const y = dateToY(new Date(target), newViewStart, gridSlotHeight);
     scrollRef.current?.scrollTo({ top: Math.max(0, y - 200), behavior: "smooth" });
@@ -2821,6 +2823,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           onLogout={handleLogout}
           focusBlockId={monitorFocusId}
           onFocusHandled={() => setMonitorFocusId(null)}
+          fontScale={fontScale}
+          onFontScaleChange={handleFontScaleChange}
         />
       )}
 
@@ -3186,7 +3190,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             selectedBlockIds={selectedBlockIds}
             onMultiSelect={(ids) => { setSelectedBlockIds(ids); }}
             onMultiBlockUpdate={handleMultiBlockUpdate}
-            daysAhead={isTiskar ? 5 : daysAhead}
+            daysAhead={viewDaysAhead(isTiskar, daysAhead)}
             daysBack={effectiveDaysBack}
             canEdit={canEdit}
             canEditData={canEditData}

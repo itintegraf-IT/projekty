@@ -121,12 +121,49 @@ test("monitorQueue: odklepnuté zakázky ve frontě zůstávají (zobrazí se zt
   assert.equal(q.today.length, 1);
 });
 
-test("monitorQueue: rezervace a údržba do fronty nepatří", () => {
+test("monitorQueue: rezervace do fronty nepatří", () => {
   const rez = mk({ id: 6, type: "REZERVACE" });
-  const udr = mk({ id: 7, type: "UDRZBA" });
-  const q = monitorQueue([rez, udr], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
+  const q = monitorQueue([rez], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
   assert.equal(q.today.length, 0);
   assert.equal(q.tomorrow.length, 0);
+});
+
+test("monitorQueue: údržba do fronty DNES i ZÍTRA patří (17. 8. 2026 — tiskař musí u stroje vidět, kdy mu přijede servis)", () => {
+  const dnes = mk({ id: 7, type: "UDRZBA" });
+  const zitra = mk({
+    id: 8, type: "UDRZBA",
+    startTime: "2026-08-11T06:00:00.000Z", endTime: "2026-08-11T09:00:00.000Z",
+  });
+  const q = monitorQueue([dnes, zitra], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
+  assert.deepEqual(q.today.map((x) => x.id), [7]);
+  assert.deepEqual(q.tomorrow.map((x) => x.id), [8]);
+});
+
+test("monitorQueue: údržba se řadí mezi zakázky podle času, ne na konec seznamu", () => {
+  const rano = mk({ id: 1, startTime: "2026-08-10T05:00:00.000Z", endTime: "2026-08-10T07:00:00.000Z" });
+  const servis = mk({
+    id: 2, type: "UDRZBA",
+    startTime: "2026-08-10T07:00:00.000Z", endTime: "2026-08-10T08:00:00.000Z",
+  });
+  const odpoledne = mk({ id: 3, startTime: "2026-08-10T08:00:00.000Z", endTime: "2026-08-10T12:00:00.000Z" });
+  const q = monitorQueue([odpoledne, servis, rano], "XL_106", new Date("2026-08-10T06:00:00.000Z"));
+  assert.deepEqual(q.today.map((x) => x.id), [1, 2, 3]);
+});
+
+test("monitorQueue: údržba na cizím stroji do fronty nepatří", () => {
+  const udr = mk({ id: 9, type: "UDRZBA", machine: "XL_105" });
+  const q = monitorQueue([udr], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
+  assert.equal(q.today.length, 0);
+  assert.equal(q.tomorrow.length, 0);
+});
+
+test("monitorQueue.overdue: údržba z minulého dne do sekce NEDODĚLÁNO nepatří — nemá co odklepnout, uvázla by tam navždy", () => {
+  const udr = mk({
+    id: 10, type: "UDRZBA",
+    startTime: "2026-08-07T06:00:00.000Z", endTime: "2026-08-07T09:00:00.000Z",
+  });
+  const q = monitorQueue([udr], "XL_106", new Date("2026-08-10T10:00:00.000Z"));
+  assert.equal(q.overdue.length, 0);
 });
 
 test("runProgress: v polovině běhu = 50 % a zbývá polovina", () => {

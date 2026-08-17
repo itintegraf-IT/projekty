@@ -131,11 +131,21 @@ export function pickNextBlock(blocks: Block[], machine: string, now: Date): Bloc
 }
 
 /**
- * Fronta Monitoru — zakázky na daném stroji pro dnešek a zítřek, obojí seřazené
- * podle začátku, plus sekce NEDODĚLÁNO (neodklepnuté zakázky z předchozích dnů,
+ * Fronta Monitoru — dnešek a zítřek na daném stroji, obojí seřazené podle
+ * začátku, plus sekce NEDODĚLÁNO (neodklepnuté zakázky z předchozích dnů,
  * max `UNFINISHED_LOOKBACK_DAYS` zpátky). Odklepnuté zůstávají v dnešní/zítřejší
- * frontě, fronta je ukazuje ztlumené, aby byl vidět postup směny. Rezervace a
- * údržba do fronty ani do NEDODĚLÁNO nepatří — tiskař odklepává zakázky.
+ * frontě, fronta je ukazuje ztlumené, aby byl vidět postup směny.
+ *
+ * **Dnešek a zítřek nesou i ÚDRŽBU** (17. 8. 2026, prosba tiskařů): stroj v ten
+ * čas stojí a tiskař u něj do té doby neměl jak zjistit, že mu ve dvě přijede
+ * servis — Monitor mu ukazoval jen díru mezi zakázkami. Rezervace tam ZŮSTÁVÁ
+ * vyloučená; je to rezervovaná kapacita zákazníka, ne neproduktivní operace.
+ *
+ * **Sekce NEDODĚLÁNO zůstává výhradně na zakázkách.** Údržba se neodklepává,
+ * takže `printCompletedAt` u ní nebude nikdy vyplněné a jediná podmínka, která
+ * z téhle sekce cokoli odstraňuje, by na ni nikdy nesedla — každý proběhlý
+ * servis by v ní uvázl na celých `UNFINISHED_LOOKBACK_DAYS` dní a vytlačil
+ * z obrazovky to, co má tiskař dodělat.
  *
  * Dva dny záměrně: tiskař, který přeskočí zakázku kvůli chybějícímu materiálu,
  * často sáhne po něčem z dalšího dne. Na vzdálenější zakázky je tlačítko Najít.
@@ -147,9 +157,14 @@ export function monitorQueue(
 ): { overdue: Block[]; today: Block[]; tomorrow: Block[] } {
   const todayStr = utcToPragueDateStr(now);
   const tomorrowStr = addDaysToCivilDate(todayStr, 1);
-  const onMachine = blocks.filter((b) => b.type === "ZAKAZKA" && b.machine === machine);
+  // Dvě různě široké množiny záměrně: dnešek/zítřek = co stroj obsadí (zakázka
+  // i údržba), NEDODĚLÁNO = co má tiskař dodělat (jen zakázka). Kdo je sloučí
+  // zpátky do jedné, zanese údržbu do NEDODĚLÁNO — viz komentář výš.
+  const onMachine = blocks.filter((b) => b.machine === machine);
+  const orders = onMachine.filter((b) => b.type === "ZAKAZKA");
+  const dayBlocks = onMachine.filter((b) => b.type === "ZAKAZKA" || b.type === "UDRZBA");
   const forDay = (dayStr: string) =>
-    onMachine
+    dayBlocks
       .filter((b) => utcToPragueDateStr(new Date(b.startTime)) === dayStr)
       .sort(byStartAsc);
 
@@ -161,7 +176,7 @@ export function monitorQueue(
   // mezi tím byla díra (typicky noční směna 22:00–6:00, teď ráno) a zakázka
   // na kartě nebyla dohledatelná NIKDE ve frontě. „Přeskočit →" ji pak z
   // Monitoru odstranilo až do půlnoci beze stopy.
-  const overdue = onMachine
+  const overdue = orders
     .filter((b) => {
       if (b.printCompletedAt != null) return false;
       // Pozastavená zakázka je výrobní stopka, ne zpoždění — plán ji z „po

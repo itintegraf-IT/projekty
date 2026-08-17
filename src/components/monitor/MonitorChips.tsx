@@ -2,12 +2,13 @@
 
 import type { Block } from "@/app/_components/TimelineGrid";
 import { buildMonitorChips, type MonitorChipTone } from "@/lib/monitorChips";
+import type { MonitorTypeScale } from "@/lib/monitorTypography";
 
 /**
  * Výrobní a stavové štítky zakázky na Monitoru. Velká karta i řádek fronty kreslí
  * tutéž sadu ze stejné funkce — `size` mění POUZE rozměry, nikdy obsah ani pořadí.
  */
-export function MonitorChips({ block, size }: { block: Block; size: "hero" | "queue" }) {
+export function MonitorChips({ block, size, ts }: { block: Block; size: "hero" | "queue"; ts: MonitorTypeScale }) {
   const chips = buildMonitorChips(block);
   if (chips.length === 0) return null;
 
@@ -19,7 +20,7 @@ export function MonitorChips({ block, size }: { block: Block; size: "hero" | "qu
         <span
           key={`${c.label}-${i}`}
           style={{
-            fontSize: hero ? 12 : 11,
+            fontSize: hero ? ts.chipHero : ts.chipQueue,
             fontWeight: 600,
             letterSpacing: "0.02em",
             borderRadius: hero ? 6 : 5,

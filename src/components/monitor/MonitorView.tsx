@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Block } from "@/app/_components/TimelineGrid";
 import { pickHeroBlock, monitorQueue, runProgress, resolveStickyBlock, startDayLabel, resolveSelectedBlock, reasonForBlock, unfinishedFloorMs } from "@/lib/monitorView";
 import { findSplitPartner, getSplitChipState } from "@/lib/splitHelpers";
@@ -9,9 +8,13 @@ import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { TiskarMachineToggle } from "@/components/TiskarMachineToggle";
 import { MonitorQueue } from "@/components/monitor/MonitorQueue";
 import { MonitorChips } from "@/components/monitor/MonitorChips";
+import { MonitorHeroTiming } from "@/components/monitor/MonitorHeroTiming";
 import { machineLabel, MACHINES } from "@/lib/machines";
 import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
 import { formatPragueTime } from "@/lib/dateUtils";
+import { FontScaleSwitch } from "@/components/planner/FontScaleSwitch";
+import type { PlannerFontScale } from "@/lib/plannerTypography";
+import { monitorTypeScale, MONITOR_HERO_BUTTON_HEIGHT, type MonitorTypeScale } from "@/lib/monitorTypography";
 
 type Props = {
   blocks: Block[];
@@ -26,19 +29,24 @@ type Props = {
   focusBlockId?: number | null;
   /** Zavolá se, jakmile Monitor požadavek spotřebuje — jednorázový příkaz. */
   onFocusHandled?: () => void;
+  /** Stupeň písma sdílený s plánem (localStorage, vlastnost obrazovky u stroje). */
+  fontScale: PlannerFontScale;
+  onFontScaleChange: (next: PlannerFontScale) => void;
 };
 
-const HEADER_BTN: CSSProperties = {
-  padding: "8px 14px",
-  fontSize: 13,
-  borderRadius: 8,
-  background: "var(--surface-2)",
-  border: "1px solid var(--border)",
-  color: "var(--text-muted)",
-  cursor: "pointer",
-  font: "inherit",
-  flexShrink: 0,
-};
+function headerButtonStyle(ts: MonitorTypeScale) {
+  return {
+    padding: "8px 14px",
+    fontSize: ts.headButton,
+    borderRadius: 8,
+    background: "var(--surface-2)",
+    border: "1px solid var(--border)",
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    font: "inherit",
+    flexShrink: 0,
+  } as const;
+}
 
 /**
  * Domovská obrazovka tiskaře u stroje. Vlevo velká karta zakázky, kterou má
@@ -54,7 +62,10 @@ export function MonitorView({
   blocks, viewMachine, ownMachine,
   onPrintComplete, onOpenPlan, onOpenSearch, onMachineChange, onLogout,
   focusBlockId, onFocusHandled,
+  fontScale, onFontScaleChange,
 }: Props) {
+  const ts = useMemo(() => monitorTypeScale(fontScale), [fontScale]);
+  const HEADER_BTN = useMemo(() => headerButtonStyle(ts), [ts]);
   // Vázané na konkrétní blok, ne na komponentu: po odklepnutí se hero karta
   // přepne na další zakázku ještě během požadavku a jeden sdílený boolean
   // by zašedil tlačítko, kterého se nikdo nedotkl.
@@ -265,7 +276,7 @@ export function MonitorView({
         background: "var(--surface)",
       }}>
         <img src="/logo.png" alt="Integraf" style={{ height: 24, width: "auto", objectFit: "contain", flexShrink: 0 }} />
-        <span style={{ fontSize: 17, fontWeight: 660, color: "var(--text)", flexShrink: 0 }}>
+        <span style={{ fontSize: ts.headMachine, fontWeight: 660, color: "var(--text)", flexShrink: 0 }}>
           {machineLabel(viewMachine)}
         </span>
         <TiskarMachineToggle
@@ -276,11 +287,15 @@ export function MonitorView({
         />
         <div style={{ flex: 1 }} />
         <span style={{
-          fontSize: 18, color: "var(--text)",
+          fontSize: ts.headClock, color: "var(--text)",
           fontVariantNumeric: "tabular-nums", flexShrink: 0,
         }}>
           {now ? formatPragueTime(now) : "--:--"}
         </span>
+        {/* Týž přepínač a týž klíč v localStorage jako v plánu — je to jedno
+            nastavení jedné obrazovky u stroje, ne dvě nezávislá. Tiskař si ho
+            nastaví jednou a platí, ať kouká na Monitor nebo na celý plán. */}
+        <FontScaleSwitch value={fontScale} onChange={onFontScaleChange} />
         <button style={HEADER_BTN} onClick={(e) => { if (e.button !== 0) return; onOpenSearch(); }}>
           🔍 Najít
         </button>
@@ -307,7 +322,7 @@ export function MonitorView({
             <>
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
-                fontSize: 12, letterSpacing: "0.16em", textTransform: "uppercase",
+                fontSize: ts.kicker, letterSpacing: "0.16em", textTransform: "uppercase",
                 color: kickerColor, fontWeight: 700, flexShrink: 0,
               }}>
                 {kicker}
@@ -316,13 +331,13 @@ export function MonitorView({
               {manualOverride && (
                 <div style={{
                   display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
-                  fontSize: 13, color: "var(--text-muted)",
+                  fontSize: ts.heroNote, color: "var(--text-muted)",
                 }}>
                   <span>vybráno ručně</span>
                   <button
                     onClick={(e) => { if (e.button !== 0) return; setSelectedId(null); }}
                     style={{
-                      font: "inherit", fontSize: 13,
+                      font: "inherit", fontSize: ts.heroNote,
                       padding: "3px 10px", borderRadius: 7,
                       background: "var(--surface-2)", border: "1px solid var(--border)",
                       color: "var(--text)", cursor: "pointer",
@@ -342,15 +357,28 @@ export function MonitorView({
                 padding: 22,
                 overflow: "hidden",
               }}>
+                {/* Obsah je od tlačítek oddělený VLASTNÍM `flex: 1; minHeight: 0;
+                    overflow: hidden` kontejnerem (17. 8. 2026, spolu s napojením
+                    na stupně písma). Do té doby všechno leželo v jednom sloupci
+                    a tlačítko drželo dole jen `marginTop: auto` — jakmile obsah
+                    přerostl kartu, ořez `overflow: hidden` sebral TLAČÍTKO, ne
+                    obsah. Zvětšení písma na XL je přesně ten případ. Teď se ořízne
+                    obsah a tlačítko HOTOVO zůstane vidět VŽDY — je to jediná
+                    cesta, kterou tiskař odklepne tisk (havárie 3. a 12. 8. 2026
+                    měly týž tvar: rostoucí prvek proti pevné mezi). */}
                 <div style={{
-                  fontSize: 46, fontWeight: 700, letterSpacing: "-0.02em",
+                  flex: 1, minHeight: 0, overflow: "hidden",
+                  display: "flex", flexDirection: "column", gap: 14,
+                }}>
+                <div style={{
+                  fontSize: ts.heroOrder, fontWeight: 700, letterSpacing: "-0.02em",
                   fontVariantNumeric: "tabular-nums", lineHeight: 1, color: "var(--text)",
                 }}>
                   {card.block.orderNumber}
                 </div>
 
                 <div style={{
-                  fontSize: 24, fontWeight: 600, color: "var(--text)", lineHeight: 1.2,
+                  fontSize: ts.heroDesc, fontWeight: 600, color: "var(--text)", lineHeight: 1.2,
                   display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                   overflow: "hidden", flexShrink: 0,
                 }}>
@@ -370,7 +398,7 @@ export function MonitorView({
                       color: SPEC_HIGHLIGHT.text,
                       borderRadius: 7,
                       padding: "8px 12px",
-                      fontSize: 17, fontWeight: 700, lineHeight: 1.35,
+                      fontSize: ts.heroSpec, fontWeight: 700, lineHeight: 1.35,
                       letterSpacing: "0.01em",
                       display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                       overflow: "hidden", flexShrink: 0,
@@ -380,16 +408,16 @@ export function MonitorView({
                   </div>
                 )}
 
-                <MonitorChips block={card.block} size="hero" />
+                <MonitorChips block={card.block} size="hero" ts={ts} />
 
                 {card.kind === "completed" ? (
-                  <div style={{ fontSize: 20, fontWeight: 700, color: "var(--success)" }}>
+                  <div style={{ fontSize: ts.heroDone, fontWeight: 700, color: "var(--success)" }}>
                     ✓ Hotovo {card.block.printCompletedAt
                       ? formatPragueTime(new Date(card.block.printCompletedAt))
                       : ""}
                   </div>
                 ) : (
-                  <HeroTiming block={card.block} reason={card.reason} now={now} />
+                  <MonitorHeroTiming block={card.block} reason={card.reason} now={now} ts={ts} />
                 )}
 
                 {partner && (() => {
@@ -402,7 +430,7 @@ export function MonitorView({
                   const day = startDayLabel(time, now);
                   return (
                     <div style={{
-                      fontSize: 13, color: "var(--text-muted)",
+                      fontSize: ts.heroPartner, color: "var(--text-muted)",
                       display: "flex", alignItems: "center", gap: 6,
                     }}>
                       <span style={{ fontWeight: 700, color: "var(--text)" }}>
@@ -415,13 +443,17 @@ export function MonitorView({
                   );
                 })()}
 
-                <div style={{ marginTop: "auto" }}>
+                </div>
+
+                {/* Tlačítka: `flexShrink: 0` a MIMO obsahový kontejner výš — viz
+                    komentář u něj. Nikdy se nesmí vrátit dovnitř. */}
+                <div style={{ flexShrink: 0 }}>
                   {!onPrintComplete ? (
                     <div style={{
-                      height: 96, borderRadius: 12,
+                      height: MONITOR_HERO_BUTTON_HEIGHT, borderRadius: 12,
                       display: "grid", placeItems: "center",
                       background: "var(--surface-2)", color: "var(--text-muted)",
-                      fontSize: 14, textAlign: "center", padding: 12,
+                      fontSize: ts.queueEmpty, textAlign: "center", padding: 12,
                     }}>
                       Odklepnout jde jen na vlastním stroji.
                     </div>
@@ -429,7 +461,7 @@ export function MonitorView({
                     // Karta drží zakázku, dokud tiskař nerozhodne. Obě tlačítka jsou
                     // po dobu zámku neaktivní, aby je netrefil druhý klik rychlého
                     // dvojkliku na místě, kde do té chvíle bylo HOTOVO.
-                    <div style={{ display: "flex", gap: 12, height: 96 }}>
+                    <div style={{ display: "flex", gap: 12, height: MONITOR_HERO_BUTTON_HEIGHT }}>
                       <button
                         onClick={(e) => {
                           if (e.button !== 0) return;
@@ -463,7 +495,9 @@ export function MonitorView({
                           border: confirmingRevertId === card.block.id ? "none" : "1px solid var(--border)",
                           background: confirmingRevertId === card.block.id ? "var(--warning)" : "var(--surface-3)",
                           color: confirmingRevertId === card.block.id ? "var(--brand-contrast)" : "var(--text)",
-                          font: "inherit", fontSize: confirmingRevertId === card.block.id ? 16 : 22, fontWeight: 700, cursor: "pointer",
+                          font: "inherit",
+                          fontSize: confirmingRevertId === card.block.id ? ts.btnRevertConfirm : ts.btnRevert,
+                          fontWeight: 700, cursor: "pointer",
                         }}
                       >
                         {confirmingRevertId === card.block.id ? "OPRAVDU VRÁTIT?" : "Vrátit"}
@@ -481,7 +515,7 @@ export function MonitorView({
                         style={{
                           flex: 2, borderRadius: 12, border: "none",
                           background: "var(--brand)", color: "var(--brand-contrast)",
-                          font: "inherit", fontSize: 26, fontWeight: 750,
+                          font: "inherit", fontSize: ts.btnNext, fontWeight: 750,
                           letterSpacing: "0.04em", cursor: "pointer",
                         }}
                       >
@@ -491,7 +525,7 @@ export function MonitorView({
                   ) : (() => {
                     const doneButton = (
                       <PrintDoneButton
-                        size={{ variant: "hero", height: 96, fontSize: 30 }}
+                        size={{ variant: "hero", height: MONITOR_HERO_BUTTON_HEIGHT, fontSize: ts.btnDone }}
                         isDone={false}
                         completedAt={null}
                         pending={pendingId === card.block.id || Date.now() < lockUntil}
@@ -531,7 +565,7 @@ export function MonitorView({
                     if (card.reason !== "overdue") return doneButton;
 
                     return (
-                      <div style={{ display: "flex", gap: 12, height: 96 }}>
+                      <div style={{ display: "flex", gap: 12, height: MONITOR_HERO_BUTTON_HEIGHT }}>
                         {/* Obalující div, ne PrintDoneButton napřímo: ten má vlastní
                             `flexShrink: 0` a bez `flex: 2` na tomhle divu by v outer
                             flexu nezabral dvoutřetinový podíl vedle „Přeskočit →" — jen
@@ -547,7 +581,7 @@ export function MonitorView({
                             flex: 1, borderRadius: 12,
                             border: "1px solid var(--border)",
                             background: "var(--surface-3)", color: "var(--text)",
-                            font: "inherit", fontSize: 18, fontWeight: 700, cursor: "pointer",
+                            font: "inherit", fontSize: ts.btnSkip, fontWeight: 700, cursor: "pointer",
                           }}
                         >
                           Přeskočit →
@@ -562,7 +596,7 @@ export function MonitorView({
             <div style={{
               flex: 1, display: "grid", placeItems: "center",
               background: "var(--surface)", border: "1px solid var(--border)",
-              borderRadius: 14, color: "var(--text-muted)", fontSize: 16, textAlign: "center", padding: 24,
+              borderRadius: 14, color: "var(--text-muted)", fontSize: ts.heroEmpty, textAlign: "center", padding: 24,
             }}>
               {/* Dokud neběží čas (server render a první snímek v prohlížeči), nevíme,
                   co má být na kartě — hlásit „nic naplánováno" by v tu chvíli lhalo. */}
@@ -578,7 +612,7 @@ export function MonitorView({
         {/* Pravý sloupec — fronta */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
           <div style={{
-            fontSize: 12, letterSpacing: "0.16em", textTransform: "uppercase",
+            fontSize: ts.sectionTitle, letterSpacing: "0.16em", textTransform: "uppercase",
             color: "var(--text-muted)", fontWeight: 700, flexShrink: 0,
           }}>
             Fronta na {machineLabel(viewMachine)}
@@ -589,69 +623,10 @@ export function MonitorView({
             tomorrow={queue.tomorrow}
             heroId={card?.block.id ?? null}
             onSelect={(block) => setSelectedId(block.id)}
+            ts={ts}
           />
         </div>
       </div>
     </div>
   );
-}
-
-/** Časová osa běhu, nebo odpočet do startu u budoucí zakázky. */
-function HeroTiming({ block, reason, now }: { block: Block; reason: "running" | "overdue" | "upcoming"; now: Date }) {
-  const { percent, remainingMinutes } = runProgress(block, now);
-
-  if (reason === "upcoming") {
-    const minutesToStart = Math.ceil((new Date(block.startTime).getTime() - now.getTime()) / 60000);
-    const day = startDayLabel(block.startTime, now);
-    return (
-      <div style={{ fontSize: 17, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
-        Začíná {day ? `${day} v` : "v"} {formatPragueTime(new Date(block.startTime))}
-        <span style={{ color: "var(--text-muted)" }}> · za {formatMinutes(minutesToStart)}</span>
-      </div>
-    );
-  }
-
-  // Datum se ukáže jen tehdy, když zakázka nezačala dnes (`startDayLabel`
-  // vrací pro dnešek `null`). U běžné směny tedy nepřibude nic; u zakázky
-  // vytažené ze sekce NEDODĚLÁNO nebo z hledání je to jediné místo, kde se
-  // tiskař dozví, že kouká na jiný den.
-  const dayLabel = startDayLabel(block.startTime, now);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-      {dayLabel && (
-        // `--warning` v Monitoru všude jinde znamená „PŘETAHUJE" — u prostě
-        // běžícího bloku (typicky noční směna po půlnoci, startDayLabel vrátí
-        // včerejšek) by žlutý datum-štítek nad ZELENÝM pruhem lhal o stavu.
-        <div style={{ fontSize: 15, fontWeight: 700, color: reason === "overdue" ? "var(--warning)" : "var(--text-muted)" }}>
-          {dayLabel}
-        </div>
-      )}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 12,
-        fontSize: 16, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums",
-      }}>
-        <span>{formatPragueTime(new Date(block.startTime))}</span>
-        <span style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--surface-3)", overflow: "hidden" }}>
-          <span style={{
-            display: "block", height: "100%", width: `${percent}%`,
-            background: reason === "overdue" ? "var(--warning)" : "var(--success)",
-          }} />
-        </span>
-        <span>{formatPragueTime(new Date(block.endTime))}</span>
-      </div>
-      <div style={{ fontSize: 15, fontWeight: 600, color: "var(--text)" }}>
-        {remainingMinutes >= 0
-          ? `Zbývá ${formatMinutes(remainingMinutes)}`
-          : `Přetahuje o ${formatMinutes(-remainingMinutes)}`}
-      </div>
-    </div>
-  );
-}
-
-/** 95 → „1 h 35 min", 40 → „40 min". */
-function formatMinutes(total: number): string {
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return h > 0 ? `${h} h ${m} min` : `${m} min`;
 }

@@ -3,7 +3,8 @@
 import type { Block } from "@/app/_components/TimelineGrid";
 import { formatPragueTime, formatPragueDateTimeWithWeekday } from "@/lib/dateUtils";
 import { MonitorChips } from "@/components/monitor/MonitorChips";
-import { SPEC_HIGHLIGHT } from "@/lib/blockStyles";
+import { SPEC_HIGHLIGHT, BLOCK_STYLES } from "@/lib/blockStyles";
+import type { MonitorTypeScale } from "@/lib/monitorTypography";
 
 type Props = {
   overdue: Block[];
@@ -11,6 +12,7 @@ type Props = {
   tomorrow: Block[];
   heroId: number | null;
   onSelect: (block: Block) => void;
+  ts: MonitorTypeScale;
 };
 
 /**
@@ -21,10 +23,10 @@ type Props = {
  * háčkem (včetně pásu), zakázka na velké kartě zvýrazněná. Kliknutí ji
  * vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
  */
-export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Props) {
+export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect, ts }: Props) {
   if (overdue.length === 0 && today.length === 0 && tomorrow.length === 0) {
     return (
-      <div style={{ color: "var(--text-muted)", fontSize: 14, padding: "12px 4px" }}>
+      <div style={{ color: "var(--text-muted)", fontSize: ts.queueEmpty, padding: "12px 4px" }}>
         Na tomhle stroji není dnes ani zítra nic naplánováno.
       </div>
     );
@@ -38,23 +40,25 @@ export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect }: Pro
         blocks={overdue}
         heroId={heroId}
         onSelect={onSelect}
+        ts={ts}
         tone="warning"
         showDate
         compact
       />
-      <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} />
-      <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} />
+      <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} ts={ts} />
+      <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} ts={ts} />
     </div>
   );
 }
 
 function QueueSection({
-  title, blocks, heroId, onSelect, tone = "muted", showDate = false, compact = false,
+  title, blocks, heroId, onSelect, ts, tone = "muted", showDate = false, compact = false,
 }: {
   title: string;
   blocks: Block[];
   heroId: number | null;
   onSelect: (block: Block) => void;
+  ts: MonitorTypeScale;
   /** `warning` odliší nedodělané od běžné fronty — jediný barevný rozdíl. */
   tone?: "muted" | "warning";
   /** Řádek ukáže i den, ne jen čas. Povinné u zakázek z minulých dnů. */
@@ -70,12 +74,18 @@ function QueueSection({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
       <div style={{
-        fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase",
+        fontSize: ts.sectionTitle, letterSpacing: "0.16em", textTransform: "uppercase",
         color: tone === "warning" ? "var(--warning)" : "var(--text-muted)", fontWeight: 700,
       }}>
         {title}
       </div>
       {blocks.map((b) => {
+        // Údržba není zakázka: nedá se odklepnout ani vytáhnout na velkou kartu
+        // (`resolveSelectedBlock` ji odmítá), takže dostane vlastní, neklikatelný
+        // řádek. Do sekce NEDODĚLÁNO (`compact`) se nikdy nedostane —
+        // `monitorQueue` ji tam pouštět nesmí.
+        if (b.type === "UDRZBA") return <MaintenanceRow key={b.id} block={b} ts={ts} />;
+
         const isDone = b.printCompletedAt != null;
         const isHero = b.id === heroId;
         return (
@@ -102,14 +112,14 @@ function QueueSection({
               <span style={{
                 fontFamily: "ui-monospace, monospace",
                 fontWeight: 700, fontVariantNumeric: "tabular-nums",
-                fontSize: compact ? 13 : 14, flexShrink: 0,
+                fontSize: compact ? ts.queueOrderCompact : ts.queueOrder, flexShrink: 0,
                 color: isDone ? "var(--success)" : "var(--text)",
               }}>
                 {isDone ? "✓ " : ""}{b.orderNumber}
               </span>
               <span style={{
                 flex: 1, minWidth: 0,
-                color: "var(--text-muted)", fontSize: compact ? 12 : 13,
+                color: "var(--text-muted)", fontSize: compact ? ts.queueDescCompact : ts.queueDesc,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 {b.description ?? ""}
@@ -119,7 +129,7 @@ function QueueSection({
                   v datech. `formatPragueDateTimeWithWeekday` dá „pá 9. 8. 22:00". */}
               <span style={{
                 flexShrink: 0,
-                color: "var(--text-muted)", fontSize: compact ? 12 : 13,
+                color: "var(--text-muted)", fontSize: compact ? ts.queueTimeCompact : ts.queueTime,
                 fontVariantNumeric: "tabular-nums",
               }}>
                 {showDate
@@ -140,7 +150,7 @@ function QueueSection({
                   color: SPEC_HIGHLIGHT.text,
                   borderRadius: 5,
                   padding: "4px 8px",
-                  fontSize: 13, fontWeight: 700, lineHeight: 1.3,
+                  fontSize: ts.queueSpec, fontWeight: 700, lineHeight: 1.3,
                   letterSpacing: "0.01em",
                   display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                   overflow: "hidden",
@@ -150,10 +160,66 @@ function QueueSection({
               </span>
             )}
 
-            {!compact && <MonitorChips block={b} size="queue" />}
+            {!compact && <MonitorChips block={b} size="queue" ts={ts} />}
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Řádek neproduktivní operace ve frontě — údržba, oprava, servisní odstávka
+ * stroje (17. 8. 2026, prosba tiskařů). Stroj v ten čas stojí a tiskař u něj
+ * do té doby viděl jen nevysvětlenou díru mezi zakázkami.
+ *
+ * Není to `<button>` záměrně: velká karta patří zakázkám, `resolveSelectedBlock`
+ * údržbu odmítá a klik by tedy neudělal vůbec nic. Mrtvé tlačítko u stroje je
+ * horší než žádné.
+ *
+ * BAREVNÁ PAST: údržba je v plánu ZELENÁ (`BLOCK_STYLES.UDRZBA`), jenže zelená
+ * v Monitoru znamená „odklepnuto" (✓ háček u zakázky) a zelený rámeček „tahle
+ * je právě na velké kartě". Zelený řádek by tedy tiskaři lhal hned dvakrát.
+ * Z barvy proto zůstává JEN levý proužek — vazbu na plán udrží, význam
+ * nepřepíše. Kdo sem přidá zelený text nebo rámeček, tu past otevře zpátky.
+ */
+function MaintenanceRow({ block, ts }: { block: Block; ts: MonitorTypeScale }) {
+  return (
+    <div
+      style={{
+        display: "flex", flexDirection: "column", gap: 3,
+        padding: "8px 12px 8px 10px",
+        borderRadius: 10,
+        background: "var(--surface-2)",
+        border: "1px solid var(--border)",
+        borderLeft: `4px solid ${BLOCK_STYLES.UDRZBA.accentBar}`,
+        color: "var(--text-muted)",
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <span style={{
+          fontSize: ts.queueMaintLabel, fontWeight: 700, letterSpacing: "0.14em",
+          textTransform: "uppercase", flexShrink: 0,
+        }}>
+          🔧 Údržba
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: ts.queueMaintText, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+          {formatPragueTime(new Date(block.startTime))}–{formatPragueTime(new Date(block.endTime))}
+        </span>
+      </span>
+      {/* `orderNumber` je u údržby „Název / označení" (povinné pole builderu,
+          typicky „Čištění hlavy"), `description` volitelný popis. */}
+      <span style={{
+        fontSize: ts.queueMaintText, color: "var(--text)", fontWeight: 600,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        {block.orderNumber}
+        {block.description?.trim() && (
+          <span style={{ color: "var(--text-muted)", fontWeight: 400 }}> · {block.description}</span>
+        )}
+      </span>
     </div>
   );
 }
