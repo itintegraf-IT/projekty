@@ -57,3 +57,39 @@ export function durationPayload(
   const start = startTime instanceof Date ? startTime : new Date(startTime);
   return { endTime: new Date(start.getTime() + durationHours * 3600000).toISOString() };
 }
+
+export type DurationSyncAction =
+  | { kind: "none" }
+  | { kind: "sync"; durationHours: number }
+  | { kind: "warn"; durationHours: number };
+
+/**
+ * Rozhodovací jádro efektu 2b/2c v `BlockEdit.tsx`. Srovnává PŘEDCHOZÍ a AKTUÁLNÍ
+ * délku bloku, jak ji zná server (opravné kolo 1 — recenze etapy 2, 17. 8. 2026).
+ *
+ * KRITICKÉ pro volajícího: obě hodnoty musí být odvozené z `block.type`/`block`,
+ * NIKDY z lokálního stavu formuláře `type`. `BlockEdit` počítá i jinou veličinu,
+ * `currentDurationHours`, která z lokálního `type` vychází záměrně (řídí, jak se
+ * má DISPLAYOVANÁ délka přepočítat, když uživatel přepne typ ručně) — tahle funkce
+ * se ale musí krmit hodnotou NEZÁVISLOU na tom přepnutí (typicky
+ * `blockPrintMinutes(block) / 60`, kde `blockPrintMinutes` čte `block.type` samo).
+ * Prohození těch dvou zdrojů byl přesně nález opravného kola: kliknutí na
+ * „Typ záznamu" (ZAKAZKA↔UDRZBA↔REZERVACE, mimo flip REZERVACE→ZAKAZKA) přepočítá
+ * `currentDurationHours` i beze změny na serveru — u pozastavené zakázky span
+ * (26 h) vs printMinutes (10 h) je reálně velký skok — a vypadalo to jako cizí
+ * zásah, i když žádný neproběhl.
+ *
+ * - Beze změny → `none`.
+ * - Změna + nedotčeno (`touched === false`) → tiše přesynchronizovat (`sync`).
+ * - Změna + dotčeno (`touched === true`) → nepřepisovat, jen upozornit (`warn`).
+ */
+export function resolveDurationSync(
+  prevServerDurationHours: number,
+  nextServerDurationHours: number,
+  touched: boolean
+): DurationSyncAction {
+  if (nextServerDurationHours === prevServerDurationHours) return { kind: "none" };
+  return touched
+    ? { kind: "warn", durationHours: nextServerDurationHours }
+    : { kind: "sync", durationHours: nextServerDurationHours };
+}

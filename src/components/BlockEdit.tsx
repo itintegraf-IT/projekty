@@ -20,7 +20,7 @@ import { ProductionTagsRow } from "@/components/planner/ProductionTagsRow";
 import { NativeSelect } from "@/components/NativeSelect";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
-import { durationPayload } from "@/lib/blockEditDuration";
+import { durationPayload, resolveDurationSync } from "@/lib/blockEditDuration";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
@@ -157,6 +157,12 @@ export function BlockEdit({
   // start→end. Elapsed může u pozastaveného bloku vzrůst na hodnotu mimo DURATION_OPTIONS
   // (např. 26 h), zatímco printMinutes zůstává skutečnou tiskovou délkou (např. 10 h) —
   // select by jinak spadl na hodnotu, kterou <option> nenabízí.
+  //
+  // POZOR: `type` tady je LOKÁLNÍ stav formuláře (tlačítka „Typ záznamu"), ne
+  // `block.type` — currentDurationHours se proto přepočítá i při čistě lokálním
+  // přepnutí typu, beze změny na serveru. To je záměr pro DISPLAYOVANOU hodnotu
+  // (initial state selectu), ale efekt 2b/2c níž na tenhle zdroj NESMÍ být napojený
+  // (viz jeho komentář a `resolveDurationSync` v blockEditDuration.ts).
   const currentDurationHours = type === "ZAKAZKA"
     ? blockPrintMinutes(block) / 60
     : (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
@@ -168,29 +174,39 @@ export function BlockEdit({
   // durationTouched rozlišuje „uživatel délku vědomě zvolil" od „hodnota je jen
   // dopočtená z bloku" — viz durationPayload (src/lib/blockEditDuration.ts).
   const [durationTouched, setDurationTouched] = useState(false);
+  // Serverová pravda délky pro efekt 2b/2c — na rozdíl od currentDurationHours výš
+  // NEbere lokální stav `type`, jen `block` (blockPrintMinutes si `type` čte sama
+  // z `block.type`). Oprava opravného kola 1 (recenze etapy 2, 17. 8. 2026): efekt
+  // dřív sledoval currentDurationHours a bral jakoukoliv jeho změnu za serverovou
+  // úpravu — jenže currentDurationHours se přepočítá i čistě lokálním kliknutím na
+  // „Typ záznamu" (ZAKAZKA↔UDRZBA↔REZERVACE), aniž by se na serveru cokoliv stalo.
+  const serverDurationHours = blockPrintMinutes(block) / 60;
   // Poslední známá hodnota ze serveru — sleduje se NEZÁVISLE na durationHours, aby
-  // šlo poznat, že se currentDurationHours změnil, i když se durationHours (kvůli
+  // šlo poznat, že se serverDurationHours změnil, i když se durationHours (kvůli
   // touched) dál nepřepisuje.
-  const prevCurrentDurationRef = useRef(currentDurationHours);
+  const prevServerDurationRef = useRef(serverDurationHours);
   // Non-null = server změnil délku POTÉ, co ji uživatel ručně nastavil (touched).
   // Nezáměrně ho nepřepisujeme — jde o vědomou akci na zastaralém předpokladu
   // (viz task-2-brief.md, 2c) — jen se u selectu zobrazí upozornění.
   const [serverDurationChangedTo, setServerDurationChangedTo] = useState<number | null>(null);
 
-  // 2b + 2c v jednom efektu: currentDurationHours se mění, kdykoliv se pod panelem
-  // změní blok (split, chain push, cizí úprava). Nedotčený select se tiše
+  // 2b + 2c v jednom efektu: serverDurationHours se mění, kdykoliv se pod panelem
+  // změní BLOK (split, chain push, cizí úprava) — ne když uživatel jen přepne typ
+  // ve formuláři (viz komentář u serverDurationHours výš) a ne když cizí odklepnutí
+  // chipu změní jen updatedAt beze změny délky. Nedotčený select se tiše
   // přesynchronizuje (2b); dotčený select se NEPŘEPÍŠE, jen se nastaví hláška
-  // s aktuální serverovou hodnotou (2c). Cizí odklepnutí chipu, které mění jen
-  // updatedAt, currentDurationHours nezmění, takže sem vůbec nespadne.
+  // s aktuální serverovou hodnotou (2c). Rozhodnutí samotné je v resolveDurationSync
+  // (blockEditDuration.ts) — testovatelné bez React efektu.
   useEffect(() => {
-    if (currentDurationHours === prevCurrentDurationRef.current) return;
-    prevCurrentDurationRef.current = currentDurationHours;
-    if (durationTouched) {
-      setServerDurationChangedTo(currentDurationHours);
+    const action = resolveDurationSync(prevServerDurationRef.current, serverDurationHours, durationTouched);
+    if (action.kind === "none") return;
+    prevServerDurationRef.current = serverDurationHours;
+    if (action.kind === "warn") {
+      setServerDurationChangedTo(action.durationHours);
     } else {
-      setDurationHours(currentDurationHours);
+      setDurationHours(action.durationHours);
     }
-  }, [currentDurationHours, durationTouched]);
+  }, [serverDurationHours, durationTouched]);
 
   // Termín expedice
   const [deadlineExpedice, setDeadlineExpedice] = useState(
