@@ -9,13 +9,24 @@
  * ZŮSTÁVÁ nezměněný jako historický záznam incidentu; tenhle je nástroj pro
  * příště, ne náhrada.
  *
+ * SKRIPT JE ČISTĚ POZIČNÍ A TVRDĚ TO VYNUCUJE. Vrací JEN `startTime`/`endTime`
+ * (a u `--also-revision` navíc `printMinutes`). Revizní skupina, kde `before`/
+ * `after` některého bloku obsahuje i jiné pole (typicky `machine` — lasso batch
+ * přesun mezi stroji), se ODMÍTNE CELÁ: kdyby skript takový blok tiše vrátil jen
+ * pozičně, `assertNoOverlapForBlocks` na konci by kontroloval kolize na ŠPATNÉM
+ * stroji (stroj z revize je ten PŘED přesunem) a mohl by nahlásit úspěch nad
+ * tichým překryvem na produkci. Takovou dávku je nutné navrhnout ručně.
+ *
  * CO SKRIPT DĚLÁ:
  *  1) načte revize dané `--group` skupiny — cíl vrácení každého bloku je
  *     `before` z jeho revize (pozice, kterou blok měl PŘED tím, co skupina
  *     vznikla);
  *  2) ověří, že aktuální stav bloku v DB odpovídá `after` téže revize — pokud
  *     mezitím někdo s blokem hnul, oprava by přepsala jeho práci, a skript se
- *     zastaví BEZ ZÁPISU;
+ *     zastaví BEZ ZÁPISU. Tahle kontrola běží DVAKRÁT: jednou před otevřením
+ *     transakce (ať dry-run i apply vidí problém dřív, než se čeká na zámky),
+ *     a znovu jako PRVNÍ dotaz UVNITŘ transakce (zavírá okno mezi kontrolou a
+ *     zápisem — mezitím mohl kdokoli blok změnit mimo skript);
  *  3) simuluje cílový stav (co by bylo v DB, kdyby se vrácení provedlo) a
  *     nahlásí VŠECHNY kolize s bloky mimo dávku, ne jen první — bez toho se
  *     oprava ladí po jedné kolizi na běh (přesně to se stalo 17. 8. 2026);
@@ -24,98 +35,79 @@
  *     a na konci zavolá `assertNoOverlapForBlocks` — libovolný přetrvávající
  *     překryv znamená rollback všeho.
  *
- * `--also <blockId>:pole=hodnota[,pole=hodnota…]` — korekce bloku, který v dané
- * revizní skupině NENÍ, ale patří k opravě (v incidentu 16:31 šlo o blok 18088,
- * který dostal navazující úpravu 7 minut po havárii, aby zaplnil místo, jež
- * havárie uvolnila — bez jeho vrácení spolu s dávkou by oprava skončila
- * kolizí). Povolená pole: `startTime`, `endTime` (ISO datum), `printMinutes`
- * (kladné celé číslo). Guard pro `--also` blok NENÍ revize skupiny (v ní není)
- * — je to JEHO VLASTNÍ poslední revize v `BlockRevision`: blok musí stát přesně
- * tam, kam ho ta revize zapsala, jinak se skript zastaví stejně jako u bloků ze
- * skupiny. Bez jakékoli revize daný blok NEJDE bezpečně ošetřit — skript to
- * odmítne, ne aby tiše přepsal cizí práci bez pojistky.
+ * `--also-revision <revisionId>` — korekce bloku, který v dané revizní skupině
+ * NENÍ, ale patří k opravě (v incidentu 16:31 šlo o blok 18088, který dostal
+ * navazující úpravu 7 minut po havárii, aby zaplnil místo, jež havárie
+ * uvolnila — bez jeho vrácení spolu s dávkou by oprava skončila kolizí). Cíl
+ * a guard se ČTOU z uvedené revize (`before`/`after`), stejně jako u skupiny —
+ * žádné ruční psaní ISO časů, to je jediné místo, kde by překlep zapsal nesmysl
+ * rovnou do produkce. Revize musí být:
+ *   - `kind: "UPDATE"`,
+ *   - POSLEDNÍ `UPDATE` revize daného bloku (jinak nejde vyloučit, že blok od
+ *     ní dál změnil ještě něco jiného — skript to neodhaduje, odmítne),
+ *   - čistě poziční (jen `startTime`/`endTime`/`printMinutes`),
+ *   - blok nesmí být zároveň součástí `--group` skupiny (duplicita cíle).
+ *
+ * `--allow-preexisting-overlaps` — bez ní skript odmítne spustit, i když
+ * najde kolizi mezi dvěma bloky, které OPRAVA VŮBEC NEMĚNÍ (stará vada plánu,
+ * kterou objevila jen simulace). S přepínačem se taková STARÁ kolize jen
+ * nahlásí a přeskočí; kolize, kterou by ZPŮSOBILA samotná oprava, blokuje
+ * VŽDY a přepínač na ni nemá vliv.
  *
  * POUŽITÍ:
  *   npx tsx scripts/revert-revision-group.ts --group <groupId>                    → DRY-RUN
  *   npx tsx scripts/revert-revision-group.ts --group <groupId> --apply            → zápis
  *   npx tsx scripts/revert-revision-group.ts --group <groupId> \
- *     --also 1138:endTime=2026-08-17T19:00:00.000Z,printMinutes=600 [--apply]
+ *     --also-revision 4994 [--apply]
  *
  * BEZPEČNOST (stejná jako originál, viz `docs/OPS_ZALOHY.md`):
  *  - před `--apply` VŽDY nejdřív `mysqldump` a `pm2 stop` aplikace, aby do toho
- *    nikdo nezapisoval;
+ *    nikdo nezapisoval — kontrola uvnitř transakce (bod 2 výš) chrání proti
+ *    souběhu, ne proti tomu, že se opravuje špatná dávka;
  *  - skript NEZAPÍŠE NIC, pokud kterýkoli dotčený blok nestojí přesně tam, kam
  *    ho zapsala revize, ze které vychází guard;
- *  - vše běží v JEDNÉ transakci uvnitř `withRevision` (nová revizní skupina pro
- *    samotnou opravu) a končí `assertNoOverlapForBlocks`.
+ *  - vše běží v JEDNÉ transakci uvnitř `withRevision` (vznikne NOVÁ revizní
+ *    skupina pro samotnou opravu) a končí `assertNoOverlapForBlocks`.
  */
 import { prisma } from "@/lib/prisma";
 import { withRevision } from "@/lib/revision.server";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import type { PrismaTransactionClient } from "@/lib/prismaTx";
 
-/** Pole, která `--also` smí měnit. Stejná trojice jako u incidentu 16:31 (pozice + délka). */
+/** Pole, která smí vracet skupina i `--also-revision`. */
+const POSITIONAL = new Set(["startTime", "endTime"]);
+/** `--also-revision` navíc smí vracet délku — revize 4994 v incidentu 16:31 ji nesla spolu s endTime. */
 const ALSO_FIELDS = ["startTime", "endTime", "printMinutes"] as const;
 type AlsoField = (typeof ALSO_FIELDS)[number];
-type AlsoValues = Partial<Record<AlsoField, Date | number>>;
+type FieldValues = Partial<Record<AlsoField, Date | number>>;
 
-type AlsoTarget = { blockId: number; fields: AlsoField[]; to: AlsoValues };
-
-type Args = { group: string; also: AlsoTarget[]; apply: boolean };
+type Args = {
+  group: string;
+  alsoRevisionIds: number[];
+  apply: boolean;
+  allowPreexistingOverlaps: boolean;
+};
 
 function printHelp(): void {
   console.log(
     "Použití:\n" +
     "  npx tsx scripts/revert-revision-group.ts --group <groupId> [--apply]\n" +
     "  npx tsx scripts/revert-revision-group.ts --group <groupId> \\\n" +
-    "    --also <blockId>:pole=hodnota[,pole=hodnota…] [--apply]\n\n" +
-    "Bez --apply je běh vždy jen DRY-RUN (nic se nezapíše).\n" +
-    "Povolená pole u --also: startTime, endTime (ISO datum), printMinutes (celé číslo).",
+    "    --also-revision <revisionId> [--also-revision <revisionId> …] [--apply]\n" +
+    "    [--allow-preexisting-overlaps]\n\n" +
+    "Bez --apply je běh vždy jen DRY-RUN (nic se nezapíše, transakce se neotevře).\n" +
+    "--also-revision musí ukazovat na POSLEDNÍ UPDATE revizi daného bloku a smí\n" +
+    "měnit jen startTime/endTime/printMinutes.\n" +
+    "--allow-preexisting-overlaps povolí spuštění i přes kolize, které oprava\n" +
+    "nezpůsobuje (stará vada plánu) — kolize ZPŮSOBENÉ opravou blokují vždy.",
   );
-}
-
-function parseAlsoSpec(spec: string): AlsoTarget {
-  const sep = spec.indexOf(":");
-  if (sep < 0) {
-    throw new Error(`--also "${spec}" musí mít tvar <blockId>:pole=hodnota[,pole=hodnota…].`);
-  }
-  const blockId = Number(spec.slice(0, sep));
-  if (!Number.isInteger(blockId) || blockId <= 0) {
-    throw new Error(`--also "${spec}": "${spec.slice(0, sep)}" není platné ID bloku.`);
-  }
-  const to: AlsoValues = {};
-  const fields: AlsoField[] = [];
-  for (const pair of spec.slice(sep + 1).split(",")) {
-    const eq = pair.indexOf("=");
-    if (eq < 0) throw new Error(`--also "${spec}": část "${pair}" musí mít tvar pole=hodnota.`);
-    const key = pair.slice(0, eq).trim();
-    const raw = pair.slice(eq + 1).trim();
-    if (!(ALSO_FIELDS as readonly string[]).includes(key)) {
-      throw new Error(`--also "${spec}": pole "${key}" není povolené (jen ${ALSO_FIELDS.join(", ")}).`);
-    }
-    const field = key as AlsoField;
-    if (field === "printMinutes") {
-      const n = Number(raw);
-      if (!Number.isInteger(n) || n <= 0) {
-        throw new Error(`--also "${spec}": printMinutes musí být kladné celé číslo, dostal jsem "${raw}".`);
-      }
-      to.printMinutes = n;
-    } else {
-      const d = new Date(raw);
-      if (Number.isNaN(d.getTime())) {
-        throw new Error(`--also "${spec}": "${raw}" není platné ISO datum pro ${field}.`);
-      }
-      to[field] = d;
-    }
-    fields.push(field);
-  }
-  if (fields.length === 0) throw new Error(`--also "${spec}" neobsahuje žádné pole.`);
-  return { blockId, fields, to };
 }
 
 function parseArgs(argv: string[]): Args {
   let group: string | undefined;
-  const also: AlsoTarget[] = [];
+  const alsoRevisionIds: number[] = [];
   let apply = false;
+  let allowPreexistingOverlaps = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--help" || a === "-h") {
@@ -123,18 +115,23 @@ function parseArgs(argv: string[]): Args {
       process.exit(0);
     } else if (a === "--group") {
       group = argv[++i];
-    } else if (a === "--also") {
-      const spec = argv[++i];
-      if (!spec) throw new Error("--also potřebuje hodnotu, viz --help.");
-      also.push(parseAlsoSpec(spec));
+    } else if (a === "--also-revision") {
+      const raw = argv[++i];
+      const id = Number(raw);
+      if (!Number.isInteger(id) || id <= 0) {
+        throw new Error(`--also-revision "${raw}" není platné ID revize.`);
+      }
+      alsoRevisionIds.push(id);
     } else if (a === "--apply") {
       apply = true;
+    } else if (a === "--allow-preexisting-overlaps") {
+      allowPreexistingOverlaps = true;
     } else {
       throw new Error(`Neznámý argument: "${a}". Nápověda: --help.`);
     }
   }
   if (!group) throw new Error("Chybí --group <groupId>. Nápověda: --help.");
-  return { group, also, apply };
+  return { group, alsoRevisionIds, apply, allowPreexistingOverlaps };
 }
 
 /** ISO span pro `AuditLog` — en-dash `–` (U+2013), NE ASCII pomlčka: `fmtAuditVal` podle něj pozná span. */
@@ -166,25 +163,157 @@ function geomOf(json: unknown, what: string, blockId: number): Geom {
   return { startTime: new Date(s), endTime: new Date(e) };
 }
 
-/** Vytáhne jen požadovaná pole z revizního JSONu bloku mimo skupinu (guard pro `--also`). */
-function fieldsOf(json: unknown, fields: AlsoField[], what: string, blockId: number): AlsoValues {
+/** Vytáhne jen požadovaná pole z revizního JSONu (guard/cíl pro `--also-revision`). */
+function fieldsOf(json: unknown, fields: AlsoField[], what: string, blockId: number): FieldValues {
   const o = json as Record<string, unknown> | null;
-  const out: AlsoValues = {};
+  const out: FieldValues = {};
   for (const field of fields) {
     const v = o?.[field];
     if (field === "printMinutes") {
-      if (typeof v !== "number") {
-        throw new Error(`Revize bloku ${blockId}: v \`${what}\` chybí printMinutes.`);
-      }
+      if (typeof v !== "number") throw new Error(`Revize bloku ${blockId}: v \`${what}\` chybí printMinutes.`);
       out.printMinutes = v;
     } else {
-      if (typeof v !== "string") {
-        throw new Error(`Revize bloku ${blockId}: v \`${what}\` chybí ${field}.`);
-      }
+      if (typeof v !== "string") throw new Error(`Revize bloku ${blockId}: v \`${what}\` chybí ${field}.`);
       out[field] = new Date(v);
     }
   }
   return out;
+}
+
+type GroupTarget = {
+  blockId: number;
+  orderNumber: string | null;
+  machine: string;
+  to: Geom;
+  expect: Geom;
+};
+
+type AlsoTarget = {
+  blockId: number;
+  orderNumber: string | null;
+  machine: string;
+  fields: AlsoField[];
+  to: FieldValues;
+  expect: FieldValues;
+};
+
+/** Načte a ověří jednu `--also-revision`: existuje, je UPDATE, je POSLEDNÍ pro svůj blok, je čistě poziční. */
+async function buildAlsoTarget(revisionId: number): Promise<AlsoTarget> {
+  const rev = await prisma.blockRevision.findUnique({
+    where: { id: revisionId },
+    select: { id: true, blockId: true, orderNumber: true, machine: true, kind: true, before: true, after: true },
+  });
+  if (!rev) throw new Error(`--also-revision ${revisionId}: revize v BlockRevision neexistuje.`);
+  if (rev.kind !== "UPDATE") {
+    throw new Error(
+      `--also-revision ${revisionId}: kind=${rev.kind}, ne UPDATE — vznik/zánik bloku tenhle skript vracet neumí.`,
+    );
+  }
+
+  const latest = await prisma.blockRevision.findFirst({
+    where: { blockId: rev.blockId, kind: "UPDATE" },
+    select: { id: true },
+    orderBy: { id: "desc" },
+  });
+  if (!latest || latest.id !== rev.id) {
+    throw new Error(
+      `--also-revision ${revisionId}: není poslední UPDATE revizí bloku ${rev.blockId} (poslední je ` +
+      `#${latest?.id ?? "?"}). Mezi ní a teď mohl blok změnit ještě něco jiného — skript to neodhaduje, ` +
+      "zadej poslední revizi nebo navrhni opravu ručně.",
+    );
+  }
+
+  const beforeKeys = Object.keys((rev.before ?? {}) as Record<string, unknown>);
+  const afterKeys = Object.keys((rev.after ?? {}) as Record<string, unknown>);
+  const allKeys = [...new Set([...beforeKeys, ...afterKeys])];
+  const impureKeys = allKeys.filter((k) => !(ALSO_FIELDS as readonly string[]).includes(k));
+  if (impureKeys.length > 0) {
+    throw new Error(
+      `--also-revision ${revisionId}: revize bloku ${rev.blockId} mění i pole mimo pozici/délku ` +
+      `(${impureKeys.join(", ")}) — skript vrací jen startTime/endTime/printMinutes, tohle se musí navrhnout ručně.`,
+    );
+  }
+  const fields = allKeys as AlsoField[];
+  if (fields.length === 0) {
+    throw new Error(`--also-revision ${revisionId}: revize bloku ${rev.blockId} nemá žádný rozdíl v before/after.`);
+  }
+
+  return {
+    blockId: rev.blockId,
+    orderNumber: rev.orderNumber,
+    machine: rev.machine,
+    fields,
+    to: fieldsOf(rev.before, fields, `before (revize #${rev.id})`, rev.blockId),
+    expect: fieldsOf(rev.after, fields, `after (revize #${rev.id})`, rev.blockId),
+  };
+}
+
+type DbRow = {
+  id: number;
+  orderNumber: string | null;
+  machine: string;
+  startTime: Date;
+  endTime: Date;
+  printMinutes: number | null;
+};
+
+/** Guard: sedí `byId` (aktuální stav) na `expect` (co tam podle revizí má být)? Volá se DVAKRÁT — viz hlavička. */
+function checkGuard(
+  byId: Map<number, DbRow>,
+  groupTargets: GroupTarget[],
+  alsoTargets: AlsoTarget[],
+): { missing: number[]; drifted: string[] } {
+  const missing: number[] = [];
+  const drifted: string[] = [];
+
+  for (const t of groupTargets) {
+    const cur = byId.get(t.blockId);
+    if (!cur) {
+      missing.push(t.blockId);
+      continue;
+    }
+    if (
+      cur.startTime.getTime() !== t.expect.startTime.getTime() ||
+      cur.endTime.getTime() !== t.expect.endTime.getTime()
+    ) {
+      drifted.push(
+        `  #${t.blockId} (${t.orderNumber ?? "?"}): v DB ${fmt(cur.startTime)}–${fmt(cur.endTime)}, ` +
+        `čekáno ${fmt(t.expect.startTime)}–${fmt(t.expect.endTime)}`,
+      );
+    }
+  }
+
+  for (const t of alsoTargets) {
+    const cur = byId.get(t.blockId);
+    if (!cur) {
+      missing.push(t.blockId);
+      continue;
+    }
+    for (const field of t.fields) {
+      const expectVal = t.expect[field]!;
+      const curVal = field === "printMinutes" ? cur.printMinutes : cur[field];
+      const curTime = field === "printMinutes" ? curVal : (curVal as Date).getTime();
+      const expectTime = field === "printMinutes" ? expectVal : (expectVal as Date).getTime();
+      if (curTime !== expectTime) {
+        drifted.push(
+          `  #${t.blockId} (${cur.orderNumber ?? "?"}) [--also-revision], pole ${field}: v DB ${
+            curVal instanceof Date ? fmt(curVal) : curVal
+          }, čekáno ${fmtVal(field, expectVal)}`,
+        );
+      }
+    }
+  }
+
+  return { missing, drifted };
+}
+
+/** `prisma` (plain klient) i `rtx` (transakční delegát z `withRevision`) mají shodný tvar `block.findMany`. */
+async function fetchRows(client: typeof prisma | PrismaTransactionClient, ids: number[]): Promise<Map<number, DbRow>> {
+  const rows = await client.block.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, orderNumber: true, machine: true, startTime: true, endTime: true, printMinutes: true },
+  });
+  return new Map(rows.map((b) => [b.id, b]));
 }
 
 async function main() {
@@ -208,8 +337,23 @@ async function main() {
       "Vznik/zánik bloku tenhle skript vracet neumí.",
     );
   }
+  // C1: skupina musí být ČISTĚ POZIČNÍ. Když revize mění i `machine` (typicky lasso batch
+  // přesun mezi stroji), `t.machine` z BlockRevision je stroj PŘED přesunem — kdyby skript
+  // vrátil jen pozici, `assertNoOverlapForBlocks` by na konci kontroloval kolize na ŠPATNÉM
+  // (starém) stroji a nahlásil by úspěch nad tichým překryvem na tom novém. Radši odmítnout
+  // celou dávku, než riskovat tichý překryv na produkci po běhu, který hlásil úspěch.
+  const impure = revs.filter((r) =>
+    Object.keys((r.before ?? {}) as Record<string, unknown>).some((k) => !POSITIONAL.has(k)),
+  );
+  if (impure.length > 0) {
+    throw new Error(
+      `Skupina není čistě poziční — bloky ${impure.map((r) => r.blockId).join(", ")} mají v revizi ` +
+      "i jiná pole než startTime/endTime (typicky machine nebo printMinutes). Skript vrací POUZE " +
+      "pozici; vrácení stroje/délky se musí navrhnout ručně.",
+    );
+  }
 
-  const groupTargets = revs.map((r) => ({
+  const groupTargets: GroupTarget[] = revs.map((r) => ({
     blockId: r.blockId,
     orderNumber: r.orderNumber,
     machine: r.machine,
@@ -217,81 +361,33 @@ async function main() {
     expect: geomOf(r.after, "after", r.blockId),
   }));
 
-  // ── Guard pro --also bloky: vlastní POSLEDNÍ revize daného bloku, ne skupina. ──
-  const alsoWithExpect: Array<{
-    blockId: number;
-    fields: AlsoField[];
-    to: AlsoValues;
-    expect: AlsoValues;
-  }> = [];
-  for (const a of args.also) {
-    const latest = await prisma.blockRevision.findFirst({
-      where: { blockId: a.blockId, kind: "UPDATE" },
-      select: { id: true, after: true },
-      orderBy: { id: "desc" },
-    });
-    if (!latest) {
+  // ── --also-revision: načíst, ověřit (poslední UPDATE revize bloku, čistě poziční). ──
+  const alsoTargets: AlsoTarget[] = [];
+  for (const revisionId of args.alsoRevisionIds) {
+    alsoTargets.push(await buildAlsoTarget(revisionId));
+  }
+
+  // I3: žádná duplicita a žádný průnik se skupinou — jinak by dry-run ověřoval jiný stav,
+  // než jaký by se nakonec zapsal (simulace by dala přednost jednomu zdroji, zápis druhému).
+  const groupIds = new Set(groupTargets.map((t) => t.blockId));
+  const seenAlso = new Set<number>();
+  for (const t of alsoTargets) {
+    if (seenAlso.has(t.blockId)) {
+      throw new Error(`--also-revision uvádí blok ${t.blockId} víc než jednou.`);
+    }
+    seenAlso.add(t.blockId);
+    if (groupIds.has(t.blockId)) {
       throw new Error(
-        `--also blok ${a.blockId} nemá v BlockRevision žádnou revizi — nejde ověřit, že mezitím ` +
-        "nikdo nesáhl. Skript ho bez pojistky odmítá zpracovat.",
-      );
-    }
-    alsoWithExpect.push({
-      blockId: a.blockId,
-      fields: a.fields,
-      to: a.to,
-      expect: fieldsOf(latest.after, a.fields, `after (revize #${latest.id})`, a.blockId),
-    });
-  }
-
-  // ── Pojistka: sedí současný stav DB na to, co tam zapsala revize? ──────────
-  const ids = [...groupTargets.map((t) => t.blockId), ...alsoWithExpect.map((t) => t.blockId)];
-  const rows = await prisma.block.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, orderNumber: true, machine: true, startTime: true, endTime: true, printMinutes: true },
-  });
-  const byId = new Map(rows.map((b) => [b.id, b]));
-
-  const missing: number[] = [];
-  const drifted: string[] = [];
-
-  for (const t of groupTargets) {
-    const cur = byId.get(t.blockId);
-    if (!cur) {
-      missing.push(t.blockId);
-      continue;
-    }
-    if (
-      cur.startTime.getTime() !== t.expect.startTime.getTime() ||
-      cur.endTime.getTime() !== t.expect.endTime.getTime()
-    ) {
-      drifted.push(
-        `  #${t.blockId} (${t.orderNumber ?? "?"}): v DB ${fmt(cur.startTime)}–${fmt(cur.endTime)}, ` +
-        `čekáno ${fmt(t.expect.startTime)}–${fmt(t.expect.endTime)}`,
+        `--also-revision uvádí blok ${t.blockId}, který už je součástí revizní skupiny "${args.group}" — ` +
+        "je to duplicita cíle, ne doplněk.",
       );
     }
   }
 
-  for (const t of alsoWithExpect) {
-    const cur = byId.get(t.blockId);
-    if (!cur) {
-      missing.push(t.blockId);
-      continue;
-    }
-    for (const field of t.fields) {
-      const expectVal = t.expect[field]!;
-      const curVal = field === "printMinutes" ? cur.printMinutes : cur[field];
-      const curTime = field === "printMinutes" ? curVal : (curVal as Date).getTime();
-      const expectTime = field === "printMinutes" ? expectVal : (expectVal as Date).getTime();
-      if (curTime !== expectTime) {
-        drifted.push(
-          `  #${t.blockId} (${cur.orderNumber ?? "?"}) [--also], pole ${field}: v DB ${
-            curVal instanceof Date ? fmt(curVal) : curVal
-          }, čekáno ${fmtVal(field, expectVal)}`,
-        );
-      }
-    }
-  }
+  // ── Pojistka #1 (mimo transakci): sedí současný stav DB na to, co tam zapsala revize? ──
+  const ids = [...groupIds, ...seenAlso];
+  const byId = await fetchRows(prisma, ids);
+  const { missing, drifted } = checkGuard(byId, groupTargets, alsoTargets);
 
   // ── Výpis návrhu ──────────────────────────────────────────────────────────
   for (const t of groupTargets) {
@@ -300,15 +396,12 @@ async function main() {
       `${fmt(t.expect.startTime)}–${fmt(t.expect.endTime)}  →  ${fmt(t.to.startTime)}–${fmt(t.to.endTime)}`,
     );
   }
-  for (const t of alsoWithExpect) {
-    const cur = byId.get(t.blockId);
-    const changes = t.fields
-      .map((f) => `${f}: ${fmtVal(f, t.expect[f]!)} → ${fmtVal(f, t.to[f]!)}`)
-      .join(", ");
-    console.log(`${cur?.machine ?? "?"} #${t.blockId} ${(cur?.orderNumber ?? "?").padEnd(12)} [--also] ${changes}`);
+  for (const t of alsoTargets) {
+    const changes = t.fields.map((f) => `${f}: ${fmtVal(f, t.expect[f]!)} → ${fmtVal(f, t.to[f]!)}`).join(", ");
+    console.log(`${t.machine} #${t.blockId} ${(t.orderNumber ?? "?").padEnd(12)} [--also-revision] ${changes}`);
   }
 
-  console.log(`\nBloků k vrácení: ${groupTargets.length} + ${alsoWithExpect.length} korekcí (--also)`);
+  console.log(`\nBloků k vrácení: ${groupTargets.length} + ${alsoTargets.length} korekcí (--also-revision)`);
   console.log(`Nesouladů: ${drifted.length}${missing.length > 0 ? `, chybějících bloků: ${missing.length}` : ""}`);
 
   if (missing.length > 0) {
@@ -331,22 +424,19 @@ async function main() {
   // dry-run neohlásil dopředu, a to jen s první nalezenou kolizí, ne se všemi).
   const affectedMachines = new Set<string>();
   for (const t of groupTargets) affectedMachines.add(t.machine);
-  for (const t of alsoWithExpect) {
-    const machine = byId.get(t.blockId)?.machine;
-    if (machine) affectedMachines.add(machine);
-  }
+  for (const t of alsoTargets) affectedMachines.add(t.machine);
   const machineBlocks = await prisma.block.findMany({
     where: { machine: { in: [...affectedMachines] } },
     select: { id: true, orderNumber: true, machine: true, startTime: true, endTime: true },
   });
   const groupToById = new Map(groupTargets.map((t) => [t.blockId, t.to]));
-  const alsoById = new Map(alsoWithExpect.map((t) => [t.blockId, t.to]));
+  const alsoToById = new Map(alsoTargets.map((t) => [t.blockId, t.to]));
 
-  /** Geometrie po opravě: blok z dávky/--also dostane cílová pole, ostatní zůstávají. */
+  /** Geometrie po opravě: blok z dávky/--also-revision dostane cílová pole, ostatní zůstávají. */
   const simulated = machineBlocks.map((b) => {
     const groupTo = groupToById.get(b.id);
     if (groupTo) return { ...b, startTime: groupTo.startTime, endTime: groupTo.endTime };
-    const alsoTo = alsoById.get(b.id);
+    const alsoTo = alsoToById.get(b.id);
     if (alsoTo) {
       return {
         ...b,
@@ -357,8 +447,9 @@ async function main() {
     return b;
   });
 
-  const clashes: string[] = [];
-  const touchedIds = new Set([...groupToById.keys(), ...alsoById.keys()]);
+  const touchedIds = new Set([...groupToById.keys(), ...alsoToById.keys()]);
+  const touchedClashes: string[] = [];
+  const untouchedClashes: string[] = [];
   for (const machine of affectedMachines) {
     const list = simulated.filter((b) => b.machine === machine).sort((x, y) => x.startTime.getTime() - y.startTime.getTime());
     for (let i = 0; i < list.length; i++) {
@@ -366,20 +457,21 @@ async function main() {
         const a = list[i];
         const b = list[j];
         if (b.startTime.getTime() >= a.endTime.getTime()) break; // seřazeno → dál už nic nekoliduje
-        // Kolize dvou bloků, z nichž ANI JEDEN oprava nemění, je stará vada plánu —
-        // ne něco, co bychom vyrobili my. Hlásí se odděleně, ať se nepletou.
         const touched = touchedIds.has(a.id) || touchedIds.has(b.id);
-        clashes.push(
+        const line =
           `  ${touched ? "OPRAVA" : "starý"} ${machine}: #${a.id} ${a.orderNumber ?? "?"} ` +
-          `(${fmt(a.startTime)}–${fmt(a.endTime)})  ×  #${b.id} ${b.orderNumber ?? "?"} (${fmt(b.startTime)}–${fmt(b.endTime)})`,
-        );
+          `(${fmt(a.startTime)}–${fmt(a.endTime)})  ×  #${b.id} ${b.orderNumber ?? "?"} (${fmt(b.startTime)}–${fmt(b.endTime)})`;
+        (touched ? touchedClashes : untouchedClashes).push(line);
       }
     }
   }
 
-  if (clashes.length > 0) {
-    console.error(`\n❌ Cílový stav by měl ${clashes.length} kolizí — oprava se NESPUSTÍ:`);
-    clashes.forEach((c) => console.error(c));
+  if (touchedClashes.length > 0) {
+    console.error(`\n❌ Cílový stav by měl ${touchedClashes.length} kolizí, které ZPŮSOBUJE tato oprava — NESPUSTÍ se:`);
+    touchedClashes.forEach((c) => console.error(c));
+    if (untouchedClashes.length > 0) {
+      console.error(`\n(Navíc ${untouchedClashes.length} starých kolizí, které oprava nezpůsobuje — ty se řeší až po vyřešení výše.)`);
+    }
     console.error(
       "\nNic se nezapsalo. U každé kolize se musí rozhodnout, který blok ustoupí " +
       "(typicky ten, který vznikl nebo se posunul PO vzniku skupiny do místa, které uvolnila).",
@@ -387,9 +479,23 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  if (untouchedClashes.length > 0 && !args.allowPreexistingOverlaps) {
+    console.error(`\n❌ Cílový stav by měl ${untouchedClashes.length} STARÝCH kolizí (žádnou z nich tato oprava nezpůsobuje):`);
+    untouchedClashes.forEach((c) => console.error(c));
+    console.error(
+      "\nNic se nezapsalo. Buď je to skutečná vada plánu k řešení zvlášť, nebo o ní víš a chceš " +
+      "opravu pustit i tak — pak přidej --allow-preexisting-overlaps (jen přeskočí tuhle hlášku, " +
+      "kolize samotné neopraví ani nezakryje).",
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (untouchedClashes.length > 0) {
+    console.log(`\n⚠ Ignoruji ${untouchedClashes.length} starých kolizí (--allow-preexisting-overlaps).`);
+  }
 
   if (!args.apply) {
-    console.log("\n✅ Vše sedí, cílový stav je bez kolizí. Spusť s --apply (po záloze a `pm2 stop planovanivyroby`).");
+    console.log("\n✅ Vše sedí, cílový stav je bez nových kolizí. Spusť s --apply (po záloze a `pm2 stop planovanivyroby`).");
     return;
   }
 
@@ -404,14 +510,27 @@ async function main() {
       user: { id: 0, username: "system:revert-revision-group" },
       txOptions: { timeout: 120_000, maxWait: 10_000 },
     },
-    async (rtx) => {
+    async (rtx: PrismaTransactionClient) => {
+      // I2 (TOCTOU): Pojistka #1 běžela v autocommitu PŘED otevřením transakce — mezitím
+      // (čekání na zámek, souběžná práce) mohl kdokoli mimo skript kterýkoli dotčený blok
+      // změnit. Zopakovat guard jako PRVNÍ dotaz uvnitř transakce (delegát čtení povoluje)
+      // a při neshodě throw → celá transakce se odrolí, nic se nezapíše.
+      const freshById = await fetchRows(rtx, ids);
+      const recheck = checkGuard(freshById, groupTargets, alsoTargets);
+      if (recheck.missing.length > 0 || recheck.drifted.length > 0) {
+        throw new Error(
+          "Stav bloků se změnil mezi kontrolou a otevřením transakce (souběžná editace) — " +
+          "nic se nezapsalo. Spusť skript znovu, ať se ověří proti aktuálnímu stavu.",
+        );
+      }
+
       for (const t of groupTargets) {
         await rtx.block.update({
           where: { id: t.blockId },
           data: { startTime: t.to.startTime, endTime: t.to.endTime },
         });
       }
-      for (const t of alsoWithExpect) {
+      for (const t of alsoTargets) {
         const data: Record<string, Date | number> = {};
         for (const field of t.fields) data[field] = t.to[field]!;
         await rtx.block.update({ where: { id: t.blockId }, data });
@@ -432,32 +551,28 @@ async function main() {
           // Jeden řádek na pole, ne složené `field: "endTime/printMinutes"` —
           // `COMPOSITE_FIELDS` takový tvar nezná a pokrytí by ho vzalo za jméno
           // jednoho (neexistujícího) sloupce.
-          ...alsoWithExpect.flatMap((t) => {
-            const cur = byId.get(t.blockId);
-            return t.fields.map((field) => ({
+          ...alsoTargets.flatMap((t) =>
+            t.fields.map((field) => ({
               blockId: t.blockId,
-              orderNumber: cur?.orderNumber ?? null,
+              orderNumber: t.orderNumber,
               userId: 0,
               username: "system:revert-revision-group",
               action: "INCIDENT_REVERT",
               field,
               oldValue: field === "printMinutes" ? String(t.expect[field]) : (t.expect[field] as Date).toISOString(),
               newValue: field === "printMinutes" ? String(t.to[field]) : (t.to[field] as Date).toISOString(),
-            }));
-          }),
+            })),
+          ),
         ],
       });
 
-      // Finální pojistka per stroj — parita s ostatními zápisovými cestami.
-      // Průběžné překryvy uvnitř transakce jsou nevyhnutelné (bloky se vracejí na
-      // pozice, které ještě drží jejich sousedi); rozhoduje až stav na konci.
+      // Finální pojistka per stroj — parita s ostatními zápisovými cestami. Stroj se bere
+      // z ČERSTVÉHO čtení (freshById), ne ze stálé mapy zvenku transakce (M1) — chybějící
+      // blok v tomhle bodě je nedosažitelná větev, která má PADAT, ne mlčky pokračovat.
       const byMachine = new Map<string, number[]>();
-      for (const t of groupTargets) {
-        byMachine.set(t.machine, [...(byMachine.get(t.machine) ?? []), t.blockId]);
-      }
-      for (const t of alsoWithExpect) {
-        const machine = byId.get(t.blockId)?.machine;
-        if (!machine) continue;
+      for (const t of [...groupTargets, ...alsoTargets]) {
+        const machine = freshById.get(t.blockId)?.machine;
+        if (!machine) throw new Error(`Blok ${t.blockId} zmizel mezi kontrolou a zápisem.`);
         byMachine.set(machine, [...(byMachine.get(machine) ?? []), t.blockId]);
       }
       for (const [machine, machineIds] of byMachine) {
@@ -472,7 +587,10 @@ async function main() {
 
 main()
   .catch((e) => {
-    console.error(`\n❌ ${e instanceof Error ? e.message : String(e)}`);
+    // M2: celý objekt chyby, ne jen message — u Prisma chyb (P2025 apod.) jinak zmizí
+    // `code`/`meta`, přesně ve chvíli, kdy se nejvíc hodí.
+    console.error("\n❌ Selhalo:");
+    console.error(e);
     process.exitCode = 1;
   })
   .finally(() => prisma.$disconnect());

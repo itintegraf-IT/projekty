@@ -688,6 +688,7 @@ umí skočit o délku celé pauzy.
 **Pravidlo:** Kde takový skok vstupuje do automatiky, která sama posouvá další
 bloky (chain push), musí být strop a potvrzení odvozené od VELIKOSTI DŮSLEDKU,
 ne od velikosti vstupního gesta — „posunul jsem o 30 minut" neznamená „dopad je
-30minutový". Tohle NENÍ vyřešené: zakázka na chain pushi horizont posunu nemá
-(`MAX_RIGID_PUSH_MS` v `overlapResolver.ts` platí jen pro rezervaci/údržbu,
-řádek 39 vs. 161) — otevřený dluh, zapsaný i v `CLAUDE.md`.
+30minutový". Tohle NENÍ vyřešené: zakázka na chain pushi horizont posunu nemá —
+`computeChainPush`/`computeChainPushAttempt` (`src/lib/overlapResolver.ts`,
+volané z `resolveChainPushFromDb`) mají konstantu `MAX_RIGID_PUSH_MS` jen pro
+rezervaci/údržbu, ne pro zakázku — otevřený dluh, zapsaný i v `CLAUDE.md`.

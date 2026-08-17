@@ -2209,21 +2209,27 @@ obsluhu dialog odklikávat — `docs/POUCENI.md` P29.
   skriptu. Mechanika (cíle z `BlockRevision.before`, guard „blok musí stát
   tam, kam ho revize zapsala", simulace cílového stavu se VŠEMI kolizemi,
   `withRevision`, `assertNoOverlapForBlocks`) je beze změny, jen
-  parametrizovaná: `--group <groupId> [--also <id>:pole=hodnota,…] [--apply]`.
-  Bez `--apply` je vždy jen dry-run, který transakci vůbec neotevře, pokud
-  najde kolizi. Postup použití → `docs/OPS_ZALOHY.md`, sekce „Vrácení
-  kaskády z černé skříňky".
+  parametrizovaná: `--group <groupId> [--also-revision <revisionId>…] [--apply]
+  [--allow-preexisting-overlaps]`. Bez `--apply` je vždy jen dry-run, který
+  transakci vůbec neotevře, pokud najde kolizi. Skript je tvrdě čistě poziční
+  (skupina, kde revize mění i `machine`, se ODMÍTNE CELÁ — jinak by finální
+  kolizní pojistka kontrolovala špatný, předpřesunový stroj) a guard proti
+  souběžné editaci běží DVAKRÁT: jednou před otevřením transakce, znovu jako
+  PRVNÍ dotaz UVNITŘ ní (fix round 1, review C1/I1/I2). Postup použití →
+  `docs/OPS_ZALOHY.md`, sekce „Vrácení kaskády z černé skříňky".
 
 **Co tahle vlna NEZAVÍRÁ — otevřený dluh.** Diferenční kontrola blokuje
 kaskádu, která vznikne PŘI EDITACI SMĚN. Nechrání proti kaskádě, která
 vznikne při BĚŽNÉM přesunu/resize bloku mimo editaci směn — a přesně to
 odpálilo havárii 16:31 (posun bloku 1335, ne editace směn samotná). Chain
-push u typu ZAKAZKA nemá žádný horizont posunu (`overlapResolver.ts:161`,
-„Zakázka horizont nemá, u ní je to skutečné selhání" — kontrast s
-`MAX_RIGID_PUSH_MS` = 7 dní na řádku 39, které platí jen pro
-REZERVACI/UDRZBU). Dokud tenhle strop nepřibude a potvrzení chain pushe se
-neodvodí od DŮSLEDKU posunu, ne od velikosti vstupního gesta (`docs/POUCENI.md`
-P31), třída chyby z 16:31 **zůstává otevřená** — tahle vlna dala nástroj na
+push u typu ZAKAZKA nemá žádný horizont posunu — `computeChainPush`/
+`computeChainPushAttempt` (`src/lib/overlapResolver.ts`, volané z
+`resolveChainPushFromDb` v `overlapResolver.server.ts`) mají komentář
+„Zakázka horizont nemá, u ní je to skutečné selhání" — kontrast s konstantou
+`MAX_RIGID_PUSH_MS` = 7 dní, která platí jen pro REZERVACI/UDRZBU. Dokud
+tenhle strop nepřibude a potvrzení chain pushe se neodvodí od DŮSLEDKU
+posunu, ne od velikosti vstupního gesta (`docs/POUCENI.md` P31), třída chyby
+z 16:31 **zůstává otevřená** — tahle vlna dala nástroj na
 rychlejší úklid (`revert-revision-group.ts`) a zavřela jednu konkrétní cestu
 k falešnému pocitu bezpečí (diferenční kontrola u editace směn), ne kaskádu
 jako celek.

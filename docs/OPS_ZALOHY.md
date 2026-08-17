@@ -252,12 +252,14 @@ npx tsx scripts/revert-revision-group.ts --group <groupId>                 # DRY
 npx tsx scripts/revert-revision-group.ts --group <groupId> --apply         # zápis
 ```
 
-**Jak najít `groupId`:** všechny zápisy jedné mutace (drag, resize, chain push
-navazujících bloků) sdílejí týž `groupId` — u incidentu je to typicky ten z
-posledního přesunu PŘED tím, než se plán rozjel. Zdroje:
+**Jak najít `groupId` (a případné `revisionId` pro `--also-revision`):**
+všechny zápisy jedné mutace (drag, resize, chain push navazujících bloků)
+sdílejí týž `groupId` — u incidentu je to typicky ten z posledního přesunu
+PŘED tím, než se plán rozjel. Stejný dotaz dává i `id` jednotlivé revize
+(sloupec `id` v `SELECT`, ne `groupId`) — to je hodnota pro `--also-revision`:
 
 ```sql
--- podle bloku, o kterém víme, že ho havárie odsunula
+-- podle bloku, o kterém víme, že ho havárie odsunula (id = revisionId, groupId = skupina)
 SELECT id, groupId, blockId, orderNumber, kind, createdAt
 FROM BlockRevision WHERE blockId = <id> ORDER BY id DESC LIMIT 20;
 
@@ -272,31 +274,46 @@ Panel „Historie" na bloku v aplikaci (sloučená osa audit + revize,
 **Co skript dělá** (mechanika beze změny proti jednorázové opravě 17. 8. 2026,
 jen parametrizovaná — viz hlavička `scripts/revert-revision-group.ts`): cíl
 vrácení každého bloku = `before` z jeho revize; než na blok sáhne, ověří, že
-DB dnes odpovídá `after` téže revize (jinak by přepsal cizí mezitímní práci);
-simuluje cílový stav a nahlásí VŠECHNY kolize s bloky mimo dávku předem, ne
-jen první; bez `--apply` je vždy jen DRY-RUN — transakce se neotevře, pokud
-skript najde chybějící blok, nesoulad nebo kolizi. `--apply` zapíše v jedné
-transakci přes `withRevision` (vznikne NOVÁ revizní skupina pro samotnou
-opravu) a končí `assertNoOverlapForBlocks`.
+DB dnes odpovídá `after` téže revize (jinak by přepsal cizí mezitímní práci) —
+tahle kontrola běží DVAKRÁT, jednou před otevřením transakce a znovu jako
+PRVNÍ dotaz UVNITŘ ní (zavírá okno mezi kontrolou a zápisem); simuluje cílový
+stav a nahlásí VŠECHNY kolize s bloky mimo dávku předem, ne jen první; bez
+`--apply` je vždy jen DRY-RUN — transakce se neotevře, pokud skript najde
+chybějící blok, nesoulad nebo kolizi. `--apply` zapíše v jedné transakci přes
+`withRevision` (vznikne NOVÁ revizní skupina pro samotnou opravu) a končí
+`assertNoOverlapForBlocks`.
 
-Volitelně `--also <blockId>:pole=hodnota[,pole=hodnota…]` — korekce bloku,
+Skript je **čistě poziční a tvrdě to vynucuje**: vrací jen `startTime`/
+`endTime` (u `--also-revision` navíc `printMinutes`). Revizní skupina, kde
+`before`/`after` některého bloku obsahuje i jiné pole — typicky `machine`
+u lasso batch přesunu mezi stroji — se ODMÍTNE CELÁ, ne jen tiše přeskočí to
+pole: kdyby skript takový blok vrátil jen pozičně, finální
+`assertNoOverlapForBlocks` by kontroloval kolize na stroji PŘED přesunem, ne
+na tom, kde blok skutečně je, a mohl by nahlásit úspěch nad tichým překryvem.
+Takovou dávku je nutné navrhnout ručně.
+
+Volitelně `--also-revision <revisionId>` (lze opakovat) — korekce bloku,
 který v dané revizní skupině NENÍ, ale patří k opravě (typicky navazující
 úprava, kterou někdo udělal těsně po havárii do místa, jež havárie uvolnila —
-bez jejího vrácení spolu s dávkou skončí oprava kolizí). Povolená pole:
-`startTime`, `endTime`, `printMinutes`. Guard pro `--also` blok je jeho
-VLASTNÍ poslední revize, ne revize skupiny.
+bez jejího vrácení spolu s dávkou skončí oprava kolizí). Cíl i guard se čtou
+přímo z uvedené revize (`before`/`after`) — žádné ruční psaní ISO časů.
+Revize musí být `kind: UPDATE`, musí to být **poslední** `UPDATE` revize
+daného bloku (jinak skript odmítne — nedokáže vyloučit, že blok mezitím
+změnil ještě něco jiného) a smí měnit jen `startTime`/`endTime`/
+`printMinutes`. Blok nesmí být zároveň součástí `--group` skupiny.
+
+Pokud simulace najde kolizi mezi dvěma bloky, které oprava VŮBEC nemění
+(stará vada plánu, kterou odhalila jen simulace), skript ji ohlásí a
+odmítne spustit — přidej `--allow-preexisting-overlaps`, jen když o té vadě
+víš a chceš opravu pustit i tak (přepínač kolizi neopraví ani nezakryje, jen
+přestane být důvodem k zastavení). Kolize, kterou by ZPŮSOBILA samotná
+oprava, blokuje VŽDY a přepínač na ni nemá vliv.
 
 **Než se spustí `--apply`, VŽDY nejdřív `mysqldump` záloha** (postup viz
 sekci „Obnova" výše nebo `DEPLOY_WORKFLOW.md`) a `pm2 stop planovanivyroby`,
-ať do toho nikdo nezapisuje. Bez zálohy se skript spouštět nesmí — `before`
-z revizí je jediný zdroj cílového stavu a chyba v ručně sestaveném `--also`
-by jinak byla nevratná.
-
-Skript vrací jen POZICI (`startTime`/`endTime`) bloků ze skupiny — je to
-záměr zděděný z originálu: dávka odsunutá chain pushem je „čistě poziční",
-žádné jiné pole se neposunulo. Revizní skupina, kde `before`/`after` chybí
-`startTime`/`endTime`, není chain push a skript ji odmítne — takový návrh
-vrácení se musí sestavit ručně.
+ať do toho nikdo nezapisuje. Kontrola uvnitř transakce (viz výš) chrání proti
+souběhu s aplikací, NE proti tomu, že se opravuje špatná dávka — bez zálohy
+se skript spouštět nesmí.
 
 ## Čtvrtletní test obnovy (záloha bez otestovaného restore není záloha)
 
