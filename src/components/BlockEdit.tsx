@@ -195,10 +195,12 @@ export function BlockEdit({
   // (viz komentář u serverDurationHours výš) a ne když cizí odklepnutí chipu změní
   // jen updatedAt beze změny délky. Cizí úprava se sem NIKDY nedostane: guard
   // `editingBlockIdsRef` v PlannerPage.tsx zahodí SSE i polling update pro
-  // rozeditovaný blok a ukáže jen toast — efekt 2b/2c tedy reaguje výhradně na akce
-  // z TÉŽE záložky (split, chain push vyvolaný týmž uživatelem). Souběh s cizí
-  // úpravou řeší nezávisle optimistický zámek (409 při Uložit změny), ne tenhle
-  // efekt. Nedotčený select se tiše přesynchronizuje (2b); dotčený select se
+  // rozeditovaný blok — SSE k tomu ukáže toast (`handleSSEEvent`), polling
+  // zůstane tichý (`pollBlocks`/`mergeFromServer` tam žádný `showToast` nemá) —
+  // efekt 2b/2c tedy reaguje výhradně na akce z TÉŽE záložky (split, chain push
+  // vyvolaný týmž uživatelem). Souběh s cizí úpravou řeší nezávisle optimistický
+  // zámek (409 při Uložit změny), ne tenhle efekt. Nedotčený select se tiše
+  // přesynchronizuje (2b); dotčený select se
   // NEPŘEPÍŠE, jen se nastaví hláška s aktuální serverovou hodnotou (2c).
   // Rozhodnutí samotné je v resolveDurationSync (blockEditDuration.ts) —
   // testovatelné bez React efektu.
