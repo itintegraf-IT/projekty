@@ -174,8 +174,60 @@ async function main() {
     return;
   }
 
+  // ── Simulace cílového stavu: nekoliduje vrácení s něčím, co v dávce NENÍ? ──
+  //
+  // Tohle je druhá pojistka a vznikla z pokusu 17. 8. 2026: první běh `--apply` spadl
+  // až uvnitř transakce (`assertNoOverlapForBlocks`) na rezervaci R4978, kterou Lukáš
+  // vytvořil 7 minut po havárii do místa uvolněného právě tou havárií. Rollback zabral,
+  // ale dry-run to měl říct dopředu — a hlavně měl vypsat VŠECHNY kolize, ne jen tu první,
+  // na které se guard zastaví. Bez úplného seznamu se oprava ladí po jedné kolizi na běh.
+  const affectedMachines = new Set([...targets.map((t) => t.machine), ...(extraCur ? [extraCur.machine] : [])]);
+  const machineBlocks = await prisma.block.findMany({
+    where: { machine: { in: [...affectedMachines] } },
+    select: { id: true, orderNumber: true, machine: true, startTime: true, endTime: true },
+  });
+  const targetById = new Map(targets.map((t) => [t.blockId, t.to]));
+
+  /** Geometrie po opravě: blok z dávky dostane cílovou, 18088 zkrácený konec, ostatní zůstávají. */
+  const simulated = machineBlocks.map((b) => {
+    const to = targetById.get(b.id);
+    if (to) return { ...b, startTime: to.startTime, endTime: to.endTime };
+    if (b.id === EXTRA.blockId) return { ...b, endTime: EXTRA.target.endTime };
+    return b;
+  });
+
+  const clashes: string[] = [];
+  for (const machine of affectedMachines) {
+    const list = simulated.filter((b) => b.machine === machine).sort((x, y) => x.startTime.getTime() - y.startTime.getTime());
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        if (b.startTime.getTime() >= a.endTime.getTime()) break; // seřazeno → dál už nic nekoliduje
+        // Kolize dvou bloků, z nichž ANI JEDEN oprava nemění, je stará vada plánu —
+        // ne něco, co bychom vyrobili my. Hlásí se odděleně, ať se nepletou.
+        const touched = targetById.has(a.id) || targetById.has(b.id) || a.id === EXTRA.blockId || b.id === EXTRA.blockId;
+        clashes.push(
+          `  ${touched ? "OPRAVA" : "starý"} ${machine}: #${a.id} ${a.orderNumber ?? "?"} ` +
+          `(${fmt(a.startTime)}–${fmt(a.endTime)})  ×  #${b.id} ${b.orderNumber ?? "?"} (${fmt(b.startTime)}–${fmt(b.endTime)})`,
+        );
+      }
+    }
+  }
+
+  if (clashes.length > 0) {
+    console.error(`\n❌ Cílový stav by měl ${clashes.length} kolizí — oprava se NESPUSTÍ:`);
+    clashes.forEach((c) => console.error(c));
+    console.error(
+      "\nNic se nezapsalo. U každé kolize se musí rozhodnout, který blok ustoupí " +
+      "(typicky ten, který vznikl nebo se posunul PO havárii do místa, které uvolnila).",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   if (!APPLY) {
-    console.log("\n✅ Vše sedí. Spusť s --apply (po záloze a `pm2 stop`).");
+    console.log("\n✅ Vše sedí, cílový stav je bez kolizí. Spusť s --apply (po záloze a `pm2 stop planovanivyroby`).");
     return;
   }
 
