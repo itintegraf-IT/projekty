@@ -4,6 +4,9 @@ import React from "react";
 import { machineLabel } from "@/lib/machines";
 import { reportTypeScale, reportRadius } from "@/lib/reportTokens";
 import type { PlanningMetrics, PlannerActivityEntry } from "./PlanningSection";
+import type { CalendarCascade } from "@/lib/reportMetrics";
+
+export type { CalendarCascade };
 
 export interface RetroMachineData {
   utilization: number | null;
@@ -12,6 +15,15 @@ export interface RetroMachineData {
   availableHours: number;
   /** Ratio údržby JEN tohoto stroje — souhrn přes oba ho ředí kapacitou druhého. */
   maintenanceRatio: number | null;
+  /**
+   * Kaskáda kalendář → obsazeno směnami → naplánováno → potvrzeno tiskařem.
+   *
+   * POZOR: hodiny jsou NEZAOKROUHLENÉ, na rozdíl od polí výš. Route je nechává
+   * přesné, aby rozpad `unused` seděl na součet; zaokrouhlení na jedno desetinné
+   * místo si musí udělat komponenta, protože `cz()` samo NEZAOKROUHLUJE a
+   * `cz(153.90000000000003)` vypíše všech patnáct míst.
+   */
+  cascade: CalendarCascade;
 }
 
 export interface RetroData {

@@ -6,6 +6,7 @@ import { isCivilDateString, addDaysToCivilDate, pragueToUTC } from "@/lib/dateUt
 import { serializeWeekShifts } from "@/lib/scheduleValidation";
 import {
   computeAvailableHours,
+  computeCalendarCascade,
   computeUtilization,
   groupCompletedToOrders,
   computeThroughputFromOrders,
@@ -13,6 +14,7 @@ import {
   computeMaintenanceRatio,
   computePlanStability,
   resolvePlanCoverage,
+  type CalendarCascade,
 } from "@/lib/reportMetrics";
 import { OPEN_STATUSES, CLOSED_STATUSES, computeConversionPercent } from "@/lib/reservationStatus";
 import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
@@ -207,7 +209,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   // Per-machine metrics
   // `maintenanceRatio` je i per stroj — souhrn přes oba stroje ředí odstávku jednoho
   // kapacitou druhého, takže sám o sobě neřekne, který stroj stojí.
-  const machines: Record<string, { utilization: number | null; productionHours: number; maintenanceHours: number; availableHours: number; maintenanceRatio: number | null }> = {};
+  const machines: Record<string, { utilization: number | null; productionHours: number; maintenanceHours: number; availableHours: number; maintenanceRatio: number | null; cascade: CalendarCascade }> = {};
   let totalAvailable = 0;
   let totalMaintenance = 0;
 
@@ -224,6 +226,13 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 
     const productionHours = sumClipped("ZAKAZKA");
     const maintenanceHours = sumClipped("UDRZBA");
+    // Potvrzené hodiny = TÝŽ výpočet jako produkční, jen zúžený na bloky, u kterých
+    // tiskař klepl HOTOVO. Sdílí `clippedHours` se `sumClipped` ZÁMĚRNĚ: druhá cesta
+    // k témuž ořezu by se dřív nebo později rozešla a kaskáda by pak tvrdila, že se
+    // potvrdilo víc hodin, než se naplánovalo.
+    const confirmedHours = blockInputs
+      .filter((b) => b.machine === machine && b.type === "ZAKAZKA" && b.printCompletedAt != null)
+      .reduce((s, b) => s + clippedHours(b), 0);
     // Poměry se počítají z PŘESNÝCH hodin; zaokrouhluje se až to, co jde na obrazovku.
     const utilization = computeUtilization(productionHours, availableHours);
     machines[machine] = {
@@ -232,6 +241,19 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       maintenanceHours: round1(maintenanceHours),
       availableHours: round1(availableHours),
       maintenanceRatio: computeMaintenanceRatio(maintenanceHours, availableHours),
+      // Kaskáda jde ven NEZAOKROUHLENÁ — na rozdíl od polí výš. Rozpad nevyužitého
+      // kalendáře musí sedět na součet (`total` = víkendy + odstávky + neobsazené
+      // směny) a zaokrouhlení každé složky zvlášť by ten součet rozbilo o desetinu.
+      // Formátování na obrazovku je proto úkol UI, ne téhle routy.
+      cascade: computeCalendarCascade({
+        machine,
+        rangeStart,
+        rangeEnd,
+        weekShifts,
+        companyDays,
+        plannedHours: productionHours,
+        confirmedHours,
+      }),
     };
     totalAvailable += availableHours;
     totalMaintenance += maintenanceHours;
