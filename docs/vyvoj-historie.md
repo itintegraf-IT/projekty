@@ -2142,3 +2142,93 @@ V obou případech chipy vlevo na kartě zůstaly odkryté a bublina se nedotkla
 sousedního stroje. Vedlejší zjištění: se starým ořezem na okno by bublina u
 XL 106 skončila na 1350–1590 px, tedy **přes panel Job Builderu** — nové
 pravidlo ji drží uvnitř mřížky i tam.
+
+## Havárie kaskády směn 17. 8. 2026 16:31 — jednorázová oprava, diferenční kontrola, záchranný nástroj
+
+**Co se stalo.** `j.umlauf` posunul blok 1335 (zakázka 18424, XL 105) o 30
+minut. Šest minut předtím `l.lukes` protáhl pondělní odpolední směnu do
+24:00. Po posunu se blok přestal vejít před půlnoc — 30 z jeho 180 tiskových
+minut přeteklo přes noční pauzu, expanze tiskových hodin ho musela natáhnout
+přes celou pauzu a spočítaný konec skočil o 6,5 hodiny (24:00 → 6:30) místo
+o 30 minut. Chain push na to zareagoval podle pravidel (posouvá bloky VŽDY,
+je-li potřeba udělat místo) a odsunul 87 navazujících bloků, některé o týdny
+dál. Undo v aplikaci nešlo použít — kontroluje `expectedUpdatedAt` všech
+dotčených bloků najednou a mezi 16:33 a 16:47 s částí z nich pracovali `mtz`
+a `f.fucik`. Obnova ze zálohy by zahodila celý den (denní dump je z noci).
+Jediný zdroj přesných hodnot „před" byl `BlockRevision` — přesně proto ta
+tabulka vznikla (etapa B1). Oprava proto vznikla jako jednorázový skript,
+`scripts/revert-cascade-20260817.ts`, se zadrátovaným `groupId` a jednou
+ruční korekcí bloku 18088 (dostal navazující úpravu 7 minut po havárii, do
+místa, které havárie uvolnila — bez jeho vrácení spolu s dávkou by oprava
+skončila kolizí). Skript **zůstává v repu beze změny** jako historický
+záznam incidentu, přesně proto ze sebe nedovoluje smazat vlastní kontext.
+
+**Kořenová příčina alarmu, který havárii nezachytil.** Stará kontrola u
+editace směn (`findConflictingBlocks.ts`) byla ABSOLUTNÍ, ne diferenční —
+simulovala cílovou konfiguraci ručně (bez znalosti skutečné expanze
+tiskových hodin) a hlásila „Zkrácení směny" podle simulace, ne podle toho,
+jestli TATO editace SKUTEČNĚ něco vystěhovala. Falešné poplachy naučily
+obsluhu dialog odklikávat — `docs/POUCENI.md` P29.
+
+**Co tahle vlna postavila (5 tasků implementace + Task 6 dokumentace):**
+
+- **Diferenční kontrola místo absolutní** (`src/lib/cascadeCheck.ts`,
+  `classifyCascade` + `computeConflictWindow`, přesunuto sem z původního
+  `findConflictingBlocks.ts`, který **zanikl i s 11 testy**). `PUT
+  /api/machine-week-shifts` zavolá `detectCalendarDrift` DVAKRÁT v jedné
+  transakci — `driftBefore` PŘED upserty směn, `driftAfter` PO nich (tx vidí
+  vlastní zápisy) — a rozdíl klasifikuje na `newlyHomeless` (blokuje, 409) /
+  `newlyLonger` (neblokuje, jen se pojmenuje). Cílový stav se tedy NESIMULUJE,
+  ale MĚŘÍ — `docs/POUCENI.md` P30. Bez kolize se transakce commitne; s
+  kolizí a bez `force` se ODROLUJE (směny se nezapíšou vůbec).
+- **`force=1` nemutuje `Block`** — přeskočí jen podmínku, která by jinak
+  hodila `CONFLICT`, a zapíše výhradně řádky `MachineWeekShifts`. Předchozí
+  obava, že „force něco posouvá", byla mylná už u staré kontroly, ale u
+  diferenční je to obzvlášť důležité pochopit — zapsáno do `CLAUDE.md`.
+  Odpověď PUT je nově obálka `{ rows, longerBlocks }` místo holého pole
+  (kontrakt se mění, `longerBlocks` nese bloky, kterým se konec prodloužil,
+  aniž by cokoli vystěhovaly — latentní detonátor pro příští úpravu).
+- **Pravdivý dialog s důvodem** (`src/lib/cascadeDialogText.ts`,
+  `CASCADE_REASON_LABELS`, `cascadeDialogTitle`, `longerBlocksSentence`) —
+  titulek byl od 20. 4. 2026 napevno „Zkrácení směny…" i při přidání směny;
+  teď rozlišuje `START_NOT_RUNNABLE` / `HORIZON_EXCEEDED` / `END_MISMATCH` a
+  ukazuje počet bez skloňování. `DriftedBlock` dostal `description`, aby
+  dialog i Monitor ukazovaly víc než holé číslo zakázky.
+- **Značka na Monitoru** (`src/lib/monitorDriftMark.ts` — `shouldMarkDrift`,
+  `MONITOR_DRIFT_NOTE_TEXT` — a sdílená komponenta
+  `src/components/monitor/MonitorDriftNote.tsx`). Monitor dřív tiskl uložený
+  `endTime` natvrdo, i když aplikace sama uměla poznat, že blok nesedí na
+  kalendář — tiskař na server-side drift nemá dosah (notifikace mu nechodí,
+  `TISKAR` není v `INBOX_ROLES`). Text je sjednocený na „⚠ nesedí na
+  kalendář" (ne „čas se přepočítává" — fronta zobrazuje jen START bloku,
+  ale drift může být na `START_NOT_RUNNABLE` i na konci; obecnější formulace
+  je pravdivá ve všech třech důvodech). Vědomě odložené bloky
+  (`PARKED`/`STALE_BYPASS`) se z určení VYLUČUJÍ stejně jako všude jinde v
+  aplikaci — odložení je rozhodnutí plánovače, ne porucha.
+- **`scripts/revert-revision-group.ts`** — zobecněná verze jednorázového
+  skriptu. Mechanika (cíle z `BlockRevision.before`, guard „blok musí stát
+  tam, kam ho revize zapsala", simulace cílového stavu se VŠEMI kolizemi,
+  `withRevision`, `assertNoOverlapForBlocks`) je beze změny, jen
+  parametrizovaná: `--group <groupId> [--also <id>:pole=hodnota,…] [--apply]`.
+  Bez `--apply` je vždy jen dry-run, který transakci vůbec neotevře, pokud
+  najde kolizi. Postup použití → `docs/OPS_ZALOHY.md`, sekce „Vrácení
+  kaskády z černé skříňky".
+
+**Co tahle vlna NEZAVÍRÁ — otevřený dluh.** Diferenční kontrola blokuje
+kaskádu, která vznikne PŘI EDITACI SMĚN. Nechrání proti kaskádě, která
+vznikne při BĚŽNÉM přesunu/resize bloku mimo editaci směn — a přesně to
+odpálilo havárii 16:31 (posun bloku 1335, ne editace směn samotná). Chain
+push u typu ZAKAZKA nemá žádný horizont posunu (`overlapResolver.ts:161`,
+„Zakázka horizont nemá, u ní je to skutečné selhání" — kontrast s
+`MAX_RIGID_PUSH_MS` = 7 dní na řádku 39, které platí jen pro
+REZERVACI/UDRZBU). Dokud tenhle strop nepřibude a potvrzení chain pushe se
+neodvodí od DŮSLEDKU posunu, ne od velikosti vstupního gesta (`docs/POUCENI.md`
+P31), třída chyby z 16:31 **zůstává otevřená** — tahle vlna dala nástroj na
+rychlejší úklid (`revert-revision-group.ts`) a zavřela jednu konkrétní cestu
+k falešnému pocitu bezpečí (diferenční kontrola u editace směn), ne kaskádu
+jako celek.
+
+**Ověření.** `npm run build` čistý, 1314/1314 testů po dokončení Tasků 1–5
+(commit `5335c907`); strážný test typografie Monitoru zelený. Task 6 (tento
+zápis + `scripts/revert-revision-group.ts`) ověřen samostatně — viz commit
+zprávu a `.superpowers/sdd/2026-08-17-kaskada-smen-diferencni/task-6-report.md`.

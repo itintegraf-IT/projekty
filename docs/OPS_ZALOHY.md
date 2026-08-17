@@ -238,6 +238,66 @@ sudo rsync -a /var/backups/planovanivyroby/attachments/<STAMP>/ /var/www/planova
 sudo chown -R administrator: /var/www/planovanivyroby/data/reservation-attachments/
 ```
 
+## Vrácení kaskády z černé skříňky (`BlockRevision`)
+
+Když chain push (posun směn, ruční drag/resize s dopadem na navazující bloky…)
+odsune bloky do stavu, který se nedá vrátit ani otevřenou aplikací (typicky
+`expectedUpdatedAt` konflikt undo — mezitím s některým z dotčených bloků
+pracoval někdo další) ani obnovou ze zálohy (denní dump by zahodil celý den),
+je poslední cesta `BlockRevision` — „černá skříňka" změn plánu (etapa B1),
+která ke každé změně bloku drží, jak řádek vypadal `before`/`after`. Nástroj:
+
+```bash
+npx tsx scripts/revert-revision-group.ts --group <groupId>                 # DRY-RUN
+npx tsx scripts/revert-revision-group.ts --group <groupId> --apply         # zápis
+```
+
+**Jak najít `groupId`:** všechny zápisy jedné mutace (drag, resize, chain push
+navazujících bloků) sdílejí týž `groupId` — u incidentu je to typicky ten z
+posledního přesunu PŘED tím, než se plán rozjel. Zdroje:
+
+```sql
+-- podle bloku, o kterém víme, že ho havárie odsunula
+SELECT id, groupId, blockId, orderNumber, kind, createdAt
+FROM BlockRevision WHERE blockId = <id> ORDER BY id DESC LIMIT 20;
+
+-- podle časového okna havárie (createdAt je server čas, UTC)
+SELECT groupId, COUNT(*), MIN(createdAt), MAX(createdAt)
+FROM BlockRevision WHERE createdAt BETWEEN '<od>' AND '<do>' GROUP BY groupId;
+```
+
+Panel „Historie" na bloku v aplikaci (sloučená osa audit + revize,
+`blockHistory.ts`) vede ke stejným řádkům bez SQL.
+
+**Co skript dělá** (mechanika beze změny proti jednorázové opravě 17. 8. 2026,
+jen parametrizovaná — viz hlavička `scripts/revert-revision-group.ts`): cíl
+vrácení každého bloku = `before` z jeho revize; než na blok sáhne, ověří, že
+DB dnes odpovídá `after` téže revize (jinak by přepsal cizí mezitímní práci);
+simuluje cílový stav a nahlásí VŠECHNY kolize s bloky mimo dávku předem, ne
+jen první; bez `--apply` je vždy jen DRY-RUN — transakce se neotevře, pokud
+skript najde chybějící blok, nesoulad nebo kolizi. `--apply` zapíše v jedné
+transakci přes `withRevision` (vznikne NOVÁ revizní skupina pro samotnou
+opravu) a končí `assertNoOverlapForBlocks`.
+
+Volitelně `--also <blockId>:pole=hodnota[,pole=hodnota…]` — korekce bloku,
+který v dané revizní skupině NENÍ, ale patří k opravě (typicky navazující
+úprava, kterou někdo udělal těsně po havárii do místa, jež havárie uvolnila —
+bez jejího vrácení spolu s dávkou skončí oprava kolizí). Povolená pole:
+`startTime`, `endTime`, `printMinutes`. Guard pro `--also` blok je jeho
+VLASTNÍ poslední revize, ne revize skupiny.
+
+**Než se spustí `--apply`, VŽDY nejdřív `mysqldump` záloha** (postup viz
+sekci „Obnova" výše nebo `DEPLOY_WORKFLOW.md`) a `pm2 stop planovanivyroby`,
+ať do toho nikdo nezapisuje. Bez zálohy se skript spouštět nesmí — `before`
+z revizí je jediný zdroj cílového stavu a chyba v ručně sestaveném `--also`
+by jinak byla nevratná.
+
+Skript vrací jen POZICI (`startTime`/`endTime`) bloků ze skupiny — je to
+záměr zděděný z originálu: dávka odsunutá chain pushem je „čistě poziční",
+žádné jiné pole se neposunulo. Revizní skupina, kde `before`/`after` chybí
+`startTime`/`endTime`, není chain push a skript ji odmítne — takový návrh
+vrácení se musí sestavit ručně.
+
 ## Čtvrtletní test obnovy (záloha bez otestovaného restore není záloha)
 
 ```bash

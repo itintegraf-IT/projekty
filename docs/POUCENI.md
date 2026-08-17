@@ -628,3 +628,66 @@ je**, a porovnej to s rozměrem prvku. Když se nevejde, ořez ho někam přesun
 a to „někam" je pak skutečné chování, ne to napsané v komentáři. Umístění, které
 závisí na geometrii, patří do čisté funkce s testem (`plannerHoverTooltip.ts`),
 ne do výrazu uvnitř JSX, kde ho nikdo nemůže spočítat ani ověřit.
+
+---
+
+## P29 — Absolutní kontrola vydávaná za diferenční vychová obsluhu k odklikávání
+
+**Co se stalo (do 17. 8. 2026, incident 16:31):** Stará kontrola u editace směn
+(`findConflictingBlocks.ts`) hlásila „Zkrácení směny" pokaždé, když nová
+konfigurace v abstraktní simulaci vycházela hůř než nějaký referenční stav —
+bez ohledu na to, jestli konkrétní editace SKUTEČNĚ něco vystěhovala. Simulace
+navíc neznala reálnou expanzi tiskových hodin, takže část poplachů byla
+falešná od začátku. Alarm, který nekoreluje s realitou, se naučí ignorovat: po
+měsících planých hlášení plánovač na dialog klikal „Pokračovat" automaticky,
+včetně 17. 8. 2026 v 16:31, kdy dialog poprvé hlásil něco skutečného.
+
+**Pravidlo:** Kontrola, která má zabránit škodě, musí měřit ROZDÍL způsobený
+TOUTO akcí, ne absolutní stav proti libovolné referenci. Diferenční kontrola
+(„bylo v pořádku, teď není" — `classifyCascade` v `src/lib/cascadeCheck.ts`)
+nahradila absolutní až po incidentu, ne před ním — cena falešných poplachů se
+neprojevila jako bug, ale jako naučené chování obsluhy, a to je vidět až
+zpětně.
+
+---
+
+## P30 — Než se staví druhá implementace pravidla, ověřit, jestli první neběží o kus dál na téže cestě
+
+**Co se stalo (17. 8. 2026, oprava kaskády směn):** Diferenční kontrola
+kaskády mohla vzniknout jako simulace cílové konfigurace (spočítat, jak by
+vypadaly bloky PO uložení, a porovnat se stavem PŘED) — přesně tou cestou,
+kterou šla stará vadná kontrola. Místo toho `PUT /api/machine-week-shifts`
+zavolal `detectCalendarDrift` dvakrát v JEDNÉ transakci — jednou PŘED upserty
+směn, jednou PO nich (transakce vidí vlastní zápisy) — a rozdíl jen změřil.
+Cílový stav nebylo potřeba simulovat, protože transakci jde v případě problému
+odrolovat: zapsat, změřit, a když je zle, vrátit zpátky.
+
+**Pravidlo:** Než se pro nové pravidlo staví simulace cílového stavu, ověřit,
+jestli není jednodušší stav skutečně vytvořit uvnitř transakce a změřit ho —
+a transakci při problému odrolovat. Platí to všude, kde databázová transakce
+dovolí „zkusit a vzít zpátky": stejný vzor použil i `scripts/revert-revision-group.ts`
+(simulace kolizí PŘED zápisem, protože skript transakci neotevře, dokud
+neprojde), zatímco `PUT /api/machine-week-shifts` cílový stav rovnou zapíše a
+transakci odroluje, pokud je zle — obojí je legitimní, volba závisí na tom,
+jestli je levnější simulovat, nebo zapsat a případně vrátit.
+
+---
+
+## P31 — Kalendářní veličina se u hranice směny nemění spojitě
+
+**Co se stalo (16:31, 17. 8. 2026):** Blok na XL 105 se posunul o 30 minut.
+Šest minut předtím se pondělní odpolední směna protáhla do půlnoci. Kombinace
+způsobila, že 30 z 180 tiskových minut bloku přeteklo přes noční pauzu —
+spočítaný konec neposkočil o 30 minut, ale o **6,5 hodiny** (24:00 → 6:30),
+protože expanze tiskových hodin musela blok natáhnout přes celou pauzu. Chain
+push pak odsunul 87 navazujících bloků, některé o týdny dál. Malé vstupní
+gesto (posun o jeden 30minutový slot) vyrobilo velký důsledek, protože veličina
+(spočítaný konec přes kalendář) není spojitá funkce vstupu — u hranice směny
+umí skočit o délku celé pauzy.
+
+**Pravidlo:** Kde takový skok vstupuje do automatiky, která sama posouvá další
+bloky (chain push), musí být strop a potvrzení odvozené od VELIKOSTI DŮSLEDKU,
+ne od velikosti vstupního gesta — „posunul jsem o 30 minut" neznamená „dopad je
+30minutový". Tohle NENÍ vyřešené: zakázka na chain pushi horizont posunu nemá
+(`MAX_RIGID_PUSH_MS` v `overlapResolver.ts` platí jen pro rezervaci/údržbu,
+řádek 39 vs. 161) — otevřený dluh, zapsaný i v `CLAUDE.md`.
