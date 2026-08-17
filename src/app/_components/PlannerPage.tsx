@@ -1036,9 +1036,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Zrušení hledání — jediné místo pravdy. Volá se z křížku v poli, z Esc
   // (jak z pole přes `SearchField`, tak z globální obsluhy kláves) a z kliknutí
   // kamkoliv do mřížky plánu (`onPlanClick`).
+  //
+  // ZRUŠENÍ VÝBĚRU BLOKU SEM NEPATŘÍ a nepřidávat ho zpátky. Od chvíle, kdy se
+  // spouštěč rozšířil z „klik do prázdna" na „klik KAMKOLIV do mřížky, i na blok"
+  // (13. 8. 2026), by `setSelectedBlock(null)` zabilo výběr, který o krok dřív
+  // vyrobil `onBlockClick` téhož kliku — obě aktualizace jsou v jednom Reactím
+  // dávkování a vyhrála by ta pozdější. Detail bloku pak nešel otevřít VŮBEC
+  // (nasazeno na produkci 13.–17. 8. 2026, nahlásil Vojta).
+  // Deselekt si dnes dělá každý spouštěč sám, protože každý ho chce jinak:
+  // `onGridClickEmpty` (klik do prázdna) ano, Esc („zruš vše") ano, křížek
+  // v hledacím poli NE — ten má vyčistit dotaz, ne zavřít otevřenou zakázku.
   function clearSearch() {
     setFilterText("");
-    setSelectedBlock(null);
     setSearchMatchIndex(0);
   }
 
@@ -2625,6 +2634,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         setPasteTarget(null);
         clipboardGroupRef.current = [];
         isGroupCutRef.current = false;
+        // Deselekt ADRESNĚ tady, ne uvnitř `clearSearch` (viz komentář u ní):
+        // "zruš vše" zavřít detail chce, klik na blok ani křížek v hledání ne.
+        setSelectedBlock(null);
         clearSearch();
         return;
       }
