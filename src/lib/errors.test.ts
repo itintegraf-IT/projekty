@@ -48,6 +48,7 @@ test("errorStatus: kanonická mapa kódů na HTTP statusy (audit #80)", () => {
     OVERLAP: 409,
     AUTO_SHIFT_FAILED: 409,
     SCHEDULE_VIOLATION: 422,
+    MEASUREMENT_FAILED: 500,
   };
   for (const [code, status] of Object.entries(expected)) {
     assert.equal(errorStatus(code as AppErrorCode), status, `kód ${code}`);

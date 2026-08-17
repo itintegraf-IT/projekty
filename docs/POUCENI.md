@@ -633,14 +633,23 @@ ne do výrazu uvnitř JSX, kde ho nikdo nemůže spočítat ani ověřit.
 
 ## P29 — Absolutní kontrola vydávaná za diferenční vychová obsluhu k odklikávání
 
-**Co se stalo (do 17. 8. 2026, incident 16:31):** Stará kontrola u editace směn
+**Co se stalo (do 17. 8. 2026):** Stará kontrola u editace směn
 (`findConflictingBlocks.ts`) hlásila „Zkrácení směny" pokaždé, když nová
 konfigurace v abstraktní simulaci vycházela hůř než nějaký referenční stav —
 bez ohledu na to, jestli konkrétní editace SKUTEČNĚ něco vystěhovala. Simulace
 navíc neznala reálnou expanzi tiskových hodin, takže část poplachů byla
 falešná od začátku. Alarm, který nekoreluje s realitou, se naučí ignorovat: po
-měsících planých hlášení plánovač na dialog klikal „Pokračovat" automaticky,
-včetně 17. 8. 2026 v 16:31, kdy dialog poprvé hlásil něco skutečného.
+měsících planých hlášení plánovač na dialog klikal „Pokračovat" automaticky
+(forenzní tabulka auditu ze 14. 8. ukazuje `[FORCE]` i u zápisů, které nemění
+vůbec nic). Až přijde pravá kaskáda, projde bez povšimnutí — habituace je
+skutečná škoda, ne jednotlivý falešný dialog.
+
+**S havárií 16:31 to nesouvisí kauzálně** — tu odpálil posun bloku 1335 (uložení
+směn proběhlo dřív, ~16:25), ne uložení směn. Vázat tuhle poučku na tu havárii
+by navíc bylo věcně špatně i nezávisle na časech: protažení směny je podle
+§1.1 specu *přidání*, expanze je ve směnách monotónní, takže spočítaný konec se
+mohl jen zkrátit — i kdyby v 16:31 nějaký dialog naskočil, byl by to další
+falešný poplach, ne první skutečný.
 
 **Pravidlo:** Kontrola, která má zabránit škodě, musí měřit ROZDÍL způsobený
 TOUTO akcí, ne absolutní stav proti libovolné referenci. Diferenční kontrola

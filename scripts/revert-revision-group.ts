@@ -15,14 +15,19 @@
  * přesun mezi stroji), se ODMÍTNE CELÁ: kdyby skript takový blok tiše vrátil jen
  * pozičně, `assertNoOverlapForBlocks` na konci by kontroloval kolize na ŠPATNÉM
  * stroji (stroj z revize je ten PŘED přesunem) a mohl by nahlásit úspěch nad
- * tichým překryvem na produkci. Takovou dávku je nutné navrhnout ručně.
+ * tichým překryvem na produkci. Takovou dávku je nutné navrhnout ručně. Revize,
+ * která mění jen JEDNO z obou polí (typicky čistý resize konce beze změny
+ * startu), je STEJNĚ čistě poziční jako ta, co mění obě — skript to tak i
+ * zpracuje (fix round finální recenze, M7: dřívější `geomOf` takovou revizi
+ * omylem odmítal jako „není čistě poziční").
  *
  * CO SKRIPT DĚLÁ:
  *  1) načte revize dané `--group` skupiny — cíl vrácení každého bloku je
  *     `before` z jeho revize (pozice, kterou blok měl PŘED tím, co skupina
  *     vznikla);
- *  2) ověří, že aktuální stav bloku v DB odpovídá `after` téže revize — pokud
- *     mezitím někdo s blokem hnul, oprava by přepsala jeho práci, a skript se
+ *  2) ověří, že aktuální stav bloku v DB — VČETNĚ stroje, na kterém dnes stojí —
+ *     odpovídá `after` téže revize — pokud mezitím někdo s blokem hnul (jinam
+ *     v čase, nebo i na JINÝ STROJ), oprava by přepsala jeho práci, a skript se
  *     zastaví BEZ ZÁPISU. Tahle kontrola běží DVAKRÁT: jednou před otevřením
  *     transakce (ať dry-run i apply vidí problém dřív, než se čeká na zámky),
  *     a znovu jako PRVNÍ dotaz UVNITŘ transakce — a to ZAMYKAJÍCÍ (`SELECT ...
@@ -152,20 +157,35 @@ function fmtVal(field: AlsoField, v: Date | number): string {
   return field === "printMinutes" ? `pm ${v}` : fmt(v as Date);
 }
 
-type Geom = { startTime: Date; endTime: Date };
+/** Jeden auditní řádek na pole — sdílené `groupTargets` (jednopolní cíl, M7) i `alsoTargets`. */
+function incidentRevertFieldRow(
+  t: { blockId: number; orderNumber: string | null; to: FieldValues; expect: FieldValues },
+  field: AlsoField,
+) {
+  return {
+    blockId: t.blockId,
+    orderNumber: t.orderNumber,
+    userId: 0,
+    username: "system:revert-revision-group",
+    action: "INCIDENT_REVERT",
+    field,
+    oldValue: field === "printMinutes" ? String(t.expect[field]) : (t.expect[field] as Date).toISOString(),
+    newValue: field === "printMinutes" ? String(t.to[field]) : (t.to[field] as Date).toISOString(),
+  };
+}
 
-/** Vytáhne geometrii z revizního JSONu. Chybějící pole = tvrdá chyba, ne tiché přeskočení. */
-function geomOf(json: unknown, what: string, blockId: number): Geom {
-  const o = json as Record<string, unknown> | null;
-  const s = o?.startTime;
-  const e = o?.endTime;
-  if (typeof s !== "string" || typeof e !== "string") {
-    throw new Error(
-      `Revize bloku ${blockId}: v \`${what}\` chybí startTime/endTime — dávka není čistě poziční, ` +
-      "oprava se musí navrhnout znovu ručně.",
-    );
-  }
-  return { startTime: new Date(s), endTime: new Date(e) };
+/**
+ * Sjednocené klíče `before`∪`after` revize (M6/M7 fix). `computeRevisionDiff`
+ * (`src/lib/revision/diff.ts`) páruje obě strany na STEJNÝ klíčový set, takže union
+ * je dnes ekvivalentní samotnému `before`, ale sdílená funkce to nemá potřebu
+ * předpokládat napořád — používá ji jak validace čistoty (skupina i `--also-revision`),
+ * tak stavba cíle, jedno místo pravdy místo dvou nezávislých výpočtů, co se časem
+ * rozejdou (M6, dřív skupina koukala jen do `before`).
+ */
+function positionalFieldsOf(before: unknown, after: unknown): string[] {
+  const beforeKeys = Object.keys((before ?? {}) as Record<string, unknown>);
+  const afterKeys = Object.keys((after ?? {}) as Record<string, unknown>);
+  return [...new Set([...beforeKeys, ...afterKeys])];
 }
 
 /** Vytáhne jen požadovaná pole z revizního JSONu (guard/cíl pro `--also-revision`). */
@@ -185,12 +205,15 @@ function fieldsOf(json: unknown, fields: AlsoField[], what: string, blockId: num
   return out;
 }
 
+/** Stejný tvar jako `AlsoTarget` (M7): skupina i `--also-revision` teď obě podporují
+ *  cíl s jedním nebo dvěma poličky (`fields`), ne pevnou dvojici start+end. */
 type GroupTarget = {
   blockId: number;
   orderNumber: string | null;
   machine: string;
-  to: Geom;
-  expect: Geom;
+  fields: AlsoField[];
+  to: FieldValues;
+  expect: FieldValues;
 };
 
 type AlsoTarget = {
@@ -228,9 +251,7 @@ async function buildAlsoTarget(revisionId: number): Promise<AlsoTarget> {
     );
   }
 
-  const beforeKeys = Object.keys((rev.before ?? {}) as Record<string, unknown>);
-  const afterKeys = Object.keys((rev.after ?? {}) as Record<string, unknown>);
-  const allKeys = [...new Set([...beforeKeys, ...afterKeys])];
+  const allKeys = positionalFieldsOf(rev.before, rev.after);
   const impureKeys = allKeys.filter((k) => !(ALSO_FIELDS as readonly string[]).includes(k));
   if (impureKeys.length > 0) {
     throw new Error(
@@ -262,6 +283,50 @@ type DbRow = {
   printMinutes: number | null;
 };
 
+/**
+ * Ověří JEDEN cíl (skupinu i `--also-revision` — od M7 stejný tvar dat):
+ *  1) blok musí v DB existovat,
+ *  2) MUSÍ dnes stát na stroji, ze kterého revize vychází (Important 1, fix round
+ *     finální recenze). Bez týhle kontroly blok, který mezitím někdo přesunul na jiný
+ *     stroj, `checkGuard` vůbec „nevidí" — `affectedMachines`/simulace o něm neví nic,
+ *     dry-run by nahlásil „✅ Vše sedí" a teprve `assertNoOverlapForBlocks` uvnitř
+ *     transakce by `--apply` odmítl nesrozumitelným pádem,
+ *  3) každé jeho poziční pole (jedno nebo dvě, `t.fields` — M7: revize nemusí měnit
+ *     start i konec zároveň) musí v DB sedět na `expect`.
+ */
+function checkTarget(
+  cur: DbRow | undefined,
+  t: { blockId: number; orderNumber: string | null; machine: string; fields: AlsoField[]; expect: FieldValues },
+  tag: string,
+  missing: number[],
+  drifted: string[],
+): void {
+  if (!cur) {
+    missing.push(t.blockId);
+    return;
+  }
+  if (cur.machine !== t.machine) {
+    drifted.push(
+      `  #${t.blockId} (${t.orderNumber ?? "?"})${tag}: dnes stojí na stroji ${cur.machine}, oprava ` +
+      `vychází ze stroje ${t.machine} — blok mezitím někdo přesunul na jiný stroj, oprava se musí navrhnout ručně.`,
+    );
+    return;
+  }
+  const mismatches: string[] = [];
+  for (const field of t.fields) {
+    const expectVal = t.expect[field]!;
+    const curVal = field === "printMinutes" ? cur.printMinutes : cur[field];
+    const curTime = field === "printMinutes" ? curVal : (curVal as Date).getTime();
+    const expectTime = field === "printMinutes" ? expectVal : (expectVal as Date).getTime();
+    if (curTime !== expectTime) {
+      mismatches.push(`${field}: v DB ${curVal instanceof Date ? fmt(curVal) : curVal}, čekáno ${fmtVal(field, expectVal)}`);
+    }
+  }
+  if (mismatches.length > 0) {
+    drifted.push(`  #${t.blockId} (${t.orderNumber ?? "?"})${tag}: ${mismatches.join(", ")}`);
+  }
+}
+
 /** Guard: sedí `byId` (aktuální stav) na `expect` (co tam podle revizí má být)? Volá se DVAKRÁT — viz hlavička. */
 function checkGuard(
   byId: Map<number, DbRow>,
@@ -270,45 +335,8 @@ function checkGuard(
 ): { missing: number[]; drifted: string[] } {
   const missing: number[] = [];
   const drifted: string[] = [];
-
-  for (const t of groupTargets) {
-    const cur = byId.get(t.blockId);
-    if (!cur) {
-      missing.push(t.blockId);
-      continue;
-    }
-    if (
-      cur.startTime.getTime() !== t.expect.startTime.getTime() ||
-      cur.endTime.getTime() !== t.expect.endTime.getTime()
-    ) {
-      drifted.push(
-        `  #${t.blockId} (${t.orderNumber ?? "?"}): v DB ${fmt(cur.startTime)}–${fmt(cur.endTime)}, ` +
-        `čekáno ${fmt(t.expect.startTime)}–${fmt(t.expect.endTime)}`,
-      );
-    }
-  }
-
-  for (const t of alsoTargets) {
-    const cur = byId.get(t.blockId);
-    if (!cur) {
-      missing.push(t.blockId);
-      continue;
-    }
-    for (const field of t.fields) {
-      const expectVal = t.expect[field]!;
-      const curVal = field === "printMinutes" ? cur.printMinutes : cur[field];
-      const curTime = field === "printMinutes" ? curVal : (curVal as Date).getTime();
-      const expectTime = field === "printMinutes" ? expectVal : (expectVal as Date).getTime();
-      if (curTime !== expectTime) {
-        drifted.push(
-          `  #${t.blockId} (${cur.orderNumber ?? "?"}) [--also-revision], pole ${field}: v DB ${
-            curVal instanceof Date ? fmt(curVal) : curVal
-          }, čekáno ${fmtVal(field, expectVal)}`,
-        );
-      }
-    }
-  }
-
+  for (const t of groupTargets) checkTarget(byId.get(t.blockId), t, "", missing, drifted);
+  for (const t of alsoTargets) checkTarget(byId.get(t.blockId), t, " [--also-revision]", missing, drifted);
   return { missing, drifted };
 }
 
@@ -365,24 +393,32 @@ async function main() {
   // vrátil jen pozici, `assertNoOverlapForBlocks` by na konci kontroloval kolize na ŠPATNÉM
   // (starém) stroji a nahlásil by úspěch nad tichým překryvem na tom novém. Radši odmítnout
   // celou dávku, než riskovat tichý překryv na produkci po běhu, který hlásil úspěch.
-  const impure = revs.filter((r) =>
-    Object.keys((r.before ?? {}) as Record<string, unknown>).some((k) => !POSITIONAL.has(k)),
-  );
+  // M6: union `before`∪`after` přes `positionalFieldsOf`, sdílené s `buildAlsoTarget` —
+  // dřív se tu koukalo jen do `before` (dnes ekvivalentní, `computeRevisionDiff` páruje
+  // obě strany na stejný klíčový set, ale nemá to smysl předpokládat navždy).
+  const revKeys = revs.map((r) => ({ r, keys: positionalFieldsOf(r.before, r.after) }));
+  const impure = revKeys.filter(({ keys }) => keys.some((k) => !POSITIONAL.has(k)));
   if (impure.length > 0) {
     throw new Error(
-      `Skupina není čistě poziční — bloky ${impure.map((r) => r.blockId).join(", ")} mají v revizi ` +
+      `Skupina není čistě poziční — bloky ${impure.map(({ r }) => r.blockId).join(", ")} mají v revizi ` +
       "i jiná pole než startTime/endTime (typicky machine nebo printMinutes). Skript vrací POUZE " +
       "pozici; vrácení stroje/délky se musí navrhnout ručně.",
     );
   }
 
-  const groupTargets: GroupTarget[] = revs.map((r) => ({
-    blockId: r.blockId,
-    orderNumber: r.orderNumber,
-    machine: r.machine,
-    to: geomOf(r.before, "before", r.blockId),
-    expect: geomOf(r.after, "after", r.blockId),
-  }));
+  // M7: `fields` je jedno nebo dvě poziční pole podle toho, co revize SKUTEČNĚ měnila —
+  // čistý resize konce (jen `endTime`) je stejně čistě poziční jako přesun (obě pole).
+  const groupTargets: GroupTarget[] = revKeys.map(({ r, keys }) => {
+    const fields = keys as AlsoField[];
+    return {
+      blockId: r.blockId,
+      orderNumber: r.orderNumber,
+      machine: r.machine,
+      fields,
+      to: fieldsOf(r.before, fields, `before (revize #${r.id})`, r.blockId),
+      expect: fieldsOf(r.after, fields, `after (revize #${r.id})`, r.blockId),
+    };
+  });
 
   // ── --also-revision: načíst, ověřit (poslední UPDATE revize bloku, čistě poziční). ──
   const alsoTargets: AlsoTarget[] = [];
@@ -413,11 +449,14 @@ async function main() {
   const { missing, drifted } = checkGuard(byId, groupTargets, alsoTargets);
 
   // ── Výpis návrhu ──────────────────────────────────────────────────────────
+  // M7: skupinový cíl může mít jedno i dvě poziční pole (`fields`) — pro obvyklý
+  // dvoupolní případ (přesun) se drží čitelnější „span → span" tvar, pro jednopolní
+  // (čistý resize) se vypíše jen to jedno pole, stejně jako u `--also-revision`.
   for (const t of groupTargets) {
-    console.log(
-      `${t.machine} #${t.blockId} ${(t.orderNumber ?? "?").padEnd(12)} ` +
-      `${fmt(t.expect.startTime)}–${fmt(t.expect.endTime)}  →  ${fmt(t.to.startTime)}–${fmt(t.to.endTime)}`,
-    );
+    const changes = (t.fields.length === 2 && t.fields.includes("startTime") && t.fields.includes("endTime"))
+      ? `${fmt(t.expect.startTime as Date)}–${fmt(t.expect.endTime as Date)}  →  ${fmt(t.to.startTime as Date)}–${fmt(t.to.endTime as Date)}`
+      : t.fields.map((f) => `${f}: ${fmtVal(f, t.expect[f]!)} → ${fmtVal(f, t.to[f]!)}`).join(", ");
+    console.log(`${t.machine} #${t.blockId} ${(t.orderNumber ?? "?").padEnd(12)} ${changes}`);
   }
   for (const t of alsoTargets) {
     const changes = t.fields.map((f) => `${f}: ${fmtVal(f, t.expect[f]!)} → ${fmtVal(f, t.to[f]!)}`).join(", ");
@@ -455,10 +494,18 @@ async function main() {
   const groupToById = new Map(groupTargets.map((t) => [t.blockId, t.to]));
   const alsoToById = new Map(alsoTargets.map((t) => [t.blockId, t.to]));
 
-  /** Geometrie po opravě: blok z dávky/--also-revision dostane cílová pole, ostatní zůstávají. */
+  /** Geometrie po opravě: blok z dávky/--also-revision dostane cílová pole, ostatní
+   *  zůstávají — u obou zdrojů (M7) může chybět jedno z polí (čistý resize), pak
+   *  zůstává současná hodnota bloku (`b.startTime`/`b.endTime`), ne nedefinováno. */
   const simulated = machineBlocks.map((b) => {
     const groupTo = groupToById.get(b.id);
-    if (groupTo) return { ...b, startTime: groupTo.startTime, endTime: groupTo.endTime };
+    if (groupTo) {
+      return {
+        ...b,
+        startTime: (groupTo.startTime as Date) ?? b.startTime,
+        endTime: (groupTo.endTime as Date) ?? b.endTime,
+      };
+    }
     const alsoTo = alsoToById.get(b.id);
     if (alsoTo) {
       return {
@@ -550,13 +597,9 @@ async function main() {
         );
       }
 
-      for (const t of groupTargets) {
-        await rtx.block.update({
-          where: { id: t.blockId },
-          data: { startTime: t.to.startTime, endTime: t.to.endTime },
-        });
-      }
-      for (const t of alsoTargets) {
+      // M7: zápis podle `t.fields`, ne pevné dvojice — skupinový cíl s jedním polem
+      // (čistý resize) zapíše jen to pole, stejně jako `--also-revision` odjakživa.
+      for (const t of [...groupTargets, ...alsoTargets]) {
         const data: Record<string, Date | number> = {};
         for (const field of t.fields) data[field] = t.to[field]!;
         await rtx.block.update({ where: { id: t.blockId }, data });
@@ -564,31 +607,28 @@ async function main() {
 
       await rtx.auditLog.createMany({
         data: [
-          ...groupTargets.map((t) => ({
-            blockId: t.blockId,
-            orderNumber: t.orderNumber,
-            userId: 0,
-            username: "system:revert-revision-group",
-            action: "INCIDENT_REVERT",
-            field: "startTime/endTime",
-            oldValue: span(t.expect.startTime, t.expect.endTime),
-            newValue: span(t.to.startTime, t.to.endTime),
-          })),
+          // Obvyklý dvoupolní skupinový cíl (přesun): jeden řádek, složený tvar
+          // `startTime/endTime` — `COMPOSITE_FIELDS` ho zná (`auditCoverage.ts`).
+          // Jednopolní cíl (M7, čistý resize jen konce) jede stejnou per-pole cestou
+          // jako `--also-revision` níž — `field` se pak bere doslova jako jméno sloupce.
+          ...groupTargets.flatMap((t) =>
+            t.fields.length === 2 && t.fields.includes("startTime") && t.fields.includes("endTime")
+              ? [{
+                  blockId: t.blockId,
+                  orderNumber: t.orderNumber,
+                  userId: 0,
+                  username: "system:revert-revision-group",
+                  action: "INCIDENT_REVERT",
+                  field: "startTime/endTime",
+                  oldValue: span(t.expect.startTime as Date, t.expect.endTime as Date),
+                  newValue: span(t.to.startTime as Date, t.to.endTime as Date),
+                }]
+              : t.fields.map((field) => incidentRevertFieldRow(t, field)),
+          ),
           // Jeden řádek na pole, ne složené `field: "endTime/printMinutes"` —
           // `COMPOSITE_FIELDS` takový tvar nezná a pokrytí by ho vzalo za jméno
           // jednoho (neexistujícího) sloupce.
-          ...alsoTargets.flatMap((t) =>
-            t.fields.map((field) => ({
-              blockId: t.blockId,
-              orderNumber: t.orderNumber,
-              userId: 0,
-              username: "system:revert-revision-group",
-              action: "INCIDENT_REVERT",
-              field,
-              oldValue: field === "printMinutes" ? String(t.expect[field]) : (t.expect[field] as Date).toISOString(),
-              newValue: field === "printMinutes" ? String(t.to[field]) : (t.to[field] as Date).toISOString(),
-            })),
-          ),
+          ...alsoTargets.flatMap((t) => t.fields.map((field) => incidentRevertFieldRow(t, field))),
         ],
       });
 

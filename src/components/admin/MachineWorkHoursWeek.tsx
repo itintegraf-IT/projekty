@@ -332,10 +332,13 @@ export function MachineWorkHoursWeek() {
           longerBlocks?: CascadeBlock[];
         };
         if (res.status === 409 && body.error === "SHIFT_SHRINK_CASCADE" && Array.isArray(body.conflictingBlocks)) {
+          // M5 (fix round finální recenze): `longerCount` z LOOPU (stroje uložené PŘED
+          // tímhle 409) se jinak zahodí — sečíst i je, jinak závěrečný toast po potvrzení
+          // kaskády podhodnotí počet zakázek s prodlouženým koncem.
           return {
             ok: false,
             cascade: body.conflictingBlocks,
-            longerCount: Array.isArray(body.longerBlocks) ? body.longerBlocks.length : 0,
+            longerCount: longerCount + (Array.isArray(body.longerBlocks) ? body.longerBlocks.length : 0),
             machine: body.machine ?? machine,
           };
         }

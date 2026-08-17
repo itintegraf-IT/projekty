@@ -3,7 +3,8 @@ import type { DriftedBlock } from "@/lib/calendarDrift.server";
 
 /**
  * Texty kaskádového dialogu. Čistá funkce, ať se dají testovat — titulek byl od
- * 20. 4. 2026 napevno a rok tvrdil „Zkrácení směny…" i u přidání směny.
+ * 20. 4. 2026 napevno a čtyři měsíce (do 17. 8. 2026) tvrdil „Zkrácení směny…"
+ * i u přidání směny.
  *
  * Počet je v závorce záměrně: vyhýbá se skloňování bez zavádění dalšího helperu
  * (v repu jsou dnes dva a rozcházejí se na nule — sjednocení je samostatný úklid).

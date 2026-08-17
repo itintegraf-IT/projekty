@@ -215,8 +215,22 @@ směnu tak, aby se konec prodloužil → **bez dialogu**, ale s větou o prodlou
 4. **Undo z `BlockRevision` jako funkce aplikace** — zásobník je v paměti, 30 kroků
    (`useUndoManager.ts:5`), při konfliktu se záznam zahodí. Data v černé skříňce jsou.
 5. **Směr driftu v notifikacích a na kartě** — `END_MISMATCH` nerozlišuje „dřív" od „později".
-6. Rezervace/údržba v kontrole kaskády · `changedMachines` · zbytek přístupnostního dluhu
-   dialogu · `czPlural` sjednocení.
+6. **Rezervace/údržba v kontrole kaskády** — `detectCalendarDrift` měří jen `ZAKAZKA`; stará
+   (smazaná) `findConflictingBlocks.ts` běžela BEZ filtru typu, takže REZERVACI i ÚDRŽBU hlásila
+   taky. Tohle je proto **REGRESE proti stavu před touto vlnou, ne nikdy nepokrytá oblast** — dřív
+   se o zkrácení směny pod víkendovou údržbou operátor aspoň (falešně poplašně) dozvěděl, dnes
+   ne vůbec, a rigidní blok mimo kalendář je navíc zeď pro chain push (`CLAUDE.md`), takže se to
+   projeví 409 bez varování až při příštím dropu vedle něj. · `changedMachines` · zbytek
+   přístupnostního dluhu dialogu · `czPlural` sjednocení.
+7. **Částečné uložení napříč stroji** — `MachineWorkHoursWeek.tsx` ukládá stroje v `MACHINES`
+   pořadí jeden po druhém (`submitSave`). Když 409 přijde na k-tém stroji, stroje PŘED ním jsou
+   už zapsané a „Zrušit změnu" nic nevrátí ani o tom neřekne. Předexistující stav, ale tahle vlna
+   dialog zpravdivěla („po uložení v ní ležet přestanou" je teď věcně přesné) — uživatel mu bude
+   víc věřit, takže ta tichá díra teď podražila.
+8. **`checkScheduleViolationWithTemplates` (`src/lib/scheduleValidation.ts:99`) ztratila
+   jediného produkčního volajícího** zánikem `findConflictingBlocks.ts` (viz bod 6) — zbyl jen
+   vlastní test a dev seed skript. Rozhodnutí této vlny: **ponechat** (dev seed ji používá a má
+   vlastní testy pokrytí), ale zapsat jako dluh k rozhodnutí, ne mlčky smazat.
 
 ## 7. Dokumentace
 

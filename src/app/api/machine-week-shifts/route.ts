@@ -362,7 +362,18 @@ export async function PUT(req: Request) {
     const updated = await prisma.$transaction(async (tx) => {
       // Stav PŘED zápisem. MUSÍ se číst před upserty — po nich by `before == after` a
       // kontrola by MLČELA (degradace do bezpečného směru, ne do falešného poplachu).
-      const driftBefore = await detectCalendarDrift(tx, [machineId], windowFrom, windowTo, now);
+      // Important 4 (fix round finální recenze): `detectCalendarDrift` obalené — když
+      // MĚŘENÍ selže (ne zápis), operátor i log to musí umět odlišit od obecné 500,
+      // jinak dostane „Interní chyba serveru." bez jediného vodítka, co se vlastně
+      // nepovedlo. Transakce se stejně odrolí, ale s hláškou, která říká PROČ.
+      const driftBefore = await detectCalendarDrift(tx, [machineId], windowFrom, windowTo, now).catch((e) => {
+        throw new AppError(
+          "MEASUREMENT_FAILED",
+          `Měření kaskády (drift kalendáře) před uložením směn selhalo, směny se NEzapsaly: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      });
 
       for (const d of normalized) {
         await tx.machineWeekShifts.upsert({
@@ -406,7 +417,14 @@ export async function PUT(req: Request) {
       // tx vidí vlastní upserty → tohle je SKUTEČNÝ cílový stav, ne simulace cílové
       // konfigurace jako dřív (falešné poplachy staré kontroly plynuly ze simulace,
       // která neznala skutečnou expanzi tiskových hodin).
-      const driftAfter = await detectCalendarDrift(tx, [machineId], windowFrom, windowTo, now);
+      const driftAfter = await detectCalendarDrift(tx, [machineId], windowFrom, windowTo, now).catch((e) => {
+        throw new AppError(
+          "MEASUREMENT_FAILED",
+          `Měření kaskády (drift kalendáře) po uložení směn selhalo, celá transakce se vrátí zpět: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+      });
       cascadeHolder.value = classifyCascade(driftBefore, driftAfter);
 
       if (!force && cascadeHolder.value.newlyHomeless.length > 0) {
@@ -434,7 +452,7 @@ export async function PUT(req: Request) {
         where: { machine: machineId, weekStart: weekStartDate },
         orderBy: { dayOfWeek: "asc" },
       });
-    });
+    }, { timeout: 15000, maxWait: 5000 });
 
     emitSSE("schedule:changed", { sourceUserId: session.id });
     logger.info("[machine-week-shifts PUT] updated", { machine, weekStart: parsedWeek, force, userId: session.id });
@@ -456,6 +474,14 @@ export async function PUT(req: Request) {
         conflictingBlocks: (cascadeHolder.value?.newlyHomeless ?? []).map(serializeCascadeBlock),
         longerBlocks: (cascadeHolder.value?.newlyLonger ?? []).map(serializeCascadeBlock),
       }, { status: 409 });
+    }
+    // Important 4 (fix round finální recenze): odlišit od obecné 500 — tohle padlo na
+    // MĚŘENÍ (detectCalendarDrift), ne na zápisu. Transakce se odrolila, směny se
+    // NEuložily vůbec; log i tělo odpovědi to musí říct rovnou, ne nechat operátora
+    // hádat nad „Interní chyba serveru.".
+    if (isAppError(err) && err.code === "MEASUREMENT_FAILED") {
+      logger.error("[machine-week-shifts PUT] měření kaskády selhalo, směny se NEzapsaly", err);
+      return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     }
     if (isAppError(err)) return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     logger.error("[machine-week-shifts PUT] neočekávaná chyba", err);

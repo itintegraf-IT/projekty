@@ -36,9 +36,16 @@ export function MonitorHeroTiming({ block, reason, now, ts, weekShifts, companyD
     const minutesToStart = Math.ceil((new Date(block.startTime).getTime() - now.getTime()) / 60000);
     const day = startDayLabel(block.startTime, now);
     return (
-      <div style={{ fontSize: ts.heroTiming, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
-        Začíná {day ? `${day} v` : "v"} {formatPragueTime(new Date(block.startTime))}
-        <span style={{ color: "var(--text-muted)" }}> · za {formatMinutes(minutesToStart)}</span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        <div style={{ fontSize: ts.heroTiming, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
+          Začíná {day ? `${day} v` : "v"} {formatPragueTime(new Date(block.startTime))}
+          <span style={{ color: "var(--text-muted)" }}> · za {formatMinutes(minutesToStart)}</span>
+        </div>
+        {/* M2 (fix round finální recenze): nezačatá zakázka na velké kartě dřív značku
+            nedostala vůbec, i když stejný blok ve frontě (MonitorQueue) ji má —
+            sjednoceno, sedí na kalendář se posuzuje stejně bez ohledu na to, jestli
+            už běží. */}
+        <MonitorDriftNote show={drift} size="hero" ts={ts} />
       </div>
     );
   }
@@ -70,7 +77,11 @@ export function MonitorHeroTiming({ block, reason, now, ts, weekShifts, companyD
             background: reason === "overdue" ? "var(--warning)" : "var(--success)",
           }} />
         </span>
-        <span style={{ color: "var(--text-muted)" }}>{formatPragueTime(new Date(block.endTime))}</span>
+        {/* M3 (fix round finální recenze): žádné vlastní ztlumení konce — rodičovský
+            řádek už je celý `--text-muted` (řádek výš), takže by šlo o no-op. Signál
+            „nesedí na kalendář" nese `MonitorDriftNote` pod tímhle řádkem; parita
+            s frontou (`MonitorQueue.tsx`), která čas taky nijak zvlášť neztlumuje. */}
+        <span>{formatPragueTime(new Date(block.endTime))}</span>
       </div>
       <MonitorDriftNote show={drift} size="hero" ts={ts} />
       <div style={{ fontSize: ts.heroTimingLabel, fontWeight: 600, color: "var(--text)" }}>

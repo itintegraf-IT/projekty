@@ -132,7 +132,11 @@ const FIELD_DRIVEN_ACTIONS: ReadonlySet<string> = new Set([
   "OVERLAP_FIX",
   // Servisní skript `scripts/revert-cascade-20260817.ts` — vrácení kaskády chain pushe
   // po incidentu 17. 8. 2026. Tvary `field`: složené `startTime/endTime` u vrácených
-  // bloků, samostatné `endTime` a `printMinutes` u korekce 18088.
+  // bloků, samostatné `endTime` a `printMinutes` u korekce 18088. Od téhož dne (fix
+  // round finální recenze, M8) tuhle hodnotu píše i zobecněný nástupce
+  // `scripts/revert-revision-group.ts` — stejné tvary `field`, navíc i samostatné
+  // `startTime` (M7: skupinový cíl, který mění jen jedno poziční pole, např. čistý
+  // resize konce beze změny startu).
   "INCIDENT_REVERT",
 ]);
 

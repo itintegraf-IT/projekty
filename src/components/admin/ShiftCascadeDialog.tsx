@@ -100,9 +100,13 @@ export function ShiftCascadeDialog({
             {cascadeDialogTitle(machine, conflictingBlocks.length)}
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-            Následující bloky dnes leží v pracovní době stroje a po uložení v ní ležet přestanou.
-            Změnu můžeš zrušit a bloky nejdřív přeplánovat, nebo uložit přesto — zůstanou v plánu,
-            jen dostanou značku „nesedí na kalendář“.
+            {/* M4 (fix round finální recenze): „leží v pracovní době" by u salámové cesty
+                (blok už dřív END_MISMATCH — má kam se vejít, jen s jiným koncem) tvrdilo
+                víc, než je pravda. Přeformulováno na „mají kam se vejít", co platí pro
+                oba případy. */}
+            Následující bloky mají dnes v pracovní době stroje kam se vejít a po uložení
+            místo úplně ztratí. Změnu můžeš zrušit a bloky nejdřív přeplánovat, nebo uložit
+            přesto — zůstanou v plánu, jen dostanou značku „nesedí na kalendář“.
           </div>
         </div>
 

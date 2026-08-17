@@ -7,7 +7,12 @@ export type AppErrorCode =
   | "CONFLICT"
   | "OVERLAP"
   | "AUTO_SHIFT_FAILED"
-  | "VALIDATION_ERROR";
+  | "VALIDATION_ERROR"
+  // Fix round finální recenze (Important 4, 17. 8. 2026): měření kaskády
+  // (`detectCalendarDrift`) uvnitř transakce PUT /api/machine-week-shifts selhalo
+  // dřív, než se cokoliv zapsalo — odlišuje se od obecné 500, aby v logu i pro
+  // uživatele bylo poznat, že selhalo MĚŘENÍ dopadu na kalendář, ne zápis směn.
+  | "MEASUREMENT_FAILED";
 
 export class AppError extends Error {
   constructor(
