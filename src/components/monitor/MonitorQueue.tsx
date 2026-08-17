@@ -5,6 +5,9 @@ import { formatPragueTime, formatPragueDateTimeWithWeekday } from "@/lib/dateUti
 import { MonitorChips } from "@/components/monitor/MonitorChips";
 import { SPEC_HIGHLIGHT, BLOCK_STYLES } from "@/lib/blockStyles";
 import type { MonitorTypeScale } from "@/lib/monitorTypography";
+import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import type { CompanyDayClientRow } from "@/lib/printTimeClient";
+import { shouldMarkDrift } from "@/lib/monitorDriftMark";
 
 type Props = {
   overdue: Block[];
@@ -13,6 +16,12 @@ type Props = {
   heroId: number | null;
   onSelect: (block: Block) => void;
   ts: MonitorTypeScale;
+  /** Pro rozejitý-čas značku (`shouldMarkDrift`) — kalendář a „teď", stejné
+   *  jako u velké karty. Když `now` ještě neběží (první render), fronty
+   *  jsou prázdné (`MonitorView`), takže se nepoužije. */
+  now: Date;
+  weekShifts: MachineWeekShiftsRow[];
+  companyDays: CompanyDayClientRow[];
 };
 
 /**
@@ -23,7 +32,7 @@ type Props = {
  * háčkem (včetně pásu), zakázka na velké kartě zvýrazněná. Kliknutí ji
  * vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
  */
-export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect, ts }: Props) {
+export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect, ts, now, weekShifts, companyDays }: Props) {
   if (overdue.length === 0 && today.length === 0 && tomorrow.length === 0) {
     return (
       <div style={{ color: "var(--text-muted)", fontSize: ts.queueEmpty, padding: "12px 4px" }}>
@@ -41,24 +50,30 @@ export function MonitorQueue({ overdue, today, tomorrow, heroId, onSelect, ts }:
         heroId={heroId}
         onSelect={onSelect}
         ts={ts}
+        now={now}
+        weekShifts={weekShifts}
+        companyDays={companyDays}
         tone="warning"
         showDate
         compact
       />
-      <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} ts={ts} />
-      <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} ts={ts} />
+      <QueueSection title="Dnes" blocks={today} heroId={heroId} onSelect={onSelect} ts={ts} now={now} weekShifts={weekShifts} companyDays={companyDays} />
+      <QueueSection title="Zítra" blocks={tomorrow} heroId={heroId} onSelect={onSelect} ts={ts} now={now} weekShifts={weekShifts} companyDays={companyDays} />
     </div>
   );
 }
 
 function QueueSection({
-  title, blocks, heroId, onSelect, ts, tone = "muted", showDate = false, compact = false,
+  title, blocks, heroId, onSelect, ts, now, weekShifts, companyDays, tone = "muted", showDate = false, compact = false,
 }: {
   title: string;
   blocks: Block[];
   heroId: number | null;
   onSelect: (block: Block) => void;
   ts: MonitorTypeScale;
+  now: Date;
+  weekShifts: MachineWeekShiftsRow[];
+  companyDays: CompanyDayClientRow[];
   /** `warning` odliší nedodělané od běžné fronty — jediný barevný rozdíl. */
   tone?: "muted" | "warning";
   /** Řádek ukáže i den, ne jen čas. Povinné u zakázek z minulých dnů. */
@@ -88,6 +103,10 @@ function QueueSection({
 
         const isDone = b.printCompletedAt != null;
         const isHero = b.id === heroId;
+        // Uložený konec, o kterém aplikace sama ví, že nesedí na kalendář —
+        // shouldMarkDrift vrací false u hotových bloků samo (blockCalendarDrift
+        // ignoruje printCompletedAt), takže se s `isDone` nijak nekříží.
+        const drift = shouldMarkDrift(b, weekShifts, companyDays, now);
         return (
           <button
             key={b.id}
@@ -137,6 +156,17 @@ function QueueSection({
                   : formatPragueTime(new Date(b.startTime))}
               </span>
             </span>
+
+            {drift && (
+              // Stejná značka jako na velké kartě (`MonitorHeroTiming`) — aplikace
+              // sama ví, že uložený konec téhle zakázky nesedí na kalendář, a
+              // tiskař je jediný, kdo o tom jinudy neví (notifikace k roli TISKAR
+              // nechodí). `--text-muted`, ne `--warning` — ta je vyhrazená pro
+              // „PŘETAHUJE"/NEDODĚLÁNO, tohle je jiný jev.
+              <span style={{ color: "var(--text-muted)", fontSize: ts.queueDriftNote, marginTop: compact ? 3 : 0 }}>
+                ⚠ čas se přepočítává
+              </span>
+            )}
 
             {!compact && b.specifikace?.trim() && (
               // Amber pás jako na kartě bloku v plánu i na velké kartě Monitoru.

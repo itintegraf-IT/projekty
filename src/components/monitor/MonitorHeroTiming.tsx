@@ -4,6 +4,9 @@ import type { Block } from "@/app/_components/TimelineGrid";
 import { runProgress, startDayLabel } from "@/lib/monitorView";
 import { formatPragueTime } from "@/lib/dateUtils";
 import type { MonitorTypeScale } from "@/lib/monitorTypography";
+import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import type { CompanyDayClientRow } from "@/lib/printTimeClient";
+import { shouldMarkDrift } from "@/lib/monitorDriftMark";
 
 /**
  * Časová osa běhu zakázky na velké kartě Monitoru, nebo odpočet do startu
@@ -13,13 +16,20 @@ import type { MonitorTypeScale } from "@/lib/monitorTypography";
  * písma přerostl `max-lines`. Je to uzavřený kus: dostane blok, důvod, čas
  * a škálu, nic si nedrží a nic nemutuje.
  */
-export function MonitorHeroTiming({ block, reason, now, ts }: {
+export function MonitorHeroTiming({ block, reason, now, ts, weekShifts, companyDays }: {
   block: Block;
   reason: "running" | "overdue" | "upcoming";
   now: Date;
   ts: MonitorTypeScale;
+  weekShifts: MachineWeekShiftsRow[];
+  companyDays: CompanyDayClientRow[];
 }) {
   const { percent, remainingMinutes } = runProgress(block, now);
+  // Uložený konec, o kterém aplikace sama ví, že nesedí na kalendář (typicky
+  // po ruční úpravě směn) — tiskař je jediný, kdo podle něj rozhoduje, co
+  // pustí do stroje, a jediný, kdo tuhle značku nedostane jinudy (notifikace
+  // o driftu k roli TISKAR nechodí, viz `INBOX_ROLES`).
+  const drift = shouldMarkDrift(block, weekShifts, companyDays, now);
 
   if (reason === "upcoming") {
     const minutesToStart = Math.ceil((new Date(block.startTime).getTime() - now.getTime()) / 60000);
@@ -59,8 +69,17 @@ export function MonitorHeroTiming({ block, reason, now, ts }: {
             background: reason === "overdue" ? "var(--warning)" : "var(--success)",
           }} />
         </span>
-        <span>{formatPragueTime(new Date(block.endTime))}</span>
+        <span style={{ color: "var(--text-muted)" }}>{formatPragueTime(new Date(block.endTime))}</span>
       </div>
+      {drift && (
+        // Uložený konec nesedí na aktuální kalendář (typicky ruční úprava směn
+        // po naplánování) — aplikace to ví, jen to tiskaři dosud neuměla ukázat.
+        // `--text-muted`, ne `--warning`: ta barva je v Monitoru vyhrazená pro
+        // „PŘETAHUJE" a tohle je jiný jev (rozejitý čas, ne pozdní zakázka).
+        <div style={{ fontSize: ts.heroDriftNote, color: "var(--text-muted)" }}>
+          ⚠ čas se přepočítává
+        </div>
+      )}
       <div style={{ fontSize: ts.heroTimingLabel, fontWeight: 600, color: "var(--text)" }}>
         {remainingMinutes >= 0
           ? `Zbývá ${formatMinutes(remainingMinutes)}`

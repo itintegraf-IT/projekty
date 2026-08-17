@@ -2842,6 +2842,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           blocks={blocks}
           viewMachine={viewMachine}
           ownMachine={currentUser.assignedMachine ?? null}
+          machineWeekShifts={machineWeekShifts}
+          companyDays={companyDays}
           onPrintComplete={
             viewMachine === currentUser.assignedMachine ? handlePrintComplete : undefined
           }

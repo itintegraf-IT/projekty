@@ -62,6 +62,8 @@ export type MonitorTypeScale = {
   heroNote: number;
   /** Hláška v prázdné kartě. */
   heroEmpty: number;
+  /** Značka „⚠ čas se přepočítává" u konce, o kterém aplikace ví, že nesedí na kalendář. */
+  heroDriftNote: number;
 
   // ── Tlačítka velké karty ──────────────────────────────────────────────────
   btnDone: number;
@@ -87,6 +89,8 @@ export type MonitorTypeScale = {
   queueMaintText: number;
   /** Hláška prázdné fronty. */
   queueEmpty: number;
+  /** Táž značka „⚠ čas se přepočítává" u řádku ve frontě. */
+  queueDriftNote: number;
 
   // ── Chipy (velká karta i fronta) ──────────────────────────────────────────
   chipHero: number;
@@ -122,6 +126,7 @@ export function monitorTypeScale(key: PlannerFontScale): MonitorTypeScale {
     heroPartner: px(13),
     heroNote: px(13),
     heroEmpty: px(16),
+    heroDriftNote: px(13),
 
     btnDone: px(30),
     btnNext: px(26),
@@ -140,6 +145,7 @@ export function monitorTypeScale(key: PlannerFontScale): MonitorTypeScale {
     queueMaintLabel: px(11),
     queueMaintText: px(13),
     queueEmpty: px(14),
+    queueDriftNote: px(11),
 
     chipHero: px(12),
     chipQueue: px(11),

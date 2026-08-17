@@ -15,11 +15,18 @@ import { formatPragueTime } from "@/lib/dateUtils";
 import { FontScaleSwitch } from "@/components/planner/FontScaleSwitch";
 import type { PlannerFontScale } from "@/lib/plannerTypography";
 import { monitorTypeScale, MONITOR_HERO_BUTTON_HEIGHT, type MonitorTypeScale } from "@/lib/monitorTypography";
+import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
+import type { CompanyDayClientRow } from "@/lib/printTimeClient";
+import { shouldMarkDrift } from "@/lib/monitorDriftMark";
 
 type Props = {
   blocks: Block[];
   viewMachine: string;
   ownMachine: string | null;
+  /** Kalendář stroje pro rozejitý-čas detekci (`shouldMarkDrift`) — bez něj Monitor
+   *  nepozná, že aplikace sama ví o bloku, jehož konec už nesedí na kalendář. */
+  machineWeekShifts: MachineWeekShiftsRow[];
+  companyDays: CompanyDayClientRow[];
   onPrintComplete?: (blockId: number, completed: boolean) => Promise<void>;
   onOpenPlan: () => void;
   onOpenSearch: () => void;
@@ -60,6 +67,7 @@ function headerButtonStyle(ts: MonitorTypeScale) {
  */
 export function MonitorView({
   blocks, viewMachine, ownMachine,
+  machineWeekShifts, companyDays,
   onPrintComplete, onOpenPlan, onOpenSearch, onMachineChange, onLogout,
   focusBlockId, onFocusHandled,
   fontScale, onFontScaleChange,
@@ -417,7 +425,10 @@ export function MonitorView({
                       : ""}
                   </div>
                 ) : (
-                  <MonitorHeroTiming block={card.block} reason={card.reason} now={now} ts={ts} />
+                  <MonitorHeroTiming
+                    block={card.block} reason={card.reason} now={now} ts={ts}
+                    weekShifts={machineWeekShifts} companyDays={companyDays}
+                  />
                 )}
 
                 {partner && (() => {
@@ -624,6 +635,9 @@ export function MonitorView({
             heroId={card?.block.id ?? null}
             onSelect={(block) => setSelectedId(block.id)}
             ts={ts}
+            now={now ?? new Date(0)}
+            weekShifts={machineWeekShifts}
+            companyDays={companyDays}
           />
         </div>
       </div>
