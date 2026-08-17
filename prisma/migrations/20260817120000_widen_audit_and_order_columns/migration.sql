@@ -17,9 +17,19 @@
 -- produkční DB nemá tento agent přístup, ověření provede člověk (viz
 -- docs/DEPLOY_WORKFLOW.md).
 --
--- Na dev i testovací DB je migrace no-op (tam už varchar(191) mají) — to je
--- záměr, migrace musí být idempotentní vůči prostředím, kde k odchylce nikdy
--- nedošlo.
+-- Na DEV DB je migrace no-op (tam už varchar(191) mají) — to je záměr, migrace
+-- musí být idempotentní vůči prostředí, kde k odchylce nikdy nedošlo.
+--
+-- Na TESTOVACÍ instanci NE — ta stojí nad kopií produkce, takže tam mají tyhle
+-- tři sloupce pořád varchar(64) a ALTER reálně poběží. To je dobrá zpráva, ne
+-- riziko: nasazení na test je plnohodnotná generálka téhle změny, ne prázdný
+-- běh jako na devu.
+--
+-- ALGORITHM=/LOCK= tahle migrace záměrně NEUVÁDÍ — explicitní hint na MariaDB
+-- (viz "Produkce je MariaDB, ne MySQL 8" v CLAUDE.md) umí migraci rovnou shodit
+-- místo aby ji jen zpomalil, takže in-place/bezzámkové provedení tu NENÍ
+-- zaručené, jen možné. Tabulky jsou malé, ale skutečný čas (a to, jestli
+-- proběhne in-place) se má změřit na testovací instanci, ne odhadovat předem.
 ALTER TABLE `AuditLog` MODIFY `field` VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL;
 
 ALTER TABLE `AuditLog` MODIFY `username` VARCHAR(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL;

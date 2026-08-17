@@ -191,12 +191,17 @@ export function BlockEdit({
   const [serverDurationChangedTo, setServerDurationChangedTo] = useState<number | null>(null);
 
   // 2b + 2c v jednom efektu: serverDurationHours se mění, kdykoliv se pod panelem
-  // změní BLOK (split, chain push, cizí úprava) — ne když uživatel jen přepne typ
-  // ve formuláři (viz komentář u serverDurationHours výš) a ne když cizí odklepnutí
-  // chipu změní jen updatedAt beze změny délky. Nedotčený select se tiše
-  // přesynchronizuje (2b); dotčený select se NEPŘEPÍŠE, jen se nastaví hláška
-  // s aktuální serverovou hodnotou (2c). Rozhodnutí samotné je v resolveDurationSync
-  // (blockEditDuration.ts) — testovatelné bez React efektu.
+  // změní BLOK (split, chain push) — ne když uživatel jen přepne typ ve formuláři
+  // (viz komentář u serverDurationHours výš) a ne když cizí odklepnutí chipu změní
+  // jen updatedAt beze změny délky. Cizí úprava se sem NIKDY nedostane: guard
+  // `editingBlockIdsRef` v PlannerPage.tsx zahodí SSE i polling update pro
+  // rozeditovaný blok a ukáže jen toast — efekt 2b/2c tedy reaguje výhradně na akce
+  // z TÉŽE záložky (split, chain push vyvolaný týmž uživatelem). Souběh s cizí
+  // úpravou řeší nezávisle optimistický zámek (409 při Uložit změny), ne tenhle
+  // efekt. Nedotčený select se tiše přesynchronizuje (2b); dotčený select se
+  // NEPŘEPÍŠE, jen se nastaví hláška s aktuální serverovou hodnotou (2c).
+  // Rozhodnutí samotné je v resolveDurationSync (blockEditDuration.ts) —
+  // testovatelné bez React efektu.
   useEffect(() => {
     const action = resolveDurationSync(prevServerDurationRef.current, serverDurationHours, durationTouched);
     if (action.kind === "none") return;
@@ -458,8 +463,14 @@ export function BlockEdit({
             resolveChain: true,
             // bypassScheduleValidation zůstává true záměrně — výskyty série jsou
             // deadline-driven na přesné datum. Server od etapy 2 ukládá spočítanou
-            // konformitu (effectivelyBypassed), takže výskyt na konformním místě
-            // se bypass flagem "neotráví".
+            // konformitu (effectivelyBypassed) — ALE jen když PUT harmonogram
+            // skutečně přepočítá (etapa 3, commit a112779a). Když timeChanged je
+            // false a mění se jen DATA/EXPEDICE (větev "Změna jen pokud..." výš),
+            // startTime/endTime/machine/printMinutes jsou shodné s uloženými,
+            // přepočet neproběhne a scheduleBypassed se NEnormalizuje — zůstane,
+            // co v DB už bylo. Chování je bezpečné (bypass beze změny geometrie
+            // nikoho neohrozí), jen to neplatí bezpodmínečně pro každý PUT téhle
+            // funkce, jen pro ty, které skutečně hnou startem/endem/strojem.
             bypassScheduleValidation: true,
           }),
         });

@@ -99,16 +99,28 @@ test("resolveDurationSync: server se změnil + dotčeno → warn, nepřepisuje",
   assert.deepEqual(resolveDurationSync(6, 2, true), { kind: "warn", durationHours: 2 });
 });
 
-// Regrese opravného kola 1: efekt dřív sledoval currentDurationHours, což je
-// type === "ZAKAZKA" ? blockPrintMinutes(block)/60 : span — se STAVEM formuláře
-// `type`, ne s block.type. Kliknutí na „Typ záznamu" (ZAKAZKA↔UDRZBA↔REZERVACE)
-// tak přepnulo vzorec a `currentDurationHours` skočilo (u pozastavené zakázky
-// span 26 h vs printMinutes 10 h), i když se na serveru nic nezměnilo — nedotčený
-// select se tiše přepsal na hodnotu mimo DURATION_OPTIONS a dotčený vyvolal
-// falešnou hlášku „změnilo se". Test dokládá, že serverová hodnota (odvozená
-// VÝHRADNĚ z block.type přes blockPrintMinutes, ne z lokálního `type`) je na
-// takovém přepnutí nezávislá, takže resolveDurationSync správně vrátí none.
-test("regrese oprav. kola 1: lokálně přepnutý typ formuláře, blok beze změny → žádná reakce", () => {
+// Regrese opravného kola 1 (kontext, ne co tenhle test hlídá — viz níž): efekt
+// dřív sledoval currentDurationHours, což je type === "ZAKAZKA" ?
+// blockPrintMinutes(block)/60 : span — se STAVEM formuláře `type`, ne s
+// block.type. Kliknutí na „Typ záznamu" (ZAKAZKA↔UDRZBA↔REZERVACE) tak přepnulo
+// vzorec a `currentDurationHours` skočilo (u pozastavené zakázky span 26 h vs
+// printMinutes 10 h), i když se na serveru nic nezměnilo.
+//
+// CO TENHLE TEST HLÍDÁ: dokumentuje očekávanou sémantiku `resolveDurationSync` —
+// když se obě porovnávané hodnoty rovnají (server se nezměnil), vrátí vždy
+// `{ kind: "none" }`, bez ohledu na `touched`. To je i case „beze změny" z prvního
+// testu v souboru pod jiným jménem.
+//
+// CO TENHLE TEST NEHLÍDÁ: napojení efektu 2b/2c v BlockEdit.tsx. Test je
+// tautologický — `prevServerDurationHours` a `nextServerDurationHours` se počítají
+// ze STEJNÉHO neměnného `block`, takže `resolveDurationSync(x, x, …)` vrátí
+// `"none"` už na první řádce funkce (early-return při rovnosti), dřív než se
+// vyhodnotí cokoliv jiného. Kdyby někdo v BlockEdit.tsx přepojil `serverDurationHours`
+// zpátky na `currentDurationHours` (regrese, které se tenhle test má podle názvu
+// týkat), na tomhle testu se to NEPROJEVÍ — nesahá na komponentu ani na lokální
+// stav `type`, jen na čistou funkci s ručně sestavenými vstupy. Projekt nemá
+// render testy, takže napojení efektu dnes neověřuje nic v repu.
+test("resolveDurationSync: rovnost vstupů → vždy none (dokumentace sémantiky, NEhlídá napojení efektu v BlockEdit.tsx)", () => {
   // Pozastavená zakázka na serveru: span (elapsed) 26 h, printMinutes 10 h —
   // přesně scénář z komentáře u mountu v BlockEdit.tsx.
   const block = {

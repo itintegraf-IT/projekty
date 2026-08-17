@@ -159,6 +159,11 @@ Prod DB `igvyroba` měla historicky ručně vytvořené sloupce (opraveno 12. 4.
 
 **`AuditLog.createdAt` i `Block.updatedAt` jsou na produkci `datetime` (přesnost 0), ne `datetime(3)`, jak předepisuje migrace** — ověřeno přes `information_schema` 9. a 17. 8. 2026 nad ostrou DB i její kopií; dev DB `datetime(3)` skutečně má. Auditní razítka se tam tedy zaokrouhlují dolů na celou sekundu, kdežto `BlockRevision.createdAt` má milisekundy. **Nikdy neporovnávat časy z těch dvou tabulek na rovnost ani z nich neodvozovat pořadí** (viz `sortHistoryEntries` v `blockHistory.ts`, které kvůli tomu řadí podle `groupId`). Odchylka je neškodná, dopad má jen na řazení — schéma se kvůli ní neupravuje. **Důsledek u `Block.updatedAt`: optimistický zámek (`expectedUpdatedAt`) má na produkci rozlišení jedné sekundy** — dvě změny téhož bloku ve stejné sekundě od sebe nerozezná (na dev DB s `datetime(3)` se to nikdy neprojeví).
 
+**Doměřeno 17. 8. 2026 při opravné vlně incidentu 18827 (ať se to neměří potřetí):**
+- `AuditLog.orderNumber` = `varchar(191)` — v pořádku, migrace `20260817120000_widen_audit_and_order_columns` ho neřešila a řešit nemá.
+- `Block.description` a `Block.specifikace` jsou na produkci **`TEXT`**, zatímco schéma je vede jako `String?` bez `@db.Text`, tedy `varchar(191)`. **Opačný směr téže třídy odchylky** než řádky výš: tady je produkce ŠIRŠÍ než dev, takže dlouhý popis spadne až na devu, na produkci projde bez potíží.
+- Přesnost `datetime` je uvnitř `Block` smíšená, ne jen mezi tabulkami: `Block.startTime`, `endTime`, `createdAt` a `updatedAt` jsou bez milisekund (`datetime(0)`, viz odstavec výš), zatímco `Block.printCompletedAt`, `pantoneRequiredDate` a `expeditionPublishedAt` mají `datetime(3)`. Stejné varování platí i tady — neporovnávat je na rovnost napříč sloupci s různou přesností.
+
 ## Dokumenty v repu
 
 - **`docs/POUCENI.md` — rejstřík chyb, které v tomhle projektu SKUTEČNĚ nastaly, a pravidel, která je příště znemožní. Přečíst před psaním specu nebo plánu; po každé nové chybě sem přibude řádek.**

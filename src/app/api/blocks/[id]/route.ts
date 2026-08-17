@@ -585,8 +585,13 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       // (`timingChanged`), ne na skutečné změně, na rozdíl od `shouldRecomputeSchedule`
       // výše. Nedotahovat na „skutečnou změnu": je to vstup do tvrdé pojistky
       // `assertNoOverlapForBlocks` a zúžit dosah pojistky by ji oslabilo. Když se
-      // reálně nic nezměnilo, chain push nad nezměněnou geometrií stejně nikoho
-      // neposune — je to neškodné a bezpečnější.
+      // reálně nic nezměnilo, chain push nad nezměněnou geometrií nikoho neposune
+      // — ALE jen v databázi BEZ překryvů. Nad legacy překryvem (třeba pozůstalým
+      // po incidentu 14. 8.) i čistě textové uložení zakázky (bez posunu, bez
+      // změny typu) pořád najde kolidujícího následníka a posune ho, se zápisem
+      // AUTO_SHIFT — není to regrese, dřív se to dělo taky, navíc s přepsaným
+      // koncem, ale ten předpoklad („beze změny geometrie" ⇒ „nikoho to nehne")
+      // platí jen podmíněně a je potřeba ho mít pojmenovaný.
       const positionOrTypeChanged =
         timingChanged || typeChangesToZakazka || typeChangingAwayFromZakazka || endChangedByComputation;
       if (positionOrTypeChanged) {

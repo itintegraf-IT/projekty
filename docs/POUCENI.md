@@ -551,3 +551,51 @@ sloupec (`SHOW COLUMNS FROM <Tabulka>` nebo dotaz do `information_schema.COLUMNS
 ne jen to, co předepisuje `schema.prisma`. Produkční DB má doložené ruční odchylky
 (viz „Produkční DB — známé odchylky od migrací" v `CLAUDE.md`) a nová odchylka může
 kdykoliv přibýt bez migrace, která by ji zaznamenala.
+
+---
+
+## P26 — Hodnota z nedotčeného pole formuláře není projev vůle ji změnit
+
+**Co se stalo (14. 8. 2026, incident zakázky 18827):** `BlockEdit` posílal
+tiskovou délku (`printMinutes`) při **každém** uložení, bez ohledu na to, jestli
+se jí uživatel dotkl — formulář posílá celý svůj stav, ne jen dotčená pole.
+Stačilo, aby se blok pod otevřeným panelem změnil (split), a odklepnuté „Uložit
+změny", třeba jen kvůli poznámce, vrátilo předsplitovou délku zpátky. Server
+k tomu přidal druhou, nezávislou díru: přepočet harmonogramu zapínal podle
+`allowed.type !== undefined`, a `type` posílal formulář vždycky, ať už se ho
+uživatel dotkl, nebo ne — **přítomnost klíče v payloadu vypadala jako požadavek
+na změnu**, i když šlo jen o odraz stavu z otevření panelu. Souhrou obou děr
+zmizelo 75 zakázek z pozice, kam je plánovač úmyslně odsunul.
+
+**Pravidlo:** U každého formuláře, který posílá celý svůj stav, rozlišuj „uživatel
+na tohle sáhl" od „bylo to v payloadu" — dvě různé věci, které se snadno smíchají.
+Serverové rozhodování o tom, co přepočítat, odvozuj z **rozdílu proti uloženému
+stavu**, ne z pouhé přítomnosti klíče v requestu.
+
+---
+
+## P27 — Oprava jednoho pole nezavírá celou třídu chyby
+
+**Co se stalo (17. 8. 2026, závěrečná recenze opravné etapy incidentu 18827):**
+Oprava z P26 přidala `durationTouched` a přesynchronizaci (efekt 2b/2c v
+`BlockEdit.tsx`), ale **jen pro délku**. `buildPayload()` v témže souboru posílá
+zhruba **třicet dalších polí** ze stavu zachyceného při otevření panelu a při
+přesynchronizaci — přesynchronizaci dostala jen ta jedna hodnota. Když si
+plánovač s otevřeným panelem odklepne na kartě bloku SKLADEM/VYDÁNO nebo změní
+termín inline pickerem, následné „Uložit změny" mu ten chip tiše vrátí zpátky na
+hodnotu z okamžiku otevření panelu. Škoda je dnes omezená — žádné z těch polí
+nespouští chain push — ale kořen je **týž** jako u P26 a zbytek povrchu zůstává
+nekrytý.
+
+**Tohle je otevřený dluh, ne hotová věc.** Komentáře u efektu 2b/2c v
+`BlockEdit.tsx` popisují opravu jen pro délku a úmyslně nepředstírají víc — kdo
+je čte jako „formulář je bezpečný celý", čte je špatně. Náprava (rozšířit
+touched-tracking na celý `buildPayload()`, nebo formulář přepnout na posílání
+jen skutečně dotčených polí jako diff proti mount-snapshotu) v týhle vlně
+neproběhla.
+
+**Pravidlo:** Oprava jednoho projevu třídy chyby se nesmí v commit zprávě ani
+v komentáři tvářit jako uzavření té třídy. Když oprava pokrývá jen část
+povrchu, na který se stejná chyba vejde, napsat to výslovně jako otevřený dluh
+— jinak si to za pár týdnů někdo přečte jako hotovou věc a další stejnou vadu
+nikdo nebude hledat.
