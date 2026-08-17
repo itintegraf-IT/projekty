@@ -149,7 +149,15 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 Prod DB `igvyroba` měla historicky ručně vytvořené sloupce (opraveno 12. 4. 2026): `AuditLog.action` `varchar(16)`→`varchar(191)`; `Block.doprava` a `Block.expediceNote` doplněny jako `varchar(191) NULL`. Při deploy chybě `P2022`/`P2000` nejdřív ověřit skutečný typ sloupce v DB (`SHOW COLUMNS FROM <Tabulka>`).
 
-**`AuditLog.createdAt` je na produkci `datetime` (přesnost 0), ne `datetime(3)`, jak předepisuje migrace** — ověřeno přes `information_schema` 9. 8. 2026 nad ostrou DB i její kopií; dev DB `datetime(3)` skutečně má. Auditní razítka se tam tedy zaokrouhlují dolů na celou sekundu, kdežto `BlockRevision.createdAt` má milisekundy. **Nikdy neporovnávat časy z těch dvou tabulek na rovnost ani z nich neodvozovat pořadí** (viz `sortHistoryEntries` v `blockHistory.ts`, které kvůli tomu řadí podle `groupId`). Odchylka je neškodná, dopad má jen na řazení — schéma se kvůli ní neupravuje.
+**Opraveno migrací `20260817120000_widen_audit_and_order_columns` (etapa 1 opravy incidentu 18827):** `AuditLog.field` a `AuditLog.username` byly `varchar(64)`, `Block.orderNumber` byl `varchar(64)` — stejná třída odchylky jako `AuditLog.action` výše, jen odhalená později. Právě `AuditLog.field` způsobilo incident 14. 8. 2026 — undo editace skládá smíšený audit řádek, který schéma (`String` bez `@db.VarChar`, tedy `VARCHAR(191)`) i kód (`AUDIT_MIXED_FIELD_MAX_BYTES = 180` v `undoApply.server.ts`) počítaly proti 191 znakům, ale produkční sloupec měl jen 64 → `PrismaClientKnownRequestError` a 76 neodvolatelně odsunutých zakázek. Všechny tři na `varchar(191)`, ověřeno 17. 8. 2026 přes `information_schema`.
+
+**Vědomě ponecháno** (rozšíření by u těchto sloupců změnilo délkový prefix z 1 na 2 bajty, tedy přestavbu celé tabulky `Block` za nulový přínos — drží krátké výčtové hodnoty): `Block.machine` varchar(16), `Block.type` varchar(32), `Block.recurrenceType` varchar(32), `User.role` varchar(32), `User.username` varchar(64).
+
+**Širší než schéma, neškodné** (varchar(255) proti schématovým 191, ničemu nevadí): `Block.dataStatusLabel`, `Block.materialStatusLabel`, `Block.barvyStatusLabel`, `Block.lakStatusLabel`, `CompanyDay.label`, `User.passwordHash`.
+
+**Produkce je MariaDB, ne MySQL 8** — projevuje se např. `bigint(20)` s display width a `current_timestamp()` s malým písmenem v `information_schema`, kde MySQL 8 píše `CURRENT_TIMESTAMP`.
+
+**`AuditLog.createdAt` i `Block.updatedAt` jsou na produkci `datetime` (přesnost 0), ne `datetime(3)`, jak předepisuje migrace** — ověřeno přes `information_schema` 9. a 17. 8. 2026 nad ostrou DB i její kopií; dev DB `datetime(3)` skutečně má. Auditní razítka se tam tedy zaokrouhlují dolů na celou sekundu, kdežto `BlockRevision.createdAt` má milisekundy. **Nikdy neporovnávat časy z těch dvou tabulek na rovnost ani z nich neodvozovat pořadí** (viz `sortHistoryEntries` v `blockHistory.ts`, které kvůli tomu řadí podle `groupId`). Odchylka je neškodná, dopad má jen na řazení — schéma se kvůli ní neupravuje. **Důsledek u `Block.updatedAt`: optimistický zámek (`expectedUpdatedAt`) má na produkci rozlišení jedné sekundy** — dvě změny téhož bloku ve stejné sekundě od sebe nerozezná (na dev DB s `datetime(3)` se to nikdy neprojeví).
 
 ## Dokumenty v repu
 

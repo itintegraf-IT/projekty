@@ -674,3 +674,40 @@ test("applyUndoOps (D4): finální pojistka prochází stroje SEŘAZENĚ podle j
   const firstIds = (overlapCalls[0].arguments[0] as { where: { id: { in: number[] } } }).where.id.in;
   assert.deepEqual(firstIds, [2], "XL_105 (blok 2) musí přijít na řadu PŘED XL_106 (blok 1), i když byl v ops až druhý");
 });
+
+// ── Incident 14. 8. 2026: AuditLog.field na produkci varchar(64), ne 191 ─────
+// (etapa 1 opravy, migrace 20260817120000_widen_audit_and_order_columns).
+// `AUDIT_MIXED_FIELD_MAX_BYTES = 180` počítá se schématovými VARCHAR(191) —
+// proti reálným varchar(64) na produkci to nemělo žádný účinek a undo editace
+// (Ctrl+Z) padalo na `prisma.auditLog.createMany()` s "value too long for
+// column: field". Testy níž hlídají DB šířku sloupce, ne jen logiku ořezu.
+
+test("applyUndoOps (incident 14. 8. 2026): smíšený řádek editace (poziční pětice + description/specifikace/tiskoveArchy) se vejde do VARCHAR(191) v bajtech", async () => {
+  const { tx, auditMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: {
+      // Přesně poziční pětice jako v incidentu (posOp/mergePositionIntoTargets ji
+      // posílají vždy pohromadě) + přesně ta trojice business polí z produkčního
+      // logu — v tomto pořadí v objektu, aby test ověřil i řazení do field.
+      startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105",
+      printMinutes: 120, scheduleBypassed: false,
+      description: "text", specifikace: "text", tiskoveArchy: "text",
+    },
+  }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  const fieldVal = rows[0].field as string;
+  assert.equal(fieldVal, `${UNDO_MIXED_FIELD_PREFIX}description, specifikace, tiskoveArchy`);
+  const byteLen = Buffer.byteLength(fieldVal, "utf8");
+  assert.ok(byteLen <= 191, `field musí projít do produkčního sloupce VARCHAR(191), má ${byteLen} bajtů: "${fieldVal}"`);
+});
+
+test("applyUndoOps (incident 14. 8. 2026): čistě poziční undo (bez business polí) dá field přesně 'startTime/endTime/machine' — krátká varianta, která na produkci fungovala, nesmí se rozejít", async () => {
+  const { tx, auditMock } = mkTx([row()]);
+  await applyUndoOps(tx, [{
+    kind: "upsert", id: 1,
+    fields: { startTime: "2026-09-02T10:00:00.000Z", endTime: "2026-09-02T12:00:00.000Z", machine: "XL_105" },
+  }], actor, "undo");
+  const rows = (auditMock.mock.calls[0].arguments[0] as { data: Record<string, unknown>[] }).data;
+  assert.equal(rows[0].field, "startTime/endTime/machine");
+});

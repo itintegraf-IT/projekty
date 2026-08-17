@@ -532,3 +532,22 @@ udělalo plný reload a přistálo na výchozí záložce, takže „Kontrolní 
 z Výhledu tiše zahodilo záložku, na které člověk byl. Test to nechytil, protože
 ověřoval `href.length > 0`. **Test na existenci řetězce není test na to, že
 odkaz někam vede** — cíl musí být z uzavřeného seznamu skutečných cest.
+
+---
+
+## P25 — Šířku produkčního sloupce nelze odvodit ze schématu Prismy
+
+**Co se stalo (incident 14. 8. 2026, zdokumentováno 17. 8. 2026):** Undo editace na
+produkci padalo na `prisma.auditLog.createMany()` — „value too long for column:
+field". `applyUndoOps` (`undoApply.server.ts`) ořezávala sestavený sloupec `field`
+funkcí `truncateUtf8` na `AUDIT_MIXED_FIELD_MAX_BYTES = 180`, protože schéma
+(`String` bez `@db.VarChar`) předepisuje `VARCHAR(191)`. Produkční sloupec ale měl
+ručně založený `varchar(64)` — ověřeno až zpětně přes `information_schema`. Ořez
+odvozený z deklarace neudělal proti realitě databáze vůbec nic; rozbilo se to už
+při třech vrácených business polích (76 neodvolatelně odsunutých zakázek).
+
+**Pravidlo:** Než se v kódu ořezává hodnota kvůli délce sloupce, ověřit **skutečný**
+sloupec (`SHOW COLUMNS FROM <Tabulka>` nebo dotaz do `information_schema.COLUMNS`),
+ne jen to, co předepisuje `schema.prisma`. Produkční DB má doložené ruční odchylky
+(viz „Produkční DB — známé odchylky od migrací" v `CLAUDE.md`) a nová odchylka může
+kdykoliv přibýt bez migrace, která by ji zaznamenala.
