@@ -3,6 +3,7 @@
 import type { Block } from "@/app/_components/TimelineGrid";
 import { formatPragueTime, formatPragueDateTimeWithWeekday } from "@/lib/dateUtils";
 import { MonitorChips } from "@/components/monitor/MonitorChips";
+import { MonitorDriftNote } from "@/components/monitor/MonitorDriftNote";
 import { SPEC_HIGHLIGHT, BLOCK_STYLES } from "@/lib/blockStyles";
 import type { MonitorTypeScale } from "@/lib/monitorTypography";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
@@ -103,9 +104,9 @@ function QueueSection({
 
         const isDone = b.printCompletedAt != null;
         const isHero = b.id === heroId;
-        // Uložený konec, o kterém aplikace sama ví, že nesedí na kalendář —
-        // shouldMarkDrift vrací false u hotových bloků samo (blockCalendarDrift
-        // ignoruje printCompletedAt), takže se s `isDone` nijak nekříží.
+        // Blok, o kterém aplikace sama ví, že nesedí na kalendář — shouldMarkDrift
+        // vrací false u hotových bloků samo (blockCalendarDrift ignoruje
+        // printCompletedAt), takže se s `isDone` nijak nekříží.
         const drift = shouldMarkDrift(b, weekShifts, companyDays, now);
         return (
           <button
@@ -157,16 +158,7 @@ function QueueSection({
               </span>
             </span>
 
-            {drift && (
-              // Stejná značka jako na velké kartě (`MonitorHeroTiming`) — aplikace
-              // sama ví, že uložený konec téhle zakázky nesedí na kalendář, a
-              // tiskař je jediný, kdo o tom jinudy neví (notifikace k roli TISKAR
-              // nechodí). `--text-muted`, ne `--warning` — ta je vyhrazená pro
-              // „PŘETAHUJE"/NEDODĚLÁNO, tohle je jiný jev.
-              <span style={{ color: "var(--text-muted)", fontSize: ts.queueDriftNote, marginTop: compact ? 3 : 0 }}>
-                ⚠ čas se přepočítává
-              </span>
-            )}
+            <MonitorDriftNote show={drift} size="queue" ts={ts} compact={compact} />
 
             {!compact && b.specifikace?.trim() && (
               // Amber pás jako na kartě bloku v plánu i na velké kartě Monitoru.

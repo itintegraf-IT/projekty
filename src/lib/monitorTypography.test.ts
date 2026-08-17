@@ -75,6 +75,7 @@ const MONITOR_FILES = [
   "src/components/monitor/MonitorQueue.tsx",
   "src/components/monitor/MonitorChips.tsx",
   "src/components/monitor/MonitorHeroTiming.tsx",
+  "src/components/monitor/MonitorDriftNote.tsx",
 ];
 
 test("v komponentách Monitoru nezůstal žádný natvrdo zapsaný fontSize", () => {

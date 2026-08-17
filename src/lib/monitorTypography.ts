@@ -62,7 +62,7 @@ export type MonitorTypeScale = {
   heroNote: number;
   /** Hláška v prázdné kartě. */
   heroEmpty: number;
-  /** Značka „⚠ čas se přepočítává" u konce, o kterém aplikace ví, že nesedí na kalendář. */
+  /** Značka „⚠ nesedí na kalendář" (`MonitorDriftNote`) u bloku, o kterém aplikace ví, že nesedí na kalendář. */
   heroDriftNote: number;
 
   // ── Tlačítka velké karty ──────────────────────────────────────────────────
@@ -89,7 +89,7 @@ export type MonitorTypeScale = {
   queueMaintText: number;
   /** Hláška prázdné fronty. */
   queueEmpty: number;
-  /** Táž značka „⚠ čas se přepočítává" u řádku ve frontě. */
+  /** Táž značka „⚠ nesedí na kalendář" u řádku ve frontě. */
   queueDriftNote: number;
 
   // ── Chipy (velká karta i fronta) ──────────────────────────────────────────

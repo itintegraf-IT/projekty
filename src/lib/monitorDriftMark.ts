@@ -27,3 +27,15 @@ export function shouldMarkDrift(
   const drift = blockCalendarDrift(block, weekShifts, companyDays, now);
   return drift !== null && !isParkedDrift(drift.reason);
 }
+
+/**
+ * Text značky na Monitoru — jediné místo, které ho drží (viz `MonitorDriftNote`).
+ *
+ * Terminologie: jev se v aplikaci jmenuje „nesedí na kalendář" (`cascadeDialogText.ts`,
+ * `TimelineGrid.tsx`, `BlockDetail.tsx`), žádný nový pojem. Výrok je o STAVU zakázky jako
+ * celku, ne o konkrétním zobrazeném čase — důležité na Monitoru, protože `blockCalendarDrift`
+ * má tři poruchové důvody a ne všechny se týkají konce: `END_MISMATCH`/`HORIZON_EXCEEDED` ano,
+ * ale `START_NOT_RUNNABLE` se týká startu. Formulace vázaná na konkrétní čas by u posledního
+ * důvodu lhala o čísle, které tiskař zrovna vidí (fronta ukazuje jen start).
+ */
+export const MONITOR_DRIFT_NOTE_TEXT = "⚠ nesedí na kalendář";

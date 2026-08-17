@@ -7,6 +7,7 @@ import type { MonitorTypeScale } from "@/lib/monitorTypography";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import type { CompanyDayClientRow } from "@/lib/printTimeClient";
 import { shouldMarkDrift } from "@/lib/monitorDriftMark";
+import { MonitorDriftNote } from "@/components/monitor/MonitorDriftNote";
 
 /**
  * Časová osa běhu zakázky na velké kartě Monitoru, nebo odpočet do startu
@@ -25,10 +26,10 @@ export function MonitorHeroTiming({ block, reason, now, ts, weekShifts, companyD
   companyDays: CompanyDayClientRow[];
 }) {
   const { percent, remainingMinutes } = runProgress(block, now);
-  // Uložený konec, o kterém aplikace sama ví, že nesedí na kalendář (typicky
-  // po ruční úpravě směn) — tiskař je jediný, kdo podle něj rozhoduje, co
-  // pustí do stroje, a jediný, kdo tuhle značku nedostane jinudy (notifikace
-  // o driftu k roli TISKAR nechodí, viz `INBOX_ROLES`).
+  // Blok, o kterém aplikace sama ví, že nesedí na kalendář (typicky po ruční
+  // úpravě směn) — tiskař je jediný, kdo podle jeho startu/konce rozhoduje,
+  // co pustí do stroje, a jediný, kdo tuhle značku nedostane jinudy
+  // (notifikace o driftu k roli TISKAR nechodí, viz `INBOX_ROLES`).
   const drift = shouldMarkDrift(block, weekShifts, companyDays, now);
 
   if (reason === "upcoming") {
@@ -71,15 +72,7 @@ export function MonitorHeroTiming({ block, reason, now, ts, weekShifts, companyD
         </span>
         <span style={{ color: "var(--text-muted)" }}>{formatPragueTime(new Date(block.endTime))}</span>
       </div>
-      {drift && (
-        // Uložený konec nesedí na aktuální kalendář (typicky ruční úprava směn
-        // po naplánování) — aplikace to ví, jen to tiskaři dosud neuměla ukázat.
-        // `--text-muted`, ne `--warning`: ta barva je v Monitoru vyhrazená pro
-        // „PŘETAHUJE" a tohle je jiný jev (rozejitý čas, ne pozdní zakázka).
-        <div style={{ fontSize: ts.heroDriftNote, color: "var(--text-muted)" }}>
-          ⚠ čas se přepočítává
-        </div>
-      )}
+      <MonitorDriftNote show={drift} size="hero" ts={ts} />
       <div style={{ fontSize: ts.heroTimingLabel, fontWeight: 600, color: "var(--text)" }}>
         {remainingMinutes >= 0
           ? `Zbývá ${formatMinutes(remainingMinutes)}`
