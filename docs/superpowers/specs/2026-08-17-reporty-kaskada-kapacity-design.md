@@ -53,22 +53,20 @@ které řekne, kolik kapacity tím reálně zmizí.
 První tři jsou **existující funkce** — nic nového se nepočítá, jen se poprvé ukáže
 celý řetěz místo jednoho poměru na jeho konci.
 
-### 3.1 Čtvrtý krok si nese svoji vyplněnost
+### 3.1 Čtvrtý krok se NESKRÝVÁ, jen říká přesně, co je
 
-`printCompletedAt` je nepovinné: vzniká, až tiskař u stroje klepne HOTOVO. Monitor je
-na produkci od 10. 8. 2026, takže pokrytí bude nenulové, ale **neúplné** — a jak moc,
-nevíme.
+Původní návrh chtěl krok schovat, když pokrytí `printCompletedAt` klesne pod 50 %.
+**Zamítnuto:** skrývání dat pod prahem je jen další tichý ořez — přesně to, co tahle
+řada etap odstraňuje — a ten práh by se navíc volil od oka.
 
-Report to proto **ukáže jako součást výsledku**, ne jako skrytý předpoklad:
+Řeší to formulace, ne práh. Řádek se nejmenuje „odklepnuto", jako by šlo o vyrobené
+hodiny, ale **„potvrzeno tiskařem"**, a jeho procento se vztahuje k **naplánovaným
+hodinám**, ne ke kalendáři:
 
-> Odklepnuto **312,4 h** · potvrzeno u 84 % zakázek období
+> potvrzeno tiskařem **287 h** · 84 % naplánovaných hodin
 
-Když pokrytí klesne pod rozumnou mez (návrh: **50 %**), čtvrtý krok se **nevykreslí
-jako číslo**, ale jako věta „nelze spočítat — tisk potvrzen jen u 18 % zakázek".
-
-Je to táž zásada, jakou zavedl Kontrolní panel a přebral stavový pás: **nespočteno se
-nesmí tvářit jako nula.** Bez ní by kaskáda u stroje, kde tiskaři neodklepávají,
-tvrdila „odklepnuto 0 h" — tedy že se nevyrobilo nic.
+Při pokrytí 6 % pak řádek říká „tiskaři nepotvrzují", ne „nevyrobili jsme nic". Číslo
+je poctivé při jakémkoli pokrytí a nic se neschovává.
 
 ### 3.2 Co kaskáda NEbude počítat
 
@@ -87,7 +85,11 @@ k závěrům, které data neunesou.
 
 ## 4. Jak to bude vypadat
 
-Nová sekce **KAPACITA** v Retrospektivě, pod VÝROBOU. Vodorovný pás na stroj —
+Nová sekce **VYUŽITÍ KALENDÁŘE** v Retrospektivě, pod VÝROBOU.
+
+> Nesmí se jmenovat „KAPACITA" — tak se jmenuje sekce ve **Výhledu** a znamená něco
+> jiného. Dvě stejnojmenné sekce na dvou záložkách jsou přesně ten zmatek, který R3
+> odstraňovala. Vodorovný pás na stroj —
 každý krok jako podíl kalendáře, aby byly ztráty vidět jako plochy, ne jako čísla
 v tabulce:
 
@@ -97,15 +99,23 @@ XL 105 · období 1.–31. 8. (744 h kalendáře)
  kalendář      ████████████████████████████████████████  744 h
  obsazeno      ██████████████████████░░░░░░░░░░░░░░░░░░  392 h   53 %
  naplánováno   ███████████████████░░░░░░░░░░░░░░░░░░░░░  341 h   46 %
- odklepnuto    ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  287 h   39 %   ·  potvrzeno u 84 % zakázek
-
- neobsazeno směnami   352 h        z toho víkendy a odstávky 208 h
+ potvrzeno     ████████████████░░░░░░░░░░░░░░░░░░░░░░░░  287 h   39 %   ·  84 % naplánovaných
+ 
+ nevyužitý kalendář  352 h  =  víkendy 208 h  ·  odstávky 24 h  ·  neobsazené směny 120 h
 ```
 
-**Poslední řádek je pointa celé sekce.** Odděluje kapacitu, kterou nemá kdo obsluhovat,
-od té, kterou kalendář zavírá záměrně (víkend, celozávodní odstávka). CAM-I model to
-nazývá rozdílem mezi *idle* (rozhodnutí vedení) a *nonproductive* (věc provozu) — a je
-to rozdíl s **odlišnou adresou odpovědnosti**.
+**Poslední řádek je pointa celé sekce** a rozpad na tři části je jeho jádro:
+
+| Část | Co to je | Kdo o tom rozhoduje |
+| --- | --- | --- |
+| **víkendy** | soboty a neděle bez směn | vedení — otázka nákladů na víkendový provoz |
+| **odstávky** | `CompanyDay` — datované celozávodní zavření | vedení, plánované dopředu |
+| **neobsazené směny** | **pracovní dny, kdy směna neběží** | **tohle je to číslo** |
+
+Třetí řádek je jediný, který jde zvednout bez nové investice a bez víkendů — a dnešní
+report ho neukazuje nikde. CAM-I model tenhle rozpad nazývá rozdílem mezi *idle*
+(rozhodnutí vedení) a *nonproductive* (věc provozu); jsou to **různé adresy
+odpovědnosti**, a proto nesmí splynout do jednoho čísla.
 
 ---
 
@@ -138,22 +148,24 @@ než týden** a řekne proč.
 
 ---
 
-## 7. Otevřené k rozhodnutí
+## 7. Rozhodnuto (17. 8. 2026)
 
-1. **Práh pokrytí `printCompletedAt`** pro zobrazení čtvrtého kroku — návrh 50 %.
-2. **Zda čekat na produkční měření.** Kaskáda sama ho nepotřebuje (první tři kroky),
-   ale čtvrtý krok a rozhodnutí o `MachineWeekShifts` ano. Dá se postavit hned
-   a ověřit při nasazení, nebo počkat.
-3. **Umístění** — navrhuju Retrospektivu, protože jde o vyhodnocení uplynulého období.
-   Ve Výhledu by dávala smysl jinak formulovaná („kolik kapacity je ještě volné").
+1. **Žádný práh pokrytí.** Čtvrtý krok se ukazuje vždy, jen se jmenuje „potvrzeno
+   tiskařem" a jeho procento je z naplánovaných hodin. Viz §3.1.
+2. **Staví se hned.** První tři kroky produkční měření nepotřebují. **Před nasazením**
+   se ale musí ověřit pokrytí `MachineWeekShifts` na produkci — je to jediná věc,
+   která by kaskádu donutila lhát (týden bez řádku = nulová kapacita = vypadá jako
+   neobsazeno, přestože jde jen o nevyplněný rozvrh).
+3. **Retrospektiva, sekce „VYUŽITÍ KALENDÁŘE".**
 
 ---
 
 ## 8. Hotovo, když
 
 - [ ] kaskáda ukazuje čtyři kroky na stroj s podílem kalendáře
-- [ ] čtvrtý krok nese svoji vyplněnost a při nízkém pokrytí se nespočítá místo aby lhal
-- [ ] poslední řádek odděluje „nemá kdo obsluhovat" od „kalendář zavřel záměrně"
+- [ ] čtvrtý krok se jmenuje „potvrzeno tiskařem" a jeho procento je z NAPLÁNOVANÝCH hodin
+- [ ] nevyužitý kalendář je rozpadlý na víkendy · odstávky · neobsazené směny
+- [ ] sekce se nejmenuje „KAPACITA" (kolize s Výhledem)
 - [ ] sekce se nekreslí pro období kratší než týden a řekne proč
 - [ ] žádné existující číslo se nezměnilo
 - [ ] celá sada testů zelená, `tsc --noEmit` bez chyby
