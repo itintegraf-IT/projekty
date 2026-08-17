@@ -139,6 +139,22 @@ IML_h / computeAvailableHours("XL_106")   kde IML_h přes bloky s jobPresetLabel
 
 **Rozhodnutí:** jakým tempem IML roste — jestli je nový stroj tažený poptávkou, nebo kapacitním stropem.
 
+> **POZOR — vzorec výše je ŠPATNĚ a měřením 17. 8. 2026 se to potvrdilo.**
+> `jobPresetLabel = 'XL 106 IML'` najde na produkci **13 bloků**. IML v plánu
+> ale reálně zabírá **53 bloků a 310 hodin** na XL 106 za posledních 90 dní —
+> je totiž zadaný jako **bloky typu `REZERVACE`** s `orderNumber` `IML`
+> (46 bloků / 280 h) a `IML - TRANS` (7 / 30 h), ne jako zakázky s presetem.
+> Pro srovnání: všechny skutečné `ZAKAZKA` na XL 106 za totéž období mají
+> dohromady 250 h — **rezervovaná kapacita na IML je tedy větší než veškerá
+> potvrzená výroba na tom stroji.**
+>
+> Metrika proto musí počítat **obojí** a hlavně je **odlišit**: rezervovanou
+> kapacitu (záměr) od potvrzené výroby (skutečnost). Kdyby počítala jen preset,
+> ukázala by zlomek reality a vypadala by přitom věrohodně — což je horší než
+> kdyby chyběla. Volba klíče (`orderNumber` vs. preset) je navíc křehká, protože
+> `orderNumber` je volný text (viz 8.3); před implementací ověřit, jestli se IML
+> nedá poznat spolehlivěji.
+
 ### 5.7 Přeplánovanost dokončené zakázky
 
 ```
