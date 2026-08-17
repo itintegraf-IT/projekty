@@ -12,17 +12,6 @@ import { utcToPragueDateStr, addDaysToCivilDate, formatPragueDateShort, pragueTo
 export type HeroReason = "running" | "overdue" | "upcoming";
 export type HeroPick = { block: Block; reason: HeroReason } | null;
 
-/**
- * Okno, po které v plánu svítí červený alarm zpoždění (`overdueState.ts`).
- *
- * Velká karta Monitoru jím řídit PŘESTALA (13. 8. 2026) — drží zakázku, dokud
- * tiskař nedá HOTOVO nebo „Přeskočit →“ (viz `pickHeroBlock`). Konstanta tu
- * zůstává re-exportovaná jako ZÁRUKA, ne z pohodlí: kdyby si ji sem někdo
- * zkopíroval zpátky jako vlastní číslo, plán by červenal jinak dlouho, než by
- * se choval Monitor.
- */
-export { OVERDUE_WINDOW_MS } from "./overdueState";
-
 /** Otevřená zakázka na daném stroji = ZAKAZKA + správný stroj + neodklepnutá. */
 function isOpenOrder(b: Block, machine: string): boolean {
   return b.type === "ZAKAZKA" && b.machine === machine && b.printCompletedAt == null;
@@ -40,10 +29,11 @@ function byStartAsc(a: Block, b: Block): number {
  * nebo smazáním bloku) a `Block` řádky se v projektu nikdy nemažou, takže
  * bez něj by seznam rostl donekonečna, až by Monitor přestal být čitelný.
  *
- * ZÁMĚRNĚ to NENÍ `OVERDUE_WINDOW_MS`: to odpovídá na jinou otázku („je
- * zpoždění ještě akutní?", 16 h) — použití by ořízlo frontu NEDODĚLÁNO (a od
- * 13. 8. 2026 i mez `pickHeroBlock`) na necelý den, takže by běžný výpadek
- * přes víkend nebo svátky zakázku z Monitoru úplně ztratil.
+ * Plán v `overdueState.ts` na téhle podlaze NESTOJÍ — tam je zpožděná zakázka
+ * po termínu vždy, bez ohledu na stáří. Tahle podlaha řeší jinou otázku (kdy
+ * má NEDODĚLÁNO přestat růst), a i kdyby se s ní chtěl někdo zkrátit, musí
+ * zůstat v řádu týdnů: běžný výpadek přes víkend nebo svátky by jinak
+ * zakázku z Monitoru úplně ztratil.
  */
 export const UNFINISHED_LOOKBACK_DAYS = 14;
 
@@ -73,13 +63,11 @@ export function unfinishedFloorMs(now: Date): number {
  * podle plánu, takže v okamžiku, kdy začal následující blok, karta odskočila —
  * i když tiskař pořád tiskl tu předchozí, a zmizelo mu i tlačítko HOTOVO.
  *
- * Šestnáctihodinové okno tu ZÁMĚRNĚ NENÍ: karta drží zakázku, dokud tiskař
+ * Žádné časové okno zpoždění tu ZÁMĚRNĚ NENÍ: karta drží zakázku, dokud tiskař
  * nedá HOTOVO nebo „Přeskočit →" — až na jednu mez, `unfinishedFloorMs`
  * (sdílenou s frontou): po `UNFINISHED_LOOKBACK_DAYS` dnech od konce zakázka
  * zmizí i BEZ rozhodnutí tiskaře, stejně jako z fronty NEDODĚLÁNO. Bez týhle
  * podlahy by na kartě navěky seděl blok, který v datech leží od loňska.
- * `OVERDUE_WINDOW_MS` zůstává vyhrazené červenému alarmu v plánu — kdo ho
- * sem vrátí, obnoví opravenou vadu.
  *
  * Pozastavená zakázka (`blockVariant === "POZASTAVENO"`) se do `overdue`
  * nepočítá — je to výrobní stopka, ne zpoždění, táž výjimka jako
@@ -180,7 +168,7 @@ export function monitorQueue(
     .filter((b) => {
       if (b.printCompletedAt != null) return false;
       // Pozastavená zakázka je výrobní stopka, ne zpoždění — plán ji z „po
-      // termínu" taky vylučuje (BlockCard na ni nevolá overdueAlarmState).
+      // termínu" taky vylučuje (BlockCard na ni nevolá isOverdueUnacknowledged).
       if (b.blockVariant === "POZASTAVENO") return false;
       const end = new Date(b.endTime).getTime();
       if (end > t || end < floorMs) return false;

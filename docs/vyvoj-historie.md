@@ -255,6 +255,16 @@ plán i Monitor" je z téhož důvodu zastaralé.
 
 ## Dva stupně zpoždění + hledání v DTP přehledu (12.–13. 8. 2026)
 
+**Neplatí od 17. 8. 2026:** dvoustupňovost popsaná níž (`alarm`/`stale`) i
+`OVERDUE_WINDOW_MS`, na kterém stála, byly zrušené rozhodnutím majitele —
+„Nechci to rozlišovat. Nebude se stávat tak často, že to zapomenou odkliknout.
+Proto to chci mít vždy rudé." Zpožděná neodklepnutá zakázka se dnes kreslí
+VŽDY tak, jak tahle sekce popisuje stav `alarm`, bez ohledu na to, jak dlouho
+zpoždění trvá. `overdueAlarmState()` nahradila `isOverdueUnacknowledged()`
+(vrací `boolean`, ne třístavový výčet); `BLOCK_OVERDUE` (tlumený zbytkový styl)
+a `OVERDUE_STALE_ICON` byly smazané, `BLOCK_OVERDUE_ALARM`/`OVERDUE_ALARM`
+zůstávají beze změny vzhledu. Zbytek sekce popisuje historický stav.
+
 Připomínka plánovače: zpožděná neodklepnutá zakázka a hotová zakázka vypadaly
 v plánu stejně — obě vybledlé (`BLOCK_OVERDUE` krytí 0,22/0,14 vs.
 `BLOCK_PRINT_DONE` 0,13/0,07). Obě tedy říkaly „tuhle už neřeš", přestože

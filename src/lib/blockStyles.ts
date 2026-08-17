@@ -83,28 +83,10 @@ export const BLOCK_STYLES: Record<string, BlockStyle> = {
 };
 
 /**
- * ZBYTKOVÝ stav zpožděné zakázky — konec je v minulosti déle než OVERDUE_WINDOW_MS
- * a nikdo neodklepl (`overdueAlarmState` → `stale`). Zůstává tlumený: po 16 hodinách
- * už to není akutní věc směny, ale nepořádek v odklepávání.
- *
- * `accentBar` je od 12. 8. 2026 ČERVENÝ a kreslí se v plném krytí. Dřív to byla
- * ztlumená oranžová (opacity 0,4 v BlockCard) a karta pak byla k nerozeznání od
- * hotové — obě vybledlé, obě říkaly „tuhle už neřeš". Levý pruh je jediné místo,
- * kde tenhle stav ještě drží barvu; nezeslabovat.
- */
-export const BLOCK_OVERDUE: BlockStyle = {
-  gradient:    "linear-gradient(160deg, rgba(251,146,60,0.22) 0%, rgba(234,88,12,0.14) 100%)",
-  border:      "rgba(251,146,60,0.55)",
-  accentBar:   "#ef4444",
-  leftBg:      "rgba(251,146,60,0.10)",
-  textPrimary: "var(--text)",
-  textSub:     "var(--text-muted)",
-  glow:        "rgba(251,146,60,0.25)",
-};
-
-/**
- * AKUTNÍ stav zpožděné zakázky (`overdueAlarmState` → `alarm`): konec je v minulosti
- * nejvýš OVERDUE_WINDOW_MS a tiskař neodklepl.
+ * Zpožděná neodklepnutá zakázka (`isOverdueUnacknowledged` → `true`): konec je
+ * v minulosti a nikdo neodklepl. Rozhodnutím majitele (17. 8. 2026) je to VŽDY
+ * tenhle vzhled, bez ohledu na to, jak dlouho zpoždění trvá — dřív existoval
+ * i tlumený zbytkový stav po 16 hodinách, ten se zrušil.
  *
  * Výplň je ZÁMĚRNĚ shodná s pozastavenou zakázkou — rozhodnutí majitele 12. 8. 2026
  * poté, co se první verze (modrá karta + červený rám) ukázala jako nevýrazná.
@@ -113,8 +95,8 @@ export const BLOCK_OVERDUE: BlockStyle = {
  * (zakázku pozastavíš a blok zůstane na svém starém čase), proto ten spread — kdyby
  * se ty dva stavy měly někdy rozejít, je to jedna vědomá editace tady, ne tichý drift.
  *
- * Alarm je pak o stupeň hlasitější než pozastavená: k téže výplni přidává světlejší
- * červený rám, bílou vlasovou linku zevnitř a širší levý pruh.
+ * Vzhledem je pak o stupeň hlasitější než pozastavená: k téže výplni přidává
+ * světlejší červený rám, bílou vlasovou linku zevnitř a širší levý pruh.
  */
 export const BLOCK_OVERDUE_ALARM: BlockStyle = { ...ZAKAZKA_POZASTAVENO };
 
@@ -131,14 +113,6 @@ export const OVERDUE_ALARM = {
   barWidth:   6,
   icon:       "#ffffff",
 } as const;
-
-/**
- * Barva hodinek u ZBYTKOVÉHO zpoždění. Alarm má vlastní (`OVERDUE_ALARM.icon`,
- * bílá na červené výplni); tady jde o oranžovou na tlumené kartě. Bydlí tu proto,
- * že barvy bloků patří do palety, ne do komponenty — `BlockCard` ji měla jako
- * holý hex přímo ve výrazu vedle `OVERDUE_ALARM.icon`.
- */
-export const OVERDUE_STALE_ICON = "#f59e0b";
 
 export const BLOCK_PRINT_DONE: BlockStyle = {
   gradient:    "linear-gradient(160deg, rgba(59,130,246,0.13) 0%, rgba(59,130,246,0.07) 100%)",

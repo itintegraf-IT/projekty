@@ -332,7 +332,7 @@ test("monitorQueue.overdue: nedodělaná noční směna z včerejška UŽ patř�
 });
 
 test("monitorQueue.overdue: POZASTAVENÁ zakázka v sekci NENÍ", () => {
-  // Plán ji z „po termínu" vědomě vylučuje (BlockCard nevolá overdueAlarmState).
+  // Plán ji z „po termínu" vědomě vylučuje (BlockCard nevolá isOverdueUnacknowledged).
   // Je to výrobní stopka, ne zpoždění — kdyby ji Monitor ukázal, obě obrazovky
   // by o téže zakázce tvrdily opak.
   const now = new Date("2026-08-12T06:00:00.000Z");
@@ -508,7 +508,7 @@ test("pickHeroBlock: z několika přetahujících vyhraje ta, co skončila nejpo
   assert.equal(pickHeroBlock(blocks, "XL_105", now)?.block.id, 2);
 });
 
-test("pickHeroBlock: přetahující drží kartu i po 16 h (žádné OVERDUE_WINDOW_MS)", () => {
+test("pickHeroBlock: přetahující drží kartu i po 20 h (žádné časové okno)", () => {
   // Konec + 20 h. Do 13. 8. 2026 by tuhle zakázku výběr zahodil a karta by
   // odskočila na běžící blok — právě to je opravovaná vada.
   const now = new Date("2026-08-14T08:00:00.000Z");

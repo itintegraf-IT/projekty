@@ -5,8 +5,8 @@ import { createPortal } from "react-dom";
 import { blockPrintMinutes, formatPrintHoursShort, type CalendarDriftInfo } from "@/lib/printTimeClient";
 import { isParkedDrift } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
-import { BLOCK_STYLES, BLOCK_OVERDUE, BLOCK_OVERDUE_ALARM, BLOCK_PRINT_DONE, OVERDUE_ALARM, OVERDUE_STALE_ICON, getBlockStyleKey, tint } from "@/lib/blockStyles";
-import { overdueAlarmState } from "@/lib/overdueState";
+import { BLOCK_STYLES, BLOCK_OVERDUE_ALARM, BLOCK_PRINT_DONE, OVERDUE_ALARM, getBlockStyleKey, tint } from "@/lib/blockStyles";
+import { isOverdueUnacknowledged } from "@/lib/overdueState";
 import {
   civilDateToUTCMidnight,
   formatPragueDateShort,
@@ -348,16 +348,12 @@ export function BlockCard({
   // i fialový rámeček a vypadal jako potvrzený (viz hasUnconfirmedReservation).
   const isUnconfirmedReservation = block.type === "REZERVACE"
     && ((block.reservationId != null && !block.reservationConfirmedAt) || groupUnconfirmedReservation);
-  // Zpožděná neodklepnutá zakázka ve dvou stupních (`overdueState.ts`): `alarm` do
-  // 16 h po konci se kreslí sytě, `stale` po nich zůstává tlumená. Do 12. 8. 2026 tu
-  // byl jediný tlumený stav a splýval s hotovou zakázkou — obě vybledlé.
+  // Zpožděná neodklepnutá zakázka (`overdueState.ts`) — rozhodnutím majitele
+  // (17. 8. 2026) se kreslí VŽDY červeně, bez ohledu na to, jak dlouho zpoždění
+  // trvá (dřív existoval i tlumený zbytkový stav po 16 h, ten se zrušil).
   // Typ a pozastavení řeší karta, ne ta funkce (viz komentář u ní).
-  const overdueStage  = block.type === "ZAKAZKA" && !isPozastaveno
-    ? overdueAlarmState(block.endTime, block.printCompletedAt, now)
-    : "none";
-  const isOverdueAlarm = overdueStage === "alarm";
-  const isOverdueStale = overdueStage === "stale";
-  const isOverdue      = overdueStage !== "none";
+  const isOverdue = block.type === "ZAKAZKA" && !isPozastaveno
+    && isOverdueUnacknowledged(block.endTime, block.printCompletedAt, now);
   // Deadline štítek — nezávislé na isOverdue (to je „konec bloku je v minulosti").
   // Termín expedice je okamžik 14:00 pražského času, ne celý den (viz deadlineState.ts);
   // běží nezávisle na `now`, takže hlásí i bloky naplánované do budoucna.
@@ -440,18 +436,18 @@ export function BlockCard({
     : block.pantoneRequiredDate ? `${fmtDateShort(block.pantoneRequiredDate)}${icon}`
     : "⚠";
 
-  // POZOR na pořadí: tlumený `BLOCK_OVERDUE` platí jen pro ZBYTKOVÝ stav (nad 16 h).
-  // Akutní zpoždění má plnou červenou výplň shodnou s pozastavenou zakázkou — barva
-  // varianty (bez sáčku, bez technologie) se pod ním vědomě ztrácí, protože zpoždění
-  // je v tu chvíli důležitější informace. Viz BLOCK_OVERDUE_ALARM.
+  // POZOR na pořadí: hotový tisk (`isPrintDone`) a pozastavení (`isPozastaveno`)
+  // musí být před zpožděním, protože obě mají přednost před tím, co by z toho
+  // samotný čas bloku říkal. Zpožděná zakázka má plnou červenou výplň shodnou
+  // s pozastavenou zakázkou — barva varianty (bez sáčku, bez technologie) se
+  // pod ním vědomě ztrácí, protože zpoždění je v tu chvíli důležitější
+  // informace. Viz BLOCK_OVERDUE_ALARM.
   const s = isPrintDone
     ? BLOCK_PRINT_DONE
     : isPozastaveno
     ? BLOCK_STYLES["ZAKAZKA_POZASTAVENO"]
-    : isOverdueAlarm
+    : isOverdue
     ? BLOCK_OVERDUE_ALARM
-    : isOverdueStale
-    ? BLOCK_OVERDUE
     : (BLOCK_STYLES[getBlockStyleKey(block.type, block.blockVariant)] ?? BLOCK_STYLES["ZAKAZKA"]);
 
   // Alarm zpožděné zakázky se kreslí jako INSET stín karty, ne jako překryvný <div>.
@@ -466,15 +462,15 @@ export function BlockCard({
   //
   // Druhý inset je o 1 px širší, takže z něj zbude vlasová linka ZEVNITŘ rámu —
   // bez ní by červeň rámu splynula s červení výplně.
-  const alarmRing = isOverdueAlarm
+  const alarmRing = isOverdue
     ? `inset 0 0 0 ${OVERDUE_ALARM.ringWidth}px ${OVERDUE_ALARM.ring},`
       + ` inset 0 0 0 ${OVERDUE_ALARM.ringWidth + 1}px ${OVERDUE_ALARM.ringInner}`
     : null;
 
   // Hodinky u čísla zakázky — jediný nosič informace „proč je tahle karta červená".
-  // Akutní zpoždění má od 12. 8. 2026 výplň SHODNOU s pozastavenou zakázkou
-  // (viz BLOCK_OVERDUE_ALARM), takže bez hodinek plánovač nerozezná „běž za
-  // tiskařem" od „zákazník to stopnul, nedělej nic".
+  // Zpoždění má výplň SHODNOU s pozastavenou zakázkou (viz BLOCK_OVERDUE_ALARM),
+  // takže bez hodinek plánovač nerozezná „běž za tiskařem" od „zákazník to
+  // stopnul, nedělej nic".
   //
   // Kreslí se proto ve VŠECH TŘECH větvích layoutu. Do 13. 8. 2026 byly jen
   // v COMPACT, tedy v pásmu širokém 5 px výšky karty — u běžné hodinové zakázky
@@ -488,30 +484,28 @@ export function BlockCard({
   // odvozeném od místa, kde prvek stojí.
   const renderOverdueClock = (baseNum: number) => isOverdue ? (
     <span
-      title={isOverdueAlarm
-        ? "Měla být vytištěná — tiskař zatím neodklepl"
-        : "Neodklepnutá déle než 16 hodin po konci"}
+      title="Měla být vytištěná — tiskař zatím neodklepl"
       style={{ display: "inline-flex", alignItems: "center", marginLeft: 4, flexShrink: 0 }}
     >
       <Clock
         size={Math.round(baseNum * NUM_ICON_RATIO_CLOCK)}
         strokeWidth={2.5}
-        color={isOverdueAlarm ? OVERDUE_ALARM.icon : OVERDUE_STALE_ICON}
+        color={OVERDUE_ALARM.icon}
       />
     </span>
   ) : null;
 
   // Střídání odstínů — světlý/tmavý wash přes gradient, aby šla vidět hranice mezi
   // sousedícími zakázkami/rezervacemi téže barvy. Aplikuje se jen na plné barevné
-  // stavy, tedy na všechno kromě vlastních tlumených vzhledů: dokončeného tisku
-  // a ZBYTKOVÉHO zpoždění.
+  // stavy, tedy na všechno kromě vlastního tlumeného vzhledu dokončeného tisku.
+  // Zpožděná (červená) zakázka shade-eligible JE.
   //
   // POZOR na dosah: `shadeParity` počítá `computeShadeParity` per kbelík
-  // `getBlockStyleKey(type, blockVariant)` a o alarmu NEVÍ. Dvě sousedící zpožděné
-  // zakázky z různých kbelíků (STANDARD + BEZ_SACKU) tedy můžou dostat touž paritu
-  // a splynout v jednu červenou plochu — wash je zaručený jen uvnitř téže nominální
-  // barvy. Rozlišuje je pak až rám alarmu, ne odstín.
-  const shadeEligible = !isPrintDone && !isOverdueStale && shadeParity != null;
+  // `getBlockStyleKey(type, blockVariant)` a o zpoždění NEVÍ. Dvě sousedící
+  // zpožděné zakázky z různých kbelíků (STANDARD + BEZ_SACKU) tedy můžou dostat
+  // touž paritu a splynout v jednu červenou plochu — wash je zaručený jen uvnitř
+  // téže nominální barvy. Rozlišuje je pak až rám alarmu, ne odstín.
+  const shadeEligible = !isPrintDone && shadeParity != null;
   const shadedBackground = shadeEligible
     ? shadeParity === 1
       ? `linear-gradient(rgba(255,255,255,0.30), rgba(255,255,255,0.30)), ${s.gradient}`
@@ -738,18 +732,15 @@ export function BlockCard({
           <Hourglass size={11} strokeWidth={2} color="rgba(168,85,247,1)" />
         </div>
       ) : (
-        // Pořadí podmínek je v obou vlastnostech shodné (běžící → alarm → základ).
+        // Pořadí podmínek je v obou vlastnostech shodné (běžící → zpožděná → základ).
         // Rozejít se nesmí: dnes jsou ty dva stavy vzájemně vyloučené (běžící blok
-        // vyžaduje `now < end`, alarm `now > end`), ale kdyby někdo zavedl toleranci
+        // vyžaduje `now < end`, zpožděná `now > end`), ale kdyby někdo zavedl toleranci
         // na konci bloku, obrácené pořadí by dalo 6px ZELENÝ pruh — stav, který
         // v žádné legendě není.
         <div style={{
           position: "absolute", left: 0, top: 0, bottom: 0,
-          width: isRunningNow ? 5 : isOverdueAlarm ? OVERDUE_ALARM.barWidth : 3,
-          background: isRunningNow ? "var(--success)" : isOverdueAlarm ? OVERDUE_ALARM.bar : s.accentBar,
-          // Ztlumení pruhu platilo dřív pro každé zpoždění a bylo to naruby: právě
-          // ten pruh měl stav hlásit. Zbytkový stav ho teď má červený a plný
-          // (BLOCK_OVERDUE.accentBar), akutní k tomu ještě širší.
+          width: isRunningNow ? 5 : isOverdue ? OVERDUE_ALARM.barWidth : 3,
+          background: isRunningNow ? "var(--success)" : isOverdue ? OVERDUE_ALARM.bar : s.accentBar,
           borderRadius: "7px 0 0 7px", flexShrink: 0,
         }} />
       )}
