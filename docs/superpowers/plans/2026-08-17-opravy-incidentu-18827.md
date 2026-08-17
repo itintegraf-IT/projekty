@@ -45,7 +45,12 @@ ALTER TABLE `AuditLog` MODIFY `username`    VARCHAR(191) NOT NULL;
 ALTER TABLE `Block`    MODIFY `orderNumber` VARCHAR(191) NOT NULL;
 ```
 
-Na dev i testovací DB je to no-op (tam už 191 mají), takže migrace je idempotentní.
+Na **dev** DB je to no-op (tam už 191 mají). Na **testovací** instanci NE — ta
+stojí nad kopií produkce, takže tam jsou `varchar(64)` a `ALTER` reálně poběží;
+nasazení na test je tedy plnohodnotná generálka téhle změny, ne prázdný běh.
+Migrace záměrně neuvádí `ALGORITHM=`/`LOCK=` (explicitní hint by na MariaDB
+migraci mohl shodit místo aby ji zpomalil), takže in-place provedení není
+zaručené — skutečný čas se má změřit na testu, ne odhadovat předem.
 
 **Před napsáním migrace ověřit collation** (ať `MODIFY` tiše nepřevede znakovou sadu
 na výchozí hodnotu tabulky) — na serveru, jen čtení:
