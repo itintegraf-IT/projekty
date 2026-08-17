@@ -276,9 +276,12 @@ jen parametrizovaná — viz hlavička `scripts/revert-revision-group.ts`): cíl
 vrácení každého bloku = `before` z jeho revize; než na blok sáhne, ověří, že
 DB dnes odpovídá `after` téže revize (jinak by přepsal cizí mezitímní práci) —
 tahle kontrola běží DVAKRÁT, jednou před otevřením transakce a znovu jako
-PRVNÍ dotaz UVNITŘ ní (zavírá okno mezi kontrolou a zápisem); simuluje cílový
-stav a nahlásí VŠECHNY kolize s bloky mimo dávku předem, ne jen první; bez
-`--apply` je vždy jen DRY-RUN — transakce se neotevře, pokud skript najde
+PRVNÍ dotaz UVNITŘ ní, a to ZAMYKAJÍCÍ (`SELECT ... FOR UPDATE` nad všemi
+dotčenými bloky, vzor `undoApply.server.ts`) — teprve zámek, ne obyčejné
+čtení, doopravdy zavírá okno mezi kontrolou a zápisem (MySQL REPEATABLE READ
+by u pouhého `findMany` pustil cizí souběžný commit beze stopy); simuluje
+cílový stav a nahlásí VŠECHNY kolize s bloky mimo dávku předem, ne jen první;
+bez `--apply` je vždy jen DRY-RUN — transakce se neotevře, pokud skript najde
 chybějící blok, nesoulad nebo kolizi. `--apply` zapíše v jedné transakci přes
 `withRevision` (vznikne NOVÁ revizní skupina pro samotnou opravu) a končí
 `assertNoOverlapForBlocks`.

@@ -2215,7 +2215,12 @@ obsluhu dialog odklikávat — `docs/POUCENI.md` P29.
   (skupina, kde revize mění i `machine`, se ODMÍTNE CELÁ — jinak by finální
   kolizní pojistka kontrolovala špatný, předpřesunový stroj) a guard proti
   souběžné editaci běží DVAKRÁT: jednou před otevřením transakce, znovu jako
-  PRVNÍ dotaz UVNITŘ ní (fix round 1, review C1/I1/I2). Postup použití →
+  PRVNÍ dotaz UVNITŘ ní — a od fix roundu 2 je to `SELECT ... FOR UPDATE`
+  nad všemi dotčenými bloky (`fetchRowsLocked`, vzor `undoApply.server.ts`),
+  ne obyčejný `findMany`. Fix round 1 (review C1/I1/I2) opakování guardu
+  jako „první dotaz" jen NAPSAL, ale bez zámku okno mezi kontrolou a zápisem
+  nezavíral — MySQL REPEATABLE READ by u konzistentního čtení pustil cizí
+  souběžný commit beze stopy; opraveno až v re-review. Postup použití →
   `docs/OPS_ZALOHY.md`, sekce „Vrácení kaskády z černé skříňky".
 
 **Co tahle vlna NEZAVÍRÁ — otevřený dluh.** Diferenční kontrola blokuje

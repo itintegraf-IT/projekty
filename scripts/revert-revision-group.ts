@@ -25,8 +25,12 @@
  *     mezitím někdo s blokem hnul, oprava by přepsala jeho práci, a skript se
  *     zastaví BEZ ZÁPISU. Tahle kontrola běží DVAKRÁT: jednou před otevřením
  *     transakce (ať dry-run i apply vidí problém dřív, než se čeká na zámky),
- *     a znovu jako PRVNÍ dotaz UVNITŘ transakce (zavírá okno mezi kontrolou a
- *     zápisem — mezitím mohl kdokoli blok změnit mimo skript);
+ *     a znovu jako PRVNÍ dotaz UVNITŘ transakce — a to ZAMYKAJÍCÍ (`SELECT ...
+ *     FOR UPDATE` nad všemi dotčenými bloky, `fetchRowsLocked`, vzor
+ *     `undoApply.server.ts`). Obyčejný `findMany` by pod MySQL REPEATABLE READ
+ *     bral jen konzistentní čtení bez zámku, takže „první dotaz" beze zámku by
+ *     okno mezi kontrolou a zápisem NEZAVŘEL — cizí commit by mezitím proklouzl
+ *     beze stopy;
  *  3) simuluje cílový stav (co by bylo v DB, kdyby se vrácení provedlo) a
  *     nahlásí VŠECHNY kolize s bloky mimo dávku, ne jen první — bez toho se
  *     oprava ladí po jedné kolizi na běh (přesně to se stalo 17. 8. 2026);
@@ -69,6 +73,7 @@
  *  - vše běží v JEDNÉ transakci uvnitř `withRevision` (vznikne NOVÁ revizní
  *    skupina pro samotnou opravu) a končí `assertNoOverlapForBlocks`.
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { withRevision } from "@/lib/revision.server";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
@@ -316,6 +321,24 @@ async function fetchRows(client: typeof prisma | PrismaTransactionClient, ids: n
   return new Map(rows.map((b) => [b.id, b]));
 }
 
+/**
+ * Zamykající čtení — MUSÍ být PRVNÍ dotaz v transakci (vzor `undoApply.server.ts`,
+ * kolem řádku 169–183; pravidlo je i v `CLAUDE.md`). Obyčejný `findMany` je pod MySQL
+ * REPEATABLE READ jen consistent read (nebere zámky) — mezi ním a zápisem by mohl
+ * vklouznout souběžný commit odjinud a `checkGuard` by ho vůbec neviděl (přesně tahle
+ * mezera se ukázala v re-review fix roundu 1: `fetchRows(rtx, …)` volané jako "první
+ * dotaz" bylo pořád jen nezamykající čtení). `SELECT ... FOR UPDATE` bere per-row
+ * X-zámky nad VŠEMI dotčenými bloky najednou — u vícebllokové dávky (havárie měla 88)
+ * by zamykání po jednom nechalo otevřené okno mezi zámkem prvního a posledního bloku.
+ * Vybírá záměrně jen `id`: zamyká celý řádek bez ohledu na to, co je v SELECT listu,
+ * a skutečná data načte hned pod tím normální typovaný `findMany` (`fetchRows`) —
+ * konzistentní read hned po zamykajícím čtení uvidí přesně to, co jsme právě zamkli.
+ */
+async function fetchRowsLocked(rtx: PrismaTransactionClient, ids: number[]): Promise<Map<number, DbRow>> {
+  await rtx.$queryRaw`SELECT id FROM Block WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
+  return fetchRows(rtx, ids);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   console.log(`Režim: ${args.apply ? "APPLY (zapisuje!)" : "DRY-RUN (nic nemění)"}`);
@@ -513,9 +536,12 @@ async function main() {
     async (rtx: PrismaTransactionClient) => {
       // I2 (TOCTOU): Pojistka #1 běžela v autocommitu PŘED otevřením transakce — mezitím
       // (čekání na zámek, souběžná práce) mohl kdokoli mimo skript kterýkoli dotčený blok
-      // změnit. Zopakovat guard jako PRVNÍ dotaz uvnitř transakce (delegát čtení povoluje)
-      // a při neshodě throw → celá transakce se odrolí, nic se nezapíše.
-      const freshById = await fetchRows(rtx, ids);
+      // změnit. Zopakovat guard jako PRVNÍ dotaz uvnitř transakce, a to ZAMYKAJÍCÍ —
+      // obyčejný `findMany` by pod REPEATABLE READ jen viděl bez zámku (re-review fix
+      // roundu 1 to označilo jako zbývající mezeru: „první dotaz" beze zámku okno
+      // nezavírá). `fetchRowsLocked` bere `SELECT ... FOR UPDATE` nad VŠEMI dotčenými
+      // bloky jako doslova první dotaz v těle. Při neshodě throw → transakce se odrolí.
+      const freshById = await fetchRowsLocked(rtx, ids);
       const recheck = checkGuard(freshById, groupTargets, alsoTargets);
       if (recheck.missing.length > 0 || recheck.drifted.length > 0) {
         throw new Error(
