@@ -20,6 +20,7 @@ import { ProductionTagsRow } from "@/components/planner/ProductionTagsRow";
 import { NativeSelect } from "@/components/NativeSelect";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
+import { durationPayload } from "@/lib/blockEditDuration";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
@@ -160,6 +161,36 @@ export function BlockEdit({
     ? blockPrintMinutes(block) / 60
     : (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
   const [durationHours, setDurationHours] = useState(currentDurationHours);
+  // Incident 18827 (14. 8. 2026): durationHours se dřív počítal jen JEDNOU při
+  // mountu a buildPayload() ho posílal při každém uložení bez ohledu na to, jestli
+  // se ho uživatel dotkl — split snížil délku na serveru, panel zůstal otevřený se
+  // starou hodnotou a to staré číslo přepsalo čerstvý split (75 odsunutých zakázek).
+  // durationTouched rozlišuje „uživatel délku vědomě zvolil" od „hodnota je jen
+  // dopočtená z bloku" — viz durationPayload (src/lib/blockEditDuration.ts).
+  const [durationTouched, setDurationTouched] = useState(false);
+  // Poslední známá hodnota ze serveru — sleduje se NEZÁVISLE na durationHours, aby
+  // šlo poznat, že se currentDurationHours změnil, i když se durationHours (kvůli
+  // touched) dál nepřepisuje.
+  const prevCurrentDurationRef = useRef(currentDurationHours);
+  // Non-null = server změnil délku POTÉ, co ji uživatel ručně nastavil (touched).
+  // Nezáměrně ho nepřepisujeme — jde o vědomou akci na zastaralém předpokladu
+  // (viz task-2-brief.md, 2c) — jen se u selectu zobrazí upozornění.
+  const [serverDurationChangedTo, setServerDurationChangedTo] = useState<number | null>(null);
+
+  // 2b + 2c v jednom efektu: currentDurationHours se mění, kdykoliv se pod panelem
+  // změní blok (split, chain push, cizí úprava). Nedotčený select se tiše
+  // přesynchronizuje (2b); dotčený select se NEPŘEPÍŠE, jen se nastaví hláška
+  // s aktuální serverovou hodnotou (2c). Cizí odklepnutí chipu, které mění jen
+  // updatedAt, currentDurationHours nezmění, takže sem vůbec nespadne.
+  useEffect(() => {
+    if (currentDurationHours === prevCurrentDurationRef.current) return;
+    prevCurrentDurationRef.current = currentDurationHours;
+    if (durationTouched) {
+      setServerDurationChangedTo(currentDurationHours);
+    } else {
+      setDurationHours(currentDurationHours);
+    }
+  }, [currentDurationHours, durationTouched]);
 
   // Termín expedice
   const [deadlineExpedice, setDeadlineExpedice] = useState(
@@ -640,12 +671,21 @@ export function BlockEdit({
       vnitrky,
       tiskoveArchy: serializeProductionTags(tiskoveArchy),
       serie: serializeProductionTags(serie),
-      // ZAKAZKA: posíláme printMinutes (tiskové hodiny) — server dopočítá autoritativní
-      // end z uloženého startu (explicitní-pm PUT větev z etapy 2). Ne-ZAKAZKA typy
-      // (REZERVACE, UDRZBA) model tiskových hodin nemají, tam zůstává prostý endTime.
-      ...(type === "ZAKAZKA"
-        ? { printMinutes: Math.round(durationHours * 60) }
-        : { endTime: new Date(new Date(block.startTime).getTime() + durationHours * 3600000).toISOString() }),
+      // Incident 18827 (14. 8. 2026): délka se posílala VŽDY, i když se jí uživatel
+      // nedotkl — stará hodnota z okamžiku otevření panelu tak přepsala čerstvý
+      // split. durationPayload (src/lib/blockEditDuration.ts) posílá délku jen když
+      // se jí uložení skutečně týká (durationTouched, nebo změna typu — viz jeho
+      // docblock). Tenhle payload jde i do handleSaveAll ("Uložit vše" pro sérii/split
+      // skupinu, PlannerPage.tsx) — ta cesta expectedUpdatedAt NEPOSÍLÁ vůbec (hromadná
+      // úprava víc bloků najednou nemá jednu "čerstvou" verzi k porovnání), takže
+      // vrstvy 2a–2c ji kryjí stejně jako jednoblokové Uložit.
+      ...durationPayload({
+        type,
+        typeChanged: type !== block.type,
+        touched: durationTouched,
+        durationHours,
+        startTime: block.startTime,
+      }),
     };
   }
 
@@ -660,6 +700,22 @@ export function BlockEdit({
     payload.orderNumber = num;
     payload.type = "ZAKAZKA";
     payload.blockVariant = RESERVATION_FLIP_VARIANT;
+    // buildPayload() výš počítalo durationPayload s lokálním stavem `type`, který
+    // je pro tenhle flip pořád "REZERVACE" — tlačítko ZAKAZKA u block.type ===
+    // "REZERVACE" volá setShowOrderNumberPrompt místo setType (viz onClick výš),
+    // takže se `type` stav nikdy nezmění a typeChanged tam vyjde false. Přepočítat
+    // tady natvrdo s typeChanged: true — jinak by se u nedotčeného selectu žádná
+    // délka neposlala a server by sáhl po oldBlock.printMinutes, který je u
+    // ne-ZAKAZKY null (viz docblock výš).
+    delete payload.printMinutes;
+    delete payload.endTime;
+    Object.assign(payload, durationPayload({
+      type: "ZAKAZKA",
+      typeChanged: true,
+      touched: durationTouched,
+      durationHours,
+      startTime: block.startTime,
+    }));
     return payload;
   }
 
@@ -715,6 +771,14 @@ export function BlockEdit({
       // editovaného bloku by shodil uložení sourozenců.
       // Zdroj pravdy je čerstvý záznam z allBlocks (chain push mohl blok
       // odsunout); po potvrzeném konfliktu se zámek vynechá = vědomý přepis.
+      //
+      // Rozhodnutí z etapy 2 (incident 18827, 14. 8. 2026): zámek se ZÁMĚRNĚ
+      // NEKOTVÍ k verzi z okamžiku otevření panelu. Blok se pod otevřeným panelem
+      // mění běžně (chain push po zásahu jinde) mnohem častěji, než nastal tenhle
+      // incident — kotvení k mount-verzi by po každém takovém pushi vracelo 409 a
+      // blokovalo uložení i tam, kde žádná data v konfliktu nejsou. Incident řeší
+      // vrstvy 2a–2c (durationPayload + resync + hláška) tím, že SPRÁVNĚ rozhodnou,
+      // jestli se délka vůbec posílá — ne přísnějším zámkem.
       const freshUpdatedAt = allBlocks.find((b) => b.id === block.id)?.updatedAt ?? block.updatedAt;
       const res = await fetch(`/api/blocks/${block.id}`, {
         method: "PUT",
@@ -965,11 +1029,29 @@ export function BlockEdit({
         {/* Délka tisku */}
         <div style={{ marginTop: 8 }}>
           <Label style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 5, display: "block" }}>Délka tisku</Label>
-          <NativeSelect value={String(durationHours)} onChange={(v) => setDurationHours(Number(v))}>
+          <NativeSelect
+            value={String(durationHours)}
+            onChange={(v) => {
+              setDurationHours(Number(v));
+              setDurationTouched(true);
+              // Nová vědomá volba nahrazuje starou hlášku — pokud uživatel po
+              // upozornění vybere znovu, řeší tím i případ, na který upozorňovalo.
+              setServerDurationChangedTo(null);
+            }}
+          >
             {DURATION_OPTIONS.map((opt) => (
               <option key={opt.hours} value={String(opt.hours)}>{opt.label}</option>
             ))}
           </NativeSelect>
+          {/* 2c: uživatel délku nastavil, ale mezitím se na serveru změnila (typicky
+              split) — neblokujeme uložení, jen upozorníme. --warning je barva
+              PODKLADU (jako písmo ve světlém režimu ~1,86:1, nečitelné) — pro text
+              je --warning-text. */}
+          {serverDurationChangedTo !== null && (
+            <div style={{ marginTop: 4, fontSize: 10, color: "var(--warning-text)" }}>
+              Délka bloku se mezitím změnila na {formatPrintHoursShort(Math.round(serverDurationChangedTo * 60))}.
+            </div>
+          )}
         </div>
 
         {/* ── Výrobní sloupečky ── */}
