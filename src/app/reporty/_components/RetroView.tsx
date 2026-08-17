@@ -5,6 +5,7 @@ import { machineLabel } from "@/lib/machines";
 import { OPEN_STATUSES, CLOSED_STATUSES } from "@/lib/reservationStatus";
 import { KpiCard } from "./KpiCard";
 import { PlanningSection } from "./PlanningSection";
+import { CalendarUseSection } from "./CalendarUseSection";
 import { pipelineToneFor, reportTypeScale, reportRadius, reportSpace } from "@/lib/reportTokens";
 import { SectionHeader, BarChart, cz, type RetroData } from "./reportShared";
 
@@ -98,6 +99,14 @@ export function RetroView({ data }: { data: RetroData }) {
           labels={chartLabels}
         />
       </div>
+
+      {/* VYUZITI KALENDARE — ZÁMĚRNĚ ne „KAPACITA": tak se jmenuje sekce ve
+          Výhledu a znamená něco jiného (volné hodiny dopředu). */}
+      <SectionHeader label="VYUŽITÍ KALENDÁŘE" />
+      {/* Počet dní období se bere z `dailyUtilization`, které má právě jeden
+          záznam na den rozsahu — jiný zdroj délky období klient nemá a druhý
+          by se s tímhle mohl rozejít. */}
+      <CalendarUseSection machines={data.machines} dayCount={data.dailyUtilization.length} />
 
       {/* PRUCHOD ZAKAZEK */}
       <SectionHeader label="PRŮCHOD ZAKÁZEK" />
