@@ -4,7 +4,13 @@
  */
 
 import { addDaysToCivilDate, pragueToUTC } from "./dateUtils";
-import { type Interval, mergeIntervals } from "./intervals";
+import {
+  type Interval,
+  intersectIntervals,
+  mergeIntervals,
+  subtractIntervals,
+  totalHours,
+} from "./intervals";
 import { companyDayIntervalsFor } from "./printTimeClient";
 import { resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
@@ -109,6 +115,140 @@ export function computeAvailableHours(
     ms += Math.max(0, free);
   }
   return ms / 3_600_000;
+}
+
+// ---------------------------------------------------------------------------
+// 1b. computeCalendarCascade
+// ---------------------------------------------------------------------------
+
+export type CalendarCascade = {
+  calendarHours: number;
+  staffedHours: number;
+  plannedHours: number;
+  confirmedHours: number;
+  /** Podíl potvrzených na naplánovaných. `null` když se nic neplánovalo. */
+  confirmedShareOfPlanned: number | null;
+  unused: { total: number; weekend: number; shutdown: number; unstaffedShift: number };
+};
+
+/**
+ * Absolutní UTC intervaly OBSAZENÝCH směn v okně `[winStart, winEnd)`, po odečtení odstávek.
+ *
+ * Záměrně TÝŽ postup jako v `computeAvailableHours` — jen vrací, KDE ty hodiny leží,
+ * místo pouhého součtu. Rozpad nevyužitého kalendáře potřebuje polohu; kdyby se
+ * rekonstrukce s originálem rozešla, přestalo by platit `kalendář − obsazeno = nevyužito`
+ * a rozpad by tiše lhal (hlídá test parity s `computeAvailableHours`).
+ *
+ * Proto se stejně jako tam začíná DEN PŘED rozsahem: noční směna patří ke dni svého
+ * startu a do okna zasahuje ocasem po půlnoci.
+ */
+function staffedIntervals(
+  machine: string,
+  rangeStart: string,
+  rangeEnd: string,
+  weekShifts: MachineWeekShiftsRow[],
+  shutdowns: Interval[],
+  window: Interval[],
+): Interval[] {
+  const rawShifts: Interval[] = [];
+  let cur = addDaysToCivilDate(rangeStart, -1);
+  while (cur <= rangeEnd) {
+    const weekStart = weekStartStrFromDateStr(cur);
+    const dayOfWeek = new Date(cur + "T12:00:00Z").getUTCDay();
+    const row = weekShifts.find(
+      (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek,
+    );
+    if (row && row.isActive) rawShifts.push(...shiftIntervalsForDay(row, cur));
+    cur = addDaysToCivilDate(cur, 1);
+  }
+  return subtractIntervals(intersectIntervals(rawShifts, window), shutdowns);
+}
+
+/**
+ * Kaskáda kalendář → obsazeno směnami → naplánováno → potvrzeno tiskařem.
+ *
+ * Odpovídá na otázku, kterou dnešní „vytížení" položit neumí: **jakou část
+ * kalendáře vůbec obsazujeme lidmi.** Vytížení je poměr třetího kroku ke
+ * druhému, takže o prvním nic neříká — stroj na jednu směnu může mít vytížení
+ * 95 % a přitom stát tři čtvrtiny roku.
+ *
+ * `plannedHours` a `confirmedHours` se PŘEDÁVAJÍ, nepočítají. Route je má
+ * spočítané přes `segMap` a `printOverlapMinutes`; druhá cesta k témuž číslu
+ * by se dřív nebo později rozešla.
+ */
+export function computeCalendarCascade(args: {
+  machine: string;
+  rangeStart: string;
+  rangeEnd: string;
+  weekShifts: MachineWeekShiftsRow[];
+  companyDays: CompanyDayRow[];
+  plannedHours: number;
+  confirmedHours: number;
+}): CalendarCascade {
+  const { machine, rangeStart, rangeEnd, weekShifts, companyDays } = args;
+
+  // Kalendář jako SKUTEČNÝ uplynulý čas, ne dny × 24 — jinak by den přechodu
+  // na zimní čas (25 h) vyšel o hodinu kratší a součet rozpadu by nesouhlasil.
+  const periodStart = pragueMinuteToUtcMs(rangeStart, 0);
+  const periodEnd = pragueMinuteToUtcMs(addDaysToCivilDate(rangeEnd, 1), 0);
+  const period: Interval[] = periodEnd > periodStart ? [{ start: periodStart, end: periodEnd }] : [];
+  const calendarHours = totalHours(period);
+
+  // Kapacita se NEPOČÍTÁ znovu — bere se z téže funkce, jakou používá karta
+  // „Vytížení". Dvě cesty k témuž číslu se dřív nebo později rozejdou.
+  const staffedHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
+
+  const shutdowns = mergeIntervals(
+    companyDayIntervalsFor(machine, companyDays).map((i) => ({
+      start: i.start.getTime(),
+      end: i.end.getTime(),
+    })),
+  );
+  const staffed = staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, shutdowns, period);
+  const unusedIntervals = subtractIntervals(period, staffed);
+
+  // Víkendy jako intervaly — soboty a neděle podle PRAŽSKÉHO data, celý den
+  // od půlnoci do půlnoci (tedy 25 h na dni přechodu času).
+  const weekends: Interval[] = [];
+  for (let d = rangeStart; d <= rangeEnd; d = addDaysToCivilDate(d, 1)) {
+    const dow = new Date(`${d}T12:00:00.000Z`).getUTCDay();
+    if (dow === 0 || dow === 6) {
+      weekends.push({
+        start: pragueMinuteToUtcMs(d, 0),
+        end: pragueMinuteToUtcMs(addDaysToCivilDate(d, 1), 0),
+      });
+    }
+  }
+
+  /*
+   * Každá nevyužitá hodina patří PRÁVĚ JEDNÉ příčině, v pořadí od nejméně
+   * získatelné po nejvíc. Sobotní odstávka je obojí naráz — a musí se počítat
+   * jako víkend, protože zavřením závodu v sobotu, kdy stroj stejně nejede,
+   * se neztratí nic. Kdyby vyhrála odstávka, číslo „kolik nás stály odstávky"
+   * by se nafouklo o hodiny, které nikdy nešly využít.
+   *
+   * Třetí kbelík je REZIDUUM. Právě proto je to to číslo, které jde zvednout
+   * bez otevírání víkendů a bez rušení odstávek.
+   */
+  const weekendPart = intersectIntervals(unusedIntervals, weekends);
+  const afterWeekend = subtractIntervals(unusedIntervals, weekends);
+  const shutdownPart = intersectIntervals(afterWeekend, shutdowns);
+  const unstaffedPart = subtractIntervals(afterWeekend, shutdowns);
+
+  return {
+    calendarHours,
+    staffedHours,
+    plannedHours: args.plannedHours,
+    confirmedHours: args.confirmedHours,
+    confirmedShareOfPlanned:
+      args.plannedHours > 0 ? Math.round((args.confirmedHours / args.plannedHours) * 100) : null,
+    unused: {
+      total: totalHours(unusedIntervals),
+      weekend: totalHours(weekendPart),
+      shutdown: totalHours(shutdownPart),
+      unstaffedShift: totalHours(unstaffedPart),
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
