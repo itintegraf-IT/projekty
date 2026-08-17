@@ -5,6 +5,64 @@ import {
   type PrismaClientLike,
 } from "@/lib/printTime.server";
 
+/** Uložený stav bloku v rozsahu, který rozhoduje o přepočtu harmonogramu. */
+export type ScheduleRelevantBlock = {
+  type: string;
+  machine: string;
+  startTime: Date;
+  endTime: Date;
+  printMinutes: number | null;
+};
+
+/**
+ * Liší se čas poslaný v requestu od uloženého? Porovnává se přes `getTime()`,
+ * ne přes shodu řetězců — klient posílá ISO string, v DB je `Date`.
+ *
+ * Nečitelná hodnota (`NaN`) vrací `true` ZÁMĚRNĚ: hodnota je přítomná, jen vadná,
+ * takže má dotéct do validační cesty, která na ni vyrobí srozumitelnou chybu.
+ * Tiché `false` by vadný vstup spolklo.
+ */
+function scheduleTimeChanged(requested: unknown, current: Date): boolean {
+  const parsed = requested instanceof Date ? requested : new Date(requested as string);
+  const t = parsed.getTime();
+  if (Number.isNaN(t)) return true;
+  return t !== current.getTime();
+}
+
+/**
+ * Má se harmonogram bloku vůbec přepočítávat?
+ *
+ * Čistá funkce — žádné DB volání. Vrací `true`, právě když se v požadavku mění
+ * aspoň jedna z veličin, ze kterých se harmonogram počítá: typ, stroj, začátek,
+ * konec, tisková délka. Klíč, který v requestu NENÍ, znamená „neměň" (`BlockEdit`
+ * od etapy 2 u textové editace zakázky `printMinutes` neposílá vůbec).
+ *
+ * PROČ: `PUT /api/blocks/[id]` dřív přepočítával harmonogram při KAŽDÉM uložení
+ * z editačního panelu (`buildPayload()` posílá `type` vždycky). U bloku, který se
+ * mezitím rozešel s kalendářem (úprava směn, nová odstávka), se tak konec bloku
+ * tiše přepsal spočítanou hodnotou a `resolveChain` za ním odsunul navazující
+ * zakázky — automatika bez vědomí plánovače, kterou `CLAUDE.md` zakazuje.
+ *
+ * DŮSLEDEK (záměrný): blok rozejitý s kalendářem se při editaci textu sám
+ * NEspraví — od toho je adresné tlačítko „Přepočítat" v detailu bloku. Stejně tak
+ * legacy blok bez `printMinutes` už uložením popisu tiše nezíská tiskovou délku
+ * odvozenou ze spanu.
+ */
+export function shouldRecomputeSchedule(
+  old: ScheduleRelevantBlock,
+  request: Record<string, unknown>
+): boolean {
+  if (request.type !== undefined && request.type !== old.type) return true;
+  if (request.machine !== undefined && request.machine !== old.machine) return true;
+  if (request.startTime !== undefined && scheduleTimeChanged(request.startTime, old.startTime)) return true;
+  if (request.endTime !== undefined && scheduleTimeChanged(request.endTime, old.endTime)) return true;
+  // `old.printMinutes === null` (legacy blok před modelem tiskových hodin) + číslo
+  // v requestu je změna. Jiný než číselný typ se ignoruje — stejně jako ho ignoruje
+  // samotná write cesta (`typeof allowedPrintMinutes === "number"`).
+  if (typeof request.printMinutes === "number" && request.printMinutes !== old.printMinutes) return true;
+  return false;
+}
+
 export type ScheduleValidationResult =
   | { ok: true; end: Date; effectivelyBypassed: boolean }
   | { ok: false; error: string; kind: "INVALID_INPUT" | "PLACEMENT" };

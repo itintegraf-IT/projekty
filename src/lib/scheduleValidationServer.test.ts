@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pragueToUTC } from "./dateUtils";
-import { validateAndComputeEnd } from "./scheduleValidationServer";
+import { validateAndComputeEnd, shouldRecomputeSchedule, type ScheduleRelevantBlock } from "./scheduleValidationServer";
 import type { PrismaClientLike } from "./printTime.server";
 
 function dbRow(weekStart: string, dayOfWeek: number, over: Record<string, unknown> = {}) {
@@ -129,3 +129,55 @@ test("UDRZBA: bez validace, end = fallbackEnd", async () => {
   const r = await validateAndComputeEnd(fakeDb([]), "XL_106", pragueToUTC("2026-08-23", 12), null, fb, "UDRZBA", false);
   assert.deepEqual(r, { ok: true, end: fb, effectivelyBypassed: false });
 });
+
+// ── shouldRecomputeSchedule ────────────────────────────────────────────────
+// Rozhoduje, jestli PUT vůbec sáhne na harmonogram. Jádro etapy 3 oprav po
+// incidentu 18827: uložení, které se harmonogramu netýká, s ním nesmí hnout.
+
+const OLD_START = pragueToUTC("2026-08-19", 6);
+const OLD_END = pragueToUTC("2026-08-19", 12);
+function oldBlock(over: Partial<ScheduleRelevantBlock> = {}): ScheduleRelevantBlock {
+  return {
+    type: "ZAKAZKA",
+    machine: "XL_106",
+    startTime: OLD_START,
+    endTime: OLD_END,
+    printMinutes: 360,
+    ...over,
+  };
+}
+
+const RECOMPUTE_CASES: { name: string; request: Record<string, unknown>; expected: boolean; old?: Partial<ScheduleRelevantBlock> }[] = [
+  {
+    // JÁDRO ETAPY: přesně to uložení, které 14. 8. 2026 odsunulo 75 zakázek —
+    // textová pole + `type` shodný s uloženým, délka v payloadu VŮBEC není.
+    name: "incident 18827: čistě textová editace (popis/specifikace/archy) → nepřepočítávat",
+    request: {
+      description: "nový popis",
+      specifikace: "4/4 CMYK",
+      tiskoveArchy: "A|B",
+      type: "ZAKAZKA",
+    },
+    expected: false,
+  },
+  { name: "type v requestu, shodný s uloženým → false", request: { type: "ZAKAZKA" }, expected: false },
+  { name: "type se mění REZERVACE → ZAKAZKA → true", request: { type: "ZAKAZKA" }, old: { type: "REZERVACE" }, expected: true },
+  { name: "type se mění ZAKAZKA → UDRZBA → true", request: { type: "UDRZBA" }, expected: true },
+  { name: "jiný stroj → true", request: { machine: "XL_105" }, expected: true },
+  { name: "stejný stroj v requestu → false", request: { machine: "XL_106" }, expected: false },
+  { name: "jiný startTime → true", request: { startTime: pragueToUTC("2026-08-19", 8).toISOString() }, expected: true },
+  { name: "týž startTime jako ISO string téhož okamžiku → false", request: { startTime: OLD_START.toISOString() }, expected: false },
+  { name: "jiný endTime → true", request: { endTime: pragueToUTC("2026-08-19", 14).toISOString() }, expected: true },
+  { name: "týž endTime → false", request: { endTime: OLD_END.toISOString() }, expected: false },
+  { name: "printMinutes shodné s uloženým → false", request: { printMinutes: 360 }, expected: false },
+  { name: "printMinutes jiné → true", request: { printMinutes: 120 }, expected: true },
+  { name: "legacy blok bez printMinutes + číslo v requestu → true", request: { printMinutes: 120 }, old: { printMinutes: null }, expected: true },
+  { name: "nečitelný startTime („nesmysl\") → true, ať vadný vstup doteče do validace", request: { startTime: "nesmysl" }, expected: true },
+  { name: "prázdný request → false", request: {}, expected: false },
+];
+
+for (const c of RECOMPUTE_CASES) {
+  test(`shouldRecomputeSchedule: ${c.name}`, () => {
+    assert.equal(shouldRecomputeSchedule(oldBlock(c.old), c.request), c.expected);
+  });
+}

@@ -7,7 +7,7 @@ import { normalizeBlockVariant } from "@/lib/blockVariants";
 import { parseNullableCivilDateForDb, serializeAuditValue, serializeBlock } from "@/lib/blockSerialization";
 import { getExpeditionDayKey, getNextExpeditionSortOrder } from "@/lib/expedition";
 import { resolvePresetForBlock } from "@/lib/jobPresetServer";
-import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
+import { validateAndComputeEnd, shouldRecomputeSchedule } from "@/lib/scheduleValidationServer";
 import { computePrintMinutes } from "@/lib/printTime";
 import { loadMachineCalendar } from "@/lib/printTime.server";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
@@ -126,8 +126,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     // Viz komentář "DATA chip auto-derivace" níže.
 
     // Server-side validace pracovní doby:
-    // Validujeme pokud se mění startTime/endTime/machine NEBO pokud se typ mění na ZAKAZKA
-    // (blok mohl být mimo provoz jako REZERVACE a přejmenovat se na ZAKAZKA).
+    // Validujeme jen při SKUTEČNÉ změně typu/stroje/startu/konce/tiskové délky proti
+    // stavu v DB — rozhoduje `shouldRecomputeSchedule` (scheduleValidationServer.ts),
+    // volaná uvnitř transakce nad in-tx `oldBlock`.
     //
     // Sémantika printMinutes (viz docs/superpowers/sdd task-4-brief.md):
     //  1) explicitní allowed.printMinutes → autoritativní
@@ -146,8 +147,6 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const allowedPrintMinutes = (allowed as Record<string, unknown>).printMinutes;
     const timingChanged = allowed.startTime !== undefined || allowed.endTime !== undefined || allowed.machine !== undefined;
     const typeChangesToZakazka = allowed.type === "ZAKAZKA";
-    const needsScheduleComputation =
-      timingChanged || typeChangesToZakazka || allowed.type !== undefined || typeof allowedPrintMinutes === "number";
 
     // AUDITED_FIELDS/AuditedField žijí v @/lib/auditedFields (sdílené se
     // splitPropagateAudit.ts — viz komentář tam k průniku se SPLIT_SHARED_FIELDS).
@@ -180,12 +179,24 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       }
 
       // ── Výpočet computed*/end/printMinutes/scheduleBypassed (uvnitř tx, derivováno z in-tx oldBlock) ──
-      // Viz sémantika printMinutes v komentáři nad `needsScheduleComputation` výše.
+      // Viz sémantika printMinutes v komentáři nad `allowedPrintMinutes` výše.
       let computedEnd: Date | null = null;
       let computedPrintMinutes: number | null = null;
       let computedBypassed: boolean | null = null;
 
-      if (needsScheduleComputation) {
+      // Harmonogram se přepočítává JEN při skutečné změně typu/pozice/délky proti stavu
+      // v DB (`shouldRecomputeSchedule`), ne při pouhé přítomnosti klíčů v payloadu.
+      // Dřív tu stačilo `allowed.type !== undefined`, což je pravda při každém uložení
+      // z editačního panelu — uložení popisu tak u bloku rozejitého s kalendářem
+      // přepsalo endTime spočítanou hodnotou a chain push odsunul navazující zakázky.
+      //
+      // ZÁMĚRNÝ důsledek: blok rozejitý s kalendářem (END_MISMATCH po úpravě směn nebo
+      // po přidání odstávky) se editací textu sám NESPRAVÍ — od toho je adresné tlačítko
+      // „Přepočítat" v detailu bloku (pravidlo „minimum automatiky bez vědomí plánovače",
+      // viz docs/POUCENI.md a výčet tří cest rušících značku driftu v CLAUDE.md).
+      // Stejně tak legacy blok bez printMinutes už uložením popisu tiše nezíská tiskovou
+      // délku odvozenou ze spanu (fallback níž se u čistě textového uložení neuplatní).
+      if (shouldRecomputeSchedule(oldBlock, allowed)) {
         const checkMachine = (allowed.machine as string | undefined) ?? oldBlock.machine;
         const checkType = (allowed.type as string | undefined) ?? oldBlock.type;
         const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : oldBlock.startTime;
@@ -570,6 +581,12 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
       // i finální pojistku a tiše překryl následníka (audit REL-03).
       const endChangedByComputation =
         computedEnd !== null && computedEnd.getTime() !== oldBlock.endTime.getTime();
+      // POZOR — tahle podmínka ZÁMĚRNĚ zůstává založená na PŘÍTOMNOSTI klíčů
+      // (`timingChanged`), ne na skutečné změně, na rozdíl od `shouldRecomputeSchedule`
+      // výše. Nedotahovat na „skutečnou změnu": je to vstup do tvrdé pojistky
+      // `assertNoOverlapForBlocks` a zúžit dosah pojistky by ji oslabilo. Když se
+      // reálně nic nezměnilo, chain push nad nezměněnou geometrií stejně nikoho
+      // neposune — je to neškodné a bezpečnější.
       const positionOrTypeChanged =
         timingChanged || typeChangesToZakazka || typeChangingAwayFromZakazka || endChangedByComputation;
       if (positionOrTypeChanged) {
