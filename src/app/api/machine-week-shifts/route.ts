@@ -221,10 +221,13 @@ export async function PUT(req: Request) {
   if (!["ADMIN", "PLANOVAT"].includes(session.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  // Deklarované PŘED `try`, aby na ně viděl catch blok (skládá 409 z `cascade`, hlásí
-  // konflikt pro `machine`) — obojí se přiřadí až uvnitř try/transakce.
+  // Deklarované PŘED `try`, aby na ně viděl catch blok (skládá 409 z `cascadeHolder`, hlásí
+  // konflikt pro `machine`) — obojí se naplní až uvnitř try/transakce. `cascadeHolder` je
+  // objekt (ne holé `let`), protože ho plní VÝHRADNĚ uzávěr transakce — TS narrowing pro
+  // `let` proměnnou přiřazovanou jen zevnitř uzávěru se mimo něj neprojeví (viz Fix round 1
+  // v task-2-report.md), zatímco mutace pole objektu tenhle problém nemá.
   let machine: string | undefined;
-  let cascade: CascadeDiff | null = null;
+  const cascadeHolder: { value: CascadeDiff | null } = { value: null };
 
   const { allowed, retryAfterSeconds } = checkRateLimit("put-shifts", String(session.id), 60, 60 * 1000);
   if (!allowed) {
@@ -404,10 +407,10 @@ export async function PUT(req: Request) {
       // konfigurace jako dřív (falešné poplachy staré kontroly plynuly ze simulace,
       // která neznala skutečnou expanzi tiskových hodin).
       const driftAfter = await detectCalendarDrift(tx, [machineId], windowFrom, windowTo, now);
-      cascade = classifyCascade(driftBefore, driftAfter);
+      cascadeHolder.value = classifyCascade(driftBefore, driftAfter);
 
-      if (!force && cascade.newlyHomeless.length > 0) {
-        // Rollback: směny se nezapíšou. Výčet konfliktů si odnese `cascade` v uzávěru
+      if (!force && cascadeHolder.value.newlyHomeless.length > 0) {
+        // Rollback: směny se nezapíšou. Výčet konfliktů si odnese `cascadeHolder` v uzávěru
         // funkce — 409 se z něj složí až v catch bloku.
         throw new AppError("CONFLICT", "SHIFT_SHRINK_CASCADE");
       }
@@ -438,15 +441,11 @@ export async function PUT(req: Request) {
     return NextResponse.json(updated.map(serializeRow));
   } catch (err) {
     if (isAppError(err) && err.code === "CONFLICT" && err.message === "SHIFT_SHRINK_CASCADE") {
-      // `as` cast: `cascade` je jedinou přiřazenou hodnotou uvnitř uzávěru transakce, takže
-      // TS ho tady (mimo uzávěr) mylně považuje pořád za `null` z inicializace a `?.` na tom
-      // dál hlásí "does not exist on type never" — cast typ vrací zpět na deklarovaný.
-      const cascadeResult = cascade as CascadeDiff | null;
       return NextResponse.json({
         error: "SHIFT_SHRINK_CASCADE",
         machine,
-        conflictingBlocks: (cascadeResult?.newlyHomeless ?? []).map(serializeCascadeBlock),
-        longerBlocks: (cascadeResult?.newlyLonger ?? []).map(serializeCascadeBlock),
+        conflictingBlocks: (cascadeHolder.value?.newlyHomeless ?? []).map(serializeCascadeBlock),
+        longerBlocks: (cascadeHolder.value?.newlyLonger ?? []).map(serializeCascadeBlock),
       }, { status: 409 });
     }
     if (isAppError(err)) return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
