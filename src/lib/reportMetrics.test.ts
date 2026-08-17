@@ -636,7 +636,7 @@ describe("computeCalendarCascade", () => {
     assert.equal(c.unused.total, 128);
     // Rozpad MUSÍ sedět na součet — jinak se hodiny někde ztrácejí.
     assert.equal(
-      c.unused.weekend + c.unused.shutdown + c.unused.unstaffedShift,
+      c.unused.weekend + c.unused.shutdown + c.unused.noRoster + c.unused.unstaffedShift,
       c.unused.total,
     );
   });
@@ -662,7 +662,7 @@ describe("computeCalendarCascade", () => {
     });
     assert.equal(c.staffedHours, 32, "středeční směna vypadla");
     assert.ok(c.unused.shutdown > 0, "odstávka musí být vidět");
-    assert.equal(c.unused.weekend + c.unused.shutdown + c.unused.unstaffedShift, c.unused.total);
+    assert.equal(c.unused.weekend + c.unused.shutdown + c.unused.noRoster + c.unused.unstaffedShift, c.unused.total);
   });
 
   it("VÍKENDOVÁ odstávka se počítá jako víkend, ne jako odstávka", () => {
@@ -691,6 +691,55 @@ describe("computeCalendarCascade", () => {
     assert.ok(c.staffedHours > 0 && c.staffedHours < 8, `půl směny zbýt musí, je ${c.staffedHours}`);
   });
 
+  it("odstávka se počítá jako SKUTEČNĚ ZTRACENÁ kapacita, ne jako všechen čas zavření", () => {
+    // Celozávodní zavření Po–Pá u stroje, který jede jen ranní: reálně to sebralo
+    // pět ranních směn, tedy 40 h. Původní definice hlásila 120 h a „neobsazené
+    // směny" srazila na nulu — v měsíci s dovolenou by headline číslo zmizelo.
+    const c = computeCalendarCascade({
+      machine: "XL_105", rangeStart: "2026-08-17", rangeEnd: "2026-08-23",
+      weekShifts: weekdayMornings("2026-08-17"),
+      companyDays: [{ startDate: "2026-08-17T00:00:00.000Z", endDate: "2026-08-22T00:00:00.000Z" }],
+      plannedHours: 0, confirmedHours: 0,
+    });
+    assert.equal(c.staffedHours, 0, "všech pět směn padlo");
+    assert.equal(c.unused.shutdown, 40, "odstávka stála přesně pět ranních směn");
+    assert.equal(c.unused.unstaffedShift, 80, "zbytek pracovních dní zůstává neobsazenými směnami");
+    assert.equal(c.unused.weekend, 48);
+  });
+
+  it("odstávka MIMO směny nestojí nic a nesmí nic přesunout", () => {
+    // Středa 22–24 h, stroj jede jen ranní 6–14. Kapacita se nezmění.
+    const withShutdown = computeCalendarCascade({
+      machine: "XL_105", rangeStart: "2026-08-17", rangeEnd: "2026-08-23",
+      weekShifts: weekdayMornings("2026-08-17"),
+      companyDays: [{ startDate: "2026-08-19T20:00:00.000Z", endDate: "2026-08-19T22:00:00.000Z" }],
+      plannedHours: 0, confirmedHours: 0,
+    });
+    assert.equal(withShutdown.staffedHours, 40, "kapacita se nezměnila");
+    assert.equal(withShutdown.unused.shutdown, 0, "co nic nestálo, se nezapočítá");
+    assert.equal(withShutdown.unused.unstaffedShift, 80);
+  });
+
+  it("sobotní odstávka u NEPŘETRŽITÉHO stroje se počítá jako odstávka, ne jako víkend", () => {
+    // Staré pravidlo „víkend vždycky vyhrává" tady schovalo 24 skutečně
+    // ztracených hodin pod víkendy — a náklad rozhodnutí o zavření závodu se
+    // naúčtoval rozhodnutí o víkendovém provozu. Nová definice to řeší sama:
+    // v sobotu tu SMĚNA JE, takže průnik odstávky se směnami není prázdný.
+    const allShifts = makeWeekRows("XL_105", "2026-08-17", { morningOn: true, afternoonOn: true, nightOn: true });
+    const c = computeCalendarCascade({
+      machine: "XL_105", rangeStart: "2026-08-17", rangeEnd: "2026-08-23",
+      weekShifts: allShifts,
+      companyDays: [{ startDate: "2026-08-21T22:00:00.000Z", endDate: "2026-08-22T22:00:00.000Z" }],
+      plannedHours: 0, confirmedHours: 0,
+    });
+    assert.equal(c.unused.shutdown, 24, "sobotní zavření sebralo 24 obsazených hodin");
+    assert.equal(c.unused.weekend, 0, "zbytek víkendu je obsazený, takže do víkendového kbelíku nepatří nic");
+    assert.equal(
+      c.unused.weekend + c.unused.shutdown + c.unused.noRoster + c.unused.unstaffedShift,
+      c.unused.total,
+    );
+  });
+
   it("podíl potvrzených je z NAPLÁNOVANÝCH, ne z kalendáře", () => {
     const c = computeCalendarCascade({
       machine: "XL_105", rangeStart: "2026-08-17", rangeEnd: "2026-08-23",
@@ -711,15 +760,22 @@ describe("computeCalendarCascade", () => {
     assert.equal(c.confirmedShareOfPlanned, null);
   });
 
-  it("stroj bez jediného řádku směn má nula obsazených a všechno v neobsazených", () => {
-    // Nastane u týdne, který nikdo neotevřel v administraci (lazy seeding).
+  it("stroj bez rozvrhu jde do „nevíme“, NE do neobsazených směn", () => {
+    // Řádky MachineWeekShifts vznikají líně — neotevřený týden vypadá jako celý
+    // den bez provozu. Naúčtovat tu neznalost „neobsazeným směnám“ znamená
+    // nafouknout právě to číslo, které je pointou celé sekce.
     const c = computeCalendarCascade({
       machine: "XL_105", rangeStart: "2026-08-17", rangeEnd: "2026-08-23",
       weekShifts: [], companyDays: [], plannedHours: 0, confirmedHours: 0,
     });
     assert.equal(c.staffedHours, 0);
     assert.equal(c.unused.total, 168);
-    assert.equal(c.unused.weekend + c.unused.shutdown + c.unused.unstaffedShift, 168);
+    assert.equal(c.unused.noRoster, 168, "všechno je „nevíme“");
+    assert.equal(c.unused.unstaffedShift, 0, "headline číslo se nesmí nafouknout");
+    assert.equal(
+      c.unused.weekend + c.unused.shutdown + c.unused.noRoster + c.unused.unstaffedShift,
+      c.unused.total,
+    );
   });
 
   it("přechod na letní čas nezmizí ani nepřebývá", () => {
@@ -768,7 +824,7 @@ describe("computeCalendarCascade", () => {
       "nevyužitý kalendář = kalendář − obsazeno",
     );
     assert.equal(
-      c.unused.weekend + c.unused.shutdown + c.unused.unstaffedShift,
+      c.unused.weekend + c.unused.shutdown + c.unused.noRoster + c.unused.unstaffedShift,
       c.unused.total,
       "rozpad se musí sejít i s noční přes půlnoc a odstávkou přes víkendovou hranici",
     );

@@ -128,7 +128,14 @@ export type CalendarCascade = {
   confirmedHours: number;
   /** Podíl potvrzených na naplánovaných. `null` když se nic neplánovalo. */
   confirmedShareOfPlanned: number | null;
-  unused: { total: number; weekend: number; shutdown: number; unstaffedShift: number };
+  unused: {
+    total: number;
+    weekend: number;
+    shutdown: number;
+    /** Hodiny dnů, pro které v `MachineWeekShifts` chybí řádek — „nevíme", ne „neobsazeno". */
+    noRoster: number;
+    unstaffedShift: number;
+  };
 };
 
 /**
@@ -149,8 +156,15 @@ function staffedIntervals(
   weekShifts: MachineWeekShiftsRow[],
   shutdowns: Interval[],
   window: Interval[],
-): Interval[] {
+): { staffed: Interval[]; rawShifts: Interval[]; noRoster: Interval[] } {
   const rawShifts: Interval[] = [];
+  // Dny, pro které v `MachineWeekShifts` NENÍ řádek. Není to totéž co vypnutá
+  // směna: vypnutá směna je rozhodnutí, chybějící řádek je „nevíme". Řádky
+  // vznikají líně (`ensureWeekSeeded` běží až při otevření týdne v administraci),
+  // takže neotevřený týden vypadá jako celý den bez provozu — a bez tohohle
+  // rozlišení by se ta neznalost naúčtovala „neobsazeným směnám", tedy právě
+  // tomu číslu, kvůli kterému sekce vznikla.
+  const noRoster: Interval[] = [];
   let cur = addDaysToCivilDate(rangeStart, -1);
   while (cur <= rangeEnd) {
     const weekStart = weekStartStrFromDateStr(cur);
@@ -158,10 +172,24 @@ function staffedIntervals(
     const row = weekShifts.find(
       (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek,
     );
-    if (row && row.isActive) rawShifts.push(...shiftIntervalsForDay(row, cur));
+    if (row) {
+      if (row.isActive) rawShifts.push(...shiftIntervalsForDay(row, cur));
+    } else if (cur >= rangeStart) {
+      // Den před rozsahem se prochází jen kvůli ocasu noční směny; jeho chybějící
+      // rozvrh do okna nepatří.
+      noRoster.push({
+        start: pragueMinuteToUtcMs(cur, 0),
+        end: pragueMinuteToUtcMs(addDaysToCivilDate(cur, 1), 0),
+      });
+    }
     cur = addDaysToCivilDate(cur, 1);
   }
-  return subtractIntervals(intersectIntervals(rawShifts, window), shutdowns);
+  const clipped = intersectIntervals(rawShifts, window);
+  return {
+    staffed: subtractIntervals(clipped, shutdowns),
+    rawShifts: clipped,
+    noRoster: intersectIntervals(noRoster, window),
+  };
 }
 
 /**
@@ -204,7 +232,7 @@ export function computeCalendarCascade(args: {
       end: i.end.getTime(),
     })),
   );
-  const staffed = staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, shutdowns, period);
+  const { staffed, rawShifts, noRoster } = staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, shutdowns, period);
   const unusedIntervals = subtractIntervals(period, staffed);
 
   // Víkendy jako intervaly — soboty a neděle podle PRAŽSKÉHO data, celý den
@@ -230,10 +258,34 @@ export function computeCalendarCascade(args: {
    * Třetí kbelík je REZIDUUM. Právě proto je to to číslo, které jde zvednout
    * bez otevírání víkendů a bez rušení odstávek.
    */
-  const weekendPart = intersectIntervals(unusedIntervals, weekends);
-  const afterWeekend = subtractIntervals(unusedIntervals, weekends);
-  const shutdownPart = intersectIntervals(afterWeekend, shutdowns);
-  const unstaffedPart = subtractIntervals(afterWeekend, shutdowns);
+  /*
+   * ODSTÁVKA = průnik zavření se SKUTEČNÝMI SMĚNAMI, ne se vším nevyužitým časem.
+   *
+   * Původní verze brala „všechno nevyužité mimo víkend, co padne do CompanyDay",
+   * a to přepisovalo odpovědnost velkoplošně. Změřeno na stroji Po–Pá ranní:
+   * celozávodní zavření Po–Pá reálně sebralo 40 h (pět ranních směn), report
+   * ale hlásil 120 h odstávek a „neobsazené směny" spadly na nulu — přestože
+   * 80 h toho týdne nebylo obsazeno z důvodů, které se zavřením nesouvisí.
+   * V měsíci s celozávodní dovolenou by headline číslo sekce zmizelo. A opačně:
+   * odstávka ve středu 22–24 h, tedy mimo jakoukoli směnu, nestála ani hodinu
+   * kapacity a přesto přesunula 2 h.
+   *
+   * Nová definice je „kolik obsazených hodin zavření sebralo" a je správná sama
+   * od sebe, bez pomocného pořadí: sobotní odstávka u stroje, který v sobotu
+   * nejede, vyjde nulová, protože tam žádná směna není. A u nepřetržitého
+   * provozu se naopak započítá — což staré pravidlo „víkend vyhrává" dělalo
+   * špatně a schovávalo 24 skutečně ztracených hodin pod víkendy.
+   *
+   * Pořadí kbelíků je teď: odstávka (přesně definovaná) → chybějící rozvrh
+   * („nevíme") → víkend → zbytek. Poslední je REZIDUUM a právě proto je to to
+   * číslo, které jde zvednout bez otevírání víkendů a bez rušení odstávek.
+   */
+  const shutdownPart = intersectIntervals(unusedIntervals, intersectIntervals(rawShifts, shutdowns));
+  const afterShutdown = subtractIntervals(unusedIntervals, shutdownPart);
+  const noRosterPart = intersectIntervals(afterShutdown, noRoster);
+  const afterNoRoster = subtractIntervals(afterShutdown, noRosterPart);
+  const weekendPart = intersectIntervals(afterNoRoster, weekends);
+  const unstaffedPart = subtractIntervals(afterNoRoster, weekends);
 
   return {
     calendarHours,
@@ -246,6 +298,7 @@ export function computeCalendarCascade(args: {
       total: totalHours(unusedIntervals),
       weekend: totalHours(weekendPart),
       shutdown: totalHours(shutdownPart),
+      noRoster: totalHours(noRosterPart),
       unstaffedShift: totalHours(unstaffedPart),
     },
   };
