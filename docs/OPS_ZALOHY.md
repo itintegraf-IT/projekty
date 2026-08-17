@@ -144,18 +144,29 @@ sudo env -i /bin/sh -c 'PATH=/usr/bin:/bin /usr/local/bin/planovani-prune-revisi
 ```
 
 Druhý příkaz MUSÍ projít stejně jako první. Po instalaci téhle páté úlohy
-vrací `sudo crontab -l | grep -c planovani` hodnotu **5**, ne 4.
+vrací kontrola `sudo crontab -l | grep -c planovani` hodnotu **5**, ne 4.
+Řádek s úklidem revizí jako jediný nespouští skript z `/usr/local/bin` — jede
+přímo z pracovní kopie aplikace, protože potřebuje `node_modules` a Prisma
+klienta.
 
-Po instalaci téhle páté úlohy vrací kontrola `sudo crontab -l | grep -c planovani`
-hodnotu **5**, ne 4. Řádek s úklidem revizí jako jediný nespouští skript
-z `/usr/local/bin` — jede přímo z pracovní kopie aplikace, protože potřebuje
-`node_modules` a Prisma klienta.
-
-> **Zjištěno 9. 8. 2026: v root crontabu na `srv-igweb` NEJSOU ani ty čtyři úlohy.**
-> Je tam jediný řádek (`igweb-full-backup.sh`), takže denní záloha DB, health-check
-> ani CSV export z Fáze 1 na serveru nikdy nainstalované nebyly. Než se přidá pátá
-> úloha, je potřeba doinstalovat ty čtyři — a ověřit, jestli neběží pod jiným
-> uživatelem: `crontab -l | grep planovani` (bez `sudo`).
+> **STAV INSTALACE (ověřeno 17. 8. 2026): hotovo, běží.** Skripty se na
+> `srv-igweb` nainstalovaly **10. 8. 2026** (6:42–8:17) a v root crontabu je
+> všech pět úloh, žádná zakomentovaná. Doklad, že opravdu tikají: `last_backup_status`
+> a `db/` mají razítko z poslední noci, `csv/` z 2:20 a `health_status` je
+> nanejvýš 15 minut starý.
+>
+> Předchozí zápis (z 9. 8.) tvrdil opak — v tu chvíli platil, ale instalace
+> proběhla den nato. **Kdo se rozhoduje podle téhle sekce, ať si stav vždycky
+> ověří na serveru**, ne podle data v dokumentu:
+>
+> ```bash
+> sudo crontab -l | grep -c planovani                      # → 5
+> sudo cat /var/backups/planovanivyroby/last_backup_status # → OK <dnešní noc>
+> ```
+>
+> Vedle nich běží ve 2:00 ještě Michalova serverová záloha `igweb-full-backup.sh`
+> na `/mnt/LinuxBackup/igweb/`. Co přesně pokrývá, ověřené nemáme — **nespoléhat
+> na ni jako na náhradu** téhle sady.
 
 Čas 3:50 je **po** noční záloze (1:45) a CSV exportu (2:20) — smazané revize
 tak vždycky ještě jednou odejdou do zálohy, než z databáze zmizí. A je mimo

@@ -182,35 +182,58 @@ Dotaz v tomhle tvaru už v repu běží (`src/app/api/report/dashboard/route.ts`
 
 ---
 
-## 8. Blokující krok před R4
+## 8. Blokující krok před R4 — ZMĚŘENO 17. 8. 2026 na produkci
 
-**Než se cokoliv z kapitoly 5 začne stavět, musí se změřit vyplněnost polí.** `deadlineExpedice` i `jobPresetId` jsou nepovinné. Na dev DB má termín 15 ze 49 zakázek; pokud je to na produkci podobné, je prvním krokem procesní změna, ne kód.
+Blokující krok proběhl nad ostrou DB `igvyroba`. **R4b je odblokovaná.**
 
-```sql
-SELECT
-  COUNT(*)                                                      AS zakazek,
-  SUM(jobPresetId    IS NOT NULL)                               AS ma_preset,
-  ROUND(100 * SUM(jobPresetId IS NOT NULL) / COUNT(*), 1)       AS preset_pct,
-  SUM(deadlineExpedice IS NOT NULL)                             AS ma_termin,
-  ROUND(100 * SUM(deadlineExpedice IS NOT NULL) / COUNT(*), 1)  AS termin_pct,
-  SUM(jobPresetLabel = 'XL 106 IML')                            AS iml_bloku
-FROM Block
-WHERE type = 'ZAKAZKA'
-  AND startTime >= DATE_SUB(NOW(), INTERVAL 90 DAY);
-```
+### 8.1 Vyplněnost polí
 
-Kaskádu obsazenosti směn (5.4) lze změřit rovnou:
+Měřeno nad zakázkami, jejichž `startTime` **už proběhl** — horní mez je nutná,
+bez ní se do vzorku připočte plán rok dopředu a `printCompletedAt` vyjde
+falešně mizerně (první pokus dal 16,8 % místo 44,4 %).
 
-```sql
-SELECT machine,
-       COUNT(*) * 3                                     AS smen_v_kalendari,
-       SUM(morningOn) + SUM(afternoonOn) + SUM(nightOn) AS smen_obsazenych
-FROM MachineWeekShifts
-WHERE weekStart >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-GROUP BY machine;
-```
+| Okno | Zakázek | Termín | Odklepnuto | Měřitelných pro OTD |
+| --- | --- | --- | --- | --- |
+| posledních 90 dní | 117 | 59,8 % | 44,4 % | 27 |
+| posledních 30 dní | 71 | 60,6 % | **69,0 %** | 26 |
 
-*(Názvy sloupců ověřit proti `schema.prisma` před spuštěním.)*
+Nad celým vzorkem (i s budoucím plánem, 310 zakázek): `jobPresetId` **92,3 %**,
+`jobPresetLabel = 'XL 106 IML'` u **13 bloků**.
+
+**Co z toho plyne:**
+- **Preset je prakticky vždy vyplněný (92 %)** → metrika 5.6 (podíl IML) je plně proveditelná, bez procesní změny.
+- **Termín drží stabilně kolem 60 %** → OTD má poctivého jmenovatele, ale v popisku musí být přiznáno, že se počítá ze tří pětin zakázek.
+- **Odklepávání prudce roste: 44 % → 69 %** mezi 90- a 30denním oknem. Z 27 párů (termín + odklepnutí) za čtvrt roku jich **26 vzniklo za posledních 30 dní** — praxe se rozjela teprve nedávno, patrně s Monitorem u stroje. Dnešní vzorek pro OTD je tedy tenký, ale roste zhruba o 26 zakázek měsíčně.
+
+### 8.2 Kaskáda kapacity (5.4) — první reálná čísla
+
+12 týdnů, 84 dnů na stroj, **žádná mezera v rozvrzích**. Dopředu je naplánováno
+322 dnů (až 28. 6. 2027), takže heatmapa Výhledu má z čeho čerpat.
+
+| Stroj | Aktivních dnů | Ráno | Odpoledne | Noc | Hrubý odhad obsazenosti kalendáře |
+| --- | --- | --- | --- | --- | --- |
+| XL 105 | 61 z 84 | 61 | 60 | **0** | ≈ 968 h z 2 016 → **48 %** |
+| XL 106 | 61 z 84 | 60 | 60 | **9** | ≈ 1 032 h z 2 016 → **51 %** |
+
+Neaktivních 23 dnů z 84 odpovídá víkendům. **Noční směna se na XL 105 za dvanáct
+týdnů nejela ani jednou.** Odhad hodin počítá s nominálními 8 h na směnu a
+nezapočítává odstávky ani override `*StartMin`/`*EndMin` — přesné číslo dává
+sekce Využití kalendáře. Směr je ale natolik výrazný, že odpovídá na otázku,
+kvůli které kaskáda vznikla: **rezerva je dnes ve směně, ne ve stroji.**
+
+### 8.3 `orderNumber` před napojením Abry (kap. 6)
+
+506 zakázek, **337 různých čísel**, 42 % obsahuje i jiné znaky než číslice,
+délka 2–15. Rozpad počtu bloků na jedno číslo:
+
+| Bloků na číslo | 1 | 2 | 3 | 4 | 5 | 6 | **22** | **81** |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Kolik čísel | 281 | 46 | 5 | 1 | 1 | 1 | **1** | **1** |
+
+Jeden až tři bloky na číslo je legitimní (split, OBÁLKA/VNITŘKY). **Čísla s 22
+a 81 bloky legitimní nejsou** — to jsou skoro jistě zástupné hodnoty. Potvrzuje
+to závěr kapitoly 6: `orderNumber` dnes jako spojovací klíč nefunguje a před
+go-live Abry (1. 11. 2026) potřebuje validovaný formát.
 
 ---
 
