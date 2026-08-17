@@ -1969,3 +1969,104 @@ existujících cest.
   `paddingBottom`. Přiznáno v komentáři testu.
 - **Třetí stroj** by se objevil v pásu, ale ne v heatmapě a kartách —
   `["XL_105","XL_106"]` je v obou pohledech natvrdo.
+
+---
+
+## Etapa Reporty R4a — kaskáda kapacity (17. 8. 2026)
+
+Čtvrtá etapa nad `/reporty`, první z těch, které přidávají **metriku výsledku**
+místo aby opravovaly existující. Nasazeno: **ne** — jede se vším ostatním.
+
+Vzešla z průzkumu (`docs/audits/2026-08-16-reporty-pruzkum-metrik.md`), který našel
+sedm ukazatelů spočitatelných z dnešních dat. **Šest z nich stojí na nepovinných
+polích**, jejichž vyplněnost na produkci neznáme; měření dev DB potvrdilo, že
+odpověď nedá (`jobPresetId` 0 %, `printCompletedAt` 6 % — seedovaná data). Kaskáda
+je jediná, která na žádném nepovinném poli nestojí.
+
+### Otázka, na kterou odpovídá
+
+**„Chybí nám stroj, nebo chybí nám směna?"** Dnešní `vytížení = produkce / obsazené
+hodiny` je poměr třetího kroku ke druhému a o prvním neříká nic — stroj na jednu
+směnu může mít vytížení 95 % a přitom stát tři čtvrtiny roku.
+
+Sekce **VYUŽITÍ KALENDÁŘE** (Retrospektiva) ukazuje čtyři kroky na stroj:
+kalendář → obsazeno směnami → naplánováno → potvrzeno tiskařem. Pod nimi rozpad
+nevyužitého kalendáře, který je **pointou celé sekce**.
+
+Shodly se na tom nezávisle dvě rešerše: oborová jako „kaskáda", finanční jako
+**TEEP** a **CAM-I model**. Německý bvdm ji učí jako `1 750 h × B° × N° = 1 264
+fakturovatelných hodin`.
+
+### Rozhodnutí, která stojí za zapamatování
+
+**Žádný práh pokrytí.** Původní návrh chtěl čtvrtý krok skrýt, když `printCompletedAt`
+pokrývá málo zakázek. Zamítnuto — skrývání dat pod prahem je jen další tichý ořez.
+Řeší to formulace: řádek se jmenuje **„potvrzeno tiskařem"**, ne „vyrobeno", a jeho
+procento je z **naplánovaných** hodin. Při 6 % pak říká „tiskaři nepotvrzují", ne
+„nevyrobili jsme nic".
+
+**Žádný benchmark.** Publikované normativy jsou buď kalkulační (bvdm `Nutzungsgrad`
+86–88 % je podklad pro hodinovou sazbu, ne měřený výkon), nebo z jiného odvětví.
+
+**Sekce se nesmí jmenovat KAPACITA** — tak se jmenuje sekce ve Výhledu.
+
+### Co našly revize
+
+Aritmetika obstála: **4 000 náhodných konfigurací a 200 000 iterací intervalové
+algebry proti brute-force oraclu, nula selhání.** Invarianty `unused.total = součet
+kbelíků` a `kalendář − obsazeno = nevyužito` drží včetně obou přechodů času,
+nočních směn přes hranici období a odstávek vázaných na stroj.
+
+Vady byly v **definicích**, ne ve výpočtu:
+
+**1. „Odstávky" pohlcovaly hodiny, které odstávka nestála.** Rozpad bral „všechno
+nevyužité mimo víkend, co padne do `CompanyDay`". Celozávodní zavření Po–Pá u stroje
+na ranní směnu reálně sebralo 40 h — report hlásil **120 h** a „neobsazené směny"
+srazil na **nulu**, přestože 80 h toho týdne nebylo obsazeno z nesouvisejících
+důvodů. V měsíci s dovolenou by headline číslo sekce zmizelo. Opačně: odstávka
+umístěná mimo směny nestála ani hodinu a přesto přesunula 2 h.
+
+Nová definice **„průnik zavření se skutečnými směnami"** je správná sama od sebe,
+bez pomocného pořadí kbelíků. Tím padla i druhá vada:
+
+**2. Sobotní odstávka u nepřetržitého stroje schovala 24 skutečně ztracených hodin
+pod „víkendy".** Pravidlo „víkend vždycky vyhrává" bylo nepodmíněné, ale jeho
+zdůvodnění („sobota, kdy stroj stejně nejede") podmíněné je.
+
+**3. Chybějící rozvrh se účtoval „neobsazeným směnám".** `MachineWeekShifts` se
+seedují líně, takže neotevřený týden vypadá jako celý den bez provozu. Revize našla
+scénář se **320 h „nevíme"** v řádku, který spec označuje slovy „tohle je to číslo".
+Přibyl čtvrtý kbelík **„chybí rozvrh"**.
+
+**4. Zobrazená rovnice nesouhlasila s řádky nad sebou** u zhruba **třetiny reálných
+období** (2 084 z 6 000 ve fuzzu). Pět čísel se zaokrouhlovalo nezávisle. Nově se
+celek počítá jako rozdíl zobrazených hodnot a reziduum absorbuje zaokrouhlení —
+táž zásada, jakou drží server.
+
+### Vedlejší nález mimo etapu
+
+**CLAUDE.md popisovala `MachineWeekShifts` špatně** — jako „per-týden, flag-only".
+Řádek je ve skutečnosti **na den** (klíč `machine + weekStart + dayOfWeek`) a časy
+směn nejsou fixní, každá má volitelný override. Plán z té věty vycházel a hledal
+řádek jen podle `weekStart`, takže by pro všech sedm dní vrátil tentýž záznam.
+Odhalilo se to jen proto, že zadání subagenta obsahovalo **povinné ověření signatur
+proti skutečnosti**.
+
+### Známá omezení
+
+- **Kaskáda může přestat klesat.** `plannedHours > staffedHours` je běžný stav
+  (odložené zakázky, bloky mimo pracovní dobu, legacy bloky bez `printMinutes`).
+  Sekce to nově vypisuje větou místo aby to vypadalo jako vada grafu.
+- **„Potvrzeno tiskařem" není v čase stabilní** — filtr je `printCompletedAt != null`
+  bez ohledu na okamžik potvrzení, takže blok naplánovaný 30. 8. a odklepnutý 2. 9.
+  se do srpnového reportu doplní zpětně. Popisek to říká.
+- **`DIMENSION_DEBT` v `reportTokens.test.ts`** — rozšířený detektor holých rozměrů
+  našel 107 nálezů v devíti souborech, z nichž většina není odsazení, ale geometrie
+  kresby bez vlastní škály. Místo oslabení detektoru drží test přesné počty na
+  soubor: nový soubor musí začít na nule, existujícímu smí počet jedině klesnout.
+
+### Tvrdá podmínka nasazení
+
+**Před nasazením ověřit pokrytí `MachineWeekShifts` na produkci.** Kbelík „chybí
+rozvrh" tu neznalost sice zviditelní, ale když bude velká, je sekce k ničemu.
+Dotaz je v `docs/audits/2026-08-16-reporty-pruzkum-metrik.md`, kap. 8.
