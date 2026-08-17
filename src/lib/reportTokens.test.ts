@@ -71,35 +71,144 @@ function stripComments(src: string): string {
 }
 
 /**
- * `fontSize` / `borderRadius` / `padding` a jejich hodnota — číslo, řetězec
- * v uvozovkách, nebo šablonový literál. Řetězcový zápis se hlídá stejně jako
- * holé číslo: v React inline stylech je `padding: "13px 17px"` úplně běžný
- * a s dřívějším vzorcem (číslice MUSELA stát hned za dvojtečkou) prošel.
- * Nebyla to teorie — dřívější commit přepsal `padding: 0` na `padding: "0"`
- * a jediné, co tím získal, bylo projít vlastním detektorem.
+ * Vlastnosti, jejichž hodnota patří na některou ze škál `reportTokens` —
+ * nebo aspoň na pojmenovanou konstantu, aby číslo mělo význam.
+ *
+ * Rozsah se v R4a rozšířil z původní trojice `fontSize`/`borderRadius`/`padding`.
+ * Bez toho detektor slíbil „v /reporty nezůstala žádná holá velikost ani
+ * odsazení" a přitom mlčel k `marginTop: 10`, `gap: 12`, `height: 12` i
+ * `width: "148px"` — tedy ke čtyřem z pěti stylových řádků nové sekce.
+ *
+ * `paddingTop`/`paddingBottom` a spol. ZÁMĚRNĚ chybí dál: mají v repu vlastní
+ * roli (dorovnání optického středu) a předstírat, že sedí na škálu odsazení,
+ * by bylo horší než mlčet. Naproti tomu `marginTop` je odsazení jako každé jiné.
  */
-const DIM_PROP = /\b(?:fontSize|borderRadius|padding)\s*:\s*(-?\d[\d.]*|"[^"\n]*"|'[^'\n]*'|`[^`\n]*`)/g;
+const DIM_PROP = new RegExp(
+  "\\b(?:fontSize|borderRadius|padding"
+  + "|margin|marginTop|marginRight|marginBottom|marginLeft"
+  + "|gap|rowGap|columnGap"
+  + "|width|minWidth|maxWidth|height|minHeight|maxHeight"
+  + "|top|left|right|bottom)"
+  + "\\s*:\\s*(-?\\d[\\d.]*|\"[^\"\\n]*\"|'[^'\\n]*'|`[^`\\n]*`)",
+  "g",
+);
+
+/** Jednotky, které NEJSOU pixelovou škálou — relativní a viewportové. */
+const RELATIVE_UNIT = /(?:%|vmin|vmax|vh|vw|rem|em|ch|fr)$/;
 
 /**
  * Holé rozměry v jednom kusu zdroje. Vrací celé nalezené zápisy, ať je v hlášce
  * vidět, co přesně se má převést na škálu.
  *
+ * Řetězcový zápis se hlídá stejně jako holé číslo: v React inline stylech je
+ * `padding: "13px 17px"` úplně běžný a s dřívějším vzorcem (číslice MUSELA stát
+ * hned za dvojtečkou) prošel. Nebyla to teorie — dřívější commit přepsal
+ * `padding: 0` na `padding: "0"` a jediné, co tím získal, bylo projít vlastním
+ * detektorem.
+ *
  * Projde (a NESMÍ se hlásit):
  *  - `padding: \`${reportSpace.md}px ${reportSpace.lg}px\`` — interpolace se
  *    zahazují, zbylé `px px` už žádné číslo nenese;
- *  - `padding: "0"` a `padding: \`0 ${reportSpace.md}px\`` — nula není krok
- *    škály, je to reset;
- *  - `borderRadius: "50%"` — procento je tvar (kolečko), ne krok pixelové škály,
- *    `reportRadius` ho vyjádřit neumí.
+ *  - `padding: "0"`, `padding: 0` a `padding: \`0 ${reportSpace.md}px\`` — nula
+ *    není krok škály, je to reset, a nutit pro ni uvozovky byl vždycky nesmysl;
+ *  - `borderRadius: "50%"`, `height: "100%"`, `minHeight: "100vh"` — relativní
+ *    a viewportové jednotky nejsou kroky PIXELOVÉ škály a `reportSpace` je
+ *    vyjádřit neumí.
  */
 function bareDimensionHits(src: string): string[] {
   const out: string[] = [];
   for (const m of stripComments(src).matchAll(DIM_PROP)) {
     const raw = m[1];
-    if (/^-?\d/.test(raw)) { out.push(m[0].trim()); continue; }
+    if (/^-?\d/.test(raw)) {
+      if (!/^-?0(?:\.0+)?$/.test(raw)) out.push(m[0].trim());
+      continue;
+    }
     const inner = raw.slice(1, -1).replace(/\$\{[^}]*\}/g, "");
-    const numbers = inner.match(/\d+(?:\.\d+)?%?/g) ?? [];
-    if (numbers.some((n) => !n.endsWith("%") && Number(n) !== 0)) out.push(m[0].trim());
+    const numbers = inner.match(/\d+(?:\.\d+)?(?:%|vmin|vmax|vh|vw|rem|em|ch|fr)?/g) ?? [];
+    if (numbers.some((n) => !RELATIVE_UNIT.test(n) && Number(n) !== 0)) out.push(m[0].trim());
+  }
+  return out;
+}
+
+/**
+ * DLUH: holé rozměry, které v /reporty stály UŽ PŘED tím, než se detektor v R4a
+ * rozšířil z trojice `fontSize`/`borderRadius`/`padding` na odsazení a geometrii.
+ *
+ * Není to výjimka ani vypnutý detektor — je to ROHATKA. Test níž porovnává celou
+ * mapu na rovnost, takže:
+ *  - nový soubor v /reporty musí začít na NULE (v mapě není → nesmí mít nález),
+ *  - existujícímu smí počet jedině klesnout, a kdo ho sníží, sníží i číslo tady.
+ *
+ * Proč se dluh nesplatil rovnou: většina těch hodnot na škále `reportSpace`
+ * (4/8/12/16/24) neleží ani přibližně (`gap: 1`, `gap: 13`, `minWidth: 520`,
+ * `height: 80`) a část z nich vůbec není odsazení, ale geometrie kresby, pro
+ * kterou v `reportTokens` škála neexistuje. Srovnat je znamená přeměřit vzhled
+ * celé stránky — vlastní etapa, ne přílepek k sekci Využití kalendáře.
+ */
+const DIMENSION_DEBT: Record<string, number> = {
+  "src/app/reporty/_components/CheckExplainer.tsx": 2,
+  "src/app/reporty/_components/HealthPanel.tsx": 27,
+  "src/app/reporty/_components/IntegrityRow.tsx": 8,
+  "src/app/reporty/_components/KpiCard.tsx": 2,
+  "src/app/reporty/_components/OutlookView.tsx": 25,
+  "src/app/reporty/_components/PlanningSection.tsx": 2,
+  "src/app/reporty/_components/ReportDashboard.tsx": 13,
+  "src/app/reporty/_components/RetroView.tsx": 20,
+  "src/components/report/AttentionBand.tsx": 8,
+};
+
+/**
+ * Pojmenované barvy, které se v repu reálně píšou. Seznam je krátký schválně:
+ * hlídá se jím jen nitro `color-mix()`, kde barva stojí BEZ uvozovek a ostatní
+ * pravidla ji minou.
+ */
+const NAMED_COLOR = "white|black|red|green|blue|orange|yellow|grey|gray|purple|pink|brown|cyan|magenta|teal|navy|gold|lime|olive|maroon|aqua|fuchsia|violet|indigo";
+
+/**
+ * Vrátí argumenty každého `color-mix(` ve zdroji, se správně spárovanými
+ * závorkami — `var(--x)` uvnitř nesmí volání předčasně ukončit.
+ */
+function colorMixArgs(src: string): string[] {
+  const out: string[] = [];
+  for (const m of src.matchAll(/color-mix\(/g)) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    for (; i < src.length && depth > 0; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") depth--;
+    }
+    out.push(src.slice(m.index + m[0].length, i - 1));
+  }
+  return out;
+}
+
+/**
+ * Barevné literály v jednom kusu zdroje.
+ *
+ * Do R4a detektor znal jen hex, `rgb()`/`hsl()` a pojmenovanou barvu v uvozovkách.
+ * Chyběla mu přitom ta NEJPRAVDĚPODOBNĚJŠÍ vada: `globals.css` je celý zapsaný
+ * v `oklch()`, takže nejpřirozenější způsob, jak se minout s tokenem, je zkopírovat
+ * si jeho hodnotu — `background: "oklch(0.62 0.16 262)"` prošlo bez hlesnutí.
+ *
+ * `oklch(`/`oklab(`/`lab(`/`lch(`/`hwb(`/`color(` je vždycky literál: token se
+ * odkazuje `var(--…)`. Uvnitř `color-mix()` se navíc hlídá pojmenovaná barva bez
+ * uvozovek, protože `color-mix(in oklab, red 20%, transparent)` by jinak prošlo.
+ *
+ * Legitimní zápis `color-mix(in oklab, var(--brand) 22%, transparent)` projít
+ * MUSÍ — `in oklab` není volání funkce a `transparent`/`currentColor` nejsou
+ * literální barvy, ale klíčová slova bez vlastní hodnoty.
+ */
+function colorLiteralHits(src: string): string[] {
+  const clean = stripComments(src);
+  const out = [
+    ...clean.matchAll(/#[0-9a-fA-F]{3,8}\b/g),
+    ...clean.matchAll(/\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\(/g),
+    ...clean.matchAll(new RegExp(`["'\`](?:${NAMED_COLOR})["'\`]`, "g")),
+  ].map((h) => h[0]);
+  const bareNamed = new RegExp(`(?:^|[^\\w-])(${NAMED_COLOR})(?![\\w-])`);
+  for (const args of colorMixArgs(clean)) {
+    const hit = bareNamed.exec(args);
+    if (hit) out.push(`color-mix(… ${hit[1]} …)`);
   }
   return out;
 }
@@ -194,30 +303,78 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
     // řádkem vypínala skoro každý nález, a stačil i `https://` na témž řádku.
     const offenders: string[] = [];
     for (const f of REPORT_DIRS.flatMap(sourceFiles)) {
-      const src = stripComments(readFileSync(join(process.cwd(), f), "utf8"));
-      const hits = [
-        ...src.matchAll(/#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(|["'`](?:white|black|red|green|blue|orange|yellow|grey|gray)["'`]/g),
-      ];
-      if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits.map((h) => h[0]))].join(", ")}`);
+      const hits = colorLiteralHits(readFileSync(join(process.cwd(), f), "utf8"));
+      if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits)].join(", ")}`);
     }
     assert.deepEqual(offenders, [], "barvy v /reporty patří do tokenů");
   });
 
-  it("v /reporty nezůstala žádná holá velikost ani odsazení", () => {
-    // Táž pojistka jako u barev, jen pro rozměry: `fontSize`, `borderRadius` a
-    // `padding` patří na `reportTypeScale` / `reportRadius` / `reportSpace`.
+  it("detektor barev chytá i oklch a spol., ne jen hex a rgb", () => {
+    // Vzorky jsou doslova ty, které dřívějším vzorcem prošly. `oklch(` je
+    // z nich nejnebezpečnější: `globals.css` je v oklch celý, takže zkopírovat
+    // hodnotu tokenu místo `var(--…)` je ta úplně nejpřirozenější chyba.
+    const shouldCatch = [
+      `<div style={{ background: "oklch(0.62 0.16 262)" }} />`,
+      `<div style={{ background: "oklab(0.6 0.1 0.1)" }} />`,
+      `<div style={{ color: "color(display-p3 1 0 0)" }} />`,
+      `<div style={{ color: "lch(50% 40 30)" }} />`,
+      `<div style={{ color: "hwb(120 10% 20%)" }} />`,
+      `<div style={{ background: "color-mix(in oklab, red 20%, transparent)" }} />`,
+      `<div style={{ background: "#3b82f6" }} />`,
+      `<div style={{ background: "rgba(0,0,0,.4)" }} />`,
+    ];
+    for (const line of shouldCatch) {
+      assert.ok(colorLiteralHits(line).length > 0, `neodhaleno: ${line}`);
+    }
+  });
+
+  it("detektor barev propouští tokeny i legitimní color-mix", () => {
+    // Druhá polovina téhož: detektor, který hlásí i správný zápis, se vypne.
+    // `in oklab` NENÍ volání funkce a `transparent`/`currentColor` nejsou
+    // literální barvy — je to týž zápis, jaký dnes stojí v HealthPanelu.
+    const shouldPass = [
+      `<div style={{ background: "color-mix(in oklab, var(--brand) 22%, transparent)" }} />`,
+      `<div style={{ border: "1px solid color-mix(in oklab, var(--danger) 45%, var(--border))" }} />`,
+      "<div style={{ background: `color-mix(in oklab, ${tone} 22%, transparent)` }} />",
+      `<div style={{ background: "var(--surface-3)", color: "currentColor" }} />`,
+      // Komentář s ukázkou literálu je text, ne kód.
+      `// background: "oklch(0.62 0.16 262)" tady být nesmí`,
+    ];
+    for (const line of shouldPass) {
+      assert.deepEqual(colorLiteralHits(line), [], `falešný poplach: ${line}`);
+    }
+  });
+
+  it("v /reporty nezůstala v NOVÉM kódu žádná holá velikost ani odsazení", () => {
+    // Táž pojistka jako u barev, jen pro rozměry: `fontSize`, `borderRadius`,
+    // `padding`, `margin*`, `gap` patří na `reportTypeScale` / `reportRadius` /
+    // `reportSpace`; `width`/`height`/`top`/`left`/`right`/`bottom` škálu nemají,
+    // ale patří aspoň na pojmenovanou konstantu, ať číslo něco znamená.
     // Bez detektoru se škála udrží přesně do prvního „jen o dva pixely",
     // a report měl před R2/R3 dvanáct velikostí písma a devatenáct odsazení.
     //
-    // Hlídá se `padding:` PŘESNĚ, ne `padding*` — `paddingBottom` a spol. na
-    // škále zatím nejsou a předstírat opak by bylo horší než mlčet. Nula se
-    // píše jako řetězec (`padding: "0"`): není to krok škály, je to reset.
+    // Soubory, které měly holé rozměry UŽ PŘED rozšířením rozsahu (R4a), jsou
+    // v `DIMENSION_DEBT` níž s přesným počtem. Nejde o výjimku, ale o rohatku:
+    // nový soubor musí začít na nule a existujícímu smí počet jedině klesnout.
     const offenders: string[] = [];
     for (const f of REPORT_DIRS.flatMap(sourceFiles)) {
+      if (f in DIMENSION_DEBT) continue;
       const hits = bareDimensionHits(readFileSync(join(process.cwd(), f), "utf8"));
       if (hits.length > 0) offenders.push(`${f}: ${[...new Set(hits)].join(", ")}`);
     }
     assert.deepEqual(offenders, [], "rozměry v /reporty patří na škály reportTokens");
+  });
+
+  it("holých rozměrů ve starém kódu smí jedině ubývat", () => {
+    // Rohatka, ne výjimka. `deepEqual` nad celou mapou hlídá OBA směry:
+    // přibylý nález spadne stejně jako ubylý, takže kdo dluh splatí, musí
+    // číslo v mapě snížit (a kdo soubor vyčistí celý, řádek smazat).
+    const actual: Record<string, number> = {};
+    for (const f of REPORT_DIRS.flatMap(sourceFiles)) {
+      const n = bareDimensionHits(readFileSync(join(process.cwd(), f), "utf8")).length;
+      if (n > 0) actual[f] = n;
+    }
+    assert.deepEqual(actual, DIMENSION_DEBT, "uprav DIMENSION_DEBT — počet holých rozměrů se změnil");
   });
 
   it("detektor rozměrů se nedá obejít uvozovkou ani backtickem", () => {
@@ -228,13 +385,21 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
       `<div style={{ padding: "13px 17px", fontSize: "9px", borderRadius: "4px" }} />`,
       "<div style={{ padding: `13px 17px` }} />",
       `<div style={{ padding: '5px' }} />`,
+      // Doslova řádek, kterým se detektor obcházel do R4a: čtyři holé rozměry,
+      // z nichž ani jeden nebyl v jeho rozsahu.
+      `<div style={{ height: 12, marginTop: 10, gap: 12, width: "148px" }} />`,
+      `<div style={{ marginLeft: 8, columnGap: 6, maxWidth: 420 }} />`,
+      `<div style={{ position: "absolute", top: 3, right: 7 }} />`,
     ];
     for (const line of shouldCatch) {
       assert.ok(bareDimensionHits(line).length > 0, `neodhaleno: ${line}`);
     }
-    // První vzorek nese TŘI vady, ne jednu — hláška musí vyjmenovat všechny,
-    // jinak se opravují po jedné a test spadne pokaždé znovu.
+    // Vzorek nese VÍC vad než jednu — hláška musí vyjmenovat všechny, jinak se
+    // opravují po jedné a test spadne pokaždé znovu.
     assert.equal(bareDimensionHits(shouldCatch[0]).length, 3);
+    assert.equal(bareDimensionHits(shouldCatch[3]).length, 4);
+    assert.equal(bareDimensionHits(shouldCatch[4]).length, 3);
+    assert.equal(bareDimensionHits(shouldCatch[5]).length, 2);
   });
 
   it("detektor rozměrů propouští škálu, nulu i procenta", () => {
@@ -246,6 +411,13 @@ describe("tokeny — pojistky proti tichému rozejití", () => {
       `<div style={{ padding: "0" }} />`,
       `<div style={{ borderRadius: "50%" }} />`,
       "<div style={{ fontSize: reportTypeScale.sm, borderRadius: reportRadius.lg }} />",
+      // Nula je reset, ne krok škály — a nutit pro ni uvozovky byl vždycky nesmysl.
+      `<div style={{ minWidth: 0, top: 0 }} />`,
+      // Relativní a viewportové jednotky nejsou kroky PIXELOVÉ škály.
+      `<div style={{ height: "100%", minHeight: "100vh", maxWidth: "40rem" }} />`,
+      "<div style={{ width: `${pct}%`, gap: reportSpace.sm, marginTop: reportSpace.xl }} />",
+      // `borderTop` ani `paddingBottom` nejsou `top`/`padding` — hranice slova drží.
+      `<div style={{ borderTop: "1px solid var(--border)", paddingBottom: 4 }} />`,
       // Komentář s ukázkou holého rozměru je text, ne kód.
       `// padding: "13px 17px" tady být nesmí`,
     ];
