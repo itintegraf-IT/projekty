@@ -7,11 +7,11 @@ import { civilDateToUTCMidnight, parseCivilDateWriteInput, normalizeCivilDateInp
 import { emitSSE } from "@/lib/eventBus";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { SHIFT_EDIT_RANGES, fmtHHMM } from "@/lib/shifts";
-import { findConflictingBlocks, assertNoConflictingBlocks, computeConflictWindow } from "@/lib/findConflictingBlocks";
+import { classifyCascade, computeConflictWindow, type CascadeDiff } from "@/lib/cascadeCheck";
 import { checkRateLimit } from "@/lib/rateLimiter";
-import { detectCalendarDrift, notifyCalendarDrift } from "@/lib/calendarDrift.server";
+import { detectCalendarDrift, notifyCalendarDrift, type DriftedBlock } from "@/lib/calendarDrift.server";
 import type { SessionUser } from "@/lib/auth";
-import { MACHINES } from "@/lib/machines";
+import { MACHINES, machineLabel } from "@/lib/machines";
 
 type DayInput = {
   dayOfWeek: number;
@@ -202,11 +202,29 @@ export async function GET(req: Request) {
   }
 }
 
+/** Serializace `DriftedBlock` do JSON-bezpečného tvaru pro 409 payload (ISO stringy místo `Date`). */
+function serializeCascadeBlock(b: DriftedBlock) {
+  return {
+    id: b.id,
+    orderNumber: b.orderNumber,
+    description: b.description,
+    startTime: b.startTime.toISOString(),
+    endTime: b.endTime.toISOString(),
+    reason: b.reason,
+    expectedEnd: b.expectedEnd ? b.expectedEnd.toISOString() : null,
+  };
+}
+
 export async function PUT(req: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!["ADMIN", "PLANOVAT"].includes(session.role))
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  // Deklarované PŘED `try`, aby na ně viděl catch blok (skládá 409 z `cascade`, hlásí
+  // konflikt pro `machine`) — obojí se přiřadí až uvnitř try/transakce.
+  let machine: string | undefined;
+  let cascade: CascadeDiff | null = null;
 
   const { allowed, retryAfterSeconds } = checkRateLimit("put-shifts", String(session.id), 60, 60 * 1000);
   if (!allowed) {
@@ -287,19 +305,10 @@ export async function PUT(req: Request) {
     });
     if (seenDow.size !== 7) throw new AppError("VALIDATION_ERROR", "Musí být všech 7 dayOfWeek (0–6)");
 
-    const machine = body.machine;
+    machine = body.machine;
     const weekStartDate = civilDateToUTCMidnight(parsedWeek);
 
     const force = new URL(req.url).searchParams.get("force") === "1";
-    if (!force) {
-      const conflicts = await findConflictingBlocks(machine, parsedWeek, normalized);
-      if (conflicts.length > 0) {
-        return NextResponse.json(
-          { error: "SHIFT_SHRINK_CASCADE", conflictingBlocks: conflicts },
-          { status: 409 }
-        );
-      }
-    }
 
     const existing = await prisma.machineWeekShifts.findMany({
       where: { machine, weekStart: weekStartDate },
@@ -339,27 +348,30 @@ export async function PUT(req: Request) {
     const beforePayload = beforeSorted.map(encodeDay).join("|");
     const afterPayload = `${machine} ${parsedWeek}${force ? " [FORCE]" : ""} ${afterSorted.map(encodeDay).join("|")}`;
 
+    const now = new Date();
+    const { from: windowFrom, to: windowTo } = computeConflictWindow(parsedWeek);
+    // `const` alias s definitním `string`, ne `machine` (deklarované jako `let string |
+    // undefined` kvůli viditelnosti z catch bloku) — uvnitř uzávěru transakce by TS typ
+    // `machine` konzervativně rozšířil zpět na `string | undefined` (nemůže dokázat, že se
+    // mezi vznikem uzávěru a jejím zavoláním znovu nepřepíše).
+    const machineId = machine;
+
     const updated = await prisma.$transaction(async (tx) => {
-      // Re-check cascade v transakci (TOCTOU protection).
-      // Mezi findConflictingBlocks (před transakcí) a commitem mohl jiný uživatel
-      // vytvořit konfliktní blok — tento re-check to zachytí. Sdílené jádro s
-      // findConflictingBlocks (fetchConflictingBlocks) — obě volání tak nemohou
-      // nezávisle rozjet tvar where klauzule ani validačních řádků (spec 3.9).
-      if (!force) {
-        await assertNoConflictingBlocks(tx, machine, parsedWeek, normalized, "SHIFT_SHRINK_CASCADE_RACE");
-      }
+      // Stav PŘED zápisem. MUSÍ se číst před upserty — po nich by `before == after` a
+      // kontrola by MLČELA (degradace do bezpečného směru, ne do falešného poplachu).
+      const driftBefore = await detectCalendarDrift(tx, [machineId], windowFrom, windowTo, now);
 
       for (const d of normalized) {
         await tx.machineWeekShifts.upsert({
           where: {
             machine_weekStart_dayOfWeek: {
-              machine,
+              machine: machineId,
               weekStart: weekStartDate,
               dayOfWeek: d.dayOfWeek,
             },
           },
           create: {
-            machine,
+            machine: machineId,
             weekStart: weekStartDate,
             dayOfWeek: d.dayOfWeek,
             isActive: d.isActive,
@@ -388,6 +400,18 @@ export async function PUT(req: Request) {
         });
       }
 
+      // tx vidí vlastní upserty → tohle je SKUTEČNÝ cílový stav, ne simulace cílové
+      // konfigurace jako dřív (falešné poplachy staré kontroly plynuly ze simulace,
+      // která neznala skutečnou expanzi tiskových hodin).
+      const driftAfter = await detectCalendarDrift(tx, [machineId], windowFrom, windowTo, now);
+      cascade = classifyCascade(driftBefore, driftAfter);
+
+      if (!force && cascade.newlyHomeless.length > 0) {
+        // Rollback: směny se nezapíšou. Výčet konfliktů si odnese `cascade` v uzávěru
+        // funkce — 409 se z něj složí až v catch bloku.
+        throw new AppError("CONFLICT", "SHIFT_SHRINK_CASCADE");
+      }
+
       await tx.auditLog.create({
         data: {
           blockId: 0,
@@ -400,14 +424,11 @@ export async function PUT(req: Request) {
         },
       });
 
-      // Detekce driftu PO zápisu směn — tx vidí vlastní upserty. Force i ne-force cesta
-      // shodně (force typicky = vědomé zmenšení směn → notifikace o driftu je žádoucí i tak).
-      const { from: driftFrom, to: driftTo } = computeConflictWindow(parsedWeek);
-      const drifted = await detectCalendarDrift(tx, [machine], driftFrom, driftTo, new Date());
-      await notifyCalendarDrift(tx, drifted, session, `Změna směn ${machine.replace("_", " ")} (týden ${parsedWeek})`);
+      // Notifikace i pro force cestu (vědomé zmenšení směn → drift je žádoucí ohlásit i tak).
+      await notifyCalendarDrift(tx, driftAfter, session, `Změna směn ${machineLabel(machineId)} (týden ${parsedWeek})`);
 
       return await tx.machineWeekShifts.findMany({
-        where: { machine, weekStart: weekStartDate },
+        where: { machine: machineId, weekStart: weekStartDate },
         orderBy: { dayOfWeek: "asc" },
       });
     });
@@ -416,11 +437,17 @@ export async function PUT(req: Request) {
     logger.info("[machine-week-shifts PUT] updated", { machine, weekStart: parsedWeek, force, userId: session.id });
     return NextResponse.json(updated.map(serializeRow));
   } catch (err) {
-    if (isAppError(err) && err.code === "CONFLICT" && err.message === "SHIFT_SHRINK_CASCADE_RACE") {
-      return NextResponse.json(
-        { error: "SHIFT_SHRINK_CASCADE_RACE", message: "Jiný uživatel vytvořil konfliktní blok. Obnov zobrazení." },
-        { status: 409 }
-      );
+    if (isAppError(err) && err.code === "CONFLICT" && err.message === "SHIFT_SHRINK_CASCADE") {
+      // `as` cast: `cascade` je jedinou přiřazenou hodnotou uvnitř uzávěru transakce, takže
+      // TS ho tady (mimo uzávěr) mylně považuje pořád za `null` z inicializace a `?.` na tom
+      // dál hlásí "does not exist on type never" — cast typ vrací zpět na deklarovaný.
+      const cascadeResult = cascade as CascadeDiff | null;
+      return NextResponse.json({
+        error: "SHIFT_SHRINK_CASCADE",
+        machine,
+        conflictingBlocks: (cascadeResult?.newlyHomeless ?? []).map(serializeCascadeBlock),
+        longerBlocks: (cascadeResult?.newlyLonger ?? []).map(serializeCascadeBlock),
+      }, { status: 409 });
     }
     if (isAppError(err)) return NextResponse.json({ error: err.message }, { status: errorStatus(err.code) });
     logger.error("[machine-week-shifts PUT] neočekávaná chyba", err);
