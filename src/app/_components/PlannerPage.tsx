@@ -27,7 +27,7 @@ import { buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePosi
 import { accumulateShifted, excludeShiftedTargeted, type ShiftedSnapshots } from "@/lib/undo/shiftedBatch";
 import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { weekStartStrFromDateStr, type MachineWeekShiftsRow, type ShiftDayPayload } from "@/lib/machineWeekShifts";
-import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
+import { ShiftCascadeDialog, type CascadeBlock } from "@/components/admin/ShiftCascadeDialog";
 import { SearchField } from "@/components/SearchField";
 import { Label }     from "@/components/ui/label";
 import { Button }    from "@/components/ui/button";
@@ -128,7 +128,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     return () => observer.disconnect();
   }, []);
   const [plannerCascade, setPlannerCascade] = useState<{
-    conflicts: ConflictingBlock[];
+    conflicts: CascadeBlock[];
+    longerCount: number;
     pendingPayload: { machine: string; weekStart: string; days: ShiftDayPayload[] };
   } | null>(null);
   const [showShutdowns, setShowShutdowns] = useState(false);
@@ -526,7 +527,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         if (res.status === 409) {
           const data = await res.json().catch(() => ({}));
           if (data?.error === "SHIFT_SHRINK_CASCADE" && Array.isArray(data.conflictingBlocks)) {
-            setPlannerCascade({ conflicts: data.conflictingBlocks, pendingPayload: payload });
+            setPlannerCascade({
+              conflicts: data.conflictingBlocks,
+              longerCount: Array.isArray(data.longerBlocks) ? data.longerBlocks.length : 0,
+              pendingPayload: payload,
+            });
             return;
           }
         }
@@ -3434,7 +3439,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
       {plannerCascade && (
         <ShiftCascadeDialog
+          machine={plannerCascade.pendingPayload.machine}
           conflictingBlocks={plannerCascade.conflicts}
+          longerCount={plannerCascade.longerCount}
           onCancel={() => setPlannerCascade(null)}
           onConfirm={async () => {
             const payload = plannerCascade.pendingPayload;

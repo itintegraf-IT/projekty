@@ -8,7 +8,7 @@ import { weekStartFromDate, weekDatesFromStart, isoWeekNumber } from "@/lib/shif
 import { useSSE } from "@/hooks/useSSE";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
 import { ShiftHoursPopover } from "@/components/admin/ShiftHoursPopover";
-import { ShiftCascadeDialog, type ConflictingBlock } from "@/components/admin/ShiftCascadeDialog";
+import { ShiftCascadeDialog, type CascadeBlock } from "@/components/admin/ShiftCascadeDialog";
 
 type WeekShiftsRow = {
   id?: number;
@@ -176,9 +176,16 @@ export function MachineWorkHoursWeek() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [popoverState, setPopoverState] = useState<{ machine: string; dow: number; shift: ShiftType; anchor: DOMRect } | null>(null);
-  const [cascadeBlocks, setCascadeBlocks] = useState<ConflictingBlock[] | null>(null);
+  const [cascadeBlocks, setCascadeBlocks] = useState<CascadeBlock[] | null>(null);
+  const [cascadeMachine, setCascadeMachine] = useState<string | null>(null);
+  const [cascadeLongerCount, setCascadeLongerCount] = useState(0);
   const { toasts, showToast, dismissToast } = useToast();
   const savingRef = useRef(false);
+  // Snímek `rows` pořízený na startu operace uložení (viz `runSave`). Kaskádové
+  // potvrzení i navazující kroky bez force jedou nad TÍMTO snímkem, ne nad živým
+  // `rows` — jinak by ho mezitím přepsal `load()` volaný při otevření dialogu
+  // a klik na „Uložit i přesto" by odeslal starou, needitovanou podobu směn.
+  const saveSnapshotRef = useRef<Record<string, WeekShiftsRow[]>>({});
 
   const weekDates = useMemo(() => weekDatesFromStart(weekStart), [weekStart]);
   const weekStartStr = useMemo(() => isoDateStr(weekStart), [weekStart]);
@@ -276,9 +283,21 @@ export function MachineWorkHoursWeek() {
     });
   };
 
-  const submitSave = async (force: boolean): Promise<{ ok: boolean; cascade?: ConflictingBlock[] }> => {
-    for (const machine of MACHINES) {
-      const machineRows = rows[machine];
+  type SaveResult =
+    | { ok: true }
+    | { ok: false; cascade: CascadeBlock[]; longerCount: number; machine: string };
+
+  const submitSave = async (
+    snapshot: Record<string, WeekShiftsRow[]>,
+    force: boolean,
+    onlyMachine?: string,
+  ): Promise<SaveResult> => {
+    // Bez `onlyMachine` jde o kompletní uložení (všechny stroje); s ním jde o
+    // adresné force-potvrzení JEN stroje z dialogu — force se nesmí rozlít na
+    // stroje, jejichž konflikty nikdo neviděl (proto se tu netočí přes MACHINES).
+    const targets: readonly string[] = onlyMachine ? [onlyMachine] : MACHINES;
+    for (const machine of targets) {
+      const machineRows = snapshot[machine];
       if (!machineRows) continue;
       const url = force
         ? "/api/machine-week-shifts?force=1"
@@ -307,10 +326,17 @@ export function MachineWorkHoursWeek() {
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as {
           error?: string;
-          conflictingBlocks?: ConflictingBlock[];
+          machine?: string;
+          conflictingBlocks?: CascadeBlock[];
+          longerBlocks?: CascadeBlock[];
         };
         if (res.status === 409 && body.error === "SHIFT_SHRINK_CASCADE" && Array.isArray(body.conflictingBlocks)) {
-          return { ok: false, cascade: body.conflictingBlocks };
+          return {
+            ok: false,
+            cascade: body.conflictingBlocks,
+            longerCount: Array.isArray(body.longerBlocks) ? body.longerBlocks.length : 0,
+            machine: body.machine ?? machine,
+          };
         }
         throw new Error(body.error ?? `Chyba ukládání (${machine})`);
       }
@@ -318,15 +344,42 @@ export function MachineWorkHoursWeek() {
     return { ok: true };
   };
 
-  const runSave = async (force: boolean) => {
+  const runSave = async (force: boolean, onlyMachine?: string) => {
     setBusy(true);
     setError(null);
     savingRef.current = true;
     try {
-      const result = await submitSave(force);
-      if (!result.ok && result.cascade) {
+      // Snímek se bere jen na startu nové operace (bez `onlyMachine`) — kaskádové
+      // potvrzení i navazující kroky ho pak sdílí, viz komentář u `saveSnapshotRef`.
+      if (!onlyMachine) saveSnapshotRef.current = rows;
+      const snapshot = saveSnapshotRef.current;
+      const result = await submitSave(snapshot, force, onlyMachine);
+      if (!result.ok) {
         setCascadeBlocks(result.cascade);
+        setCascadeMachine(result.machine);
+        setCascadeLongerCount(result.longerCount);
+        // `original` může být zastaralé, pokud tahle operace stihla uložit stroje
+        // PŘED tím blokovaným — dotáhnout ho, ať dirty-check po zavření dialogu nelže.
+        void load();
         return;
+      }
+      if (onlyMachine) {
+        // Právě force-uložený stroj byl jediný, na kterém uživatel kaskádu VIDĚL
+        // a potvrdil. Zbylé stroje za ním v pořadí ještě nebyly vůbec zkoušeny —
+        // pokračují BEZ force, ať se jejich případná kaskáda ukáže taky (dialog se
+        // objeví podruhé, pravdivě, se svým názvem stroje).
+        const idx = MACHINES.findIndex((m) => m === onlyMachine);
+        const remaining = idx >= 0 ? MACHINES.slice(idx + 1) : [];
+        for (const machine of remaining) {
+          const next = await submitSave(snapshot, false, machine);
+          if (!next.ok) {
+            setCascadeBlocks(next.cascade);
+            setCascadeMachine(next.machine);
+            setCascadeLongerCount(next.longerCount);
+            void load();
+            return;
+          }
+        }
       }
       await load();
       showToast("Pracovní doba uložena.", "success");
@@ -343,12 +396,18 @@ export function MachineWorkHoursWeek() {
   const save = () => runSave(false);
 
   const confirmCascade = async () => {
+    const machine = cascadeMachine;
     setCascadeBlocks(null);
-    await runSave(true);
+    setCascadeMachine(null);
+    setCascadeLongerCount(0);
+    if (!machine) return;
+    await runSave(true, machine);
   };
 
   const cancelCascade = () => {
     setCascadeBlocks(null);
+    setCascadeMachine(null);
+    setCascadeLongerCount(0);
   };
 
   const copyFromPrev = async () => {
@@ -640,9 +699,11 @@ export function MachineWorkHoursWeek() {
         );
       })()}
 
-      {cascadeBlocks && (
+      {cascadeBlocks && cascadeMachine && (
         <ShiftCascadeDialog
+          machine={cascadeMachine}
           conflictingBlocks={cascadeBlocks}
+          longerCount={cascadeLongerCount}
           onCancel={cancelCascade}
           onConfirm={() => void confirmCascade()}
           busy={busy}
