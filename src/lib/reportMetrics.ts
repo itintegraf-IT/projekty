@@ -4,6 +4,7 @@
  */
 
 import { addDaysToCivilDate, pragueToUTC } from "./dateUtils";
+import { type Interval, mergeIntervals } from "./intervals";
 import { companyDayIntervalsFor } from "./printTimeClient";
 import { resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
@@ -13,8 +14,6 @@ import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWee
 // ---------------------------------------------------------------------------
 
 export type CompanyDayRow = { machine?: string | null; startDate: string | Date; endDate: string | Date };
-
-type Interval = { start: number; end: number };
 
 /**
  * Pražská minuta dne → absolutní UTC čas.
@@ -47,18 +46,6 @@ function shiftIntervalsForDay(row: MachineWeekShiftsRow, dateStr: string): Inter
       out.push({ start: at(dateStr, b.startMin), end: midnight });
       out.push({ start: midnight, end: at(nextDay, b.endMin) });
     }
-  }
-  return out;
-}
-
-/** Sloučí překrývající se intervaly, aby se táž minuta nezapočítala (ani neodečetla) dvakrát. */
-function mergeIntervals(list: Interval[]): Interval[] {
-  const sorted = [...list].sort((a, b) => a.start - b.start);
-  const out: Interval[] = [];
-  for (const iv of sorted) {
-    const last = out[out.length - 1];
-    if (last && iv.start <= last.end) last.end = Math.max(last.end, iv.end);
-    else out.push({ ...iv });
   }
   return out;
 }
