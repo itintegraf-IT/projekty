@@ -606,6 +606,13 @@ by v 8:00 ráno z Monitoru zmizela, protože „nezačala dnes“.
 > od konce, ne podle dne startu“ platí dál a stojí na ní i sekce NEDODĚLÁNO. Detail
 > v sekci z 13. 8. 2026 níž.
 
+> **Neplatí od 17. 8. 2026:** `OVERDUE_WINDOW_MS` v kódu už neexistuje —
+> rozhodnutím majitele se dvoustupňovost zpoždění (`alarm`/`stale`) zrušila
+> celá a zpožděná neodklepnutá zakázka se v plánu kreslí VŽDY červeně, bez
+> ohledu na to, jak dlouho zpoždění trvá. `overdueAlarmState()` nahradila
+> `isOverdueUnacknowledged()` (viz sekce „Dva stupně zpoždění…“ výš). Volba
+> „počítat od konce, ne podle dne startu“ platí dál beze změny.
+
 ### Gotchy, které stály čas
 
 - **`now` netiká, když je timeline odmontovaná.** Tikající `now` je uvnitř
