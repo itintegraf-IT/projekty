@@ -21,13 +21,22 @@ export type PrismaClientLike = CalendarPrismaClientLike & {
       select: {
         id: true;
         orderNumber: true;
+        description: true;
         machine: true;
         startTime: true;
         endTime: true;
         printMinutes: true;
       };
     }) => Promise<
-      { id: number; orderNumber: string; machine: string; startTime: Date; endTime: Date; printMinutes: number | null }[]
+      {
+        id: number;
+        orderNumber: string;
+        description: string | null;
+        machine: string;
+        startTime: Date;
+        endTime: Date;
+        printMinutes: number | null;
+      }[]
     >;
   };
 };
@@ -54,6 +63,7 @@ export type NotifyPrismaClientLike = {
 export type DriftedBlock = {
   id: number;
   orderNumber: string;
+  description: string | null;
   machine: string;
   startTime: Date;
   endTime: Date;
@@ -104,7 +114,7 @@ export async function detectCalendarDrift(
       startTime: { lt: windowEnd },
       endTime: { gt: new Date(activeAfter) },
     },
-    select: { id: true, orderNumber: true, machine: true, startTime: true, endTime: true, printMinutes: true },
+    select: { id: true, orderNumber: true, description: true, machine: true, startTime: true, endTime: true, printMinutes: true },
   });
 
   // Nezarovnaný start = legacy blok předcházející modelu tiskových hodin — nelze posoudit.
@@ -146,6 +156,7 @@ export async function detectCalendarDrift(
         drifted.push({
           id: b.id,
           orderNumber: b.orderNumber,
+          description: b.description,
           machine: b.machine,
           startTime: b.startTime,
           endTime: b.endTime,
@@ -158,6 +169,7 @@ export async function detectCalendarDrift(
         drifted.push({
           id: b.id,
           orderNumber: b.orderNumber,
+          description: b.description,
           machine: b.machine,
           startTime: b.startTime,
           endTime: b.endTime,

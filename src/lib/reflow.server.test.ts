@@ -449,6 +449,7 @@ describe("reflowMachineInTx", () => {
     return {
       id,
       orderNumber,
+      description: null,
       machine: "XL_105",
       startTime,
       endTime: new Date(startTime.getTime() + 120 * 60000),

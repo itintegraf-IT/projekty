@@ -374,7 +374,7 @@ test("diffAttachmentFiles: stejný storageKey pod jinou rezervací není shoda",
 
 test("bucketDrift: END_MISMATCH+HORIZON → drift; START_NOT_RUNNABLE → outsideHours", () => {
   const mk = (id: number, reason: DriftedBlock["reason"]): DriftedBlock => ({
-    id, orderNumber: `Z-${id}`, machine: "XL_105",
+    id, orderNumber: `Z-${id}`, description: null, machine: "XL_105",
     startTime: D("2026-08-01T08:00:00Z"), endTime: D("2026-08-01T10:00:00Z"),
     expectedEnd: reason === "END_MISMATCH" ? D("2026-08-01T11:00:00Z") : null, reason,
   });

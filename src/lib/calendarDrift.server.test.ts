@@ -14,6 +14,7 @@ type CompanyDayRow = { startDate: Date; endDate: Date };
 type FakeBlockRow = {
   id: number;
   orderNumber: string;
+  description: string | null;
   machine: string;
   startTime: Date;
   endTime: Date;
@@ -100,6 +101,7 @@ function fakeCalendarDriftDb(
 function mkBlock(overrides: Partial<FakeBlockRow> & Pick<FakeBlockRow, "id" | "startTime" | "endTime">): FakeBlockRow {
   return {
     orderNumber: `Z-${overrides.id}`,
+    description: null,
     machine: "XL_106",
     type: "ZAKAZKA",
     scheduleBypassed: false,
@@ -153,7 +155,7 @@ test("detectCalendarDrift: end spočítaný bez odstávky + nová companyDay uvn
   const weekShifts = [...xl106Week(W1), ...xl106Week(W2)];
   const start = pragueToUTC("2026-08-17", 8); // Po 8:00, pm=240 → naivní (uložený) end 12:00
   const storedEnd = pragueToUTC("2026-08-17", 12);
-  const block = mkBlock({ id: 3, startTime: start, endTime: storedEnd, printMinutes: 240 });
+  const block = mkBlock({ id: 3, startTime: start, endTime: storedEnd, printMinutes: 240, description: "Katalog jaro" });
   // Nová odstávka 30 min uvnitř bloku (9:00–9:30) — přidaná PO uložení bloku.
   const cd: CompanyDayRow = { startDate: pragueToUTC("2026-08-17", 9), endDate: pragueToUTC("2026-08-17", 9, 30) };
   const db = fakeCalendarDriftDb([block], weekShifts, [cd]);
@@ -162,6 +164,7 @@ test("detectCalendarDrift: end spočítaný bez odstávky + nová companyDay uvn
   assert.equal(result[0].id, 3);
   assert.equal(result[0].reason, "END_MISMATCH");
   assert.equal(result[0].expectedEnd?.getTime(), pragueToUTC("2026-08-17", 12, 30).getTime());
+  assert.equal(result[0].description, "Katalog jaro", "description se propíše ze selectu do DriftedBlock");
 });
 
 function noMorningMondayWeek(weekStart: string) {
@@ -397,6 +400,7 @@ test("rozsah se u ODLOŽENÝCH bloků liší ZÁMĚRNĚ: server mlčí, klient d
 function mkDrifted(overrides: Partial<DriftedBlock> & Pick<DriftedBlock, "id" | "reason">): DriftedBlock {
   return {
     orderNumber: `Z-${overrides.id}`,
+    description: null,
     machine: "XL_106",
     startTime: pragueToUTC("2026-08-17", 8),
     endTime: pragueToUTC("2026-08-17", 10),
