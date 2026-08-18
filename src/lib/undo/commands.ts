@@ -13,10 +13,20 @@ function affected(res: { updated: unknown[]; removed: unknown[] }): number {
   return res.updated.length + res.removed.length;
 }
 
-function guard(effects: UndoEffects, expected: BlockSnapshot[]): void {
+/**
+ * Rychlá klientská zkratka proti souběhu. `requireLive: false` ji vypne pro
+ * bloky, které v klientském stavu být NEMUSÍ (viz `buildReflowCommand`) —
+ * bezpečnost tím netrpí, protože `applyUndo` na serveru kontroluje
+ * `expectedUpdatedAt` VŠECH cílů atomicky před prvním zápisem.
+ */
+function guard(effects: UndoEffects, expected: BlockSnapshot[], requireLive = true): void {
   for (const s of expected) {
     const live = effects.getLiveBlock(s.id);
-    if (!live || live.updatedAt !== s.updatedAt) throw new StaleUndoError();
+    if (!live) {
+      if (requireLive) throw new StaleUndoError();
+      continue;
+    }
+    if (live.updatedAt !== s.updatedAt) throw new StaleUndoError();
   }
 }
 
@@ -54,9 +64,14 @@ function refresh(snapshots: Array<{ id: number; updatedAt: string }>, updated: A
  * before/after jsou mutable: po každém apply se jejich updatedAt osvěží z odpovědi,
  * aby další guard/expectedUpdatedAt seděl.
  */
-export function buildMoveCommand(label: string, before: BlockSnapshot[], after: BlockSnapshot[]): HistoryEntry {
+function moveCommand(
+  label: string,
+  before: BlockSnapshot[],
+  after: BlockSnapshot[],
+  requireLive: boolean,
+): HistoryEntry {
   const apply = async (effects: UndoEffects, target: BlockSnapshot[], expected: BlockSnapshot[], direction: "undo" | "redo") => {
-    guard(effects, expected);
+    guard(effects, expected, requireLive);
     const expMap = new Map(expected.map((e) => [e.id, e.updatedAt]));
     const res = await effects.applyUndo({
       label, direction,
@@ -71,6 +86,23 @@ export function buildMoveCommand(label: string, before: BlockSnapshot[], after: 
     undo: (effects) => apply(effects, before, after, "undo"),
     redo: (effects) => apply(effects, after, before, "redo"),
   };
+}
+
+export function buildMoveCommand(label: string, before: BlockSnapshot[], after: BlockSnapshot[]): HistoryEntry {
+  return moveCommand(label, before, after, true);
+}
+
+/**
+ * Krok historie po přepočtu („Přepočítat" na bloku i na stroji).
+ *
+ * Od `buildMoveCommand` se liší JEDINOU věcí: netrvá na tom, aby dotčený blok
+ * byl v klientském stavu. Chain push posouvá i bloky mimo načtený rozsah dní
+ * (havárie 17. 8. 2026 odsunula zakázky až do září) a `applyServerBlocks` je do
+ * stavu nepřidává — s původním guardem by Ctrl+Z u přepočtu selhal vždycky.
+ * Zámek `expectedUpdatedAt` se posílá dál a kontroluje ho server.
+ */
+export function buildReflowCommand(label: string, before: BlockSnapshot[], after: BlockSnapshot[]): HistoryEntry {
+  return moveCommand(label, before, after, false);
 }
 
 /**

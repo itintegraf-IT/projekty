@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMoveCommand, buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "./commands";
+import { buildMoveCommand, buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand, buildReflowCommand } from "./commands";
 import { StaleUndoError, type Block, type EditSnapshot, type UndoEffects, type UndoRequest } from "./types";
+import { UNDO_MAX_OPS } from "./limits";
 
 function blk(id: number, over: Partial<Block> = {}): Block {
   return {
@@ -535,4 +536,36 @@ test("buildMoveCommand: undo vrátí počet dotčených bloků (podklad pro hlá
   ];
   const n = await buildMoveCommand("Přesun", before, after).undo(effects);
   assert.equal(n, 2, "počet se bere z ODPOVĚDI serveru, ne z počtu poslaných ops");
+});
+
+test("buildReflowCommand vrátí blok, který v klientském stavu VŮBEC NENÍ", async () => {
+  // Blok 42 leží mimo načtený rozsah dní — getLiveBlock ho nezná. buildMoveCommand
+  // by tady hodil StaleUndoError; reflow verze se spolehne na serverový zámek.
+  const live = new Map<number, Block>();
+  const { effects, calls } = makeEffects(live);
+  const before = [{ id: 42, startTime: "2026-08-18T10:00:00.000Z", endTime: "2026-08-18T12:00:00.000Z", machine: "XL_105", updatedAt: "v1", printMinutes: 120, scheduleBypassed: false }];
+  const after = [{ id: 42, startTime: "2026-08-20T10:00:00.000Z", endTime: "2026-08-20T12:00:00.000Z", machine: "XL_105", updatedAt: "v2", printMinutes: 120, scheduleBypassed: false }];
+
+  const entry = buildReflowCommand("Přepočet bloku", before, after);
+  await entry.undo(effects);
+
+  assert.equal(calls.undo.length, 1);
+  assert.equal(calls.undo[0]!.ops.length, 1);
+  const op = calls.undo[0]!.ops[0]!;
+  assert.equal(op.kind, "upsert");
+  assert.equal(op.id, 42);
+  // Zámek se posílá i bez klientského guardu — kontrolu dělá server.
+  assert.equal(op.expectedUpdatedAt, "v2");
+});
+
+test("buildMoveCommand na chybějícím bloku PADÁ dál (regrese — guard se nesmí uvolnit plošně)", async () => {
+  const live = new Map<number, Block>();
+  const { effects } = makeEffects(live);
+  const snap = { id: 42, startTime: "2026-08-18T10:00:00.000Z", endTime: "2026-08-18T12:00:00.000Z", machine: "XL_105", updatedAt: "v1", printMinutes: 120, scheduleBypassed: false };
+  const entry = buildMoveCommand("Přesun", [snap], [{ ...snap, updatedAt: "v2" }]);
+  await assert.rejects(() => entry.undo(effects), StaleUndoError);
+});
+
+test("UNDO_MAX_OPS je 200 — shodně s tím, co endpoint přijme", () => {
+  assert.equal(UNDO_MAX_OPS, 200);
 });

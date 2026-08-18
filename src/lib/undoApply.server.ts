@@ -8,6 +8,7 @@ import { SLOT_MS } from "@/lib/timeSlots";
 import { truncateUtf8 } from "@/lib/textTruncate";
 import { loadMachineCalendarRange } from "@/lib/printTime.server";
 import { UNDO_MIXED_FIELD_PREFIX } from "@/lib/auditFormatters";
+import { UNDO_MAX_OPS } from "./undo/limits";
 
 export type UndoOp =
   | {
@@ -68,7 +69,7 @@ function bad(message: string): never {
  */
 export function sanitizeUndoOps(raw: unknown): UndoOp[] {
   if (!Array.isArray(raw) || raw.length === 0) bad("Seznam operací je prázdný nebo není pole.");
-  if (raw.length > 200) bad("Seznam operací je příliš dlouhý (max 200).");
+  if (raw.length > UNDO_MAX_OPS) bad(`Seznam operací je příliš dlouhý (max ${UNDO_MAX_OPS}).`);
 
   const seen = new Set<number>();
   const ops: UndoOp[] = [];
