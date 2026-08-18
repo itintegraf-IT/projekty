@@ -2092,8 +2092,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
    *
    * Když dávka přeroste `UNDO_MAX_OPS`, krok se ZÁMĚRNĚ nezaznamená a uživateli
    * se to řekne — endpoint undo by ji stejně odmítl 400 a mlčky zaznamenaný krok
-   * by v historii jen svítil jako past. Takovou dávku vrací „Vrátit tuto změnu"
-   * v historii bloku (etapa D).
+   * by v historii jen svítil jako past. Dnes takovou dávku umí vrátit jen správce
+   * ze záznamu revizí (`BlockRevision`) — tlačítko „Vrátit tuto změnu" v historii
+   * bloku ani endpoint pro to (etapa D) zatím NEEXISTUJÍ. Až etapa D vznikne,
+   * text hlášky níže se má vrátit k odkazu na tlačítko v historii bloku.
    */
   function recordReflowUndo(
     label: string,
@@ -2102,8 +2104,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   ): void {
     if (!Array.isArray(before) || before.length === 0) return;
     if (before.length > UNDO_MAX_OPS) {
+      console.error("[historie] krok přepočtu se nezaznamenal — dávka přerostla strop", {
+        label, blocks: before.length, max: UNDO_MAX_OPS,
+      });
       showToast(
-        `Přepočet zasáhl ${before.length} bloků — na Ctrl+Z je to moc. Vrátit ho jde v historii bloku.`,
+        `Přepočet zasáhl ${before.length} bloků — na Ctrl+Z je to moc. Vrátit ho umí jen správce ze záznamu revizí.`,
         "info",
       );
       return;

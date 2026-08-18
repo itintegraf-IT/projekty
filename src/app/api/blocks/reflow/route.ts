@@ -68,10 +68,17 @@ export async function POST(request: NextRequest) {
     );
 
     // Všechna dotčená id: reflownuté bloky + id bloků odsunutých jejich chain pushem
-    // (reflowMachineInTx je sesbírá do movedIds). movedCount = počet unikátních
-    // chain-push id MIMO reflowed (reflownuté už jsou v prvním setu, ale movedIds z
-    // reflowMachineInTx je z definice bez reflowed vlastních id — chain push posouvá
-    // JINÉ, navazující bloky).
+    // (reflowMachineInTx je sesbírá do movedIds). To platí BEZ garance vzájemné
+    // výlučnosti napříč celým během stroje: movedIds je unie chain-push cílů ze VŠECH
+    // volání reflowBlockInTx v tomto běhu, a jedno konkrétní volání do movedIds přidává
+    // jen bloky, které ono samo odsunulo (ne sebe). Blok, který byl reflownutý dřív
+    // v pořadí, ale později v běhu ho odsune chain push jiného bloku, tak skončí
+    // v OBOU množinách zároveň — např. blok D (start 8:00) se přepočítá první a vlastním
+    // snapem se posune až za blok F (start 14:00, přepočítá se později); F pak svým
+    // chain pushem odsune D, takže D je v `reflowed` i v `movedIds`. `movedCount` níže
+    // proto může být o odsunuté-a-zároveň-reflownuté bloky vyšší, než kolik bloků bylo
+    // ve skutečnosti dotčeno — číslo v hlášce je tím nepřesné (viz `reflowMachineToast`),
+    // datovou vadu to ale nezakládá.
     const reflowedIds = result.reflowed.map((r) => r.id);
     const allIds = [...new Set([...reflowedIds, ...result.movedIds])];
 

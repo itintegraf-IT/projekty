@@ -2243,3 +2243,54 @@ jako celek.
 (commit `5335c907`); strážný test typografie Monitoru zelený. Task 6 (tento
 zápis + `scripts/revert-revision-group.ts`) ověřen samostatně — viz commit
 zprávu a `.superpowers/sdd/2026-08-17-kaskada-smen-diferencni/task-6-report.md`.
+
+## Autoposun viditelný a vratný — etapy A+C (18. 8. 2026)
+
+Dosud platilo: hromadné „Přepočítat" na stroji i adresný přepočet jednoho
+bloku sice hlásily, kolik bloků odsunuly, ale samotný krok se nikam
+nezapisoval — Ctrl+Z ho nedokázal vzít zpět. Kdo omylem spustil přepočet
+(nebo ho spustil úmyslně a pak zjistil, že se mu výsledek nelíbí), musel
+ručně dohledávat a opravovat každý odsunutý blok zvlášť. Tahle vlna (etapy
+A+C ze specu; **etapa B — strop kaskády, a etapa D — endpoint „vrátit
+revizní skupinu" + tlačítko v historii bloku, se NEIMPLEMENTOVALY**) dělá
+přepočet viditelný a vratný týmž mechanismem jako ostatní kroky historie.
+
+**Co se změnilo v odpovědích obou reflow rout.** Obě `POST
+/api/blocks/reflow` (celý stroj) i `POST /api/blocks/[id]/reflow` (jeden
+blok) nově vrací i pole `before` — poziční stav (`id`, `startTime`,
+`endTime`, `machine`, `printMinutes`, `scheduleBypassed`, `updatedAt`)
+VŠECH bloků, které přepočet v dané transakci dotkl, změřený na ZAČÁTKU
+běhu, ne mezistav. Tvar (`ReflowBeforeSnapshot`, `src/lib/reflowBefore.server.ts`)
+je záměrně totožný s klientským `BlockSnapshot`, takže ho jde poslat do
+undo builderu beze změny. U celostrojového přepočtu snapshoty za všechny
+dílčí `reflowBlockInTx` volání slučuje `reflowMachineInTx`
+(`src/lib/reflow.server.ts`) přes `mergeBefore` — první výskyt vyhrává,
+protože jeden blok může být v běhu dotčen víckrát (např. odsunutý chain
+pushem dřívějšího bloku a pak sám přepočítaný) a krok historie musí umět
+vrátit stav před CELÝM přepočtem, ne stav před posledním dotykem.
+
+**Proč vedle `buildMoveCommand` přibyl `buildReflowCommand`
+(`src/lib/undo/commands.ts`).** Oba stavějí stejnou operaci obnovy pozice
+(`posOp` — start/end/machine/printMinutes/scheduleBypassed), liší se
+jedinou věcí: `buildMoveCommand` před zápisem trvá na tom, aby každý cílový
+blok byl živý v klientském stavu (`requireLive: true` v interním `guard`
+helperu), `buildReflowCommand` ne. Chain push ale posouvá i bloky mimo
+zobrazený rozsah dní — klient má načtené jen to, co je vidět na obrazovce,
+a `applyServerBlocks` bloky mimo tenhle rozsah do stavu nepřidává (havárie
+17. 8. 2026 odsunula zakázky až o měsíc dál). S `requireLive: true` by tedy
+Ctrl+Z po každém větším přepočtu spolehlivě spadl na `StaleUndoError`, i
+když je odsunutý blok v DB v pořádku. Bezpečnost tím netrpí — skutečnou
+kontrolu souběhu dělá server: `applyUndo` kontroluje `expectedUpdatedAt`
+všech cílů atomicky před prvním zápisem, takže konkurenční editace pořád
+undo zablokuje, jen na to nepotřebuje klientský cache.
+
+**Dávka nad `UNDO_MAX_OPS` se do historie záměrně nezapisuje.**
+`recordReflowUndo` (`src/app/_components/PlannerPage.tsx`) krok zahodí,
+pokud `before.length` přesáhne strop (`src/lib/undo/limits.ts`), a řekne to
+uživateli toastem — endpoint undo by tak jako tak dávku odmítl 400
+(`sanitizeUndoOps`), a mlčky zapsaný krok, který by se při Ctrl+Z rozpadl na
+chybovou hlášku, je horší past než žádný krok vůbec. Toast dnes plánovače
+posílá na to, že takovou dávku umí vrátit jen správce ze záznamu revizí
+(`BlockRevision`) — NE na tlačítko v historii bloku, protože žádné takové
+tlačítko (etapa D) v aplikaci není. Kdo etapu D doimplementuje, ať text
+vrátí k odkazu na tlačítko a smaže tuhle poznámku.
