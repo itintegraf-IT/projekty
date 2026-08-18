@@ -70,7 +70,7 @@ import {
   type PlannerFontScale,
 } from "@/lib/plannerTypography";
 import { reflowMachineToast, reflowBlockToast } from "@/lib/reflowToastText";
-import { fetchWithCascadeConfirm, type CascadePayload } from "@/lib/cascadeConfirmClient";
+import { fetchWithCascadeConfirm, type CascadeAsk, type CascadePayload } from "@/lib/cascadeConfirmClient";
 import { cascadeConfirmMessage } from "@/lib/cascadeLimit";
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
@@ -2487,11 +2487,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // vkládá se vždy odemčená (locked: false). Sdílená cesta s group paste (buildPasteBody).
     const pasteBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
     try {
-      const res = await fetch("/api/blocks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(pasteBody),
-      });
+      const res = await fetchWithCascadeConfirm("/api/blocks", "POST", pasteBody, askCascade);
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? "Chyba serveru");
@@ -2589,6 +2585,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
     // POST všechny bloky sekvenčně — při prvním selhání se zastaví a žádný lokální stav se nezmění
     const created: Block[] = [];
+    // Vložení skupiny je JEDNO gesto uživatele, i když je to N requestů. Po prvním
+    // potvrzení se další bloky skupiny už neptají — jinak by plánovač odklikával
+    // tentýž dialog pro každý blok zvlášť.
+    let groupCascadeConfirmed = false;
+    const askCascadeOnceForGroup: CascadeAsk = async (p) => {
+      if (groupCascadeConfirmed) return true;
+      const ok = await askCascade(p);
+      if (ok) groupCascadeConfirmed = true;
+      return ok;
+    };
     try {
       for (const src of group) {
         const offsetMs = new Date(src.startTime).getTime() - anchorMs;
@@ -2597,11 +2603,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const newEnd = new Date(newStart.getTime() + durationMs);
         // Sdílená cesta s handlePasteWithTarget (buildPasteBody) — request flagy se nerozejdou.
         const groupBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
-        const res = await fetch("/api/blocks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(groupBody),
-        });
+        const res = await fetchWithCascadeConfirm("/api/blocks", "POST", groupBody, askCascadeOnceForGroup);
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `HTTP ${res.status}`);

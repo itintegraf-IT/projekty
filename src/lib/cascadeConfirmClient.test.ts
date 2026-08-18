@@ -66,3 +66,36 @@ test("po potvrzení se NEptá podruhé, i kdyby server 409 zopakoval", async () 
   assert.equal(calls.length, 2);
   assert.equal(res.status, 409);
 });
+
+test("group paste: sdílený 'zeptej se jednou za dávku' wrapper se ptá jen na PRVNÍ kaskádu", async () => {
+  // Stejná logika jako `askCascadeOnceForGroup` v `handleGroupPasteWithTarget`
+  // (PlannerPage.tsx) — postavená TADY v testu, ne v produkčním modulu, protože
+  // patří k tomu jednomu volajícímu (vložení skupiny je jedno gesto uživatele,
+  // i když je to N requestů; druhý a další blok skupiny se už neptají znovu).
+  const cascade = { movedCount: 5, maxShiftMs: 1, farthestEnd: null };
+  const { fn, calls } = fakeFetch([
+    { status: 409, body: { code: "CASCADE_CONFIRM", error: "…", cascade } },
+    { status: 200, body: { id: 1 } },
+    { status: 409, body: { code: "CASCADE_CONFIRM", error: "…", cascade } },
+    { status: 200, body: { id: 2 } },
+  ]);
+
+  let askedTimes = 0;
+  let groupCascadeConfirmed = false;
+  const askOnceForGroup = async (): Promise<boolean> => {
+    if (groupCascadeConfirmed) return true;
+    askedTimes++;
+    groupCascadeConfirmed = true;
+    return true;
+  };
+
+  const res1 = await fetchWithCascadeConfirm("/api/blocks", "POST", { block: 1 }, askOnceForGroup, fn);
+  const res2 = await fetchWithCascadeConfirm("/api/blocks", "POST", { block: 2 }, askOnceForGroup, fn);
+
+  assert.equal(askedTimes, 1);
+  assert.equal(calls.length, 4);
+  assert.equal((calls[1]!.body as Record<string, unknown>).cascadeConfirmed, true);
+  assert.equal((calls[3]!.body as Record<string, unknown>).cascadeConfirmed, true);
+  assert.equal(res1.status, 200);
+  assert.equal(res2.status, 200);
+});
