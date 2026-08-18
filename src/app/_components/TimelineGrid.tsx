@@ -1255,12 +1255,17 @@ export default function TimelineGrid({
     // zkrátí hlavu (end přes tiskové hodiny), vytvoří ocas (věrná kopie zakázky) a přeloží
     // navazující bloky. Nahradilo 3-request orchestr s LIFO kompenzací — žádný rozbitý mezistav
     // (selhání = rollback celé transakce). expectedUpdatedAt = optimistic lock proti souběhu.
+    // Tělo requestu NENESE `resolveChain` — u splitu není chain push opt-in, server ho
+    // u ZAKAZKY dělá bezpodmínečně (`/api/blocks/[id]/split/route.ts`). I tak potřebuje
+    // potvrzení velké kaskády stejně jako ostatní cesty, jinak dialog nikdy nedostane
+    // šanci se zeptat a rozdělení nad prahem skončí slepě na chybové hlášce.
     try {
-      const res = await fetch(`/api/blocks/${block.id}/split`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ splitAt: splitAt.toISOString(), expectedUpdatedAt: block.updatedAt }),
-      });
+      const res = await fetchWithCascadeConfirm(
+        `/api/blocks/${block.id}/split`,
+        "POST",
+        { splitAt: splitAt.toISOString(), expectedUpdatedAt: block.updatedAt },
+        callbacksRef.current.onCascadeConfirm,
+      );
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo rozdělit.");
