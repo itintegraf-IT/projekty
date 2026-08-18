@@ -70,6 +70,8 @@ import {
   type PlannerFontScale,
 } from "@/lib/plannerTypography";
 import { reflowMachineToast, reflowBlockToast } from "@/lib/reflowToastText";
+import { fetchWithCascadeConfirm, type CascadePayload } from "@/lib/cascadeConfirmClient";
+import { cascadeConfirmMessage } from "@/lib/cascadeLimit";
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
@@ -183,6 +185,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [forceDeleteConfirm, setForceDeleteConfirm] = useState<{ block: Block; rejectionReason?: string; message: string } | null>(null);
   // Totéž pro hromadné mazání — souhrnné potvrzení chráněných bloků.
   const [multiForceDelete, setMultiForceDelete] = useState<{ ids: number[] } | null>(null);
+  // Potvrzení velké kaskády autoposunu (server 409 CASCADE_CONFIRM) — promise-resolver
+  // čeká na odpověď z dialogu, viz askCascade níž.
+  const [cascadeAsk, setCascadeAsk] = useState<{ payload: CascadePayload; resolve: (ok: boolean) => void } | null>(null);
   const [editingBlock, setEditingBlock]   = useState<Block | null>(null);
   const [copiedBlock, setCopiedBlock] = useState<Block | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<Set<number>>(new Set());
@@ -1269,6 +1274,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   }
 
   /**
+   * Otevře potvrzení velké kaskády a počká na odpověď. Fokus je na „Zrušit"
+   * (`autoFocusConfirm={false}`) — stejné rozhodnutí jako u dialogu zkrácení
+   * směn: potvrzovací tlačítko u destruktivní akce nesmí být pod Enterem.
+   */
+  const askCascade = useCallback(
+    (payload: CascadePayload) => new Promise<boolean>((resolve) => setCascadeAsk({ payload, resolve })),
+    [],
+  );
+
+  /**
    * Překlopení celé rezervace na zakázku (připomínka plánovače, 8/2026).
    *
    * Rezervace bývá rozpuštěná do víc bloků (OBÁLKA na XL 105, VNITŘKY na
@@ -1348,14 +1363,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const reportedSiblingById = new Map<number, Block>();
 
     const putFlip = async (id: number, body: Record<string, unknown>, lock?: string) => {
-      const res = await fetch(`/api/blocks/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        // Optimistic lock jen u kotvy (parita s doSave, audit REL-02). Sourozenci
-        // ho mít nesmí: kotvin PUT jim serverovou propagací bumpne verzi a lock
-        // by je shodil na vlastní 409.
-        body: JSON.stringify({ ...body, resolveChain: true, ...(lock ? { expectedUpdatedAt: lock } : {}) }),
-      });
+      // Optimistic lock jen u kotvy (parita s doSave, audit REL-02). Sourozenci
+      // ho mít nesmí: kotvin PUT jim serverovou propagací bumpne verzi a lock
+      // by je shodil na vlastní 409.
+      const res = await fetchWithCascadeConfirm(
+        `/api/blocks/${id}`,
+        "PUT",
+        { ...body, resolveChain: true, ...(lock ? { expectedUpdatedAt: lock } : {}) },
+        askCascade,
+      );
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? `Chyba při překlopení bloku ${id}`);
@@ -1501,10 +1517,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   async function handleMultiBlockUpdate(updates: { id: number; startTime: Date; endTime: Date; machine: string }[]): Promise<boolean> {
     const originals = new Map(updates.map(u => [u.id, blocksRef.current.find(b => b.id === u.id)]));
     try {
-      const batchRes = await fetch("/api/blocks/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const batchRes = await fetchWithCascadeConfirm(
+        "/api/blocks/batch",
+        "POST",
+        {
           updates: updates.map((u) => ({
             id: u.id,
             startTime: u.startTime.toISOString(),
@@ -1513,8 +1529,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           })),
           bypassScheduleValidation: !workingTimeLockRef.current,
           resolveChain: true,
-        }),
-      });
+        },
+        askCascade,
+      );
       if (!batchRes.ok) {
         const err = await batchRes.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? "Chyba serveru");
@@ -1915,11 +1932,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             blockPayload = { ...payload, endTime: blockEndTime };
           }
         }
-        const res = await fetch(`/api/blocks/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...blockPayload, resolveChain: true }),
-        });
+        const res = await fetchWithCascadeConfirm(
+          `/api/blocks/${id}`,
+          "PUT",
+          { ...blockPayload, resolveChain: true },
+          askCascade,
+        );
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `Chyba při ukládání bloku ${id}`);
@@ -2134,11 +2152,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   async function handleReflowMachine(machine: string) {
     try {
-      const res = await fetch("/api/blocks/reflow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ machine }),
-      });
+      const res = await fetchWithCascadeConfirm("/api/blocks/reflow", "POST", { machine }, askCascade);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error ?? "Přepočet se nepodařilo dokončit.", "error");
@@ -2164,10 +2178,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   async function handleReflowBlock(blockId: number) {
     try {
-      const res = await fetch(`/api/blocks/${blockId}/reflow`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const res = await fetchWithCascadeConfirm(`/api/blocks/${blockId}/reflow`, "POST", {}, askCascade);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error ?? "Přepočet se nepodařilo dokončit.", "error");
@@ -2290,11 +2301,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         bypassScheduleValidation: !workingTimeLockRef.current,
         resolveChain: true,
       };
-      const res1 = await fetch("/api/blocks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(queueParentBody),
-      });
+      const res1 = await fetchWithCascadeConfirm("/api/blocks", "POST", queueParentBody, askCascade);
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string; code?: string };
         // Jen 409 z důvodu „rezervace už není QUEUE_READY" (naplánoval ji mezitím
@@ -2328,10 +2335,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         for (let i = 1; i < rCount; i++) {
           const curEnd = new Date(curStart.getTime() + durationMs);
           try {
-            const res = await fetch("/api/blocks", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
+            const res = await fetchWithCascadeConfirm(
+              "/api/blocks",
+              "POST",
+              {
                 ...baseBody,
                 startTime: curStart.toISOString(),
                 endTime: curEnd.toISOString(),
@@ -2340,8 +2347,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 bypassScheduleValidation: !workingTimeLockRef.current,
                 resolveChain: true,
                 autoShiftIfBusy: true,
-              }),
-            });
+              },
+              askCascade,
+            );
             if (res.ok) {
               const childBlock: Block & { autoShift?: { originalStart: string } } = await res.json();
               handleBlockCreate(childBlock);
@@ -2458,11 +2466,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       cutMoveInFlightRef.current = true;
       try {
-        const res = await fetch(`/api/blocks/${src.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(moveBody),
-        });
+        const res = await fetchWithCascadeConfirm(`/api/blocks/${src.id}`, "PUT", moveBody, askCascade);
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? "Chyba serveru");
@@ -2891,6 +2895,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         onConfirm={() => { const ids = [...selectedBlockIds]; setMultiDeletePending(false); setSelectedBlockIds(new Set()); handleDeleteAll(ids); }}
         onCancel={() => setMultiDeletePending(false)}
       />
+      {/* ── Confirm velké kaskády autoposunu (server 409 CASCADE_CONFIRM) ── */}
+      <ConfirmDialog
+        open={cascadeAsk !== null}
+        title="Velký autoposun"
+        message={cascadeAsk ? cascadeConfirmMessage({
+          movedCount: cascadeAsk.payload.movedCount,
+          maxShiftMs: cascadeAsk.payload.maxShiftMs,
+          farthestEnd: cascadeAsk.payload.farthestEnd ? new Date(cascadeAsk.payload.farthestEnd) : null,
+          exceeded: true,
+        }) : ""}
+        confirmLabel="Posunout i přesto"
+        cancelLabel="Zrušit"
+        danger
+        autoFocusConfirm={false}
+        onConfirm={() => { cascadeAsk?.resolve(true); setCascadeAsk(null); }}
+        onCancel={() => { cascadeAsk?.resolve(false); setCascadeAsk(null); }}
+      />
       {/* ── TISKAR: Monitor jako domovská obrazovka ── */}
       {isTiskar && tiskarView === "monitor" && (
         <MonitorView
@@ -3283,6 +3304,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             canEditMat={canEditMat}
             onError={(msg) => showToast(msg, "error")}
             onInfo={(msg) => showToast(msg, "info")}
+            onCascadeConfirm={askCascade}
             workingTimeLock={workingTimeLock}
             badgeColorMap={badgeColorMap}
             machineWeekShifts={machineWeekShifts}

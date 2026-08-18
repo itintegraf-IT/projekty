@@ -21,6 +21,7 @@ import {
   utcToPragueDateStr,
 } from "@/lib/dateUtils";
 import { computeShadeParity } from "@/lib/blockShades";
+import { fetchWithCascadeConfirm, type CascadeAsk } from "@/lib/cascadeConfirmClient";
 import { blockMatchesQuery } from "@/lib/orderSearch";
 import { type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
@@ -256,6 +257,12 @@ interface TimelineGridProps {
   onDataChipDoubleClick?: (blockId: number, rect: DOMRect) => void;
   onError?: (msg: string) => void;
   onInfo?: (msg: string) => void;
+  /**
+   * Potvrzení velké kaskády autoposunu (server 409 CASCADE_CONFIRM) — BEZ výchozí
+   * hodnoty. Chybějící callback má spadnout na tsc, ne se tiše potvrdit (to je
+   * přesně vada, kterou tahle vlna řeší).
+   */
+  onCascadeConfirm: CascadeAsk;
   workingTimeLock?: boolean;
   badgeColorMap?: Record<number, string | null>;
   machineWeekShifts?: MachineWeekShiftsRow[];
@@ -562,6 +569,7 @@ export default function TimelineGrid({
   onDataChipDoubleClick,
   onError,
   onInfo,
+  onCascadeConfirm,
   workingTimeLock = true,
   badgeColorMap = {},
   machineWeekShifts,
@@ -607,7 +615,7 @@ export default function TimelineGrid({
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel, onShiftBoundsChange });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange });
   const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -675,8 +683,8 @@ export default function TimelineGrid({
   useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel, onShiftBoundsChange };
-  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onQueueDrop, onQueueDragCancel, onShiftBoundsChange]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange]);
 
   useEffect(() => { shiftEdgePreviewRef.current = shiftEdgePreview; }, [shiftEdgePreview]);
 
@@ -1080,7 +1088,7 @@ export default function TimelineGrid({
           body.endTime = new Date(newStart.getTime() + duration).toISOString();
         }
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+          const res     = await fetchWithCascadeConfirm(`/api/blocks/${ds.blockId}`, "PUT", body, callbacksRef.current.onCascadeConfirm);
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
@@ -1099,7 +1107,12 @@ export default function TimelineGrid({
         const finalEnd       = snapToSlot(yToDate(originalTop + newHeightRaw, vs, sh));
         const minEnd         = new Date(ds.originalStart.getTime() + SLOT_MS);
         try {
-          const res     = await fetch(`/api/blocks/${ds.blockId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true }) });
+          const res     = await fetchWithCascadeConfirm(
+            `/api/blocks/${ds.blockId}`,
+            "PUT",
+            { endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true },
+            callbacksRef.current.onCascadeConfirm,
+          );
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo změnit.");
