@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { resolveChainPushFromDb, chainPushGeometry } from "./overlapResolver.server";
 import { isAppError } from "./errors";
+import { measureCascade } from "./cascadeLimit";
 
 // Úterý 16. 6. 2026, prázdné weekShifts → hardcoded fallback XL_105 (souvislý provoz).
 const H = (h: number) => new Date(`2026-06-16T${String(h).padStart(2, "0")}:00:00.000Z`);
@@ -270,6 +271,28 @@ describe("resolveChainPushFromDb", () => {
     assert.deepEqual(zak.startTime, H(14));
     assert.deepEqual(zak.endTime, H(16));
     assert.equal(updateMock.mock.calls.length, 2);
+  });
+});
+
+describe("resolveChainPushFromDb — práh kaskády (režim měření)", () => {
+  it("chain push nad prahem se v režimu MĚŘENÍ nezastaví", async () => {
+    // CASCADE_CONFIRM_ENFORCED je false, takže i velká kaskáda projde — a to je
+    // záměr prvního týdne provozu. Test tím drží, že se vlna nasadí neškodná.
+    const { tx } = mkTx([
+      ...Array.from({ length: 8 }, (_, k) => row(10 + k, 12 + k, 13 + k)),
+    ]);
+    const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) });
+    assert.ok(moves.length > 5);
+  });
+
+  it("measureCascade nad výsledkem chain pushe vidí skutečný dopad", async () => {
+    const { tx } = mkTx([row(10, 12, 13), row(11, 13, 14)]);
+    const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) });
+    const impact = measureCascade(
+      moves.map((m) => ({ startTime: m.startTime, endTime: m.endTime, oldStartTime: m.oldStartTime })),
+    );
+    assert.equal(impact.movedCount, moves.length);
+    assert.ok(impact.maxShiftMs > 0);
   });
 });
 

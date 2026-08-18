@@ -6,7 +6,10 @@ import { serializeBlock } from "@/lib/blockSerialization";
 import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks, findIntraBatchOverlap } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
-import { AppError, isAppError } from "@/lib/errors";
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
+import { measureCascade } from "@/lib/cascadeLimit";
+import { assertCascadeConfirmed } from "@/lib/cascadeLimit.server";
+import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { buildBatchAuditRows } from "@/lib/batchAuditRows";
@@ -31,6 +34,7 @@ export async function POST(request: NextRequest) {
   let bypassScheduleValidation = false;
   let bypassOverlapCheck = false;
   let resolveChain = false;
+  let cascadeConfirmed = false;
   try {
     const body = await request.json();
     if (!Array.isArray(body.updates) || body.updates.length === 0) {
@@ -41,6 +45,8 @@ export async function POST(request: NextRequest) {
     bypassScheduleValidation = body.bypassScheduleValidation === true;
     bypassOverlapCheck = body.bypassOverlapCheck === true;
     resolveChain = body.resolveChain === true;
+    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+    cascadeConfirmed = body.cascadeConfirmed === true;
   } catch {
     return NextResponse.json({ error: "Neplatný JSON" }, { status: 400 });
   }
@@ -200,13 +206,19 @@ export async function POST(request: NextRequest) {
             u.machine,
             { id: u.id, startTime: new Date(u.startTime), endTime: computedEnds.get(u.id)?.end ?? new Date(u.endTime) },
             new Set<number>(),  // nic se neschovává…
-            movedIds            // …sourozenci jsou vidět jako zmrazené překážky
+            movedIds,           // …sourozenci jsou vidět jako zmrazené překážky
+            { cascadeConfirmed, path: "batch" }
           );
           shiftedMoves.push(...moves);
           const arr = checkByMachine.get(u.machine) ?? [];
           arr.push(...moves.map((m) => m.id));
           checkByMachine.set(u.machine, arr);
         }
+
+        // Součet přes celou dávku — jednotlivé kotvy můžou být každá pod prahem,
+        // ale uživatel provedl JEDNO gesto a zajímá ho jeho celkový dopad.
+        assertCascadeConfirmed(measureCascade(shiftedMoves), { confirmed: cascadeConfirmed, path: "batch-total" });
+
         if (shiftedMoves.length > 0) {
           await tx.auditLog.createMany({
             data: shiftedMoves.map((m) => ({
@@ -283,6 +295,9 @@ export async function POST(request: NextRequest) {
     const canSeeNotes = canAccessBlockNotes(session.role as NoteRole);
     return NextResponse.json(serialized.map((b) => stripNotesIfDenied(b, canSeeNotes)));
   } catch (error: unknown) {
+    if (isAppError(error) && error.code === "CASCADE_CONFIRM") {
+      return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
+    }
     if (isAppError(error)) {
       const statusMap: Record<string, number> = {
         OVERLAP: 409,

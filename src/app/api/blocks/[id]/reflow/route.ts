@@ -6,13 +6,15 @@ import { getSession } from "@/lib/auth";
 import { isAppError, errorStatus } from "@/lib/errors";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { reflowBlockInTx } from "@/lib/reflow.server";
+import { resolveChainPushFromDb } from "@/lib/overlapResolver.server";
+import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { withRevision } from "@/lib/revision.server";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-export async function POST(_request: NextRequest, { params }: RouteContext) {
+export async function POST(request: NextRequest, { params }: RouteContext) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!["ADMIN", "PLANOVAT"].includes(session.role)) {
@@ -25,6 +27,10 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
   }
 
+  const body = (await request.json().catch(() => null)) as { cascadeConfirmed?: boolean } | null;
+  // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+  const cascadeConfirmed = body?.cascadeConfirmed === true;
+
   try {
     // Transakci otevírá `withRevision` — přepočítaný blok i bloky odsunuté jeho chain
     // pushem dostanou vlastní revizi pod jedním `groupId`, auditní řádky téže transakce
@@ -34,7 +40,11 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
     // od celostrojového přepočtu je tohle krátká transakce nad jedním blokem.
     const { result: outcome } = await withRevision(
       { action: "REFLOW", label: "Přepočet bloku", user: { id: session.id, username: session.username } },
-      (tx) => reflowBlockInTx(tx, id, { id: session.id, username: session.username }),
+      (tx) =>
+        reflowBlockInTx(tx, id, { id: session.id, username: session.username }, {
+          resolveChainPush: resolveChainPushFromDb,
+          cascadeConfirmed,
+        }),
     );
 
     if (!outcome.ok) {
@@ -86,6 +96,9 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
       before: outcome.before,
     });
   } catch (error: unknown) {
+    if (isAppError(error) && error.code === "CASCADE_CONFIRM") {
+      return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
+    }
     if (isAppError(error)) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: errorStatus(error.code) });
     }

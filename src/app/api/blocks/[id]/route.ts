@@ -12,6 +12,7 @@ import { computePrintMinutes } from "@/lib/printTime";
 import { loadMachineCalendar } from "@/lib/printTime.server";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
+import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { truncateUtf8 } from "@/lib/textTruncate";
@@ -103,6 +104,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const bypassOverlapCheck = (body as Record<string, unknown>).bypassOverlapCheck === true;
     // resolveChain: server po uložení bloku sám odsune navazující bloky (chain push) v téže transakci.
     const resolveChain = (body as Record<string, unknown>).resolveChain === true;
+    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+    const cascadeConfirmed = (body as Record<string, unknown>).cascadeConfirmed === true;
     // Optimistic lock MUSÍ být vyzvednut TADY, před `delete` níž: pro ADMIN/PLANOVAT
     // je `allowed` totožná reference jako `body`, takže delete pole odstraní
     // i z body a kontrola v transakci by ho už nenašla (tichý lost update).
@@ -111,6 +114,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     delete (allowed as Record<string, unknown>).bypassScheduleValidation;
     delete (allowed as Record<string, unknown>).bypassOverlapCheck;
     delete (allowed as Record<string, unknown>).resolveChain;
+    delete (allowed as Record<string, unknown>).cascadeConfirmed;
     delete (allowed as Record<string, unknown>).expeditionPublishedAt;
     delete (allowed as Record<string, unknown>).expeditionSortOrder;
     delete (allowed as Record<string, unknown>).expectedUpdatedAt;
@@ -602,7 +606,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           shiftedMoves = await resolveChainPushFromDb(
             tx,
             updated.machine,
-            { id: updated.id, startTime: updated.startTime, endTime: updated.endTime }
+            { id: updated.id, startTime: updated.startTime, endTime: updated.endTime },
+            new Set<number>(),
+            new Set<number>(),
+            { cascadeConfirmed, path: "PUT /api/blocks/[id]" }
           );
           if (shiftedMoves.length > 0) {
             await tx.auditLog.createMany({
@@ -686,6 +693,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     const responseSiblings = serializedSiblings.map((b) => stripNotesIfDenied(b, canSeeNotes));
     return NextResponse.json({ ...responseBlock, shifted: responseShifted, siblings: responseSiblings });
   } catch (error: unknown) {
+    if (isAppError(error) && error.code === "CASCADE_CONFIRM") {
+      return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
+    }
     if (isAppError(error)) {
       const statusMap: Record<string, number> = {
         NOT_FOUND: 404,

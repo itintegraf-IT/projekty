@@ -9,7 +9,8 @@ import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
-import { AppError, isAppError } from "@/lib/errors";
+import { AppError, isAppError, errorStatus } from "@/lib/errors";
+import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } from "@/lib/scheduleSlotFinder";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
@@ -70,6 +71,8 @@ export async function POST(request: NextRequest) {
     const autoShiftIfBusy = body.autoShiftIfBusy === true;
     // resolveChain: nový blok zůstane na cíli a server odsune navazující (chain push).
     const resolveChain = body.resolveChain === true;
+    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+    const cascadeConfirmed = body.cascadeConfirmed === true;
 
     let startTime = new Date(body.startTime);
     let endTime = new Date(body.endTime);
@@ -397,7 +400,10 @@ export async function POST(request: NextRequest) {
         shiftedMoves = await resolveChainPushFromDb(
           tx,
           body.machine,
-          { id: newBlock.id, startTime: newBlock.startTime, endTime: newBlock.endTime }
+          { id: newBlock.id, startTime: newBlock.startTime, endTime: newBlock.endTime },
+          new Set<number>(),
+          new Set<number>(),
+          { cascadeConfirmed, path: "POST /api/blocks" }
         );
         if (shiftedMoves.length > 0) {
           await tx.auditLog.createMany({
@@ -452,6 +458,9 @@ export async function POST(request: NextRequest) {
     };
     return NextResponse.json(responseBody, { status: 201 });
   } catch (error: unknown) {
+    if (isAppError(error) && error.code === "CASCADE_CONFIRM") {
+      return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
+    }
     if (isAppError(error)) {
       const status409 = error.code === "OVERLAP" || error.code === "AUTO_SHIFT_FAILED";
       return NextResponse.json(

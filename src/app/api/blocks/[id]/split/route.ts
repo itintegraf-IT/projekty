@@ -8,6 +8,7 @@ import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { loadMachineCalendar } from "@/lib/printTime.server";
 import { computeSplitPrintMinutes } from "@/lib/splitCompute";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
+import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
@@ -44,6 +45,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const splitAt = new Date(body.splitAt);
     if (isNaN(splitAt.getTime())) throw new AppError("VALIDATION_ERROR", "Neplatný čas rozdělení (splitAt).");
     const expectedUpdatedAt = (body as Record<string, unknown>).expectedUpdatedAt as string | undefined;
+    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+    const cascadeConfirmed = (body as Record<string, unknown>).cascadeConfirmed === true;
 
     // Transakci otevírá `withRevision` — zkrácená hlava dostane revizi `kind: "UPDATE"`,
     // nově vzniklý ocas `kind: "CREATE"` a chain pushem odsunutí sousedé `kind: "UPDATE"`,
@@ -175,11 +178,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       // 9. Chain push ocasu (jen ZAKAZKA; ne-ZAKAZKA se nepřekládá).
       let shiftedMoves: AppliedMove[] = [];
       if (block.type === "ZAKAZKA") {
-        shiftedMoves = await resolveChainPushFromDb(tx, block.machine, {
-          id: tailCreated.id,
-          startTime: tailCreated.startTime,
-          endTime: tailCreated.endTime,
-        });
+        shiftedMoves = await resolveChainPushFromDb(
+          tx, block.machine,
+          { id: tailCreated.id, startTime: tailCreated.startTime, endTime: tailCreated.endTime },
+          new Set<number>(), new Set<number>(),
+          { cascadeConfirmed, path: "split" }
+        );
         if (shiftedMoves.length > 0) {
           await tx.auditLog.createMany({
             data: shiftedMoves.map((m) => ({
@@ -231,6 +235,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       shifted: shiftedSer.map((b) => stripNotesIfDenied(b, canSeeNotes)),
     });
   } catch (error: unknown) {
+    if (isAppError(error) && error.code === "CASCADE_CONFIRM") {
+      return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
+    }
     if (isAppError(error)) return NextResponse.json({ error: error.message }, { status: errorStatus(error.code) });
     logger.error("[POST /api/blocks/[id]/split] neočekávaná chyba", error);
     return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });

@@ -5,11 +5,13 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { isAppError, errorStatus } from "@/lib/errors";
 import { serializeBlock } from "@/lib/blockSerialization";
-import { reflowMachineInTx } from "@/lib/reflow.server";
+import { reflowMachineInTx, reflowBlockInTx } from "@/lib/reflow.server";
+import { detectCalendarDrift } from "@/lib/calendarDrift.server";
 import { emitSSE } from "@/lib/eventBus";
 import { MACHINES } from "@/lib/machines";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { withRevision } from "@/lib/revision.server";
+import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 
 /**
  * Per-machine in-flight guard proti self-DoS: přepočet celého stroje otevírá 365denní okno
@@ -33,11 +35,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await request.json().catch(() => null)) as { machine?: string } | null;
+  const body = (await request.json().catch(() => null)) as { machine?: string; cascadeConfirmed?: boolean } | null;
   const machine = body?.machine;
   if (!machine || typeof machine !== "string" || !MACHINES.includes(machine as (typeof MACHINES)[number])) {
     return NextResponse.json({ error: `Neznámý stroj: ${machine ?? ""}` }, { status: 400 });
   }
+  // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+  const cascadeConfirmed = body?.cascadeConfirmed === true;
 
   // In-flight guard — když přepočet TOHOTO stroje už běží, odmítni místo souběhu (self-DoS).
   if (reflowInFlight.get(machine)) {
@@ -64,7 +68,12 @@ export async function POST(request: NextRequest) {
         user: { id: session.id, username: session.username },
         txOptions: { timeout: 30000, maxWait: 5000 },
       },
-      (tx) => reflowMachineInTx(tx, machine, { id: session.id, username: session.username }, new Date()),
+      (tx) =>
+        reflowMachineInTx(tx, machine, { id: session.id, username: session.username }, new Date(), {
+          reflowBlock: reflowBlockInTx,
+          detectDrift: detectCalendarDrift,
+          cascadeConfirmed,
+        }),
     );
 
     // Všechna dotčená id: reflownuté bloky + id bloků odsunutých jejich chain pushem
@@ -108,6 +117,9 @@ export async function POST(request: NextRequest) {
       before: result.before,
     });
   } catch (error: unknown) {
+    if (isAppError(error) && error.code === "CASCADE_CONFIRM") {
+      return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
+    }
     if (isAppError(error)) {
       logger.warn(`[POST /api/blocks/reflow] přepočet zastaven`, { machine, code: error.code, message: error.message });
       return NextResponse.json(

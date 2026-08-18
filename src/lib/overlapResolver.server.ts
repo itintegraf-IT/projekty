@@ -7,6 +7,8 @@ import { pragueOf } from "@/lib/dateUtils";
 import { expandPrintTime, MAX_SPAN_DAYS, type CompanyDayInterval } from "@/lib/printTime";
 import { blockOverlapsBlockedTimeWithTemplates } from "@/lib/workingTime";
 import { AppError } from "@/lib/errors";
+import { measureCascade } from "@/lib/cascadeLimit";
+import { assertCascadeConfirmed } from "@/lib/cascadeLimit.server";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -94,7 +96,13 @@ export async function resolveChainPushFromDb(
    * bloky až za ně — jinak by na sourozence dosedly a finální pojistka by
    * celou dávku odmítla 409.
    */
-  frozenIds: ReadonlySet<number> = new Set()
+  frozenIds: ReadonlySet<number> = new Set(),
+  /**
+   * `cascadeConfirmed` — uživatel velkou kaskádu odklepl v dialogu; kontrola se
+   * přeskočí. `path` jde jen do logu, aby se z týdne měření dalo poznat, KTERÁ
+   * cesta se ptá nejčastěji.
+   */
+  opts: { cascadeConfirmed?: boolean; path?: string } = {}
 ): Promise<AppliedMove[]> {
   // Okno bloků: den před anchorem až 90 dní za jeho koncem (chain push posouvá jen dopředu).
   const windowStart = new Date(anchor.startTime.getTime() - DAY_MS);
@@ -206,6 +214,19 @@ export async function resolveChainPushFromDb(
     );
   }
   if (result.moves.length === 0) return [];
+
+  // Strop kaskády — měří se na SPOČÍTANÝCH posunech, ještě než se cokoliv zapíše.
+  // Výjimka odroluje celou transakci, takže se do DB nedostane ani jeden update.
+  assertCascadeConfirmed(
+    measureCascade(
+      result.moves.map((m) => ({
+        startTime: m.startTime,
+        endTime: m.endTime,
+        oldStartTime: rowById.get(m.id)!.startTime,
+      })),
+    ),
+    { confirmed: opts.cascadeConfirmed === true, path: opts.path ?? "chain-push" },
+  );
 
   // Nezávislá pojistka (spec 3.6): každý posunutý blok musí mít end == expandPrintTime(...).
   // computeChainPush to garantuje konstrukcí; tohle chytá případný drift obou implementací.

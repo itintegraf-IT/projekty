@@ -11,6 +11,8 @@ import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.
 import { detectCalendarDrift } from "@/lib/calendarDrift.server";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { moveToBefore, mergeBefore, type ReflowBeforeSnapshot } from "@/lib/reflowBefore.server";
+import { measureCascade } from "@/lib/cascadeLimit";
+import { assertCascadeConfirmed } from "@/lib/cascadeLimit.server";
 
 /** Strukturální podmnožina tx potřebná pro reflow — findUnique/update na Block + auditLog.create. */
 export type TxLike = PrismaTransactionClient;
@@ -56,6 +58,13 @@ export type ReflowDeps = {
    * si kalendář načte sám (per-blok, jako dřív).
    */
   preloadedCalendar?: MachineCalendar;
+  /**
+   * `cascadeConfirmed` — uživatel velkou kaskádu odklepl v dialogu. Je to
+   * request-scoped údaj (přišel z těla HTTP requestu), ne injektovaný
+   * spolupracovník jako zbytek `deps` — sedí v tomhle bagu z praktických
+   * důvodů (protéká až k `resolveChainPush`), ne z principu.
+   */
+  cascadeConfirmed?: boolean;
 };
 
 const defaultDeps: ReflowDeps = { resolveChainPush: resolveChainPushFromDb };
@@ -180,7 +189,11 @@ export async function reflowBlockInTx(
 
   // Chain push navazujících bloků — kolize se zamčeným/vytištěným následníkem hází
   // AppError, záměrně NECHYTÁNO zde: bublá do route, transakce se odvolá.
-  const moves = await deps.resolveChainPush(tx, block.machine, { id: blockId, startTime: newStart, endTime: newEnd });
+  const moves = await deps.resolveChainPush(
+    tx, block.machine, { id: blockId, startTime: newStart, endTime: newEnd },
+    new Set<number>(), new Set<number>(),
+    { cascadeConfirmed: deps.cascadeConfirmed === true, path: "reflow-block" },
+  );
 
   // Finální tvrdá pojistka — reflow (re-expanze + chain push) nesmí skončit překryvem.
   // Parita s POST/PUT/batch/split; jediná záruka souběhu v této transakci.
@@ -244,6 +257,14 @@ export type MachineReflowResult = {
 export type ReflowMachineDeps = {
   reflowBlock: typeof reflowBlockInTx;
   detectDrift: typeof detectCalendarDrift;
+  /**
+   * `cascadeConfirmed` — uživatel velkou kaskádu odklepl v dialogu. Je to
+   * request-scoped údaj (přišel z těla HTTP requestu), ne injektovaný
+   * spolupracovník jako zbytek `deps` — sedí v tomhle bagu z praktických
+   * důvodů (protéká do každého `reflowBlock` volání i do součtu za celý
+   * běh), ne z principu.
+   */
+  cascadeConfirmed?: boolean;
 };
 
 const defaultReflowMachineDeps: ReflowMachineDeps = {
@@ -314,9 +335,15 @@ export async function reflowMachineInTx(
   const skipped: MachineReflowResult["skipped"] = [];
   const movedIdSet = new Set<number>();
   const beforeById = new Map<number, ReflowBeforeSnapshot>();
+  const cascadeConfirmed = deps.cascadeConfirmed === true;
+  const allMoves: AppliedMove[] = [];
 
   for (const block of drifted) {
-    const outcome = await deps.reflowBlock(tx, block.id, actor, { resolveChainPush: resolveChainPushFromDb, preloadedCalendar });
+    const outcome = await deps.reflowBlock(tx, block.id, actor, {
+      resolveChainPush: resolveChainPushFromDb,
+      preloadedCalendar,
+      cascadeConfirmed,
+    });
     if (!outcome.ok) {
       skipped.push({ id: block.id, orderNumber: block.orderNumber, reason: outcome.code });
       continue;
@@ -324,8 +351,15 @@ export async function reflowMachineInTx(
     if (!outcome.changed) continue;
     reflowed.push({ id: block.id, orderNumber: block.orderNumber });
     for (const move of outcome.moves) movedIdSet.add(move.id);
+    allMoves.push(...outcome.moves);
     mergeBefore(beforeById, outcome.before);
   }
+
+  // Součet přes celý běh: každý blok si chain push kontroluje sám, ale hromadný
+  // přepočet jich spustí desítky — a uživatele zajímá dopad CELÉHO tlačítka.
+  assertCascadeConfirmed(measureCascade(allMoves), {
+    confirmed: cascadeConfirmed, path: "reflow-machine",
+  });
 
   return { reflowed, skipped, movedIds: [...movedIdSet], before: [...beforeById.values()] };
 }
