@@ -83,6 +83,7 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
       changed: outcome.changed,
       block: stripNotesIfDenied(serializedBlock, canSeeNotes),
       moves: serializedMoves.map((b) => stripNotesIfDenied(b, canSeeNotes)),
+      before: outcome.before,
     });
   } catch (error: unknown) {
     if (isAppError(error)) {

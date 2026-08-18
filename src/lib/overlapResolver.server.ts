@@ -10,11 +10,21 @@ import { AppError } from "@/lib/errors";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Provedený posun bloku — `ChainMove` + původní časy a číslo zakázky (pro audit). */
+/**
+ * Provedený posun bloku — `ChainMove` + původní časy a číslo zakázky (pro audit).
+ *
+ * `old*` pole nesou KOMPLETNÍ poziční snapshot před posunem, ne jen časy: krok
+ * historie (Ctrl+Z) potřebuje `BlockSnapshot`, který má `machine`, `updatedAt`,
+ * `printMinutes` i `scheduleBypassed` POVINNÉ. Stroj se sem nedává, protože chain
+ * push je z definice per-stroj — doplní ho `moveToBefore` z parametru.
+ */
 export type AppliedMove = ChainMove & {
   orderNumber: string | null;
   oldStartTime: Date;
   oldEndTime: Date;
+  oldUpdatedAt: Date;
+  oldPrintMinutes: number | null;
+  oldScheduleBypassed: boolean;
 };
 
 /** Řádek bloku, ze kterého se odvozuje geometrie posunu. */
@@ -113,6 +123,7 @@ export async function resolveChainPushFromDb(
         orderNumber: true,
         startTime: true,
         endTime: true,
+        updatedAt: true,
         locked: true,
         printCompletedAt: true,
         printMinutes: true,
@@ -249,6 +260,9 @@ export async function resolveChainPushFromDb(
       orderNumber: r.orderNumber,
       oldStartTime: r.startTime,
       oldEndTime: r.endTime,
+      oldUpdatedAt: r.updatedAt,
+      oldPrintMinutes: r.printMinutes,
+      oldScheduleBypassed: r.scheduleBypassed,
     });
   }
   return applied;

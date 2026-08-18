@@ -11,6 +11,7 @@ type Row = {
   orderNumber: string | null;
   startTime: Date;
   endTime: Date;
+  updatedAt: Date;
   locked: boolean;
   printCompletedAt: Date | null;
   printMinutes: number | null;
@@ -23,6 +24,7 @@ const row = (id: number, start: number, end: number, opts: Partial<Row> = {}): R
   orderNumber: opts.orderNumber ?? String(17000 + id),
   startTime: H(start),
   endTime: H(end),
+  updatedAt: opts.updatedAt ?? new Date("2026-06-16T09:00:00.000Z"),
   locked: opts.locked ?? false,
   printCompletedAt: opts.printCompletedAt ?? null,
   printMinutes: opts.printMinutes ?? (end - start) * 60,
@@ -184,6 +186,7 @@ describe("resolveChainPushFromDb", () => {
     const end = new Date("2026-06-16T11:45:00.000Z");
     const r: Row = {
       id: 24, orderNumber: "REZ-45", startTime: start, endTime: end,
+      updatedAt: new Date("2026-06-16T09:00:00.000Z"),
       locked: false, printCompletedAt: null, printMinutes: null,
       scheduleBypassed: false, type: "REZERVACE",
     };
@@ -234,6 +237,7 @@ describe("resolveChainPushFromDb", () => {
     const sobotaKonec = new Date("2026-08-22T12:00:00.000Z");
     const r: Row = {
       id: 27, orderNumber: "REZ-SO", startTime: sobota, endTime: sobotaKonec,
+      updatedAt: new Date("2026-06-16T09:00:00.000Z"),
       locked: false, printCompletedAt: null, printMinutes: null,
       scheduleBypassed: false, type: "REZERVACE",
     };

@@ -10,6 +10,7 @@ import {
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { detectCalendarDrift } from "@/lib/calendarDrift.server";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import { moveToBefore, mergeBefore, type ReflowBeforeSnapshot } from "@/lib/reflowBefore.server";
 
 /** Strukturální podmnožina tx potřebná pro reflow — findUnique/update na Block + auditLog.create. */
 export type TxLike = PrismaTransactionClient;
@@ -23,7 +24,18 @@ export const REFLOW_MAX_START_SHIFT_DAYS = 7;
 export const MACHINE_REFLOW_WINDOW_DAYS = 365;
 
 export type ReflowOutcome =
-  | { ok: true; changed: boolean; startTime: Date; endTime: Date; moves: AppliedMove[] }
+  | {
+      ok: true;
+      changed: boolean;
+      startTime: Date;
+      endTime: Date;
+      moves: AppliedMove[];
+      /**
+       * Poziční stav VŠECH dotčených bloků před přepočtem — přepočítaný blok sám
+       * i každý, který odsunul jeho chain push. Prázdné, když se nic nezměnilo.
+       */
+      before: ReflowBeforeSnapshot[];
+    }
   | {
       ok: false;
       code: "NOT_FOUND" | "NOT_ZAKAZKA" | "LOCKED" | "PRINTED" | "NO_PM" | "UNALIGNED" | "NO_SLOT" | "HORIZON";
@@ -98,6 +110,18 @@ export async function reflowBlockInTx(
   const oldEnd = block.endTime;
   const pm = block.printMinutes;
 
+  // Snapshot samotného přepočítávaného bloku — bere se PŘED update, protože
+  // `scheduleBypassed` se u něj může zrušit a Ctrl+Z ho musí vrátit i s příznakem.
+  const selfBefore: ReflowBeforeSnapshot = {
+    id: blockId,
+    startTime: oldStart.toISOString(),
+    endTime: oldEnd.toISOString(),
+    machine: block.machine,
+    updatedAt: block.updatedAt.toISOString(),
+    printMinutes: block.printMinutes,
+    scheduleBypassed: block.scheduleBypassed,
+  };
+
   // Kalendář pro celé okno, které reflow může potřebovat: až REFLOW_MAX_START_SHIFT_DAYS
   // dní hledání runnable startu + worst-case MAX_SPAN_DAYS expanze za ním. Když volající
   // (typicky reflowMachineInTx) předal preloadedCalendar, použije se ten místo per-blok
@@ -136,7 +160,7 @@ export async function reflowBlockInTx(
   const moved = newStart.getTime() !== oldStart.getTime() || newEnd.getTime() !== oldEnd.getTime();
   const clearsFlag = block.scheduleBypassed === true;
   if (!moved && !clearsFlag) {
-    return { ok: true, changed: false, startTime: oldStart, endTime: oldEnd, moves: [] };
+    return { ok: true, changed: false, startTime: oldStart, endTime: oldEnd, moves: [], before: [] };
   }
 
   await tx.block.update({
@@ -151,7 +175,7 @@ export async function reflowBlockInTx(
   // do auditu jako přesun — samotné zrušení značky zaznamená revize bloku (černá
   // skříňka), která na `scheduleBypassed` má vlastní českou větu.
   if (!moved) {
-    return { ok: true, changed: true, startTime: oldStart, endTime: oldEnd, moves: [] };
+    return { ok: true, changed: true, startTime: oldStart, endTime: oldEnd, moves: [], before: [selfBefore] };
   }
 
   // Chain push navazujících bloků — kolize se zamčeným/vytištěným následníkem hází
@@ -193,7 +217,14 @@ export async function reflowBlockInTx(
     },
   });
 
-  return { ok: true, changed: true, startTime: newStart, endTime: newEnd, moves };
+  return {
+    ok: true,
+    changed: true,
+    startTime: newStart,
+    endTime: newEnd,
+    moves,
+    before: [selfBefore, ...moves.map((m) => moveToBefore(block.machine, m))],
+  };
 }
 
 export type MachineReflowResult = {
@@ -202,6 +233,12 @@ export type MachineReflowResult = {
   /** Unikátní id VŠECH bloků odsunutých chain pushem během tohoto běhu (bez reflownutých
    * samotných) — route je potřebuje pro jeden souhrnný refetch + SSE payload. */
   movedIds: number[];
+  /**
+   * Poziční stav VŠECH dotčených bloků na ZAČÁTKU přepočtu stroje. Slučuje se
+   * přes `mergeBefore` (první výskyt vyhrává) — jeden blok může být během běhu
+   * dotčen víckrát a krok historie musí vrátit výchozí stav, ne mezistav.
+   */
+  before: ReflowBeforeSnapshot[];
 };
 
 export type ReflowMachineDeps = {
@@ -276,6 +313,7 @@ export async function reflowMachineInTx(
   const reflowed: MachineReflowResult["reflowed"] = [];
   const skipped: MachineReflowResult["skipped"] = [];
   const movedIdSet = new Set<number>();
+  const beforeById = new Map<number, ReflowBeforeSnapshot>();
 
   for (const block of drifted) {
     const outcome = await deps.reflowBlock(tx, block.id, actor, { resolveChainPush: resolveChainPushFromDb, preloadedCalendar });
@@ -286,7 +324,8 @@ export async function reflowMachineInTx(
     if (!outcome.changed) continue;
     reflowed.push({ id: block.id, orderNumber: block.orderNumber });
     for (const move of outcome.moves) movedIdSet.add(move.id);
+    mergeBefore(beforeById, outcome.before);
   }
 
-  return { reflowed, skipped, movedIds: [...movedIdSet] };
+  return { reflowed, skipped, movedIds: [...movedIdSet], before: [...beforeById.values()] };
 }

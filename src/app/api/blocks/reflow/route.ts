@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     const allIds = [...new Set([...reflowedIds, ...result.movedIds])];
 
     if (allIds.length === 0) {
-      return NextResponse.json({ reflowed: result.reflowed, skipped: result.skipped, movedCount: 0, blocks: [] });
+      return NextResponse.json({ reflowed: result.reflowed, skipped: result.skipped, movedCount: 0, blocks: [], before: [] });
     }
 
     const blocks = await prisma.block.findMany({
@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
       skipped: result.skipped,
       movedCount: result.movedIds.length,
       blocks: serializedBlocks.map((b) => stripNotesIfDenied(b, canSeeNotes)),
+      before: result.before,
     });
   } catch (error: unknown) {
     if (isAppError(error)) {

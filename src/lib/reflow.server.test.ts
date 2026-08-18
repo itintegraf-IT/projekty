@@ -21,6 +21,7 @@ type BlockRow = {
   type: string;
   startTime: Date;
   endTime: Date;
+  updatedAt: Date;
   printMinutes: number | null;
   scheduleBypassed: boolean;
   locked: boolean;
@@ -35,6 +36,7 @@ function mkBlock(overrides: Partial<BlockRow> = {}): BlockRow {
     type: "ZAKAZKA",
     startTime: H(10),
     endTime: H(12),
+    updatedAt: new Date("2026-06-16T09:00:00.000Z"),
     printMinutes: 120,
     scheduleBypassed: false,
     locked: false,
@@ -130,8 +132,16 @@ describe("reflowBlockInTx", () => {
     const newStart2 = new Date("2026-06-18T09:00:00.000Z");
     const newEnd2 = new Date("2026-06-18T11:00:00.000Z");
     const moves: AppliedMove[] = [
-      { id: 101, orderNumber: "MOVE-101", startTime: newStart1, endTime: newEnd1, oldStartTime: oldStart1, oldEndTime: oldEnd1 },
-      { id: 102, orderNumber: "MOVE-102", startTime: newStart2, endTime: newEnd2, oldStartTime: oldStart2, oldEndTime: oldEnd2 },
+      {
+        id: 101, orderNumber: "MOVE-101", startTime: newStart1, endTime: newEnd1,
+        oldStartTime: oldStart1, oldEndTime: oldEnd1,
+        oldUpdatedAt: new Date("2026-06-16T09:00:00.000Z"), oldPrintMinutes: 120, oldScheduleBypassed: false,
+      },
+      {
+        id: 102, orderNumber: "MOVE-102", startTime: newStart2, endTime: newEnd2,
+        oldStartTime: oldStart2, oldEndTime: oldEnd2,
+        oldUpdatedAt: new Date("2026-06-16T09:00:00.000Z"), oldPrintMinutes: 120, oldScheduleBypassed: false,
+      },
     ];
     const deps = mkDeps(moves);
 
@@ -466,6 +476,9 @@ describe("reflowMachineInTx", () => {
       orderNumber: `MOVE-${id}`,
       oldStartTime: H(18),
       oldEndTime: H(20),
+      oldUpdatedAt: new Date("2026-06-16T09:00:00.000Z"),
+      oldPrintMinutes: 120,
+      oldScheduleBypassed: false,
     };
   }
 
@@ -480,7 +493,7 @@ describe("reflowMachineInTx", () => {
     const callOrder: number[] = [];
     const reflowBlock = mock.fn(async (_tx: unknown, blockId: number): Promise<ReflowOutcome> => {
       callOrder.push(blockId);
-      return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [] };
+      return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [], before: [] };
     });
 
     const now = H(0);
@@ -531,7 +544,7 @@ describe("reflowMachineInTx", () => {
       if (blockId === 2) {
         return { ok: false, code: "LOCKED", message: "Zamčený blok nelze přepočítat — nejdřív ho odemkni." };
       }
-      return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [] };
+      return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [], before: [] };
     });
 
     const result = await reflowMachineInTx(fakeTx, "XL_105", actor, H(0), { reflowBlock, detectDrift });
@@ -565,10 +578,10 @@ describe("reflowMachineInTx", () => {
 
     const reflowBlock = mock.fn(async (_tx: unknown, blockId: number): Promise<ReflowOutcome> => {
       if (blockId === 1) {
-        return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [mkMove(2)] };
+        return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [mkMove(2)], before: [] };
       }
       // Blok 2 byl posunut chain pushem bloku 1 a mezitím na kalendář sedí.
-      return { ok: true, changed: false, startTime: H(20), endTime: H(22), moves: [] };
+      return { ok: true, changed: false, startTime: H(20), endTime: H(22), moves: [], before: [] };
     });
 
     const result = await reflowMachineInTx(fakeTx, "XL_105", actor, H(0), { reflowBlock, detectDrift });
@@ -610,7 +623,7 @@ describe("reflowMachineInTx", () => {
     const reflowBlock = mock.fn(
       async (_tx: unknown, _blockId: number, _actor: unknown, deps?: { preloadedCalendar?: unknown }): Promise<ReflowOutcome> => {
         receivedCalendars.push(deps?.preloadedCalendar);
-        return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [] };
+        return { ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [], before: [] };
       }
     );
 
@@ -638,7 +651,7 @@ describe("reflowMachineInTx", () => {
     const oldStart = new Date(now.getTime() - 5 * DAY_MS); // start 5 dní před now
     const runningDrift = mkDrift(1, oldStart);
     const detectDrift = mock.fn(async () => [runningDrift]);
-    const reflowBlock = mock.fn(async (): Promise<ReflowOutcome> => ({ ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [] }));
+    const reflowBlock = mock.fn(async (): Promise<ReflowOutcome> => ({ ok: true, changed: true, startTime: H(10), endTime: H(12), moves: [], before: [] }));
 
     await reflowMachineInTx(tx, "XL_105", actor, now, { reflowBlock, detectDrift });
 
