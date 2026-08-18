@@ -21,7 +21,8 @@ import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { serializeProductionTags } from "@/lib/productionTags";
 import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
-import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand } from "@/lib/undo/commands";
+import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand, buildReflowCommand } from "@/lib/undo/commands";
+import { UNDO_MAX_OPS } from "@/lib/undo/limits";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
 import { buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets, mergeAnchorPositionIfChanged, pickShiftedSplitSiblings } from "@/lib/undo/splitSiblingFields";
 import { accumulateShifted, excludeShiftedTargeted, type ShiftedSnapshots } from "@/lib/undo/shiftedBatch";
@@ -2084,6 +2085,48 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // emituje SSE block:batch-updated, ale NEDORUČUJE ho původci (záměrný vzor,
   // src/app/api/events/route.ts) — proto tady navíc lokálně aplikujeme bloky z response
   // přes applyServerBlocks, jinak by se mutujícímu uživateli obrazovka nikdy nedorovnala.
+
+  /**
+   * Krok historie po přepočtu. `before` přišlo ze serveru (nese i bloky, které
+   * klient nemá načtené), `after` se poskládá ze serializovaných bloků v odpovědi.
+   *
+   * Když dávka přeroste `UNDO_MAX_OPS`, krok se ZÁMĚRNĚ nezaznamená a uživateli
+   * se to řekne — endpoint undo by ji stejně odmítl 400 a mlčky zaznamenaný krok
+   * by v historii jen svítil jako past. Takovou dávku vrací „Vrátit tuto změnu"
+   * v historii bloku (etapa D).
+   */
+  function recordReflowUndo(
+    label: string,
+    before: BlockSnapshot[] | undefined,
+    resultBlocks: Block[],
+  ): void {
+    if (!Array.isArray(before) || before.length === 0) return;
+    if (before.length > UNDO_MAX_OPS) {
+      showToast(
+        `Přepočet zasáhl ${before.length} bloků — na Ctrl+Z je to moc. Vrátit ho jde v historii bloku.`,
+        "info",
+      );
+      return;
+    }
+    const byId = new Map(resultBlocks.filter((b) => b && typeof b.id === "number").map((b) => [b.id, b]));
+    const after: BlockSnapshot[] = [];
+    const kept: BlockSnapshot[] = [];
+    for (const s of before) {
+      const b = byId.get(s.id);
+      // Blok, který server v odpovědi nevrátil, nemá „po" stav — vynechává se
+      // z OBOU stran, jinak by redo zapisoval do prázdna.
+      if (!b) continue;
+      kept.push(s);
+      after.push({
+        id: b.id, startTime: b.startTime as string, endTime: b.endTime as string,
+        machine: b.machine, updatedAt: b.updatedAt,
+        printMinutes: b.printMinutes ?? null, scheduleBypassed: b.scheduleBypassed ?? false,
+      });
+    }
+    if (kept.length === 0) return;
+    recordUndo(buildReflowCommand(label, kept, after));
+  }
+
   async function handleReflowMachine(machine: string) {
     try {
       const res = await fetch("/api/blocks/reflow", {
@@ -2097,6 +2140,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return;
       }
       if (Array.isArray(data.blocks) && data.blocks.length) applyServerBlocks(data.blocks);
+      recordReflowUndo("Přepočet stroje", data.before, Array.isArray(data.blocks) ? data.blocks : []);
       const reflowedCount = Array.isArray(data.reflowed) ? data.reflowed.length : 0;
       const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : 0;
       showToast(
@@ -2131,6 +2175,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const timesMoved =
         !before || before.startTime !== data.block?.startTime || before.endTime !== data.block?.endTime;
       applyServerBlocks([data.block, ...(data.moves ?? [])]);
+      recordReflowUndo("Přepočet bloku", data.before, [data.block, ...(data.moves ?? [])]);
       showToast(
         reflowBlockToast({
           changed: data.changed === true,
