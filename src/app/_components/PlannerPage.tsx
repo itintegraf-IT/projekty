@@ -68,6 +68,7 @@ import {
   plannerTypeScale,
   type PlannerFontScale,
 } from "@/lib/plannerTypography";
+import { reflowMachineToast, reflowBlockToast } from "@/lib/reflowToastText";
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
@@ -2099,8 +2100,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const reflowedCount = Array.isArray(data.reflowed) ? data.reflowed.length : 0;
       const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : 0;
       showToast(
-        `Přepočteno ${reflowedCount} bloků${skippedCount > 0 ? `, přeskočeno ${skippedCount} (zamčené/nevejde se)` : ""}`,
-        "success"
+        reflowMachineToast({
+          reflowedCount,
+          skippedCount,
+          movedCount: typeof data.movedCount === "number" ? data.movedCount : 0,
+        }),
+        "success",
       );
     } catch (error) {
       console.error("Reflow machine failed", error);
@@ -2127,12 +2132,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         !before || before.startTime !== data.block?.startTime || before.endTime !== data.block?.endTime;
       applyServerBlocks([data.block, ...(data.moves ?? [])]);
       showToast(
-        !data.changed
-          ? "Blok už na kalendář sedí."
-          : timesMoved
-            ? "Blok přepočítán podle aktuálního kalendáře."
-            : "Značka „odložené mimo pracovní dobu“ zrušena — plán se nepohnul.",
-        "success"
+        reflowBlockToast({
+          changed: data.changed === true,
+          timesMoved,
+          movedCount: Array.isArray(data.moves) ? data.moves.length : 0,
+        }),
+        "success",
       );
     } catch (error) {
       console.error("Reflow block failed", error);
