@@ -47,6 +47,7 @@ test("errorStatus: kanonická mapa kódů na HTTP statusy (audit #80)", () => {
     CONFLICT: 409,
     OVERLAP: 409,
     AUTO_SHIFT_FAILED: 409,
+    CASCADE_CONFIRM: 409,
     SCHEDULE_VIOLATION: 422,
     MEASUREMENT_FAILED: 500,
   };

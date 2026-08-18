@@ -12,7 +12,14 @@ export type AppErrorCode =
   // (`detectCalendarDrift`) uvnitř transakce PUT /api/machine-week-shifts selhalo
   // dřív, než se cokoliv zapsalo — odlišuje se od obecné 500, aby v logu i pro
   // uživatele bylo poznat, že selhalo MĚŘENÍ dopadu na kalendář, ne zápis směn.
-  | "MEASUREMENT_FAILED";
+  | "MEASUREMENT_FAILED"
+  /**
+   * Chain push by odsunul víc bloků nebo dál, než je práh (`cascadeLimit.ts`).
+   * Transakce se odroluje a klient dostane 409 s čísly; po potvrzení pošle
+   * požadavek znovu s `cascadeConfirmed: true`. Týž vzor jako
+   * `SHIFT_SHRINK_CASCADE` u editace směn (17. 8. 2026).
+   */
+  | "CASCADE_CONFIRM";
 
 export class AppError extends Error {
   constructor(
@@ -53,6 +60,7 @@ export function errorStatus(code: AppErrorCode): number {
     case "CONFLICT":
     case "OVERLAP":
     case "AUTO_SHIFT_FAILED":
+    case "CASCADE_CONFIRM":
       return 409;
     case "SCHEDULE_VIOLATION":
       return 422;
