@@ -33,17 +33,41 @@ export type CascadeImpact = {
   exceeded: boolean;
 };
 
+/**
+ * Dedup podle `id` je NUTNÝ, ne kosmetický — souhrny přes víc voláni
+ * `resolveChainPushFromDb` (batch s deseti kotvami, hromadný reflow stroje)
+ * vidí TÝŽ blok víckrát: kotva A posune blok X, kotva B (nebo pozdější
+ * reflow jiného bloku) ho potká znovu a odsune dál. Bez dedupu by `movedCount`
+ * počítal X dvakrát a `maxShiftMs` by se měřil po skocích proti mezipoloze
+ * (3 dny + 4 dny zvlášť), nikdy jako kumulativních 7 dní — právě ten
+ * nejnebezpečnější případ by tak mohl proklouznout pod `MAX_RIGID_PUSH_MS`.
+ * Uvnitř JEDNOHO volání `resolveChainPushFromDb` je `id` vždycky unikátní,
+ * takže je dedup tam no-op; existuje kvůli součtům u volajících.
+ */
 export function measureCascade(
-  moves: ReadonlyArray<{ startTime: Date; endTime: Date; oldStartTime: Date }>,
+  moves: ReadonlyArray<{ id: number; startTime: Date; endTime: Date; oldStartTime: Date }>,
 ): CascadeImpact {
+  // Sloučit podle id: oldStartTime z PRVNÍHO výskytu (výchozí pozice před celým
+  // během), startTime/endTime z POSLEDNÍHO (finální pozice po celém běhu) —
+  // stejný vzor „první výskyt vyhrává" jako `mergeBefore` (reflowBefore.server.ts).
+  const byId = new Map<number, { startTime: Date; endTime: Date; oldStartTime: Date }>();
+  for (const m of moves) {
+    const existing = byId.get(m.id);
+    byId.set(m.id, {
+      oldStartTime: existing ? existing.oldStartTime : m.oldStartTime,
+      startTime: m.startTime,
+      endTime: m.endTime,
+    });
+  }
+
   let maxShiftMs = 0;
   let farthestEnd: Date | null = null;
-  for (const m of moves) {
+  for (const m of byId.values()) {
     const shift = m.startTime.getTime() - m.oldStartTime.getTime();
     if (shift > maxShiftMs) maxShiftMs = shift;
     if (farthestEnd === null || m.endTime.getTime() > farthestEnd.getTime()) farthestEnd = m.endTime;
   }
-  const movedCount = moves.length;
+  const movedCount = byId.size;
   return {
     movedCount,
     maxShiftMs,

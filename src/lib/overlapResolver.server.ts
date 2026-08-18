@@ -220,6 +220,7 @@ export async function resolveChainPushFromDb(
   assertCascadeConfirmed(
     measureCascade(
       result.moves.map((m) => ({
+        id: m.id,
         startTime: m.startTime,
         endTime: m.endTime,
         oldStartTime: rowById.get(m.id)!.startTime,

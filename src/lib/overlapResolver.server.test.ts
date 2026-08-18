@@ -289,7 +289,7 @@ describe("resolveChainPushFromDb — práh kaskády (režim měření)", () => {
     const { tx } = mkTx([row(10, 12, 13), row(11, 13, 14)]);
     const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) });
     const impact = measureCascade(
-      moves.map((m) => ({ startTime: m.startTime, endTime: m.endTime, oldStartTime: m.oldStartTime })),
+      moves.map((m) => ({ id: m.id, startTime: m.startTime, endTime: m.endTime, oldStartTime: m.oldStartTime })),
     );
     assert.equal(impact.movedCount, moves.length);
     assert.ok(impact.maxShiftMs > 0);
