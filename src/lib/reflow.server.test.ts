@@ -151,6 +151,22 @@ describe("reflowBlockInTx", () => {
     if (!result.ok) return;
     assert.deepEqual(result.moves, moves);
 
+    // `before` = 1 (přepočítávaný blok sám) + počet posunutých chain pushem. První prvek
+    // je VŽDY přepočítávaný blok a nese jeho stav PŘED přepočtem (uložený H(10)–H(13)),
+    // ne po něm (H(10)–H(12)) — jinak by Ctrl+Z vrátil mezistav místo výchozího.
+    assert.equal(result.before.length, 1 + moves.length);
+    assert.equal(result.before[0]!.id, 1);
+    assert.equal(result.before[0]!.startTime, H(10).toISOString());
+    assert.equal(result.before[0]!.endTime, H(13).toISOString());
+    assert.equal(result.before[0]!.machine, "XL_105");
+    assert.equal(result.before[0]!.scheduleBypassed, false);
+    assert.equal(result.before[1]!.id, 101);
+    assert.equal(result.before[1]!.startTime, oldStart1.toISOString());
+    assert.equal(result.before[1]!.endTime, oldEnd1.toISOString());
+    assert.equal(result.before[2]!.id, 102);
+    assert.equal(result.before[2]!.startTime, oldStart2.toISOString());
+    assert.equal(result.before[2]!.endTime, oldEnd2.toISOString());
+
     assert.equal(auditCreateMock.mock.calls.length, 1); // AUTO_REFLOW pro reflownutý blok samotný
 
     assert.equal(auditCreateManyMock.mock.calls.length, 1);
@@ -202,6 +218,7 @@ describe("reflowBlockInTx", () => {
     assert.deepEqual(result.startTime, H(10));
     assert.deepEqual(result.endTime, H(12));
     assert.deepEqual(result.moves, []);
+    assert.deepEqual(result.before, [], "nic se nedělo → žádný poziční snapshot");
 
     assert.equal(updateMock.mock.calls.length, 0);
     assert.equal(auditCreateMock.mock.calls.length, 0);
@@ -344,6 +361,17 @@ describe("reflowBlockInTx", () => {
     assert.equal(result.changed, true, "změna nastala — jen ne v časech");
     assert.deepEqual(result.startTime, H(10));
     assert.deepEqual(result.endTime, H(12));
+
+    // Nejdůležitější asercie tasku C1 (dodatek po recenzi): `before` musí nést stav
+    // PŘED zrušením značky — kdyby se selfBefore počítalo AŽ po update, nebo kdyby
+    // se tahle větev vrátila s `before: []`, Ctrl+Z by neuměl vrátit scheduleBypassed.
+    assert.equal(result.before.length, 1);
+    assert.equal(result.before[0]!.id, 1);
+    assert.equal(result.before[0]!.scheduleBypassed, true, "before nese stav PŘED zrušením značky");
+    assert.equal(result.before[0]!.startTime, H(10).toISOString());
+    assert.equal(result.before[0]!.endTime, H(12).toISOString());
+    assert.equal(result.before[0]!.machine, "XL_105");
+    assert.equal(result.before[0]!.printMinutes, 120);
 
     assert.equal(updateMock.mock.calls.length, 1);
     const data = (updateMock.mock.calls[0]!.arguments[0] as { data: Partial<BlockRow> }).data;
