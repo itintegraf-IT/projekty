@@ -81,8 +81,10 @@ než je zapíše (`overlapResolver.server.ts:240-254`). Tam se vloží kontrola:
 
 ```
 movedCount = result.moves.length
-farthest   = max(move.endTime) − původní endTime téhož bloku
-if (!confirmed && (movedCount > CASCADE_CONFIRM_MAX_BLOCKS || farthest > MAX_RIGID_PUSH_MS))
+// NEJVĚTŠÍ posun JEDNOHO bloku, ne rozpětí celé dávky — jinak by dlouhá,
+// ale drobná kaskáda vyšla stejně jako jeden blok odsunutý o měsíc.
+maxShiftMs = max over moves of (move.startTime − move.oldStartTime)
+if (!confirmed && (movedCount > CASCADE_CONFIRM_MAX_BLOCKS || maxShiftMs > MAX_RIGID_PUSH_MS))
     throw new AppError("CASCADE_CONFIRM", …)   // → rollback celé transakce
 ```
 
@@ -90,6 +92,9 @@ if (!confirmed && (movedCount > CASCADE_CONFIRM_MAX_BLOCKS || farthest > MAX_RIG
   `MAX_RIGID_PUSH_MS` (7 dní) — nezavádí se nové číslo.
 - Parametr `confirmed` se protáhne všemi **pěti** volajícími místy: `POST /api/blocks`,
   `PUT /api/blocks/[id]`, `batch`, `split`, `reflow` (obě vstupní cesty).
+- Nový kód `CASCADE_CONFIRM` musí přibýt do `AppErrorCode` i do kanonické mapy
+  `errorStatus` (`src/lib/errors.ts`) s HTTP **409** — `errorStatus` je `Record` nad
+  unionem, takže bez toho neprojde build.
 - Klient při 409 `CASCADE_CONFIRM` ukáže dotaz *„Tato změna odsune 20 navazujících bloků,
   nejdál do 21. 8. Potvrdit?"* a požadavek zopakuje s příznakem.
 
