@@ -46,5 +46,5 @@ test("blok: pouhé zrušení značky nikdy nehlásí odsunutí", () => {
   // Když se plán nepohnul, chain push neproběhl — movedCount 0 je jediná možná hodnota,
   // ale i kdyby přišla nesmyslná, věta o odsunutí se u téhle větve nesmí objevit.
   const s = reflowBlockToast({ changed: true, timesMoved: false, movedCount: 7 });
-  assert.equal(s, 'Značka „odložené mimo pracovní dobu" zrušena — plán se nepohnul.');
+  assert.equal(s, 'Značka „odložené mimo pracovní dobu“ zrušena — plán se nepohnul.');
 });

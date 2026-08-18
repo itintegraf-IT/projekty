@@ -33,6 +33,6 @@ export function reflowBlockToast(i: {
   if (!i.changed) return "Blok už na kalendář sedí.";
   // Zrušení zbytkové značky bez posunu — plán se nehnul, takže ani chain push
   // neproběhl a věta o odsunutí sem nepatří ani omylem.
-  if (!i.timesMoved) return 'Značka „odložené mimo pracovní dobu" zrušena — plán se nepohnul.';
+  if (!i.timesMoved) return 'Značka „odložené mimo pracovní dobu“ zrušena — plán se nepohnul.';
   return `Blok přepočítán podle aktuálního kalendáře${shiftedClause(i.movedCount)}.`;
 }
