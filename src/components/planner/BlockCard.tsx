@@ -251,7 +251,7 @@ export function BlockCard({
   block, top, height, maxRenderHeight, dimmed, selected, isDragging, isCopied, multiSelected, now,
   onClick, onDoubleClick, onMouseDown, onResizeMouseDown, groupUnconfirmedReservation = false, onBlockUpdate, onError,
   canEdit, canEditData, canEditDataDate, canEditMat, onInlineDatePick, badgeColorMap,
-  onBlockCopy, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
+  onBlockCopy, onBlockCut, onBlockDelete, onBlockSplit, getSplitAt, isTiskar, onPrintComplete, onNotify, onBlockVariantChange,
   onExpeditionPublish, onExpeditionUnpublish,
   onDataChipDoubleClick,
   onOpenNotes,
@@ -309,6 +309,8 @@ export function BlockCard({
   onInlineDatePick?: (blockId: number, field: "data" | "material" | "pantone", currentValue: string, rect: DOMRect) => void;
   badgeColorMap?: Record<number, string | null>;
   onBlockCopy?: () => void;
+  onBlockCut?: () => void;
+  onBlockDelete?: () => void;
   onBlockSplit?: (splitAt: Date) => void;
   getSplitAt?: (clientY: number) => Date;
   isTiskar?: boolean;
@@ -1701,6 +1703,18 @@ export function BlockCard({
             >
               ⎘ Kopírovat
             </ContextMenuItem>
+            {block.printCompletedAt ? (
+              <ContextMenuItem disabled style={{ ...menuItemStyle, color: "rgba(255,255,255,0.3)" }}>
+                ✂ Vyjmout (vytištěno)
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuItem
+                onClick={() => onBlockCut?.()}
+                style={menuItemStyle}
+              >
+                ✂ Vyjmout
+              </ContextMenuItem>
+            )}
             <ContextMenuItem
               onClick={() => { if (splitAtRef.current) onBlockSplit?.(splitAtRef.current); }}
               style={menuItemStyle}
@@ -1790,6 +1804,17 @@ export function BlockCard({
                 🚚 Zaplánovat do Expedice
               </ContextMenuItem>
             )}
+          </>
+        )}
+        {canEdit && !block.locked && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => onBlockDelete?.()}
+              style={{ ...menuItemStyle, color: "rgba(239,68,68,0.9)" }}
+            >
+              🗑 Odstranit
+            </ContextMenuItem>
           </>
         )}
       </ContextMenuContent>

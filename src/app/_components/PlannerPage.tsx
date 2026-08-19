@@ -178,6 +178,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Timeline state
   const [selectedBlock, setSelectedBlock] = useState<Block | null>(null);
   const [keyDeletePending, setKeyDeletePending] = useState(false);
+  // Blok vybraný přes menu "🗑 Odstranit" — na rozdíl od keyDeletePending
+  // NENÍ vázaný na selectedBlock (uživatel může pravým tlačítkem kliknout na
+  // jiný blok, než má aktuálně otevřený v detailu). Obě cesty sytí jediný
+  // ConfirmDialog níž přes `pendingDeleteBlock`.
+  const [menuDeleteBlock, setMenuDeleteBlock] = useState<Block | null>(null);
   const [deleteRejectionReason, setDeleteRejectionReason] = useState("");
   const [multiDeletePending, setMultiDeletePending] = useState(false);
   // Smazání zamčeného/vytištěného bloku vrátil server s requiresForce —
@@ -2762,6 +2767,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
   }
 
+  // Sdílené tělo Ctrl+X jednoblokové větve — volá ho klávesový handler NÍŽE
+  // i položka menu "✂ Vyjmout" (BlockCard → TimelineGrid → sem). Cut = přesun
+  // existujícího bloku (PUT) — zamčený/vytištěný blok se přesunout nesmí,
+  // stejně jako u dragu. Guard tady, ať UI selže srozumitelně dřív než server.
+  function cutSingleBlock(block: Block) {
+    if (block.locked || block.printCompletedAt) {
+      showToast(block.locked ? "Zamčený blok nelze vyjmout." : "Vytištěný blok nelze vyjmout.", "info");
+      return;
+    }
+    setCopiedBlock(block);
+    setIsCut(true);
+    clipboardGroupRef.current = [];
+    isGroupCutRef.current = false;
+    setPasteTarget(computePasteTargetFromBlock(block));
+    showToast("Blok vyříznut. Ctrl+V ho přesune těsně za originál.", "info");
+  }
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
@@ -2848,19 +2870,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
       if (isShortcut(e, "x") && selectedBlockRef.current) {
         e.preventDefault();
-        const sel = selectedBlockRef.current;
-        // Cut = přesun existujícího bloku (PUT) — zamčený/vytištěný blok se přesunout nesmí,
-        // stejně jako u dragu. Guard tady, ať UI selže srozumitelně dřív než server.
-        if (sel.locked || sel.printCompletedAt) {
-          showToast(sel.locked ? "Zamčený blok nelze vyjmout." : "Vytištěný blok nelze vyjmout.", "info");
-          return;
-        }
-        setCopiedBlock(sel);
-        setIsCut(true);
-        clipboardGroupRef.current = [];
-        isGroupCutRef.current = false;
-        setPasteTarget(computePasteTargetFromBlock(sel));
-        showToast("Blok vyříznut. Ctrl+V ho přesune těsně za originál.", "info");
+        cutSingleBlock(selectedBlockRef.current);
         return;
       }
       // Ctrl+C / Ctrl+X bez jakéhokoliv výběru — explicitní toast místo silent no-op
@@ -2878,6 +2888,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     return () => window.removeEventListener("keydown", handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Jediný zdroj pravdy pro delete-confirm dialog níž — klávesnicová cesta
+  // (Delete/Backspace na selectedBlock) i menu cesta (🗑 Odstranit na
+  // libovolném bloku) sytí týž stav, aniž by se JSX dialogu duplikovalo.
+  const pendingDeleteBlock = keyDeletePending ? selectedBlock : menuDeleteBlock;
+
   return (
     <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-background text-foreground">
       {sseOffline && (
@@ -2885,19 +2900,25 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           Spojení se serverem přerušeno. Data nemusí být aktuální.
         </div>
       )}
-      {/* ── Confirm smazání přes klávesnici ── */}
+      {/* ── Confirm smazání (klávesnice i menu "🗑 Odstranit") ── */}
       <ConfirmDialog
-        open={keyDeletePending && !!selectedBlock}
+        open={!!pendingDeleteBlock}
         title="Smazat blok?"
-        message={selectedBlock ? `${selectedBlock.orderNumber}${selectedBlock.description ? ` — ${selectedBlock.description}` : ""}` : ""}
+        message={pendingDeleteBlock ? `${pendingDeleteBlock.orderNumber}${pendingDeleteBlock.description ? ` — ${pendingDeleteBlock.description}` : ""}` : ""}
         confirmLabel="Smazat"
         danger
-        width={selectedBlock?.reservationId ? 340 : 300}
-        autoFocusConfirm={!selectedBlock?.reservationId}
-        onConfirm={() => { if (!selectedBlock) return; setKeyDeletePending(false); handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined); setDeleteRejectionReason(""); }}
-        onCancel={() => { setKeyDeletePending(false); setDeleteRejectionReason(""); }}
+        width={pendingDeleteBlock?.reservationId ? 340 : 300}
+        autoFocusConfirm={!pendingDeleteBlock?.reservationId}
+        onConfirm={() => {
+          if (!pendingDeleteBlock) return;
+          setKeyDeletePending(false);
+          setMenuDeleteBlock(null);
+          handleDeleteBlock(pendingDeleteBlock.id, deleteRejectionReason || undefined);
+          setDeleteRejectionReason("");
+        }}
+        onCancel={() => { setKeyDeletePending(false); setMenuDeleteBlock(null); setDeleteRejectionReason(""); }}
       >
-        {selectedBlock?.reservationId && (
+        {pendingDeleteBlock?.reservationId && (
           <div style={{ background: "rgba(168,85,247,0.1)", border: "1px solid rgba(168,85,247,0.25)", borderRadius: 10, padding: "10px 12px", marginBottom: 16 }}>
             <p style={{ fontSize: 11, fontWeight: 600, color: "#c084fc", marginBottom: 8 }}>Propojená rezervace bude zamítnuta</p>
             <input
@@ -2906,9 +2927,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               value={deleteRejectionReason}
               onChange={(e) => setDeleteRejectionReason(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && selectedBlock) {
+                if (e.key === "Enter" && pendingDeleteBlock) {
                   setKeyDeletePending(false);
-                  handleDeleteBlock(selectedBlock.id, deleteRejectionReason || undefined);
+                  setMenuDeleteBlock(null);
+                  handleDeleteBlock(pendingDeleteBlock.id, deleteRejectionReason || undefined);
                   setDeleteRejectionReason("");
                 }
               }}
@@ -3358,6 +3380,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               setPasteTarget(computePasteTargetFromBlock(block));
               showToast("Blok zkopírován. Ctrl+V vloží za originál, nebo klikni jinam.", "info");
             }}
+            onBlockCut={(block) => cutSingleBlock(block)}
+            onBlockDelete={(block) => setMenuDeleteBlock(block)}
             selectedBlockIds={selectedBlockIds}
             onMultiSelect={(ids) => { setSelectedBlockIds(ids); }}
             onMultiBlockUpdate={handleMultiBlockUpdate}

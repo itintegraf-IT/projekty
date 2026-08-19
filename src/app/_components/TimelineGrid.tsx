@@ -267,6 +267,8 @@ interface TimelineGridProps {
    *  — hlídá `gestureEndedAtRef`. */
   onPlanClick?: () => void;
   onBlockCopy?: (block: Block) => void;
+  onBlockCut?: (block: Block) => void;
+  onBlockDelete?: (block: Block) => void;
   selectedBlockIds?: Set<number>;
   onMultiSelect?: (ids: Set<number>) => void;
   onMultiBlockUpdate?: (updates: { id: number; startTime: Date; endTime: Date; machine: string }[]) => void;
@@ -585,6 +587,8 @@ export default function TimelineGrid({
   onGridClickEmpty,
   onPlanClick,
   onBlockCopy,
+  onBlockCut,
+  onBlockDelete,
   selectedBlockIds,
   onMultiSelect,
   onMultiBlockUpdate,
@@ -2253,6 +2257,8 @@ export default function TimelineGrid({
                       canEditDataDate={canEditDataDate}
                       canEditMat={canEditMat}
                       onBlockCopy={() => onBlockCopy?.(block)}
+                      onBlockCut={() => onBlockCut?.(block)}
+                      onBlockDelete={() => onBlockDelete?.(block)}
                       onBlockSplit={(splitAt) => handleSplitBlockAt(block, splitAt)}
                       getSplitAt={(clientY) => calcSplitAt(clientY, block)}
                       onInlineDatePick={(blockId, field, currentValue, rect) => {
