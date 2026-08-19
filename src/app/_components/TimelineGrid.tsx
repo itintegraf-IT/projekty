@@ -1156,7 +1156,8 @@ export default function TimelineGrid({
           callbacksRef.current.onError?.("Blok se nepodařilo změnit.");
         }
       } else if (ds.type === "multi-move") {
-        let deltaMs = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        const proposedDeltaMs = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
+        let deltaMs = proposedDeltaMs;
         // Určit cílový stroj PŘED snapem — snap musí validovat podle správného stroje
         const newMachine = clientXToMachine(e.clientX);
         if (workingTimeLockRef.current) {
@@ -1174,12 +1175,24 @@ export default function TimelineGrid({
               return;
             }
             deltaMs = r.deltaMs;
-            if (r.wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
           } else {
             // smíšený výběr: starý duration-based snap (ne-ZAKAZKA server nevaliduje)
-            const { deltaMs: snapped, wasSnapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWeekShiftsRef.current ?? []);
+            const { deltaMs: snapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWeekShiftsRef.current ?? []);
             deltaMs = snapped;
-            if (wasSnapped) callbacksRef.current.onError?.("Bloky přeskočeny přes víkend/noc");
+          }
+          // UX (etapa 3a, audit 12. 8. bod 1): rozlišit no-op / velký posun / normální snap.
+          // Beze změny delty (deltaMs === proposedDeltaMs) → nic nehlásit, běžný přesun.
+          // Rohatka umí korigovat jen DOPŘEDU — tažení skupiny ZPĚT přes hranici směny
+          // ji sežere skoro na nulu i přes nenulový návrh (tichý no-op, hlavní nahlášený
+          // symptom „nefunguje") → adresná hláška místo mlčení a beze změny na obrazovce.
+          // Jinak jde o normální korekci mimo pracovní dobu → onInfo (NE onError — nejde
+          // o chybu, blok se přesunul, jen jinam, než uživatel pustil myš).
+          if (deltaMs !== proposedDeltaMs) {
+            if (Math.abs(deltaMs) < SLOT_MS && proposedDeltaMs !== 0) {
+              callbacksRef.current.onError?.("Skupinu nelze posunout zpět přes hranici směny — přesuňte bloky jednotlivě.");
+            } else {
+              callbacksRef.current.onInfo?.("Bloky posunuty mimo pracovní dobu — automaticky umístěny do nejbližšího dostupného slotu.");
+            }
           }
         }
         const updates    = ds.blocks.map(b => ({
