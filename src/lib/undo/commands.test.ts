@@ -363,6 +363,57 @@ test("buildSplitCommand: PŮVODNÍ splitGroupId se vrací, ne natvrdo null", asy
   assert.equal(headOp!.fields.splitGroupId, 5);
 });
 
+test("buildSplitCommand: undo → redo → undo (round-trip) — zámek hlavy i ocasu se OSVĚŽÍ mezi kroky, ne natvrdo z konstant", async () => {
+  // Critical nález review 19. 8. 2026: všechny tři testy výš volají undo NEBO redo na
+  // čerstvé instanci, nikdy obojí za sebou — tuhle díru propustily, protože bez `refresh()`
+  // na hlavě a ocasu by druhé volání v řadě poslalo `expectedUpdatedAt` z PŮVODNÍ konstanty
+  // (head.beforeUpdatedAt/afterUpdatedAt, tail.updatedAt), zatímco živý blok by mezitím
+  // dostal nový updatedAt od prvního volání — server by to odmítl 409 CONFLICT a krok by
+  // zmizel ze stacku (useUndoManager stale chybu na stack nevrací).
+  const live = new Map([
+    [1, blk(1, { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 9, updatedAt: "h2" })],
+    [2, blk(2, { updatedAt: "t1" })],
+    [3, blk(3, { startTime: "2026-08-20T14:00:00.000Z", updatedAt: "s2" })],
+  ]);
+  const { effects, calls } = makeEffects(live);
+  const entry = buildSplitCommand(
+    "Rozdělení bloku",
+    { id: 1,
+      beforeFields: { endTime: "2026-08-20T14:00:00.000Z", splitGroupId: null, printMinutes: 360, scheduleBypassed: false },
+      afterFields:  { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 9, printMinutes: 240, scheduleBypassed: false },
+      beforeUpdatedAt: "h1", afterUpdatedAt: "h2" },
+    { id: 2, updatedAt: "t1", fields: { orderNumber: "X" }, createdAt: "2026-08-19T00:00:00.000Z" },
+    [{ id: 3, startTime: "2026-08-20T12:00:00.000Z", endTime: "2026-08-20T13:00:00.000Z", machine: "XL_105", updatedAt: "s1", printMinutes: 60, scheduleBypassed: false }],
+    [{ id: 3, startTime: "2026-08-20T14:00:00.000Z", endTime: "2026-08-20T15:00:00.000Z", machine: "XL_105", updatedAt: "s2", printMinutes: 60, scheduleBypassed: false }],
+  );
+
+  await entry.undo(effects); // 1. undo
+  assert.equal(live.get(1)!.endTime, "2026-08-20T14:00:00.000Z", "1. undo: hlava zpátky na starý konec");
+  assert.equal(live.has(2), false, "1. undo: ocas smazán");
+  const headAfterFirstUndo = live.get(1)!.updatedAt; // čerstvý zámek hlavy PO 1. undu
+
+  await entry.redo(effects); // 2. redo
+  const redoHeadOp = calls.undo[1].ops.find((o) => o.id === 1) as { expectedUpdatedAt?: string } | undefined;
+  assert.equal(redoHeadOp!.expectedUpdatedAt, headAfterFirstUndo,
+    "redo musí zamykat hlavu na ČERSTVOU verzi po 1. undu (refresh), ne na konstantu beforeUpdatedAt");
+  assert.ok(live.has(2), "redo: ocas znovu vzkříšen");
+  assert.equal(live.get(1)!.endTime, "2026-08-20T10:00:00.000Z", "redo: hlava zase zkrácena");
+  const tailAfterRedo = live.get(2)!.updatedAt; // vzkříšený ocas dostal NOVÝ updatedAt
+  const headAfterRedo = live.get(1)!.updatedAt;
+
+  await entry.undo(effects); // 2. undo — bez fixu by tail guard spadl na StaleUndoError
+  assert.equal(live.has(2), false, "2. undo: ocas zase smazán");
+  assert.equal(live.get(1)!.endTime, "2026-08-20T14:00:00.000Z", "2. undo: hlava zase na starém konci");
+  const undoOps2 = calls.undo[2].ops;
+  const removeTailOp2 = undoOps2.find((o) => o.kind === "remove" && o.id === 2) as { expectedUpdatedAt?: string } | undefined;
+  assert.equal(removeTailOp2!.expectedUpdatedAt, tailAfterRedo,
+    "2. undo musí mazat ocas se zámkem OSVĚŽENÝM po redu, ne na původní konstantu 't1'");
+  const headOp2 = undoOps2.find((o) => o.kind === "upsert" && o.id === 1) as { expectedUpdatedAt?: string } | undefined;
+  assert.equal(headOp2!.expectedUpdatedAt, headAfterRedo,
+    "2. undo musí zamykat hlavu na ČERSTVOU verzi po redu, ne na konstantu afterUpdatedAt");
+  assert.equal(calls.undo.length, 3, "undo → redo → undo = tři volání applyUndo");
+});
+
 // ─── buildDeleteCommand ───────────────────────────────────────────────────────
 // Task 7: undo obnoví blok pod PŮVODNÍM id (žádný remap → mizí restoredId a s ním
 // třída duplicit z opakovaného Ctrl+Z), redo ho zase smaže — obojí JEDNO applyUndo volání.

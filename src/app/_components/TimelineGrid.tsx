@@ -1304,7 +1304,15 @@ export default function TimelineGrid({
       onBlockCreate(tail);
       // Krok historie (Ctrl+Z) — sestavuje a zapisuje PlannerPage (task S1). `block` je
       // hlava, jak vypadala PŘED splitem v klientském stavu (parametr téhle funkce).
-      callbacksRef.current.onSplitDone?.({ head, tail, shifted: shifted ?? [], before, headLive: block });
+      // VLASTNÍ try/catch (review 19. 8. 2026, MINOR): split v DB už proběhl a je vidět
+      // na obrazovce (řádky výš) — chyba PŘI ZAPISOVÁNÍ kroku historie se nesmí propadnout
+      // do vnějšího catch, který by ukázal "Blok se nepodařilo rozdělit." a předstíral
+      // selhání akce, která ve skutečnosti prošla.
+      try {
+        callbacksRef.current.onSplitDone?.({ head, tail, shifted: shifted ?? [], before, headLive: block });
+      } catch (e) {
+        console.error("[historie] krok rozdělení se nezapsal", e);
+      }
     } catch (error) {
       console.error("Block split failed", error);
       callbacksRef.current.onError?.("Blok se nepodařilo rozdělit.");

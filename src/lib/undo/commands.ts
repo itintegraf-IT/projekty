@@ -330,6 +330,17 @@ export function buildCreateCommand(
  *
  * Do 19. 8. 2026 split krok NEZAPISOVAL vůbec, takže Ctrl+Z po něm sáhl po PŘEDCHOZÍ,
  * cizí akci — táž vada, jakou tahle vlna opravila u přepočtu (spec §1, bod 3).
+ *
+ * `headBeforeSnap`/`headAfterSnap` jsou MUTOVATELNÉ snapshoty hlavy — `refresh()` do nich
+ * po každém volání zapíše čerstvý `updatedAt` z odpovědi serveru, přesně jako to dělá
+ * `buildEditCommand` (`refresh([target, ...shiftedTarget], …)`) a `buildCreateCommand.redo`
+ * (`refresh([...created, ...shiftedAfter], …)`). Bez toho by druhé volání v řadě (redo po
+ * undu, undo po redu) posílalo `expectedUpdatedAt` z PŮVODNÍ konstanty, zatímco živý blok
+ * by mezitím dostal nový `updatedAt` od prvního volání — server by to odmítl 409 CONFLICT,
+ * klient by to vyhodnotil jako souběh s cizím uživatelem a krok by zmizel ze stacku
+ * (`useUndoManager` stale chybu na stack nevrací). `tail` samo je taky mutovatelný
+ * `CreatedRef` z uzávěru — vzkříšení v redu mu dá nový `updatedAt`, na který musí guardovat
+ * další undo (Critical nález review 19. 8. 2026).
  */
 export function buildSplitCommand(
   label: string,
@@ -339,38 +350,47 @@ export function buildSplitCommand(
   shiftedBefore: BlockSnapshot[] = [],
   shiftedAfter: BlockSnapshot[] = [],
 ): HistoryEntry {
+  const headBeforeSnap = { id: head.id, updatedAt: head.beforeUpdatedAt };
+  const headAfterSnap  = { id: head.id, updatedAt: head.afterUpdatedAt };
   return {
     label,
     undo: async (effects) => {
       const liveTail = effects.getLiveBlock(tail.id);
       if (!liveTail || liveTail.updatedAt !== tail.updatedAt) throw new StaleUndoError();
-      guard(effects, shiftedAfter);
+      // requireLive: false — `shiftedAfter` může nést blok mimo klientský stav (chain push
+      // posouvá i bloky mimo načtený rozsah dní, stejný důvod jako u `buildReflowCommand`).
+      // Serverový zámek `expectedUpdatedAt` kontroluje všechny cíle atomicky, takže se tím
+      // nic neztrácí.
+      guard(effects, shiftedAfter, false);
       const expMap = new Map(shiftedAfter.map((e) => [e.id, e.updatedAt]));
       const res = await effects.applyUndo({
         label, direction: "undo",
         ops: [
           { kind: "remove", id: tail.id, expectedUpdatedAt: tail.updatedAt },
-          { kind: "upsert", id: head.id, expectedUpdatedAt: head.afterUpdatedAt, fields: head.beforeFields },
+          { kind: "upsert", id: head.id, expectedUpdatedAt: headAfterSnap.updatedAt, fields: head.beforeFields },
           ...shiftedBefore.map((t) => posOp(t, expMap.get(t.id))),
         ],
       });
-      refresh(shiftedBefore, res.updated);
+      refresh([headBeforeSnap, ...shiftedBefore], res.updated);
       effects.removeFromState(res.removed);
       effects.addToState(res.updated);
       return affected(res);
     },
     redo: async (effects) => {
-      guard(effects, shiftedBefore);
+      // requireLive: false — stejný důvod jako výš.
+      guard(effects, shiftedBefore, false);
       const expMap = new Map(shiftedBefore.map((e) => [e.id, e.updatedAt]));
       const res = await effects.applyUndo({
         label, direction: "redo",
         ops: [
           { kind: "upsert", id: tail.id, fields: tail.fields, createdAt: tail.createdAt },
-          { kind: "upsert", id: head.id, expectedUpdatedAt: head.beforeUpdatedAt, fields: head.afterFields },
+          { kind: "upsert", id: head.id, expectedUpdatedAt: headBeforeSnap.updatedAt, fields: head.afterFields },
           ...shiftedAfter.map((t) => posOp(t, expMap.get(t.id))),
         ],
       });
-      refresh(shiftedAfter, res.updated);
+      // `tail` patří do refresh tady: ocas se vzkřísí s NOVÝM updatedAt a další undo na
+      // něj guarduje (viz explicitní kontrola `liveTail` výš).
+      refresh([tail, headAfterSnap, ...shiftedAfter], res.updated);
       effects.addToState(res.updated);
       return affected(res);
     },
