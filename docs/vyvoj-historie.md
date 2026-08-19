@@ -2436,3 +2436,42 @@ shodné s klávesovou cestou: `canEdit && !locked`, cut navíc `!printCompletedA
 
 **Ověření.** Celá suite 1368/1368 zelených, `npm run build` i `npm run lint`
 bez chyb. Commity `54c0bf86`..`dc378aa0`.
+
+## Skupinový přesun zakázek přes noc — per-blok snap (20. 8. 2026)
+
+Kořen (audit vlákna s plánovačem, e-mail 12. 8. bod 1): lasso přesun
+posouval celou skupinu o JEDNU sdílenou deltu; snap `snapGroupDeltaStartOnly`
+byl "rohatka" — korigoval jen dopředu. Důsledky: tažení zpět přes hranici
+směny = tichý no-op (hlavní nahlášený symptom "nefunguje"); tažení dopředu
+= teleport celé skupiny o den; falešné 409 z nesouladu klient/server
+expanze; nediagnostické 422 z nekonvergující 5pokusové smyčky.
+
+**Oprava ve dvou krocích:**
+- **3a (samostatný commit):** UX záplata na DOBOVÉM kódu — rozlišení
+  no-op/snap/chyba hlášek (`onInfo` místo zavádějícího `onError`).
+- **3b (jádro):** nová čistá funkce `snapGroupPerBlock`
+  (`src/lib/printTimeClient.ts`) — bloky seřazené dle původního startu,
+  zpracované v JEDNOM průchodu; každý další blok nesmí začít dřív, než
+  tiskově končí předchůdce. Per-blok dispatch dle typu (ZAKAZKA = expanze
+  přes `expandPrintTime`, REZERVACE/UDRZBA = rigidní přesná délka),
+  `scheduleBypassed` členové se posouvají doslovně beze snapu (server má
+  na bypass sticky-OR). Nahradila osiřelé `snapGroupDeltaStartOnly`
+  (`printTimeClient.ts`) a `snapGroupDeltaWithTemplates` (`workingTime.ts`).
+
+**Server beze změny:** `POST /api/blocks/batch` už dřív přijímal per-blok
+`startTime` a pro ZAKAZKA si `endTime` počítal sám z `printMinutes`
+(`validateAndComputeEnd`) — kaskádové potvrzení (`fetchWithCascadeConfirm`/
+`askCascade`, `assertCascadeConfirmed` na `path: "batch-total"`) a undo
+(`buildMoveCommand`) se nezměnily, mění se jen vstupní pozice, které klient
+do dávky posílá.
+
+**Vědomě odložené:** krok 3c (náhled všech vybraných bloků na snapnutých
+pozicích v `onMouseMove` — dnes jede jen kotva s hrubou deltou) — drobná
+samostatná etapa později.
+
+**Ověření.** Tabulkové testy scénářů A–D (dopředu přes noc / couvání / žádný
+falešný intra-batch překryv / jeden průchod bez iterace) v
+`printTimeClient.test.ts`; rozšířená parity tabulka klient↔server v
+`calendarDrift.server.test.ts` dokazuje, že výsledné pozice obě strany
+klasifikují shodně jako bezdriftové. Celá suite zelená, `npm run build`
+i `npm run lint` bez chyb.

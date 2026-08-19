@@ -350,6 +350,23 @@ test("parita klient ↔ server: u NEODLOŽENÝCH bloků musí obě strany klasif
       }),
       expected: null,
     },
+    {
+      // Pozice vzešlá ze snapGroupPerBlock (viz printTimeClient.test.ts, scénář A,
+      // druhý blok) — po přeskoku víkendové odstávky na Ne 22:00. Obě strany musí
+      // umístění uznat jako kalendářně čisté (žádný drift).
+      name: "skupinový přesun: blok po přeskoku víkendové odstávky na Ne 22:00",
+      row: mkBlock({ id: 40, startTime: pragueToUTC("2026-08-23", 22), endTime: pragueToUTC("2026-08-24", 0), printMinutes: 120 }),
+      expected: null,
+    },
+    {
+      // Pozice vzešlá ze snapGroupPerBlock (scénář A, první blok) — zůstal
+      // v pracovní době, konec přesně na hranici páteční směny (22:00), žádný
+      // přesah do pauzy. Ověřuje, že přesná shoda s hranicí se NEVYHODNOTÍ
+      // jako drift na žádné straně.
+      name: "skupinový přesun: blok skončí přesně na hranici směny (Pá 22:00), bez driftu",
+      row: mkBlock({ id: 41, startTime: pragueToUTC("2026-08-21", 21), endTime: pragueToUTC("2026-08-21", 22), printMinutes: 60 }),
+      expected: null,
+    },
   ];
 
   for (const c of cases) {

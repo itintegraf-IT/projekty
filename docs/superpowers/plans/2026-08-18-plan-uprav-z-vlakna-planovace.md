@@ -67,7 +67,7 @@ Etapa se teď nestavi; podklad níže zůstává pro případné budoucí otevř
 
 ---
 
-## Etapa 3 — Skupinový přesun zakázek přes noc · odhad: M (1–2 dny)
+## Etapa 3 — Skupinový přesun zakázek přes noc · **HOTOVO (implementace `2026-08-20-skupinovy-presun-pres-noc.md`, kroky 3a/3b)**
 
 **Kořen (z analýzy, detaily v auditu §2, e-mail 12. 8. bod 1):** skupina se posouvá o jedinou společnou deltu; snap `snapGroupDeltaStartOnly` (`src/lib/printTimeClient.ts:71–101`) koriguje jen dopředu („rohatka"). Důsledky: tažení zpět přes hranici směny = tichý no-op (hlavní „nefunguje"); tažení dopředu = teleport celé skupiny o den; falešné 409 z expanze; nediagnostické 422.
 
@@ -89,6 +89,8 @@ V `TimelineGrid.tsx:1128–1138` rozlišit výsledky snapu: beze změny delty ni
 - Po opravě zůstanou `snapGroupDeltaStartOnly`/`snapGroupDeltaWithTemplates` bez volajících → smazat (grep potvrdil jediného konzumenta TimelineGrid).
 
 **Akceptace:** (1) tažení skupiny zpět přes 22:00 skupinu stáhne k nejbližším platným slotům; (2) tažení dopředu přes noc nechá přední bloky na místě a jen ocas přeteče za pauzu; (3) žádný falešný 409/„teleport"; (4) jeden krok zpět vrátí celou skupinu.
+
+**Poznámka k rozsahu:** krok 3c (náhled všech vybraných bloků na snapnutých pozicích v `onMouseMove`, dnes se kreslí jen kotva s hrubou deltou) zůstává VĚDOMĚ ODLOŽEN — samostatná drobná etapa později.
 
 ---
 
