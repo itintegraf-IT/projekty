@@ -47,9 +47,9 @@
 
 ---
 
-## Etapa 2 — Reporty pro roli PLANOVAT · odhad: S/M (½ dne s testy)
+## Etapa 2 — Reporty pro roli PLANOVAT · **ROZHODNUTO 19. 8. (V1, Vojta): ODLOŽENO — reporty zatím zůstávají jen pro ADMIN**
 
-**Blokováno rozhodnutím V1 (viz níže).** Doporučená varianta: PLANOVAT dostane celou stránku `/reporty` read-only (jmenovitý žebříček byl odstraněn `f3332283`, citlivost nízká).
+Etapa se teď nestavi; podklad níže zůstává pro případné budoucí otevření (6 vynucovacích míst + doporučení konstanty `REPORT_ROLES`). Lukášovi se do e-mailu odpoví, že přístup zvažujeme.
 
 **Rozsah — všech 6 vynucovacích míst (žádný centrální seznam neexistuje):**
 | Místo | Soubor | Změna |
@@ -180,7 +180,7 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 
 ## Otevřená rozhodnutí (blokují etapy)
 
-1. **V1 → etapa 2:** povolit PLANOVAT celé `/reporty`? (doporučení: ano)
+1. ~~V1~~ **ROZHODNUTO 19. 8.:** reporty zatím zůstávají jen pro ADMIN — etapa 2 odložena.
 2. ~~V2~~ **ROZHODNUTO 19. 8.:** ČÁSTEČNĚ VYDÁNO = varianta (a), mini tlačítko „½" (detailní plán `2026-08-19-material-castecne-vydano.md`).
 3. **V3 → pořadí velkých etap:** doporučení po druhé vlně: **0 (nasazení) → 6 (dokončení autoposunu) → 1 (materiál + Monitor štítky) → 7 (menu+zkratky) → 3 (skupinový přesun) → 8/9 (po rozhodnutích) → 2 → 4**.
 4. ~~V4~~ **ROZHODNUTO 19. 8.:** dotáhnout potvrzovací dialog A přidat vypínač autoposunu (obojí, viz etapa 6 bod 4).
