@@ -24,19 +24,22 @@
 
 ---
 
-## Etapa 1 — Stav materiálu „ČÁSTEČNĚ VYDÁNO" · odhad: S (do hodiny)
+## Etapa 1 — Stav materiálu „ČÁSTEČNĚ VYDÁNO" · odhad: M (~den) · čeká na rozhodnutí V2 (varianta UI)
 
-**Stav:** hodnota není v repu (seedy ani kód); číselník je runtime-editovatelný.
+**Korekce 19. 8.:** původní odhad S („přes admin číselník") mířil na špatný mechanismus. Skladníci myslí **stavová tlačítka SKLAD/VYDÁNO** (`materialInStock`/`materialIssued` — dva Booleany na `Block`, `prisma/schema.prisma:128–129`; UI `BlockEdit.tsx:1150–1155`; chip „M SKLAD/VYD." na kartě). Nový stav = změna kódu.
 
-**Postup:**
-1. Nejdřív ověřit produkční číselník: `SELECT label FROM CodebookOption WHERE category='MATERIAL';` (možná už ji tam někdo přidal ručně).
-2. Přidat na produkci přes admin → Číselníky (bez deploye).
-3. Pro paritu dev/test doplnit do `MATERIAL_OPTIONS` v `prisma/seed.ts:24–35` a `prisma/bootstrap-prod.ts:29–40` (bootstrap je idempotentní — bezpečné).
-4. Ověřit, že hodnota projde celým řetězem: výběr v BlockEdit (`materialStatusLabel`), zobrazení chipu na kartě, notifikace MTZ.
+**Datový model:** nový Boolean `materialPartiallyIssued` (částečně a plně vydáno se vzájemně vylučují — nastavení jednoho vypne druhý). Dotčená místa (grep `materialInStock|materialIssued` → ~35 souborů):
+- schéma + ruční migrace (migrate dev je rozbité) — pozor, `Block` je na produkci velká tabulka
+- `blockPayload.ts` (P26/P27 — nové pole vstupuje do buildPayload!), `splitSharedFields.ts` (propagace na split sourozence — stavy materiálu tam už jsou), `seriesPropagation.ts`
+- audit: `auditedFields.ts` + `auditFormatters.ts`; revize: `revision/blockColumns.ts` (strážný test nový Boolean vynutí sám); undo: `undo/restoreFields.ts`
+- UI: `BlockEdit.tsx`, `BlockCard.tsx` (chip „M ČÁST." — nový stav do `mStateKey`), `BlockDetail.tsx`, `JobBuilderPanel.tsx` + rezervační `PlanningForm.tsx`, `monitorChips.ts`
 
-**Poznámka:** délka „ČÁSTEČNĚ VYDÁNO" (16 znaků) je bezpečná — `Block.materialStatusLabel` je na produkci varchar(255).
+**Prostor v BlockEdit (znovu tatáž bolest jako u Pantone):** řádek tlačítek se vešel jen se zkratkami „P!/SKL./VYD." (~137 px, komentář `BlockEdit.tsx:1168–1171`). Varianty k rozhodnutí V2:
+- **(a) mini tlačítko „½"** vedle VYDÁNO (doporučeno): plné vydání zůstává 1 klik (nejčastější případ beze změny), šířka ~24 px, na úzkém panelu se řádek zalomí (flexWrap už existuje). Zobrazený stav: „Část. vydáno ➜" (oranžová/amber místo modré).
+- **(b) cyklus na tlačítku VYDÁNO** (nic → ČÁSTEČNĚ → VYDÁNO → nic): nulová šířka navíc, ale plné vydání = 2 kliky — penalizuje nejčastější akci a cyklus je neobjevitelný.
+- **(c) select místo tlačítek** (— / SKLAD / ČÁSTEČNĚ VYDÁNO / VYDÁNO): nejčistší stavový model, ale mění zaběhnutý workflow MTZ a je to největší zásah.
 
-**Akceptace:** MTZ vybere „ČÁSTEČNĚ VYDÁNO" u zakázky, chip se ukáže v plánu; `npm run prisma:bootstrap` na dev hodnotu doplní bez duplicit.
+**Akceptace:** MTZ označí materiál jako částečně vydaný jedním gestem; karta ukazuje „M ČÁST."; stav se propaguje na split sourozence, přežije undo a je vidět v historii bloku.
 
 ---
 

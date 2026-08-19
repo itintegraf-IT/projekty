@@ -92,7 +92,7 @@ Poznámka k Lukášovu „Body 1, 4, 6 jsem ve změnách nezaznamenal" (13. 8. 1
 
 **Bod 5 — DTP hledání v Přehledu.** `selectDtpOverviewBlocks` (`src/lib/dtpOverview.ts:61–102`): s dotazem se 30denní okno zahazuje, hledá se napříč vším přes sdílený `blockMatchesQuery` (pokrývá orderNumber), výsledky mimo přehled dostávají štítek „mimo přehled". UI `DtpPanel.tsx` (SearchField + hlášky nenalezení).
 
-**Bod 6 — ČÁSTEČNĚ VYDÁNO: NEIMPLEMENTOVÁNO v repu.** Grep celého repa: 0 výskytů; seedy `MATERIAL_OPTIONS` (`prisma/seed.ts:24–35`, `prisma/bootstrap-prod.ts:29–40`) hodnotu nemají; žádný commit ji nikdy nepřidal. **Důležité:** číselník `CodebookOption` je za běhu editovatelný v adminu (role ADMIN/PLANOVAT) — hodnotu lze na produkci přidat bez kódu a repo by o tom nevědělo → před akcí ověřit produkční číselník (`SELECT label FROM CodebookOption WHERE category='MATERIAL'`). Terminologie: „skladníci" v aplikaci neexistují jako role — stav materiálu edituje MTZ.
+**Bod 6 — ČÁSTEČNĚ VYDÁNO: NEIMPLEMENTOVÁNO.** Grep celého repa: 0 výskytů; žádný commit hodnotu nikdy nepřidal. **Korekce 19. 8. (po upřesnění od Vojty):** „stav materiálu" existuje ve dvou mechanismech — (1) číselník MATERIAL (`materialStatusId`/`materialStatusLabel`, select v builderu, admin-editovatelný bez deploye) a (2) **stavová tlačítka SKLAD/VYDÁNO** (`materialInStock`/`materialIssued` — dva Booleany na `Block`, `BlockEdit.tsx:1150–1155`, chip „M SKLAD/VYD." na kartě). Skladníci myslí mechanismus (2) → **je to změna kódu, ne číselníku**; původní noční závěr „přidat přes admin" platil jen pro mechanismus (1). Rozsah: ~35 souborů (schéma+migrace, blockPayload, SPLIT_SHARED_FIELDS, audit, revize/blockColumns, undo restoreFields, propagace sérií, monitor chips, UI ×4) → odhad M. Prostorový problém v BlockEdit je reálný (Pantone se vešlo jen se zkratkami „P!/SKL./VYD." na ~137 px) — varianta UI k rozhodnutí, viz plán etapa 1. Terminologie: „skladníci" v aplikaci neexistují jako role — stav materiálu edituje MTZ.
 
 ### E-mail 13. 8.
 
@@ -146,7 +146,7 @@ Jediný krok „push + deploy dle runbooku `docs/DEPLOY_2026-08-17_KASKADA.md`" 
 
 **Na Vojtu (rozhodnutí):**
 1. **Reporty pro PLANOVAT** — povolit roli PLANOVAT celou stránku `/reporty` (doporučení: ano; jmenovitý žebříček už tam není), nebo jen vybrané záložky? Změna = 6 míst, viz bod A.
-2. **ČÁSTEČNĚ VYDÁNO** — přidat hodnotu (a) hned přes admin číselník na produkci (2 minuty, bez deploye) a (b) do seedů pro dev/test paritu? Doporučuji obojí. Předtím ověřit, jestli už na produkci není.
+2. **ČÁSTEČNĚ VYDÁNO** — *(korigováno 19. 8.)* je to nový stav v mechanismu tlačítek SKLAD/VYDÁNO (Booleany na `Block`), tedy změna kódu (M), ne číselník. Rozhodnout variantu UI (mini tlačítko „½" / cyklus na VYDÁNO / select) — viz plán etapa 1.
 3. **Priorita opravy skupinového přesunu přes noc** (etapa 3 plánu) vs. uzavření třídy P27 (etapa 4).
 
 **Na Lukáše (do e-mailu):**
