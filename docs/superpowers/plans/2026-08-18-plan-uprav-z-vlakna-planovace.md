@@ -119,7 +119,12 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 1. Po nasazení (etapa 0) týden měření → rozhodnout hodnotu prahu (Lukáš navrhuje 3–4; default 5).
 2. Dodělat před zapnutím: once-per-gesture wrapper pro `putFlip`/`handleSaveAll`/sérii z fronty (jinak až 12 dialogů za sebou), fokus na „Zrušit", odmítnutou kaskádu nehlásit červeným toastem, strážný test párování `skipCascadeCheck`.
 3. Zapnout `CASCADE_CONFIRM_ENFORCED = true` samostatným commitem.
-4. **Rozhodnutí V4:** přidat i úplný vypínač autoposunu („kolizní drop se odmítne 409" — návrat k chování před 31. 7.)? Doporučení: nejdřív zapnuté potvrzení s prahem 4 + týden zkušebního provozu u Lukáše; vypínač stavět, až kdyby nestačilo.
+4. **ROZHODNUTO 19. 8. (V4, Vojta): obojí — dotáhnout potvrzovací dialog A přidat vypínač autoposunu.** Náčrt vypínače (detaily ve specu etapy):
+   - Přepínač „Autoposun" v hlavičce planneru (vedle zámku pracovní doby); **per-uživatel přes `savePreference`**, ne localStorage — Lukáš ho má mít na každém počítači ([[nastaveni-zarizeni-vs-uzivatel]]).
+   - Vypnuto ⇒ klient posílá `resolveChain: false` na všech mutačních cestách; kolize řeší overlap guard → 409 s hláškou „Posun koliduje s navazující zakázkou — autoposun je vypnutý, uvolni místo ručně."
+   - Pozor: split route dnes pouští chain push **bezpodmínečně** (`split/route.ts:191`) — vypínač musí projít i tam; server musí `resolveChain: false` respektovat na všech 6 cestách (strážný test).
+   - Vypínač se týká chain pushe (odsouvání CIZÍCH bloků); snap vlastního taženého bloku mimo pracovní dobu zůstává (to je zámek pracovní doby, jiná funkce).
+   - Potvrzovací dialog zůstává aktivní pro stav „zapnuto" — obě pojistky se doplňují.
 
 **Akceptace:** posun s kaskádou > práh se bez výslovného potvrzení neprovede; Lukáš potvrdí, že se „nevědomky posunuté desítky zakázek" už nemohou opakovat.
 
@@ -136,23 +141,32 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 
 ---
 
-## Etapa 8 — Hover bublina vertikálně (druhá vlna, bod 4) · odhad: S · čeká na rozhodnutí V5
+## Etapa 8 — Hover bublina vertikálně (druhá vlna, bod 4) · odhad: S · **ROZHODNUTO 19. 8. (V5): varianta (a) — pod kartu**
 
-**Geometrický fakt (audit §2, bod 4):** nezakrývat sousední stroj + chipy vlevo + vlastní blok je horizontálně nesplnitelné (volný pás mimo karty = 78 px časové osy vs. bublina 240 px). Řešení: **(a) pod kartu** (`top = rect.bottom + 6`, flip nad kartu u spodního okraje — vzor notepopover `BlockCard.tsx:1384`; doporučeno) nebo **(b) pevný dok** (aside panel). Po rozhodnutí V5 malá změna v `plannerHoverTooltip.ts` + `BlockCard.tsx` + testy; dát Lukášovi vyzkoušet na testu.
+**Geometrický fakt (audit §2, bod 4):** nezakrývat sousední stroj + chipy vlevo + vlastní blok je horizontálně nesplnitelné (volný pás mimo karty = 78 px časové osy vs. bublina 240 px). **Rozhodnutá varianta:** bublina pod kartou (`top = rect.bottom + 6`), u spodního okraje okna flip nad kartu — vzor notepopover `BlockCard.tsx:1384`; horizontálně zůstává zarovnání ke sloupci. Malá změna v `plannerHoverTooltip.ts` + `BlockCard.tsx` + testy; dát Lukášovi vyzkoušet na testu.
 
 **Akceptace:** bublina nezakrývá hovorovanou kartu, sousední sloupec ani chipy; u spodního okraje okna se přehoupne nad kartu.
 
 ---
 
-## Etapa 9 — Rezervace: vizuální lámání přes noc (druhá vlna, bod 5) · odhad: S/M · čeká na V6 + odpověď Lukáše
+## Etapa 9 — Rezervace: PLNÉ tiskové hodiny (druhá vlna, bod 5) · odhad: L · **ROZHODNUTO 19. 8. (V6, Vojta): „jako u zakázky, se vším všudy"**
 
-**Kontext:** rezervace nemá tiskové hodiny záměrně (9 rozhodovacích míst `type !== "ZAKAZKA"`; rozhodnutí `a79a0346` kvůli 45min délkám). Plné lámání = L+ přestavba s migrací dat a tvrdou prerekvizitou dluhu `Reservation.scheduled*` — nedoporučeno teď.
+**Rozhodnutí:** rezervace se má lámat přes noc stejně jako zakázka — mechanika tiskových hodin se překlopí i na typ REZERVACE. Vizuální-only varianta zamítnuta. Před implementací **vlastní spec + detailní plán** (největší etapa vlny).
 
-**Doporučený rozsah (vizuální):** nová čistá funkce `rigidBlockSegments` (průnik intervalu start–end s blokovaným časem přes `weekShifts`/`companyDays`) → overlay „⏸ PAUZA — mimo provoz" i pro REZERVACE/UDRZBA v `TimelineGrid.blockSegmentsMap`; **`tryExpandForBlock` se NEuvolňuje** (jiný výpočet, zákaz z CLAUDE.md neporušen). Volitelně tooltip „X h v provozu (Y h celkem)". Žádná změna zápisů, snapů ani chain pushe → nezhoršuje žádný dluh.
+**Dobrá zpráva (ověřeno 19. 8.):** všechny délky rezervací jsou už dnes násobky 30 min — jediný selektor délky je `DURATION_OPTIONS` (`src/lib/plannerTypes.ts:49–54`, kroky po 30 min, sdílí builder, BlockEdit i rezervační `PlanningForm`). Mřížková podmínka tiskových hodin (`printMinutes % 30`) tedy existující data nerozbije; backfill = inverze spanu přes pauzy (`computePrintMinutes`).
 
-**Podmínka:** Lukášova odpověď, zda chce pauzu VIDĚT (→ tahle etapa), nebo garantovanou délku v pracovní době (→ velký projekt, plánovat zvlášť).
+**Rozsah (9 rozhodovacích míst z auditu §2 bod 5 + navazující):**
+1. **Prerekvizita — dluh `Reservation.scheduled*`** ([[rezervace-chain-push-dluh]]): chain push, drift ani reflow dnes `scheduledStartTime/EndTime` nesynchronizují; s tiskovými hodinami se konec rezervace začne měnit při každé změně kalendáře → **vyřešit PŘED překlopením** (zrcadlit scheduled* při každém zápisu bloku s `reservationId`, ideálně uvnitř `withRevision` cest).
+2. Migrace/backfill `printMinutes` existujících REZERVACE bloků (span − pauzy) + zápisové cesty přestat nulovat (`POST route.ts:286`, `PUT [id]/route.ts:220`).
+3. `validateAndComputeEnd` — zrušit early-return pro REZERVACE (`scheduleValidationServer.ts:100`); **UDRZBA zůstává rigidní** (vznikne třetí kategorie — všude, kde je dnes dichotomie `type !== "ZAKAZKA"`, rozlišit REZERVACE vs UDRZBA).
+4. Chain push: `chainPushGeometry` přepnout REZERVACE na tiskovou větev. **Rozhodnout ve specu:** ponechat rezervacím strop posunu (dnes 7 dní přes `MAX_RIGID_PUSH_MS`), nebo zdědí bezhorizontové chování zakázek? (Pojistka: potvrzovací dialog z etapy 6 kryje obě.)
+5. Klientské snapy (~6 míst: PlannerPage ×3, TimelineGrid ×2, paste marker) → start-only větev i pro REZERVACE; `durationPayload` v BlockEdit; resize.
+6. Kreslení: uvolnit typ v `tryExpandForBlock`/`getBlockSegments` pro REZERVACE — s revizí všech konzumentů (`blockReportSegments` — reporty R1–R4a začnou rezervace počítat jinak; ověřit dopad na vytížení).
+7. Drift: `detectCalendarDrift` + klientský `blockCalendarDrift` rozšířit o REZERVACE (+ tabulkový test parity) a `classifyCascade` u editace směn přestane rezervace tiše přeskakovat (ruší se vědomé zúžení — aktualizovat CLAUDE.md).
+8. Reflow („Přepočítat") povolit pro REZERVACE (`reflow.server.ts:110`).
+9. Undo: klientská historie rezervační bloky dnes záměrně vynechává (`PlannerPage.tsx:1678–1680`) — rozhodnout ve specu, zda to překlopení mění.
 
-**Akceptace:** rezervace ležící přes noc kreslí pauzový pás jako zakázka; její časy a chování se nemění.
+**Akceptace:** rezervace položená přes noc se roztáhne přes pauzu s pásem „⏸ PAUZA" a drží plnou délku v pracovní době; chain push, drift, „Přepočítat" i editace směn s ní zacházejí jako se zakázkou; obchodník v `/rezervace` vidí po každém posunu aktuální termín (scheduled* synchronní).
 
 ---
 
@@ -169,11 +183,11 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 1. **V1 → etapa 2:** povolit PLANOVAT celé `/reporty`? (doporučení: ano)
 2. ~~V2~~ **ROZHODNUTO 19. 8.:** ČÁSTEČNĚ VYDÁNO = varianta (a), mini tlačítko „½" (detailní plán `2026-08-19-material-castecne-vydano.md`).
 3. **V3 → pořadí velkých etap:** doporučení po druhé vlně: **0 (nasazení) → 6 (dokončení autoposunu) → 1 (materiál + Monitor štítky) → 7 (menu+zkratky) → 3 (skupinový přesun) → 8/9 (po rozhodnutích) → 2 → 4**.
-4. **V4 → etapa 6:** jen zapnuté potvrzení s prahem ~4, nebo i úplný vypínač autoposunu? (doporučení: nejdřív potvrzení + týden provozu)
-5. **V5 → etapa 8:** bublina pod kartu s flipem (doporučeno) vs. pevný dok?
-6. **V6 → etapa 9:** vizuální lámání rezervací jako první krok? (doporučení: ano; plné tiskové hodiny pro rezervace teď ne)
+4. ~~V4~~ **ROZHODNUTO 19. 8.:** dotáhnout potvrzovací dialog A přidat vypínač autoposunu (obojí, viz etapa 6 bod 4).
+5. ~~V5~~ **ROZHODNUTO 19. 8.:** bublina pod kartu s flipem (etapa 8).
+6. ~~V6~~ **ROZHODNUTO 19. 8.:** rezervace dostanou PLNÉ tiskové hodiny „jako u zakázky, se vším všudy" (etapa 9, L, vlastní spec; prerekvizita dluh `Reservation.scheduled*`).
 
-**Otázky na Lukáše (v konceptu e-mailu, audit druhé vlny §5):** práh autoposunu ~4 s potvrzením vs. úplné vypnutí · rezervace: vidět pauzu vs. garantovaná délka v pracovní době · + starší: kalendářní odstávky ve frontě, dny/směny osobně.
+**Otázky na Lukáše (v konceptu e-mailu):** hodnota prahu autoposunu (~4?) · + starší: kalendářní odstávky ve frontě, dny/směny osobně. (Otázka „vidět pauzu vs. garantovaná délka" ODPADÁ — rozhodnuto V6 plné lámání; dodatek e-mailu upravit.)
 
 ---
 
