@@ -2159,9 +2159,28 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
    * Do 19. 8. 2026 split krok NEZAPISOVAL vůbec, takže Ctrl+Z po něm sáhl po
    * PŘEDCHOZÍ, cizí akci — u splitu závažnější než u přepočtu, protože chain push
    * tam běží BEZPODMÍNEČNĚ u každé zakázky (žádný opt-in `resolveChain`).
+   *
+   * Strop `UNDO_MAX_OPS`, stejná pojistka jako `recordReflowUndo` — když dávka
+   * (ocas + hlava + odsunutí) přeroste, krok se ZÁMĚRNĚ nezaznamená a uživateli
+   * se to řekne — endpoint undo by ji stejně odmítl 400 a mlčky zaznamenaný krok
+   * by v historii jen svítil jako past. Dnes takovou dávku umí vrátit jen správce
+   * ze záznamu revizí (`BlockRevision`) — tlačítko „Vrátit tuto změnu" v historii
+   * bloku ani endpoint pro to (etapa D) zatím NEEXISTUJÍ. Až etapa D vznikne,
+   * text hlášky níže se má vrátit k odkazu na tlačítko v historii bloku.
    */
   function handleSplitDone(data: SplitDoneInfo): void {
     const { head, tail, shifted, before, headLive } = data;
+    const opCount = 1 /* ocas */ + 1 /* hlava */ + before.shifted.length;
+    if (opCount > UNDO_MAX_OPS) {
+      console.error("[historie] krok rozdělení se nezaznamenal — dávka přerostla strop", {
+        blocks: opCount, max: UNDO_MAX_OPS,
+      });
+      showToast(
+        `Rozdělení zasáhlo ${opCount} bloků — na Ctrl+Z je to moc. Vrátit ho umí jen správce ze záznamu revizí.`,
+        "info",
+      );
+      return;
+    }
     const snap = (b: Block): BlockSnapshot => ({
       id: b.id, startTime: b.startTime as string, endTime: b.endTime as string,
       machine: b.machine, updatedAt: b.updatedAt,
