@@ -1749,6 +1749,292 @@ git commit -m "feat(cascade): zapnuti vynuceni prahu po tydnu mereni"
 
 ---
 
+# ETAPA S — undo rozdělení zakázky (PŘED PRODUKCÍ)
+
+Objeveno 19. 8. 2026 při prokliku testovací instance. **Rozdělení zakázky nezapisuje krok do
+klientské historie**, takže Ctrl+Z po splitu sáhne po PŘEDCHOZÍ, cizí akci — doslova bod 3 ze
+specu §1, který tahle vlna opravila u přepočtu a u splitu ho nechala být.
+
+Není to regrese téhle vlny; ten stav v aplikaci byl už předtím. Ale u splitu je závažnější než
+u přepočtu, protože **chain push tam běží BEZPODMÍNEČNĚ u každé zakázky** (`split/route.ts:180`,
+žádný opt-in `resolveChain`), takže rozdělení může odsunout desítky navazujících bloků — a dnes
+to nejde vzít zpět ani Ctrl+Z, ani tlačítkem v historii (etapa D neexistuje), jen ručním skriptem
+přes SSH.
+
+**Proč před produkcí:** vlna se nasazuje s tvrzením „autoposun je od teď vratný". S nezapsaným
+splitem to tvrzení neplatí a plánovač na to přijde v nejhorší chvíli — až bude chtít vzít zpět
+kaskádu, kterou split způsobil.
+
+**Co serverová historie umí už dnes:** split běží uvnitř `withRevision`, takže hlava, ocas i
+odsunutí sousedé dostanou revizi pod jedním `groupId` a jsou vidět v panelu „Historie změn".
+Chybí jen cesta, jak to vrátit z UI.
+
+## Task S1: Split zapisuje krok do historie
+
+**Files:**
+- Modify: `src/app/api/blocks/[id]/split/route.ts` (odpověď o `before`)
+- Modify: `src/lib/undo/commands.ts` (`buildSplitCommand`)
+- Modify: `src/lib/undo/commands.test.ts`
+- Modify: `src/app/_components/TimelineGrid.tsx` (`handleSplitBlockAt` — předá data nahoru)
+- Modify: `src/app/_components/PlannerPage.tsx` (složí a zapíše krok)
+
+**Interfaces:**
+- Consumes: `moveToBefore` / `ReflowBeforeSnapshot` (`reflowBefore.server.ts`, etapa C1),
+  `AppliedMove` s `old*` poli, `posOp`/`guard`/`refresh` v `commands.ts`.
+- Produces:
+  ```ts
+  // odpověď split routy — NOVÉ pole vedle head/tail/shifted
+  before: {
+    head: { id: number; endTime: string; splitGroupId: number | null;
+            printMinutes: number | null; scheduleBypassed: boolean; updatedAt: string };
+    shifted: ReflowBeforeSnapshot[];
+  }
+
+  // src/lib/undo/commands.ts
+  export function buildSplitCommand(
+    label: string,
+    head: { id: number; beforeFields: Record<string, unknown>; afterFields: Record<string, unknown>;
+            beforeUpdatedAt: string; afterUpdatedAt: string },
+    tail: CreatedRef,
+    shiftedBefore: BlockSnapshot[],
+    shiftedAfter: BlockSnapshot[],
+  ): HistoryEntry
+  ```
+
+**Co krok dělá:**
+- **undo:** `remove` ocas · `upsert` hlavu s `beforeFields` · vrátit pozice odsunutých
+- **redo:** `upsert` ocas (vzkříšení se stejným `id` i `createdAt`, vzor `buildCreateCommand`) ·
+  `upsert` hlavu s `afterFields` · znovu odsunout
+
+**Čtyři věci, na kterých to stojí:**
+
+1. **Hlavě se mění JEN `endTime`, `splitGroupId`, a u ZAKAZKA `printMinutes` + `scheduleBypassed`**
+   (`split/route.ts:104-111`). `startTime` ani `machine` split nemění — do `beforeFields` je
+   nedávej, ať krok nezapisuje víc, než co se změnilo.
+2. **`splitGroupId` se NEVRACÍ na `null` natvrdo.** Když se dělí už rozdělená zakázka, hlava
+   svůj `splitGroupId` už měla a split ho jen převzal (`block.splitGroupId ?? create()`,
+   ř. 98). Snapshot proto musí nést PŮVODNÍ hodnotu, ať už je to `null` nebo číslo.
+3. **Osiřelý řádek `SplitGroup` po undu je v pořádku a nemaže se.** Členství se dotazuje
+   výhradně přes `where: { splitGroupId: X }` (`CLAUDE.md`), takže skupina bez členů nikomu
+   nevadí. Mazání by naopak muselo řešit souběh s druhým sourozencem.
+4. **`before.shifted` se skládá z `shiftedMoves`, ne z klientského stavu.** `AppliedMove` nese
+   od etapy C1 kompletní `old*` snapshot, takže stačí `shiftedMoves.map(m => moveToBefore(block.machine, m))`.
+   Klientský stav nestačí ze stejného důvodu jako u přepočtu — chain push posouvá i bloky mimo
+   načtený rozsah dní.
+
+**Kde se krok zapisuje:** `recordUndo` žije v `PlannerPage`, split se provádí v `TimelineGrid`.
+Přidej do `callbacksRef` callback `onSplitDone(data)` — `TimelineGrid` mu předá odpověď serveru
+i původní blok, `PlannerPage` z toho složí `buildSplitCommand` a zapíše ho. **Undo se NESKLÁDÁ
+v `TimelineGrid`** — jinak by se logika zapisování historie rozpadla do dvou souborů.
+
+- [ ] **Step 1: Napiš padající testy do `src/lib/undo/commands.test.ts`**
+
+```ts
+test("buildSplitCommand: undo smaže ocas, vrátí pole hlavy i pozice odsunutých", async () => {
+  const live = new Map([
+    [1, blk(1, { endTime: "2026-08-20T10:00:00.000Z", updatedAt: "h2" })],
+    [2, blk(2, { updatedAt: "t1" })],
+    [3, blk(3, { startTime: "2026-08-20T14:00:00.000Z", updatedAt: "s2" })],
+  ]);
+  const { effects, calls } = makeEffects(live);
+  const entry = buildSplitCommand(
+    "Rozdělení bloku",
+    { id: 1,
+      beforeFields: { endTime: "2026-08-20T14:00:00.000Z", splitGroupId: null, printMinutes: 360, scheduleBypassed: false },
+      afterFields:  { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 9, printMinutes: 240, scheduleBypassed: false },
+      beforeUpdatedAt: "h1", afterUpdatedAt: "h2" },
+    { id: 2, updatedAt: "t1", fields: { orderNumber: "X" }, createdAt: "2026-08-19T00:00:00.000Z" },
+    [{ id: 3, startTime: "2026-08-20T12:00:00.000Z", endTime: "2026-08-20T13:00:00.000Z", machine: "XL_105", updatedAt: "s1", printMinutes: 60, scheduleBypassed: false }],
+    [{ id: 3, startTime: "2026-08-20T14:00:00.000Z", endTime: "2026-08-20T15:00:00.000Z", machine: "XL_105", updatedAt: "s2", printMinutes: 60, scheduleBypassed: false }],
+  );
+  await entry.undo(effects);
+  const ops = calls.undo[0].ops;
+  assert.equal(ops.filter((o) => o.kind === "remove").length, 1, "ocas se maže");
+  assert.equal(ops.find((o) => o.kind === "remove").id, 2);
+  const headOp = ops.find((o) => o.kind === "upsert" && o.id === 1);
+  assert.equal(headOp.fields.endTime, "2026-08-20T14:00:00.000Z", "hlavě se vrací PŮVODNÍ konec");
+  assert.equal(headOp.fields.splitGroupId, null);
+  assert.equal(headOp.fields.printMinutes, 360);
+  assert.ok(!("startTime" in headOp.fields), "startTime split nemění → krok ho nesmí zapisovat");
+  const shiftOp = ops.find((o) => o.kind === "upsert" && o.id === 3);
+  assert.equal(shiftOp.fields.startTime, "2026-08-20T12:00:00.000Z");
+});
+
+test("buildSplitCommand: redo ocas vzkřísí a hlavu zase zkrátí", async () => {
+  const live = new Map([
+    [1, blk(1, { endTime: "2026-08-20T14:00:00.000Z", updatedAt: "h1" })],
+    [3, blk(3, { startTime: "2026-08-20T12:00:00.000Z", updatedAt: "s1" })],
+  ]);
+  const { effects, calls } = makeEffects(live);
+  const entry = buildSplitCommand("Rozdělení bloku",
+    { id: 1, beforeFields: { endTime: "2026-08-20T14:00:00.000Z", splitGroupId: null, printMinutes: 360, scheduleBypassed: false },
+      afterFields: { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 9, printMinutes: 240, scheduleBypassed: false },
+      beforeUpdatedAt: "h1", afterUpdatedAt: "h2" },
+    { id: 2, updatedAt: "t1", fields: { orderNumber: "X" }, createdAt: "2026-08-19T00:00:00.000Z" },
+    [{ id: 3, startTime: "2026-08-20T12:00:00.000Z", endTime: "2026-08-20T13:00:00.000Z", machine: "XL_105", updatedAt: "s1", printMinutes: 60, scheduleBypassed: false }],
+    [{ id: 3, startTime: "2026-08-20T14:00:00.000Z", endTime: "2026-08-20T15:00:00.000Z", machine: "XL_105", updatedAt: "s2", printMinutes: 60, scheduleBypassed: false }],
+  );
+  await entry.redo(effects);
+  const ops = calls.undo[0].ops;
+  assert.equal(calls.undo[0].direction, "redo");
+  const tailOp = ops.find((o) => o.id === 2);
+  assert.equal(tailOp.kind, "upsert", "ocas se vzkřísí, ne maže");
+  assert.equal(tailOp.createdAt, "2026-08-19T00:00:00.000Z", "vzkříšení nese původní createdAt");
+  assert.equal(ops.find((o) => o.id === 1).fields.endTime, "2026-08-20T10:00:00.000Z");
+});
+
+test("buildSplitCommand: PŮVODNÍ splitGroupId se vrací, ne natvrdo null", async () => {
+  // Dělení už rozdělené zakázky — hlava svou skupinu měla a split ji jen převzal.
+  const live = new Map([[1, blk(1, { updatedAt: "h2" })], [2, blk(2, { updatedAt: "t1" })]]);
+  const { effects, calls } = makeEffects(live);
+  await buildSplitCommand("Rozdělení bloku",
+    { id: 1, beforeFields: { endTime: "2026-08-20T14:00:00.000Z", splitGroupId: 5, printMinutes: 360, scheduleBypassed: false },
+      afterFields: { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 5, printMinutes: 240, scheduleBypassed: false },
+      beforeUpdatedAt: "h1", afterUpdatedAt: "h2" },
+    { id: 2, updatedAt: "t1", fields: {}, createdAt: "2026-08-19T00:00:00.000Z" }, [], [],
+  ).undo(effects);
+  assert.equal(calls.undo[0].ops.find((o) => o.id === 1).fields.splitGroupId, 5);
+});
+```
+
+- [ ] **Step 2: Spusť a ověř, že padají**
+
+```bash
+node --test --import tsx src/lib/undo/commands.test.ts
+```
+Očekávané: FAIL — `buildSplitCommand is not a function`.
+
+- [ ] **Step 3: Přidej `buildSplitCommand` do `src/lib/undo/commands.ts`**
+
+Vzor je `buildCreateCommand` (ř. 274) — tvar operací i práce s `refresh`/`addToState`/`removeFromState`
+se od něj liší jen tím, že přibývá editace hlavy:
+
+```ts
+/**
+ * Krok historie po rozdělení zakázky.
+ *
+ * Split dělá TŘI věci naráz: zkrátí hlavu, vytvoří ocas a chain pushem odsune navazující
+ * bloky. Žádný ze stávajících builderů takový tvar nemá — `buildCreateCommand` umí
+ * create + odsunuté, `buildEditCommand` edit + odsunuté, tohle potřebuje obojí.
+ *
+ * Do 19. 8. 2026 split krok NEZAPISOVAL vůbec, takže Ctrl+Z po něm sáhl po PŘEDCHOZÍ,
+ * cizí akci — táž vada, jakou tahle vlna opravila u přepočtu (spec §1, bod 3).
+ */
+export function buildSplitCommand(
+  label: string,
+  head: { id: number; beforeFields: Record<string, unknown>; afterFields: Record<string, unknown>;
+          beforeUpdatedAt: string; afterUpdatedAt: string },
+  tail: CreatedRef,
+  shiftedBefore: BlockSnapshot[] = [],
+  shiftedAfter: BlockSnapshot[] = [],
+): HistoryEntry {
+  return {
+    label,
+    undo: async (effects) => {
+      const liveTail = effects.getLiveBlock(tail.id);
+      if (!liveTail || liveTail.updatedAt !== tail.updatedAt) throw new StaleUndoError();
+      guard(effects, shiftedAfter);
+      const expMap = new Map(shiftedAfter.map((e) => [e.id, e.updatedAt]));
+      const res = await effects.applyUndo({
+        label, direction: "undo",
+        ops: [
+          { kind: "remove", id: tail.id, expectedUpdatedAt: tail.updatedAt },
+          { kind: "upsert", id: head.id, expectedUpdatedAt: head.afterUpdatedAt, fields: head.beforeFields },
+          ...shiftedBefore.map((t) => posOp(t, expMap.get(t.id))),
+        ],
+      });
+      refresh(shiftedBefore, res.updated);
+      effects.removeFromState(res.removed);
+      effects.addToState(res.updated);
+      return affected(res);
+    },
+    redo: async (effects) => {
+      guard(effects, shiftedBefore);
+      const expMap = new Map(shiftedBefore.map((e) => [e.id, e.updatedAt]));
+      const res = await effects.applyUndo({
+        label, direction: "redo",
+        ops: [
+          { kind: "upsert", id: tail.id, fields: tail.fields, createdAt: tail.createdAt },
+          { kind: "upsert", id: head.id, expectedUpdatedAt: head.beforeUpdatedAt, fields: head.afterFields },
+          ...shiftedAfter.map((t) => posOp(t, expMap.get(t.id))),
+        ],
+      });
+      refresh(shiftedAfter, res.updated);
+      effects.addToState(res.updated);
+      return affected(res);
+    },
+  };
+}
+```
+
+- [ ] **Step 4: Spusť testy a ověř, že prochází**
+
+```bash
+node --test --import tsx src/lib/undo/commands.test.ts
+```
+
+- [ ] **Step 5: Server — split vrací `before`**
+
+V `src/app/api/blocks/[id]/split/route.ts`:
+- import `moveToBefore` z `@/lib/reflowBefore.server`
+- PŘED krokem 6 (update hlavy) si ulož původní hodnoty z už načteného `block`:
+  ```ts
+  // Snapshot hlavy PŘED zkrácením — Ctrl+Z ho potřebuje, aby split šel vzít zpět.
+  // Jen pole, která split SKUTEČNĚ mění; `startTime`/`machine` zůstávají.
+  const headBefore = {
+    id: block.id,
+    endTime: block.endTime.toISOString(),
+    splitGroupId: block.splitGroupId,          // POZOR: u už rozdělené zakázky NENÍ null
+    printMinutes: block.printMinutes,
+    scheduleBypassed: block.scheduleBypassed,
+    updatedAt: block.updatedAt.toISOString(),
+  };
+  ```
+- do `NextResponse.json` přidej:
+  ```ts
+  before: { head: headBefore, shifted: shiftedMoves.map((m) => moveToBefore(block.machine, m)) },
+  ```
+
+- [ ] **Step 6: Klient — `TimelineGrid` předá data nahoru, `PlannerPage` zapíše krok**
+
+`TimelineGrid.tsx`, `handleSplitBlockAt`: za `onBlockCreate(tail)` přidej
+```ts
+callbacksRef.current.onSplitDone?.({ head, tail, shifted: shifted ?? [], before, headLive });
+```
+kde `before` je z odpovědi a `headLive` je blok, jak vypadal PŘED splitem (parametr `block`).
+Typ callbacku dej do stejného rozhraní jako `onBlockUpdate`/`onError`.
+
+`PlannerPage.tsx`: implementuj `onSplitDone` tak, že složí `buildSplitCommand` a zavolá
+`recordUndo`. `afterFields` poskládej z vrácené `head` (endTime, splitGroupId, printMinutes,
+scheduleBypassed), `shiftedBefore` z `before.shifted`, `shiftedAfter` ze serializovaných
+`shifted` bloků v odpovědi.
+
+- [ ] **Step 7: Kontroly**
+
+```bash
+npx tsc --noEmit
+npx eslint src/app/_components/PlannerPage.tsx src/app/_components/TimelineGrid.tsx
+node --experimental-test-module-mocks --test --import tsx \
+  src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/app/api/blocks/\[id\]/split/route.ts src/lib/undo/commands.ts src/lib/undo/commands.test.ts \
+  src/app/_components/TimelineGrid.tsx src/app/_components/PlannerPage.tsx
+git commit -m "feat(split): rozdeleni zakazky se zapisuje do historie - Ctrl+Z ho vrati"
+```
+
+- [ ] **Step 9: Ruční proklik (patří uživateli, neprovádět za něj)**
+
+- [ ] Rozdělit zakázku, která odsune navazující → Ctrl+Z vrátí hlavu, smaže ocas i vrátí odsunuté
+- [ ] Ctrl+Z hned po splitu **nesmí vrátit cizí akci**
+- [ ] Redo split zopakuje
+- [ ] Rozdělit **už rozdělenou** zakázku → Ctrl+Z vrátí původní `splitGroupId`, ne `null`
+
+---
+
 # ETAPA D — „vrátit revizní skupinu" jako funkce aplikace
 
 Dnes to umí jen `scripts/revert-revision-group.ts` (674 řádků, pouští se ručně přes SSH). Etapa z něj vytáhne pravidla do sdíleného modulu a postaví nad nimi endpoint a tlačítko. **Skript zůstává** — je to nástroj pro situaci, kdy aplikace neběží, a po refaktoru jede na tomtéž jádře, takže se ta dvě chování nemůžou rozejít.
