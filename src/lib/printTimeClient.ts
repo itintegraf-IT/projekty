@@ -7,6 +7,7 @@ import {
   type ExpandResult,
   type PrintSegment,
 } from "@/lib/printTime";
+import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 
 /**
  * Klient-safe helpery modelu tiskových hodin (žádná DB, žádný server import).
@@ -98,6 +99,102 @@ export function snapGroupDeltaStartOnly(
     wasSnapped = true;
   }
   return { deltaMs: delta, wasSnapped };
+}
+
+export type GroupSnapBlock = {
+  id: number;
+  machine: string;
+  type: string;
+  originalStart: Date;
+  originalEnd: Date;
+  printMinutes?: number | null;
+  scheduleBypassed?: boolean | null;
+};
+
+export type GroupSnapResult = { id: number; start: Date; end: Date };
+
+/**
+ * Per-blok snap skupinového (lasso) přesunu se zachováním pořadí — nahrazuje
+ * sdílenou deltu (`snapGroupDeltaStartOnly`), která byla "rohatka" umějící
+ * korigovat jen dopředu (audit 12. 8. bod 1, plán etapy 3).
+ *
+ * Bloky se zpracují SEŘAZENÉ dle originalStart, v JEDNOM průchodu (žádná
+ * vnější iterace jako stará 5pokusová konvergence — ta u nekonvergujícího
+ * vstupu vracela nediagnostické 422). První blok se snapne z `start + delta`;
+ * každý další nesmí začít dřív, než tiskově končí předchůdce (`prevEnd`) —
+ * proto se v tom případě znovu snapne, tentokrát OD `prevEnd`.
+ *
+ * Per-blok dispatch podle typu: ZAKAZKA = start-only snap + expandPrintTime
+ * (délka se rozloží přes kalendář); REZERVACE/UDRZBA = rigidní snap se
+ * ZACHOVANOU přesnou délkou (žádná expanze). `scheduleBypassed` členy se
+ * posouvají DOSLOVNĚ o `proposedDeltaMs` — nesmí se re-expandovat (server
+ * má na bypass sticky-OR, viz batch/route.ts) ani navazovat na řetěz.
+ *
+ * Vrací `null`, když některý (ne-bypass) blok nejde v horizontu umístit —
+ * volající mutaci neodešle (analogie dnešního "V okolí není žádný pracovní
+ * slot"). `wasSnapped` signalizuje UI, že se něco reálně přeplánovalo.
+ */
+export function snapGroupPerBlock(
+  blocks: GroupSnapBlock[],
+  proposedDeltaMs: number,
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: Parameters<typeof companyDayIntervalsFor>[1]
+): { results: GroupSnapResult[]; wasSnapped: boolean } | null {
+  const sorted = [...blocks].sort((a, b) => a.originalStart.getTime() - b.originalStart.getTime());
+  const intervalsByMachine = new Map<string, ReturnType<typeof companyDayIntervalsFor>>();
+  const intervalsFor = (m: string) => {
+    if (!intervalsByMachine.has(m)) intervalsByMachine.set(m, companyDayIntervalsFor(m, companyDays));
+    return intervalsByMachine.get(m)!;
+  };
+
+  const results: GroupSnapResult[] = [];
+  let wasSnapped = false;
+  let prevEnd: Date | null = null;
+
+  for (const b of sorted) {
+    const naiveStart = new Date(b.originalStart.getTime() + proposedDeltaMs);
+    const durationMs = b.originalEnd.getTime() - b.originalStart.getTime();
+
+    if (b.scheduleBypassed) {
+      const start = naiveStart;
+      const end = new Date(start.getTime() + durationMs);
+      results.push({ id: b.id, start, end });
+      prevEnd = end;
+      continue;
+    }
+
+    const isZakazka = b.type === "ZAKAZKA";
+    const snapOwn = (from: Date): Date | null =>
+      isZakazka
+        ? snapStartToNextRunnableSlot(b.machine, from, weekShifts, intervalsFor(b.machine))
+        : snapToNextValidStartWithTemplates(b.machine, from, durationMs, weekShifts);
+
+    let start = snapOwn(naiveStart);
+    if (!start) return null;
+    if (start.getTime() !== naiveStart.getTime()) wasSnapped = true;
+
+    if (prevEnd && prevEnd.getTime() > start.getTime()) {
+      const bumped = snapOwn(prevEnd);
+      if (!bumped) return null;
+      if (bumped.getTime() !== start.getTime()) wasSnapped = true;
+      start = bumped;
+    }
+
+    let end: Date;
+    if (isZakazka) {
+      const pm = blockPrintMinutes({ type: b.type, printMinutes: b.printMinutes, startTime: b.originalStart, endTime: b.originalEnd });
+      const exp = expandPrintTime(b.machine, start, pm, weekShifts, intervalsFor(b.machine), false);
+      if (!exp.ok) return null;
+      end = exp.end;
+    } else {
+      end = new Date(start.getTime() + durationMs);
+    }
+
+    results.push({ id: b.id, start, end });
+    prevEnd = end;
+  }
+
+  return { results, wasSnapped };
 }
 
 /**

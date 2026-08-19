@@ -5,6 +5,7 @@ import {
   blockPrintMinutes,
   companyDayIntervalsFor,
   snapGroupDeltaStartOnly,
+  snapGroupPerBlock,
   getBlockSegments,
   printMidpoint,
   blockCalendarDrift,
@@ -13,7 +14,7 @@ import {
   splitGroupTotalPrintMinutes,
   formatPrintHoursShort,
 } from "./printTimeClient";
-import { xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
+import { mkDay, xl106Week, W1, W2 } from "./weekShiftsTestFixtures";
 
 const SHIFTS = [...xl106Week(W1), ...xl106Week(W2)];
 
@@ -448,4 +449,94 @@ test("formatPrintHoursShort: NaN/nekonečno/nekladné → 0h (rozbitá data nesm
   assert.equal(formatPrintHoursShort(Infinity), "0h");
   assert.equal(formatPrintHoursShort(-90), "0h");
   assert.equal(formatPrintHoursShort(0), "0h");
+});
+
+test("snapGroupPerBlock — scénář A: tažení dopředu přes noc nechá přední bloky na místě, jen ocas přeteče", () => {
+  // Blok 1 Pá 20:00-21:00 (60 min), blok 2 Pá 21:00-21:30 (30 min) — těsně před
+  // koncem páteční směny (ta končí 22:00). Delta +1h: první blok skončí přesně
+  // na hranici (21:00-22:00, žádný přesah). Druhý by naivně začal přesně
+  // v odstávce (Pá 22:00) a musí SÁM přeskočit na Ne 22:00 — bez teleportu
+  // prvního bloku, který zůstává na místě (jeho naivní pozice je sama o sobě
+  // platná, není co snapovat).
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 20), originalEnd: pragueToUTC("2026-08-21", 21), printMinutes: 60 },
+    { id: 2, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 21), originalEnd: pragueToUTC("2026-08-21", 21, 30), printMinutes: 30 },
+  ];
+  const r = snapGroupPerBlock(blocks, 3600000, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  const b1 = r!.results.find((x) => x.id === 1)!;
+  const b2 = r!.results.find((x) => x.id === 2)!;
+  assert.deepEqual(b1.start, pragueToUTC("2026-08-21", 21), "první blok zůstává v pracovní době, žádný teleport");
+  assert.deepEqual(b1.end, pragueToUTC("2026-08-21", 22));
+  assert.deepEqual(b2.start, pragueToUTC("2026-08-23", 22), "druhý blok sám přeskočí odstávku na Ne 22:00");
+  assert.deepEqual(b2.end, pragueToUTC("2026-08-23", 22, 30));
+  assert.equal(r!.wasSnapped, true);
+});
+
+test("snapGroupPerBlock — scénář B: tažení zpět přes hranici směny stáhne k nejbližšímu platnému slotu (žádný no-op)", () => {
+  // Blok Po 08:00-10:00, delta -34h by ho poslala do soboty (odstávka celý den).
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-24", 8), originalEnd: pragueToUTC("2026-08-24", 10), printMinutes: 120 },
+  ];
+  const r = snapGroupPerBlock(blocks, -34 * 3600000, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  const b1 = r!.results[0]!;
+  // Naivní cíl by byl So 22.8. 22:00 (odstávka) → musí se posunout dopředu na Ne 22:00.
+  assert.deepEqual(b1.start, pragueToUTC("2026-08-23", 22));
+  assert.notDeepEqual(b1.start, blocks[0]!.originalStart, "žádný tichý no-op — pozice se skutečně změnila");
+  assert.equal(r!.wasSnapped, true);
+});
+
+test("snapGroupPerBlock — scénář C: žádný falešný intra-batch překryv po expanzi přes pauzu", () => {
+  // Dva bloky původně s malou mezerou (Pá 20:00-21:30 a Pá 21:30-23:00 by kolidoval s
+  // odstávkou); delta 0 — ověřuje, že sekvenční expanze druhého bloku od konce prvního
+  // (přes pauzu) nevyrobí start dřív, než končí předchůdce.
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 20), originalEnd: pragueToUTC("2026-08-21", 21, 30), printMinutes: 90 },
+    { id: 2, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-23", 22), originalEnd: pragueToUTC("2026-08-24", 0), printMinutes: 120 },
+  ];
+  const r = snapGroupPerBlock(blocks, 0, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  const b1 = r!.results.find((x) => x.id === 1)!;
+  const b2 = r!.results.find((x) => x.id === 2)!;
+  assert.ok(b2.start.getTime() >= b1.end.getTime(), "druhý blok nezačíná dřív, než končí první");
+  assert.equal(r!.wasSnapped, false, "beze změny delty se nic nesnapuje");
+});
+
+test("snapGroupPerBlock — scénář D: jeden průchod, žádná iterace — vrací null místo nekonvergující smyčky", () => {
+  // Odstávka pokrývající CELÝ horizont MAX_SPAN_DAYS (21 dní) od navrhovaného startu —
+  // čtyři po sobě jdoucí týdny (chybějící týden by tiše spadl na hardcoded fallback
+  // rozvrh, který NENÍ vždy blokovaný — viz isBlockedSlotDynamic). Funkce musí selhat
+  // rychle a čitelně (null), ne padat do nekonečné/nekonvergentní smyčky.
+  const offWeeks = [W1, W2, "2026-08-31", "2026-09-07"].flatMap((ws) =>
+    [0, 1, 2, 3, 4, 5, 6].map((d) => mkDay(ws, d, { active: false }))
+  );
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-17", 8), originalEnd: pragueToUTC("2026-08-17", 10), printMinutes: 120 },
+  ];
+  const r = snapGroupPerBlock(blocks, 3600000, offWeeks, []);
+  assert.equal(r, null);
+});
+
+test("snapGroupPerBlock — scheduleBypassed člen se posune doslovně, neúčastní se snapu ani řetězu", () => {
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-22", 10), originalEnd: pragueToUTC("2026-08-22", 12), printMinutes: 120, scheduleBypassed: true },
+  ];
+  const r = snapGroupPerBlock(blocks, 3600000, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  // So 10:00 + 1h = So 11:00 — leží v odstávce, ALE bypass blok se nesnapuje.
+  assert.deepEqual(r!.results[0]!.start, pragueToUTC("2026-08-22", 11));
+  assert.deepEqual(r!.results[0]!.end, pragueToUTC("2026-08-22", 13));
+});
+
+test("snapGroupPerBlock — smíšený výběr: REZERVACE se snapuje rigidně (přesná délka), ne přes expanzi", () => {
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 18), originalEnd: pragueToUTC("2026-08-21", 20), printMinutes: 120 },
+    { id: 2, machine: "XL_106", type: "REZERVACE", originalStart: pragueToUTC("2026-08-21", 20), originalEnd: pragueToUTC("2026-08-21", 21) },
+  ];
+  const r = snapGroupPerBlock(blocks, 3600000, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  const b2 = r!.results.find((x) => x.id === 2)!;
+  // Rigidní délka 1h se zachovává přesně, žádné rozpuštění přes pauzu.
+  assert.equal(b2.end.getTime() - b2.start.getTime(), 3600000);
 });
