@@ -24,7 +24,7 @@
 
 ---
 
-## Etapa 1 — Stav materiálu „ČÁSTEČNĚ VYDÁNO" · odhad: M (~den) · čeká na rozhodnutí V2 (varianta UI)
+## Etapa 1 — Stav materiálu „ČÁSTEČNĚ VYDÁNO" · odhad: M (~den) · **ROZHODNUTO 19. 8.: varianta (a) — mini tlačítko „½"** (Vojta, po interaktivním mockupu)
 
 **Korekce 19. 8.:** původní odhad S („přes admin číselník") mířil na špatný mechanismus. Skladníci myslí **stavová tlačítka SKLAD/VYDÁNO** (`materialInStock`/`materialIssued` — dva Booleany na `Block`, `prisma/schema.prisma:128–129`; UI `BlockEdit.tsx:1150–1155`; chip „M SKLAD/VYD." na kartě). Nový stav = změna kódu.
 
