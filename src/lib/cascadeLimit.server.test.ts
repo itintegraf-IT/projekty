@@ -51,6 +51,68 @@ test("nad prahem, confirmed: false, režim MĚŘENÍ → nehází (dnešní stav
   );
 });
 
+test("nad prahem, režim MĚŘENÍ → loguje machine/anchorId a maxShiftMinutes vedle maxShiftHours", async (t) => {
+  const logged: unknown[] = [];
+  // `t.mock.module` (test-context-scoped, ne top-level `mock`) se automaticky
+  // vrátí po konci testu — jinak by druhý test níž na téže mockované cestě
+  // `@/lib/logger` narazil na "module is already mocked".
+  t.mock.module("@/lib/logger", {
+    namedExports: {
+      logger: {
+        info: (_label: string, detail?: unknown) => { logged.push(detail); },
+        warn: () => {},
+        error: () => {},
+      },
+    },
+  });
+  // ?logspy=1 = cache-busting, viz komentář v hlavě souboru — potřebujeme instanci
+  // `cascadeLimit.server` navázanou na PODSTRČENÝ `@/lib/logger`, ne na reálný.
+  // @ts-expect-error -- viz komentář výš, modul s query suffixem neexistuje staticky
+  const { assertCascadeConfirmed: assertWithLogSpy } = await import("./cascadeLimit.server?logspy=1");
+
+  const farthestEnd = new Date("2026-09-01T00:00:00.000Z");
+  // 20 minut je záměrně POD hodinou: Math.round(ms / 3_600_000) z toho vyjde 0,
+  // přesně ten tvar, který u incidentu 17. 8. 2026 četl "neposunulo se" —
+  // šlo o desítky minut, ne o celé hodiny, ale zaokrouhlené hodiny to smazaly.
+  assertWithLogSpy(
+    impact({ exceeded: true, movedCount: 6, maxShiftMs: 20 * 60_000, farthestEnd }),
+    { confirmed: false, path: "test", machine: "XL 105", anchorId: 4242 },
+  );
+
+  assert.equal(logged.length, 1);
+  assert.deepEqual(logged[0], {
+    path: "test",
+    movedCount: 6,
+    maxShiftHours: 0,
+    maxShiftMinutes: 20,
+    farthestEnd: farthestEnd.toISOString(),
+    enforced: false,
+    machine: "XL 105",
+    anchorId: 4242,
+  });
+});
+
+test("nad prahem, režim MĚŘENÍ, bez machine/anchorId → loguje null (souhrnná volání bez jedné kotvy)", async (t) => {
+  const logged: unknown[] = [];
+  t.mock.module("@/lib/logger", {
+    namedExports: {
+      logger: {
+        info: (_label: string, detail?: unknown) => { logged.push(detail); },
+        warn: () => {},
+        error: () => {},
+      },
+    },
+  });
+  // @ts-expect-error -- viz komentář výš, modul s query suffixem neexistuje staticky
+  const { assertCascadeConfirmed: assertWithLogSpy } = await import("./cascadeLimit.server?logspy=2");
+
+  assertWithLogSpy(impact({ exceeded: true, movedCount: 40 }), { confirmed: false, path: "reflow-machine" });
+
+  assert.equal(logged.length, 1);
+  assert.equal((logged[0] as { machine: unknown }).machine, null);
+  assert.equal((logged[0] as { anchorId: unknown }).anchorId, null);
+});
+
 test("nad prahem, confirmed: false, režim VYNUCENÍ → hodí AppError CASCADE_CONFIRM s details", async () => {
   mock.module("@/lib/cascadeLimit", {
     namedExports: {

@@ -239,7 +239,7 @@ export async function resolveChainPushFromDb(
           oldStartTime: rowById.get(m.id)!.startTime,
         })),
       ),
-      { confirmed: opts.cascadeConfirmed === true, path: opts.path ?? "chain-push" },
+      { confirmed: opts.cascadeConfirmed === true, path: opts.path ?? "chain-push", machine, anchorId: anchor.id },
     );
   }
 

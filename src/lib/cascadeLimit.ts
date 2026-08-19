@@ -43,6 +43,15 @@ export type CascadeImpact = {
  * nejnebezpečnější případ by tak mohl proklouznout pod `MAX_RIGID_PUSH_MS`.
  * Uvnitř JEDNOHO volání `resolveChainPushFromDb` je `id` vždycky unikátní,
  * takže je dedup tam no-op; existuje kvůli součtům u volajících.
+ *
+ * „První výskyt vyhrává, poslední určuje cílovou pozici" platí JEN když volající
+ * sbírá posuny SEKVENČNĚ — obě dnešní souhrnná volání (smyčka kotev v
+ * `batch/route.ts`, smyčka driftnutých bloků v `reflowMachineInTx`) jsou
+ * `for … await`, takže `moves` přibývají v pořadí, v jakém se volání skutečně
+ * provedla. Kdyby je někdo zparalelizoval na `Promise.all`, pořadí v poli by
+ * odpovídalo tomu, které volání doběhlo dřív, ne tomu, které bylo dřív
+ * ZAVOLÁNO — „první výskyt" by tak vybral náhodnou mezipolohu místo skutečné
+ * výchozí pozice a `maxShiftMs` by se měřil proti ní; práh by tiše pod-hlásil.
  */
 export function measureCascade(
   moves: ReadonlyArray<{ id: number; startTime: Date; endTime: Date; oldStartTime: Date }>,

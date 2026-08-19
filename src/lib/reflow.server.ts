@@ -375,7 +375,7 @@ export async function reflowMachineInTx(
   // Součet přes celý běh: každý blok si chain push kontroluje sám, ale hromadný
   // přepočet jich spustí desítky — a uživatele zajímá dopad CELÉHO tlačítka.
   assertCascadeConfirmed(measureCascade(allMoves), {
-    confirmed: cascadeConfirmed, path: "reflow-machine",
+    confirmed: cascadeConfirmed, path: "reflow-machine", machine,
   });
 
   return { reflowed, skipped, movedIds: [...movedIdSet], before: [...beforeById.values()] };

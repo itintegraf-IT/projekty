@@ -12,7 +12,20 @@ import { cascadeConfirmMessage, CASCADE_CONFIRM_ENFORCED, type CascadeImpact } f
  */
 export function assertCascadeConfirmed(
   impact: CascadeImpact,
-  opts: { confirmed: boolean; path: string },
+  opts: {
+    confirmed: boolean;
+    path: string;
+    /**
+     * Identita gesta pro log — na kterém stroji a od kterého bloku (kotvy) se
+     * kaskáda spočítala. Bez toho nejde po týdnu měření rozeznat, jestli 31
+     * překročení znamená jednoho plánovače opakovaně tahajícího na jednom
+     * stroji, nebo 31 různých zakázek napříč strojem. Volitelné: souhrnná
+     * volání za celé gesto (`batch-total`, `reflow-machine`) nemají jedinou
+     * kotvu, `reflow-machine` má aspoň `machine`.
+     */
+    machine?: string;
+    anchorId?: number;
+  },
 ): void {
   if (!impact.exceeded || opts.confirmed) return;
 
@@ -20,8 +33,15 @@ export function assertCascadeConfirmed(
     path: opts.path,
     movedCount: impact.movedCount,
     maxShiftHours: Math.round(impact.maxShiftMs / 3_600_000),
+    // Doplňkově k maxShiftHours: Math.round(ms / 3_600_000) u třicetiminutové
+    // kaskády vyjde 0 — a přesně třicetiminutový posun spustil havárii
+    // 17. 8. 2026. Pole, které u nejnebezpečnějšího případu ukazuje nulu, se
+    // čte jako „neposunulo se", proto minuty vedle hodin, ne místo nich.
+    maxShiftMinutes: Math.round(impact.maxShiftMs / 60_000),
     farthestEnd: impact.farthestEnd?.toISOString() ?? null,
     enforced: CASCADE_CONFIRM_ENFORCED,
+    machine: opts.machine ?? null,
+    anchorId: opts.anchorId ?? null,
   };
 
   if (!CASCADE_CONFIRM_ENFORCED) {

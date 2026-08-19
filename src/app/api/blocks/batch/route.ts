@@ -220,7 +220,14 @@ export async function POST(request: NextRequest) {
 
         // Součet přes celou dávku — jednotlivé kotvy můžou být každá pod prahem,
         // ale uživatel provedl JEDNO gesto a zajímá ho jeho celkový dopad.
-        assertCascadeConfirmed(measureCascade(shiftedMoves), { confirmed: cascadeConfirmed, path: "batch-total" });
+        // `machine` do logu jen když je dávka na JEDNOM stroji — lasso přes víc
+        // strojů nemá jednu identitu gesta, radši vynechat než lhát.
+        const machines = new Set(updates.map((u) => u.machine));
+        assertCascadeConfirmed(measureCascade(shiftedMoves), {
+          confirmed: cascadeConfirmed,
+          path: "batch-total",
+          machine: machines.size === 1 ? updates[0]!.machine : undefined,
+        });
 
         if (shiftedMoves.length > 0) {
           await tx.auditLog.createMany({
