@@ -1,13 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { blockPrintMinutes, formatPrintHoursShort, type CalendarDriftInfo } from "@/lib/printTimeClient";
 import { isParkedDrift } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
 import { BLOCK_STYLES, BLOCK_OVERDUE_ALARM, BLOCK_PRINT_DONE, OVERDUE_ALARM, getBlockStyleKey, tint } from "@/lib/blockStyles";
 import { isOverdueUnacknowledged } from "@/lib/overdueState";
-import { hoverTooltipLeft, TOOLTIP_W } from "@/lib/plannerHoverTooltip";
+import { hoverTooltipLeft, hoverTooltipTop, TOOLTIP_W } from "@/lib/plannerHoverTooltip";
 import {
   civilDateToUTCMidnight,
   formatPragueDateShort,
@@ -328,6 +328,19 @@ export function BlockCard({
   const [badgeHovered, setBadgeHovered]   = useState(false);
   const [printPending, setPrintPending]   = useState(false);
   const blockCardRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltipHeight, setTooltipHeight] = useState(0);
+
+  // Naměří skutečnou výšku hover bubliny PO jejím vykreslení do DOM, ale PŘED
+  // prvním malováním obrazovky (proto useLayoutEffect, ne useEffect) — díky
+  // tomu uživatel nikdy neuvidí bublinu na provizorní pozici z prvního snímku.
+  // Bez deps pole běží po každém commitu (zavřená bublina → tooltipRef.current
+  // je null → měřená výška 0 → stav se sám vrátí na 0). `setState` s hodnotou
+  // shodnou s předchozí Reactu bail-outuje, takže to nezpůsobí smyčku.
+  useLayoutEffect(() => {
+    const measured = tooltipRef.current?.getBoundingClientRect().height ?? 0;
+    setTooltipHeight((prev) => (prev === measured ? prev : measured));
+  });
   const compactDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compactMatTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compactPanTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1463,9 +1476,10 @@ export function BlockCard({
       )}
 
       {/* ── Hover bublina — portálovaná mimo stacking context. Ukazuje se nad KAŽDOU
-             kartou kromě údržby (`showTooltip` výš), ne jen nad nízkými; poznámka
-             „pro malé bloky (< 60px)" tu visela od doby, kdy podmínka na výšku
-             existovala, a od jejího zrušení lhala. ── */}
+             kartou kromě údržby (`showTooltip` výš), ne jen nad nízkými. Vodorovně
+             se zarovnává ke sloupci stroje (`hoverTooltipLeft`); svisle sedí POD
+             kartou s flipem nahoru u spodního okraje okna (`hoverTooltipTop`,
+             rozhodnutí V5, 19. 8. 2026) — nezakrývá už ani hovorovanou kartu. ── */}
       {showTooltip && hovered && (() => {
         const rect = blockCardRef.current?.getBoundingClientRect();
         if (!rect || typeof document === "undefined") return null;
@@ -1483,7 +1497,16 @@ export function BlockCard({
         const colEl = blockCardRef.current?.closest("[data-machine-col]");
         const columnRight = colEl?.getBoundingClientRect().right ?? rect.right + 3;
         const left = hoverTooltipLeft({ columnRight, viewportWidth: vw });
-        const top = Math.max(8, Math.min(rect.top, vh - 220));
+        // Svislé umístění: pod kartou, s flipem nahoru u spodního okraje okna
+        // a clampem do okna jako poslední záchranou. Pravidlo, jeho pořadí
+        // i odůvodnění viz `src/lib/plannerHoverTooltip.ts` — tady zůstává
+        // jen odečet geometrie, stejně jako u vodorovného `left` výš.
+        const top = hoverTooltipTop({
+          cardTop: rect.top,
+          cardBottom: rect.bottom,
+          tooltipHeight,
+          viewportHeight: vh,
+        });
         // Format time
         const startD = new Date(block.startTime);
         const endD   = new Date(block.endTime);
@@ -1507,7 +1530,7 @@ export function BlockCard({
           ? `Tisk: ${fmtHoursTip(pmTip)} · Celkem: ${fmtHoursTip(elapsedMinsTip)}`
           : `Délka: ${fmtHoursTip(elapsedMinsTip)}`;
         return createPortal(
-          <div style={{
+          <div ref={tooltipRef} style={{
             position: "fixed",
             left,
             top,
