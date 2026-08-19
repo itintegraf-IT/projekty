@@ -24,6 +24,7 @@ import { computeShadeParity } from "@/lib/blockShades";
 import { fetchWithCascadeConfirm, type CascadeAsk } from "@/lib/cascadeConfirmClient";
 import type { BlockSnapshot } from "@/lib/undo/types";
 import { blockMatchesQuery } from "@/lib/orderSearch";
+import { blurEditableFocus } from "@/lib/focusGuard";
 import { type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
 import { Lock, Hourglass } from "lucide-react";
@@ -1208,6 +1209,7 @@ export default function TimelineGrid({
     if (block.locked) return;
     if (e.button !== 0) return;
     e.preventDefault();
+    blurEditableFocus(document.activeElement as (HTMLElement | null));
     const vs = viewStartRef.current;
     if (!vs) return;
     clearPreviewExpandCache();
@@ -1235,6 +1237,7 @@ export default function TimelineGrid({
   function handleResizeMouseDown(block: Block, e: React.MouseEvent) {
     if (block.locked) return;
     e.preventDefault();
+    blurEditableFocus(document.activeElement as (HTMLElement | null));
     const vs = viewStartRef.current;
     if (!vs) return;
     clearPreviewExpandCache();
