@@ -34,6 +34,18 @@ test("shortcutLetter: Caps Lock i cizí rozložení naráz", () => {
   assert.equal(shortcutLetter({ key: "С", code: "KeyC" }), "c");
 });
 
+test("shortcutLetter: QWERTZ regrese (audit 19. 8. 2026) — na české/německé klávesnici je typed 'z' fyzicky na KeyY", () => {
+  // Fyzická poloha, kterou uživatel na QWERTZ vnímá jako klávesu "Z", hlásí
+  // `code: "KeyY"` (code je layout-independent vůči US referenčnímu rozložení).
+  // `key` ale správně nese napsaný znak — u tohohle páru musí rozhodovat on,
+  // jinak Ctrl+Z na QWERTZ provede REDO místo UNDO (a Ctrl+Y naopak UNDO
+  // místo REDO).
+  assert.equal(shortcutLetter({ key: "z", code: "KeyY" }), "z"); // Ctrl+Z = undo
+  assert.equal(shortcutLetter({ key: "Z", code: "KeyY" }), "z"); // + Caps Lock
+  assert.equal(shortcutLetter({ key: "y", code: "KeyZ" }), "y"); // Ctrl+Y = redo
+  assert.equal(shortcutLetter({ key: "Y", code: "KeyZ" }), "y"); // + Caps Lock
+});
+
 test("shortcutLetter: bez `code` (starší WebView) rozhodne napsaný znak, i velký", () => {
   assert.equal(shortcutLetter({ key: "c" }), "c");
   assert.equal(shortcutLetter({ key: "C" }), "c");

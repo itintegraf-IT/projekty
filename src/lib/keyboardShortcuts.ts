@@ -16,6 +16,15 @@
  *  - `e.code` = FYZICKÁ klávesa (`KeyC`), nezávislá na Caps Locku i na rozložení;
  *  - `e.key.toLowerCase()` = napsaný znak, pojistka pro Dvorak a jiná fyzická
  *    rozložení, kde uživatel čeká zkratku pod písmenem, ne pod pozicí klávesy.
+ *
+ * VÝJIMKA pro pár Z/Y (od 19. 8. 2026, oprava QWERTZ regrese): Na české a německé
+ * QWERTZ klávesnici jsou klávesy Z a Y fyzicky PROHOZENÉ oproti americkému QWERTY
+ * rozložení, ke kterému se `e.code` vždy vztahuje. Uživatel, který na QWERTZ napíše
+ * "z", má `code: "KeyY"` — logika „code-first" by to vyhodnotila jako "y" a Ctrl+Z by
+ * omylem provedl REDO místo UNDO. Proto rozhoduje `e.key` JAKO PRVNÍ (stále se řeší
+ * Caps Lock přes `toLowerCase()`); `e.code` je záloha pro případ, že `e.key` nenese
+ * z/y vůbec (cyrilice a jiná nelatinková rozložení). Pár C/X/V je mezi QWERTY a
+ * QWERTZ pozičně shodný — tu výjimku nepotřebují.
  */
 
 /** Písmenné zkratky planneru. Nepísmenné klávesy (Delete/Escape) normalizaci nepotřebují. */
@@ -38,15 +47,42 @@ export type KeyLike = { key: string; code?: string };
 /**
  * Vrátí písmeno zkratky, na které klávesa ukazuje, nebo `null`, když o zkratku nejde.
  *
- * Přednost má `e.code`, protože je odolný vůči Caps Locku i vůči rozložení.
- * `e.key` slouží jako záloha pro prostředí, kde `code` chybí (starší WebView,
- * syntetické eventy v testech) nebo kde má uživatel přerovnané fyzické klávesy.
+ * VÝJIMKA pro pár Z/Y (od 19. 8. 2026, oprava QWERTZ regrese): `e.code` je
+ * pro tenhle jediný pár zavádějící, protože fyzické klávesy Z a Y jsou na
+ * české a německé QWERTZ klávesnici PROHOZENÉ oproti americkému
+ * referenčnímu rozložení, ke kterému se `KeyboardEvent.code` vždy vztahuje
+ * (je to POZICE, ne napsaný znak). Uživatel, který na QWERTZ napíše "z",
+ * má `code: "KeyY"` — kód-first logika (viz níž) by to vyhodnotila jako
+ * "y" a Ctrl+Z by omylem provedl REDO místo UNDO (a symetricky Ctrl+Y by
+ * dělal UNDO). Pro Z/Y proto rozhoduje `e.key` JAKO PRVNÍ — `toLowerCase()`
+ * pořád řeší Caps Lock stejně jako v kódu níž; `e.code` zůstává záložní
+ * cestou pro případ, že `e.key` nenese latinské z/y vůbec (cyrilice a jiná
+ * nelatinková rozložení — tam ukazuje jen na fyzickou polohu klávesy).
+ * Pár C/X/V touhle výjimkou NEPROCHÁZÍ — jejich fyzická poloha je mezi
+ * QWERTY a QWERTZ shodná, takže pořadí code→key jim nevadí (viz komentář
+ * k CODE_TO_LETTER výš a audit `2026-08-19-audit-pripominky-planovace-druha-vlna.md` §2).
  */
 export function shortcutLetter(e: KeyLike): ShortcutLetter | null {
+  // VÝJIMKA pro pár Z/Y (od 19. 8. 2026, oprava QWERTZ regrese): `e.code` je
+  // pro tenhle jediný pár zavádějící, protože fyzické klávesy Z a Y jsou na
+  // české a německé QWERTZ klávesnici PROHOZENÉ oproti americkému
+  // referenčnímu rozložení, ke kterému se `KeyboardEvent.code` vždy vztahuje
+  // (je to POZICE, ne napsaný znak). Uživatel, který na QWERTZ napíše "z",
+  // má `code: "KeyY"` — kód-first logika (viz níž) by to vyhodnotila jako
+  // "y" a Ctrl+Z by omylem provedl REDO místo UNDO (a symetricky Ctrl+Y by
+  // dělal UNDO). Pro Z/Y proto rozhoduje `e.key` JAKO PRVNÍ — `toLowerCase()`
+  // pořád řeší Caps Lock stejně jako v kódu níž; `e.code` zůstává záložní
+  // cestou pro případ, že `e.key` nenese latinské z/y vůbec (cyrilice a jiná
+  // nelatinková rozložení — tam ukazuje jen na fyzickou polohu klávesy).
+  // Pár C/X/V touhle výjimkou NEPROCHÁZÍ — jejich fyzická poloha je mezi
+  // QWERTY a QWERTZ shodná, takže pořadí code→key jim nevadí (viz komentář
+  // k CODE_TO_LETTER výš a audit `2026-08-19-audit-pripominky-planovace-druha-vlna.md` §2).
+  const typed = e.key.toLowerCase();
+  if (typed === "z" || typed === "y") return typed;
+
   const fromCode = e.code ? CODE_TO_LETTER[e.code] : undefined;
   if (fromCode) return fromCode;
 
-  const typed = e.key.toLowerCase();
   return (SHORTCUT_LETTERS as readonly string[]).includes(typed) ? (typed as ShortcutLetter) : null;
 }
 
