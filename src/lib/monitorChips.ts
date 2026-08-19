@@ -47,10 +47,11 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
 
   // Stav vydání materiálu — textově (prosba tiskařů 19. 8. 2026: „aby věděli, na co mají vydáno").
   // Priorita zrcadlí mStateKey na kartě v plánu: issued > partiallyIssued > inStock > termín.
+  // materialOk (MTZ odklepnuto) potlačuje „MAT. ČEKÁ" — parita s kartou v plánu (nález I1).
   if (block.materialIssued) chips.push({ label: "MAT. VYDÁNO ➜", tone: "ok" });
   else if (block.materialPartiallyIssued) chips.push({ label: "MAT. ČÁST. ½", tone: "ok" });
   else if (block.materialInStock) chips.push({ label: "MAT. SKLADEM ✓", tone: "ok" });
-  else if (block.materialRequiredDate) chips.push({ label: "MAT. ČEKÁ", tone: "wait" });
+  else if (block.materialRequiredDate && !block.materialOk) chips.push({ label: "MAT. ČEKÁ", tone: "wait" });
 
   // Štítek se zobrazí za stejné podmínky jako v BlockCard (požadováno, má termín,
   // je odklepnuto, nebo je skladem/vydáno). Připravenost = odklepnuto NEBO skladem

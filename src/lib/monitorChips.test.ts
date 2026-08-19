@@ -163,3 +163,8 @@ test("buildMonitorChips: pantone chip nese stav vydání textově", () => {
   const none = buildMonitorChips(mk({}));
   assert.ok(!none.some((c) => c.label.startsWith("PANTONE")));
 });
+
+test("buildMonitorChips: materiál s termínem a materialOk:true NEMÁ MAT. ČEKÁ (nález I1)", () => {
+  const chips = buildMonitorChips(mk({ materialRequiredDate: "2026-08-21", materialOk: true }));
+  assert.ok(!chips.some((c) => c.label === "MAT. ČEKÁ"), "materiál s termínem + materialOk=true by neměl mít chip MAT. ČEKÁ");
+});
