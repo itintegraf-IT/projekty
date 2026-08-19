@@ -111,6 +111,7 @@ export type Block = {
   materialOk: boolean;
   materialInStock: boolean;
   materialIssued: boolean;
+  materialPartiallyIssued: boolean;
   // Výrobní sloupečky — PANTONE
   pantoneRequiredDate: string | null;
   pantoneOk: boolean;

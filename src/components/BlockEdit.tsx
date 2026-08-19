@@ -251,6 +251,7 @@ export function BlockEdit({
   const [materialNote, setMaterialNote]         = useState(block.materialNote ?? "");
   const [materialInStock, setMaterialInStock]   = useState(block.materialInStock);
   const [materialIssued, setMaterialIssued]     = useState(block.materialIssued);
+  const [materialPartiallyIssued, setMaterialPartiallyIssued] = useState(block.materialPartiallyIssued);
   // PANTONE
   const [pantoneRequiredDate, setPantoneRequiredDate] = useState(
     block.pantoneRequiredDate ? utcToPragueDateStr(new Date(block.pantoneRequiredDate)) : ""
@@ -701,11 +702,12 @@ export function BlockEdit({
       dataOk: !!dataStatusId,
       materialStatusId: materialStatusId ? parseInt(materialStatusId) : null,
       materialStatusLabel: materialStatusId ? resolveLabel(materialOpts, materialStatusId) : null,
-      materialRequiredDate: materialInStock ? null : materialRequiredDate || null,
+      materialRequiredDate: materialInStock || materialPartiallyIssued ? null : materialRequiredDate || null,
       materialOk,
       materialNote: materialNote.trim() || null,
       materialInStock,
       materialIssued,
+      materialPartiallyIssued,
       pantoneRequired,
       pantoneRequiredDate: (pantoneInStock || pantoneIssued) ? null : (pantoneRequiredDate || null),
       pantoneOk,
@@ -1129,6 +1131,8 @@ export function BlockEdit({
                 <ColLabel>Materiál</ColLabel>
                 {materialIssued ? (
                   <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.3)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#3b82f6" }}>Vydáno ➜</div>
+                ) : materialPartiallyIssued ? (
+                  <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.4)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#d97706" }}>Část. vydáno ➜</div>
                 ) : materialInStock ? (
                   <div style={{ height: 32, display: "flex", alignItems: "center", borderRadius: 8, background: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", padding: "0 10px", fontSize: 11, fontWeight: 700, color: "#10b981" }}>Skladem ✓</div>
                 ) : (
@@ -1138,7 +1142,7 @@ export function BlockEdit({
                     tomuhle řádku neroztáhne, takže se řádek musí umět zalomit sám —
                     jinak by tlačítka přetekla do sousedního sloupce. */}
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 5 }}>
-                  {!materialInStock && !materialIssued && (
+                  {!materialInStock && !materialIssued && !materialPartiallyIssued && (
                     <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 600, color: materialOk ? "var(--success)" : "var(--text-muted)", cursor: "pointer", letterSpacing: "0.04em" }}>
                       <div style={{ width: 15, height: 15, borderRadius: 4, flexShrink: 0, background: materialOk ? "var(--success)" : "transparent", border: materialOk ? "1.5px solid var(--success)" : "1.5px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 120ms ease-out" }}>
                         {materialOk && <svg width="9" height="7" viewBox="0 0 9 7" fill="none"><path d="M1 3.5L3.5 6L8 1" stroke="var(--background)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -1150,8 +1154,11 @@ export function BlockEdit({
                   <button type="button" onClick={() => { setMaterialInStock(!materialInStock); if (!materialInStock) { setMaterialRequiredDate(""); setMaterialOk(false); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: materialInStock ? "1px solid rgba(16,185,129,0.5)" : "1px solid var(--border)", background: materialInStock ? "rgba(16,185,129,0.15)" : "transparent", color: materialInStock ? "#10b981" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
                     SKLAD
                   </button>
-                  <button type="button" onClick={() => setMaterialIssued(!materialIssued)} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: materialIssued ? "1px solid rgba(59,130,246,0.5)" : "1px solid var(--border)", background: materialIssued ? "rgba(59,130,246,0.15)" : "transparent", color: materialIssued ? "#3b82f6" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                  <button type="button" onClick={() => { setMaterialIssued(!materialIssued); if (!materialIssued) { setMaterialPartiallyIssued(false); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: materialIssued ? "1px solid rgba(59,130,246,0.5)" : "1px solid var(--border)", background: materialIssued ? "rgba(59,130,246,0.15)" : "transparent", color: materialIssued ? "#3b82f6" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
                     VYDÁNO
+                  </button>
+                  <button type="button" title="Částečně vydáno" onClick={() => { setMaterialPartiallyIssued(!materialPartiallyIssued); if (!materialPartiallyIssued) { setMaterialIssued(false); } }} style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 6px", borderRadius: 5, border: materialPartiallyIssued ? "1px solid rgba(245,158,11,0.55)" : "1px solid var(--border)", background: materialPartiallyIssued ? "rgba(245,158,11,0.16)" : "transparent", color: materialPartiallyIssued ? "#d97706" : "var(--text-muted)", cursor: "pointer", transition: "all 100ms" }}>
+                    ½
                   </button>
                 </div>
               </div>

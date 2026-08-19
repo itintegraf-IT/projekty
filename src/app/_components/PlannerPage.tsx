@@ -80,7 +80,7 @@ import { cascadeConfirmMessage } from "@/lib/cascadeLimit";
 const EDIT_TRACKED_FIELDS = [
   "orderNumber","type","blockVariant","jobPresetId","description","locked","deadlineExpedice",
   "dataStatusId","dataStatusLabel","dataRequiredDate","dataOk","materialStatusId","materialStatusLabel",
-  "materialRequiredDate","materialOk","materialNote","materialInStock","materialIssued","pantoneRequired",
+  "materialRequiredDate","materialOk","materialNote","materialInStock","materialIssued","materialPartiallyIssued","pantoneRequired",
   "pantoneRequiredDate","pantoneOk","pantoneInStock","pantoneIssued","barvyStatusId","barvyStatusLabel","lakStatusId","lakStatusLabel",
   "specifikace","obalka","vnitrky","tiskoveArchy","serie",
 ] as const;
