@@ -259,7 +259,7 @@ export function BlockDetail({
           </>
         )}
 
-        {(block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace || block.materialInStock || block.materialIssued || block.pantoneInStock || block.pantoneIssued || block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
+        {(block.dataStatusLabel || block.materialStatusLabel || block.barvyStatusLabel || block.lakStatusLabel || block.specifikace || block.materialInStock || block.materialIssued || block.materialPartiallyIssued || block.pantoneInStock || block.pantoneIssued || block.obalka || block.vnitrky || block.tiskoveArchy || block.serie) && (
           <>
             <Separator className="my-1 bg-slate-800" />
             <div className="rounded-md bg-slate-800/40 border border-slate-700/50 px-3 py-2 space-y-1.5">
