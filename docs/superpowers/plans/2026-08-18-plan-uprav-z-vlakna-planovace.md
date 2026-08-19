@@ -2,25 +2,27 @@
 
 > **Charakter dokumentu:** roadmap etap vzešlý z nočního auditu
 > `docs/audits/2026-08-18-audit-vlakna-planovace-lukas.md` (tam jsou důkazy a čísla commitů).
-> Etapy 3–5 dostanou před implementací vlastní detailní plán (spec → plan dle
+> **Rozšířeno 19. 8. o druhou vlnu připomínek** — audit `docs/audits/2026-08-19-audit-pripominky-planovace-druha-vlna.md`
+> (etapy 6–9, sloučení etapy 5 do 6, Task 6b v etapě 1).
+> Etapy 3–4 a 6–9 dostanou před implementací vlastní detailní plán (spec → plan dle
 > `docs/superpowers/`), protože závisí na rozhodnutích v sekci „Otevřená rozhodnutí".
-> Pořadí etap = doporučená priorita.
+> Pořadí etap = doporučená priorita. Etapa 1 už detailní plán má:
+> `docs/superpowers/plans/2026-08-19-material-castecne-vydano.md`.
 
 **Cíl:** dotáhnout 3 neimplementované připomínky (+1 odloženou), nasadit hotovou, ale nenasazenou opravu falešné hlášky, a zavřít dva vědomě otevřené dluhy, které vlákno obnažilo (P27, P31).
 
 ---
 
-## Etapa 0 — Nasazení kaskádové vlny (žádný nový kód) · odhad: hodina + proklik
+## Etapa 0 — Nasazení rozpracovaných vln · **aktualizováno 19. 8.**
 
-**Proč první:** oprava falešné hlášky „Zkrácení směny" je hotová a otestovaná (1314/1314), ale žije jen na tomto Macu — není ani na origin. Lukáš přitom směny kvůli poruchám strojů aktivně staví a hlášku dostává dál. Zároveň se tím srovná test (dnes pozadu za produkcí o `9712702a` a `115a815d`), o který si Lukáš řekl.
+**Stav:** kaskádová kontrola směn (falešná hláška „Zkrácení směny") byla **18. 8. nasazena na test `91546a3d` a prokliknuta** — zbývá Lukášovo potvrzení a produkce. Mezitím ale vznikla **autoposunová vlna** (počty v toastech, Ctrl+Z přepočtu, potvrzení velkého autoposunu — zatím v režimu měření, viz etapa 6) a undo rozdělení; ta je jen na branchi `Vojta` (origin je o 3 commity pozadu). **Lukášův incident z 18. 8. („nevědomky posunul desítky zakázek") proběhl na produkci, která z těchto vln nemá nic** — nasazení je tedy nejúčinnější jednotlivý krok proti opakování.
 
-**Postup:** přesně dle runbooku `docs/DEPLOY_2026-08-17_KASKADA.md`:
-1. `git push origin Vojta` (vyžaduje firemní síť / VPN).
-2. Deploy na test 3021 (`igvyroba_test`, PM2 `planovani-TEST`) — žádná migrace, rollback `git reset --hard`.
-3. Proklik 6.1–6.5 z runbooku. Nejvyšší riziko: **údržba + vypnutá sobota** — nová kontrola měří jen ZAKAZKA (vědomé zúžení; stará kontrola údržbu hlásila aspoň falešně).
-4. Po Lukášově potvrzení na testu → produkce (dle `docs/DEPLOY_WORKFLOW.md`, **před zásahem mysqldump záloha**, PRE/POST otisk).
+**Postup:**
+1. `git push origin Vojta` (firemní síť).
+2. Deploy autoposunové vlny na test 3021 → proklik (dialog „Velký autoposun" se v režimu měření neukáže — proklik ověřuje toasty s počty a Ctrl+Z).
+3. Po Lukášově potvrzení kaskádové kontroly směn na testu → **produkce** (dle `docs/DEPLOY_WORKFLOW.md`, mysqldump záloha, PRE/POST otisk): kaskádová kontrola + autoposunová vlna v jedné dávce.
 
-**Akceptace:** přidání sobotní směny na testu nevyhodí žádný dialog, skutečné zkrácení směny s dotčenou zakázkou vyhodí dialog s labelem stroje a důvodem.
+**Akceptace:** na testu přidání sobotní směny nevyhodí dialog; přesun s kaskádou ukáže toast s počtem odsunutých a Ctrl+Z je vrátí.
 
 ---
 
@@ -39,7 +41,9 @@
 - **(b) cyklus na tlačítku VYDÁNO** (nic → ČÁSTEČNĚ → VYDÁNO → nic): nulová šířka navíc, ale plné vydání = 2 kliky — penalizuje nejčastější akci a cyklus je neobjevitelný.
 - **(c) select místo tlačítek** (— / SKLAD / ČÁSTEČNĚ VYDÁNO / VYDÁNO): nejčistší stavový model, ale mění zaběhnutý workflow MTZ a je to největší zásah.
 
-**Akceptace:** MTZ označí materiál jako částečně vydaný jedním gestem; karta ukazuje „M ČÁST."; stav se propaguje na split sourozence, přežije undo a je vidět v historii bloku.
+**Rozšířeno 19. 8. (druhá vlna, bod 3): + Task 6b — textové štítky stavu materiálu a pantone na Monitoru.** `buildMonitorChips` (`src/lib/monitorChips.ts`) dnes stav vydání neukazuje textově vůbec (flagy jen barví podklad chipu druhu materiálu; při nevyplněném druhu není vidět nic; pantone má jen pevné slovo s tónem). Doplnit chipy `MAT. VYDÁNO ➜ / SKLADEM ✓ / ČEKÁ` a `PANTONE VYDÁNO / SKLADEM / ČEKÁ` — od začátku včetně `MAT. ČÁST. ½`. Stejný soubor jako Task 6 detailního plánu → dělá se v téže etapě, jedním dotykem. Typografie přes `ts.chipHero/chipQueue`; NEDODĚLÁNO zůstává bez chipů (záměr); ověřit ořez hero karty na XL.
+
+**Akceptace:** MTZ označí materiál jako částečně vydaný jedním gestem; karta ukazuje „M ČÁST."; stav se propaguje na split sourozence, přežije undo a je vidět v historii bloku; tiskař na Monitoru čte textově „na co má vydáno" (materiál i pantone).
 
 ---
 
@@ -101,13 +105,54 @@ Doporučení: (b) diff proti snapshotu — jeden mechanismus pro všechna pole, 
 
 ---
 
-## Etapa 5 — Strop chain pushe pro ZAKAZKA (P31, havárie 17. 8. 16:31) · odhad: M
+## Etapa 5 — ~~Strop chain pushe pro ZAKAZKA~~ · **19. 8.: POKRYTO autoposunovou vlnou → sloučeno do etapy 6**
 
-**Stav:** posun jednoho bloku o slot smí dnes přes tiskovou re-expanzi odsunout desítky zakázek bez limitu a bez potvrzení (88 bloků, 17. 8. 16:31). Rigidní bloky strop mají (`MAX_RIGID_PUSH_MS` = 7 dní), zakázky ne. Backlog č. 1 kaskádového specu.
+Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposun-viditelny-a-vratny.md`, etapy A/B/C/S): práh `CASCADE_CONFIRM_MAX_BLOCKS = 5` NEBO posun jednoho bloku > 7 dní, dialog „Velký autoposun" na všech 6 zápisových cestách, Ctrl+Z vratnost. Zbývající práce viz etapa 6.
 
-**Náčrt (spec před implementací):** v `resolveChainPushFromDb`/`chainPushGeometry` (`src/lib/overlapResolver.server.ts`) zavést práh — např. počet odsunutých bloků > N nebo součet posunů > X h → 409 s výčtem dotčených zakázek a klientský potvrzovací dialog („Tento přesun odsune 23 zakázek, poslední až na 17. 9. Provést?"). Musí platit na všech zápisových cestách s `resolveChain` (PUT, batch), ne jen na dragu. Souvisí s pravidlem „minimum automatiky bez vědomí plánovače".
+---
 
-**Akceptace:** reprodukce scénáře 16:31 (posun bloku, jehož 30 minut přeteče přes noční pauzu) skončí dialogem s počtem dotčených bloků, ne tichou kaskádou.
+## Etapa 6 — Dokončení autoposunové vlny (druhá vlna, bod 1) · odhad: S–M · čeká na rozhodnutí V4
+
+**Stav:** potvrzovací dialog je napsaný, ale `CASCADE_CONFIRM_ENFORCED = false` — běží tichý režim měření do logu; Lukáš zatím nevidí nic. Jeho prosba: „deaktivovat, případně omezit na 3–4 bloky".
+
+**Zbývá (dle Task B4 plánu autoposunové vlny + nové zadání):**
+1. Po nasazení (etapa 0) týden měření → rozhodnout hodnotu prahu (Lukáš navrhuje 3–4; default 5).
+2. Dodělat před zapnutím: once-per-gesture wrapper pro `putFlip`/`handleSaveAll`/sérii z fronty (jinak až 12 dialogů za sebou), fokus na „Zrušit", odmítnutou kaskádu nehlásit červeným toastem, strážný test párování `skipCascadeCheck`.
+3. Zapnout `CASCADE_CONFIRM_ENFORCED = true` samostatným commitem.
+4. **Rozhodnutí V4:** přidat i úplný vypínač autoposunu („kolizní drop se odmítne 409" — návrat k chování před 31. 7.)? Doporučení: nejdřív zapnuté potvrzení s prahem 4 + týden zkušebního provozu u Lukáše; vypínač stavět, až kdyby nestačilo.
+
+**Akceptace:** posun s kaskádou > práh se bez výslovného potvrzení neprovede; Lukáš potvrdí, že se „nevědomky posunuté desítky zakázek" už nemohou opakovat.
+
+---
+
+## Etapa 7 — Vyjmout/Odstranit v menu + fokusová past + QWERTZ (druhá vlna, bod 2) · odhad: S–M
+
+**Tři opravy v jedné etapě (audit druhé vlny §2):**
+1. **Kontextové menu:** položky „✂ Vyjmout" a „🗑 Odstranit" do `BlockCard.tsx:1664+` — akce už existují (cut = Ctrl+X větev `PlannerPage.tsx:2849–2865`, extrahovat sdílenou funkci; delete = `handleDeleteBlock` + existující potvrzovací/force dialogy, sytit z bloku menu místo z `selectedBlock` — nový stav `menuDeletePending`). Guardy: `canEdit && !locked`, cut navíc `!printCompletedAt`.
+2. **Fokusová past (kořen „zkratky nefungují"):** `handleBlockMouseDown` (`TimelineGrid.tsx:1209`) dělá `preventDefault()` → klik na blok nevytáhne fokus z hledacího pole → keydown guard zahodí všechny zkratky. Oprava: při mousedownu na blok blur aktivního INPUT/TEXTAREA/SELECT.
+3. **QWERTZ regrese (ověřeno):** `shortcutLetter` (`keyboardShortcuts.ts:45–51`) preferuje `e.code` → na české QWERTZ Ctrl+Z (fyzická pozice KeyY) provede REDO místo UNDO. Oprava: pro pár Z/Y preferovat `e.key`, `e.code` nechat jako fallback; doplnit QWERTZ test.
+
+**Akceptace:** cut/delete jdou myší z menu bez ohledu na fokus; po hledání a kliknutí na blok funguje Ctrl+X hned; Ctrl+Z na české klávesnici dělá undo.
+
+---
+
+## Etapa 8 — Hover bublina vertikálně (druhá vlna, bod 4) · odhad: S · čeká na rozhodnutí V5
+
+**Geometrický fakt (audit §2, bod 4):** nezakrývat sousední stroj + chipy vlevo + vlastní blok je horizontálně nesplnitelné (volný pás mimo karty = 78 px časové osy vs. bublina 240 px). Řešení: **(a) pod kartu** (`top = rect.bottom + 6`, flip nad kartu u spodního okraje — vzor notepopover `BlockCard.tsx:1384`; doporučeno) nebo **(b) pevný dok** (aside panel). Po rozhodnutí V5 malá změna v `plannerHoverTooltip.ts` + `BlockCard.tsx` + testy; dát Lukášovi vyzkoušet na testu.
+
+**Akceptace:** bublina nezakrývá hovorovanou kartu, sousední sloupec ani chipy; u spodního okraje okna se přehoupne nad kartu.
+
+---
+
+## Etapa 9 — Rezervace: vizuální lámání přes noc (druhá vlna, bod 5) · odhad: S/M · čeká na V6 + odpověď Lukáše
+
+**Kontext:** rezervace nemá tiskové hodiny záměrně (9 rozhodovacích míst `type !== "ZAKAZKA"`; rozhodnutí `a79a0346` kvůli 45min délkám). Plné lámání = L+ přestavba s migrací dat a tvrdou prerekvizitou dluhu `Reservation.scheduled*` — nedoporučeno teď.
+
+**Doporučený rozsah (vizuální):** nová čistá funkce `rigidBlockSegments` (průnik intervalu start–end s blokovaným časem přes `weekShifts`/`companyDays`) → overlay „⏸ PAUZA — mimo provoz" i pro REZERVACE/UDRZBA v `TimelineGrid.blockSegmentsMap`; **`tryExpandForBlock` se NEuvolňuje** (jiný výpočet, zákaz z CLAUDE.md neporušen). Volitelně tooltip „X h v provozu (Y h celkem)". Žádná změna zápisů, snapů ani chain pushe → nezhoršuje žádný dluh.
+
+**Podmínka:** Lukášova odpověď, zda chce pauzu VIDĚT (→ tahle etapa), nebo garantovanou délku v pracovní době (→ velký projekt, plánovat zvlášť).
+
+**Akceptace:** rezervace ležící přes noc kreslí pauzový pás jako zakázka; její časy a chování se nemění.
 
 ---
 
@@ -122,9 +167,14 @@ Doporučení: (b) diff proti snapshotu — jeden mechanismus pro všechna pole, 
 ## Otevřená rozhodnutí (blokují etapy)
 
 1. **V1 → etapa 2:** povolit PLANOVAT celé `/reporty`? (doporučení: ano)
-2. **V2 → etapa 1:** ČÁSTEČNĚ VYDÁNO přes admin + seedy? (doporučení: obojí; nejdřív ověřit prod číselník)
-3. **V3 → pořadí etap 3/4/5:** doporučené pořadí je 3 (viditelná bolest plánovače) → 5 (zábrana další havárie) → 4 (tichý dluh) — ale 4 a 5 se dotýkají stejných míst jako případný budoucí vývoj rezervací, lze přehodnotit.
+2. ~~V2~~ **ROZHODNUTO 19. 8.:** ČÁSTEČNĚ VYDÁNO = varianta (a), mini tlačítko „½" (detailní plán `2026-08-19-material-castecne-vydano.md`).
+3. **V3 → pořadí velkých etap:** doporučení po druhé vlně: **0 (nasazení) → 6 (dokončení autoposunu) → 1 (materiál + Monitor štítky) → 7 (menu+zkratky) → 3 (skupinový přesun) → 8/9 (po rozhodnutích) → 2 → 4**.
+4. **V4 → etapa 6:** jen zapnuté potvrzení s prahem ~4, nebo i úplný vypínač autoposunu? (doporučení: nejdřív potvrzení + týden provozu)
+5. **V5 → etapa 8:** bublina pod kartu s flipem (doporučeno) vs. pevný dok?
+6. **V6 → etapa 9:** vizuální lámání rezervací jako první krok? (doporučení: ano; plné tiskové hodiny pro rezervace teď ne)
+
+**Otázky na Lukáše (v konceptu e-mailu, audit druhé vlny §5):** práh autoposunu ~4 s potvrzením vs. úplné vypnutí · rezervace: vidět pauzu vs. garantovaná délka v pracovní době · + starší: kalendářní odstávky ve frontě, dny/směny osobně.
 
 ---
 
-*Vzniklo nočním auditem 17.→18. 8. 2026; důkazová část v `docs/audits/2026-08-18-audit-vlakna-planovace-lukas.md`.*
+*Vzniklo nočním auditem 17.→18. 8. 2026; rozšířeno 19. 8. o druhou vlnu (`docs/audits/2026-08-19-audit-pripominky-planovace-druha-vlna.md`).*
