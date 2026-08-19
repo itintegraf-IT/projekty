@@ -130,7 +130,7 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 
 ---
 
-## Etapa 7 — Vyjmout/Odstranit v menu + fokusová past + QWERTZ (druhá vlna, bod 2) · odhad: S–M
+## Etapa 7 — Vyjmout/Odstranit v menu + fokusová past + QWERTZ (druhá vlna, bod 2) · odhad: S–M · **HOTOVO 20. 8. 2026**
 
 **Tři opravy v jedné etapě (audit druhé vlny §2):**
 1. **Kontextové menu:** položky „✂ Vyjmout" a „🗑 Odstranit" do `BlockCard.tsx:1664+` — akce už existují (cut = Ctrl+X větev `PlannerPage.tsx:2849–2865`, extrahovat sdílenou funkci; delete = `handleDeleteBlock` + existující potvrzovací/force dialogy, sytit z bloku menu místo z `selectedBlock` — nový stav `menuDeletePending`). Guardy: `canEdit && !locked`, cut navíc `!printCompletedAt`.

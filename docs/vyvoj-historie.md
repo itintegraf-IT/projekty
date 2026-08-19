@@ -2350,3 +2350,38 @@ stroje i v DTP přehledu.
 --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts
 src/lib/revision/*.test.ts src/app/_components/*.test.ts`), `npm run build`
 i `npm run lint` bez chyb. Commity `9eb3051e`..`b4079810`.
+
+## Etapa 7 — Vyjmout/Odstranit v menu, fokusová past, QWERTZ regrese (20. 8. 2026)
+
+Druhá vlna auditu (§2) měla tři nesouvisející příčiny za jedním dojmem
+„zkratky často nefungují".
+
+**QWERTZ Ctrl+Z/Ctrl+Y regrese.** `shortcutLetter` (`keyboardShortcuts.ts`)
+dřív rozhodovalo kód-first (`e.code`), protože je odolný vůči Caps Locku i
+rozložení klávesnice. Na české/německé QWERTZ klávesnici jsou ale Z a Y
+fyzicky prohozené oproti americkému QWERTY, ke kterému se `e.code` vždy
+vztahuje — Ctrl+Z se tak vyhodnotil jako Ctrl+Y a spustil REDO místo UNDO
+(a naopak). Pro pár Z/Y teď rozhoduje napsaný znak (`e.key.toLowerCase()`)
+jako první, `e.code` zůstává záložní cestou pro nelatinková rozložení; C/X/V
+zůstávají beze změny, jsou pozičně shodné mezi QWERTY a QWERTZ.
+
+**Fokusová past.** Skutečný kořen dojmu „zkratky nefungují": `preventDefault()`
+na `mousedown` v `TimelineGrid` potlačoval i výchozí přesun fokusu prohlížeče,
+takže klik na blok po použití hledacího pole nevytáhl kurzor z inputu —
+klávesový guard v `PlannerPage` pak zkratky tiše zahazoval bez jakékoli
+zpětné vazby. Nový helper `blurEditableFocus` (`src/lib/focusGuard.ts`,
+testovatelný bez jsdom) blurne aktivní INPUT/TEXTAREA/SELECT při
+`mousedown` na blok i při resize (`handleMouseDown`/`handleResizeMouseDown`
+v `TimelineGrid.tsx`).
+
+**Menu položky ✂ Vyjmout a 🗑 Odstranit.** Obě akce dřív existovaly jen na
+klávesnici (Ctrl+X, Delete). Tělo cutu bylo extrahováno do sdílené funkce
+`cutSingleBlock`, kterou volá jak klávesový handler, tak nová položka menu
+v `BlockCard.tsx`. Potvrzovací dialog mazání byl sjednocen na jediný stav
+`pendingDeleteBlock` (`keyDeletePending ? selectedBlock : menuDeleteBlock`
+v `PlannerPage.tsx`), aby fungoval z obou spouštěčů bez duplikace JSX — menu
+totiž může mířit na jiný blok, než je zrovna otevřený v detailu. Guardy
+shodné s klávesovou cestou: `canEdit && !locked`, cut navíc `!printCompletedAt`.
+
+**Ověření.** Celá suite 1368/1368 zelených, `npm run build` i `npm run lint`
+bez chyb. Commity `54c0bf86`..`dc378aa0`.
