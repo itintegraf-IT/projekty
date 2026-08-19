@@ -93,6 +93,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         pantoneIssued: body.pantoneIssued,
         materialInStock: body.materialInStock,
         materialIssued: body.materialIssued,
+        materialPartiallyIssued: body.materialPartiallyIssued,
       };
     } else {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -457,9 +458,14 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
           // MATERIAL IN STOCK (pokud materialInStock=true, vynulovat materialRequiredDate)
           ...(allowed.materialInStock !== undefined && { materialInStock: allowed.materialInStock as boolean }),
           ...(allowed.materialInStock === true && { materialRequiredDate: null }),
+          // MATERIAL PARTIALLY ISSUED („½") — nuluje termín a vylučuje se s plným VYDÁNO.
+          // Pořadí spreadů: partial je PŘED issued, takže rozporné body (obě true) vyřeší
+          // poslední zápis ve prospěch plného VYDÁNO — silnější stav vyhrává (vzor: pantone).
+          ...(allowed.materialPartiallyIssued !== undefined && { materialPartiallyIssued: allowed.materialPartiallyIssued as boolean }),
+          ...(allowed.materialPartiallyIssued === true && { materialRequiredDate: null, materialIssued: false }),
           // MATERIAL ISSUED (pokud materialIssued=true, vynulovat materialRequiredDate)
           ...(allowed.materialIssued !== undefined && { materialIssued: allowed.materialIssued as boolean }),
-          ...(allowed.materialIssued === true && { materialRequiredDate: null }),
+          ...(allowed.materialIssued === true && { materialRequiredDate: null, materialPartiallyIssued: false }),
           // BARVY
           ...(allowed.barvyStatusId !== undefined && { barvyStatusId: allowed.barvyStatusId as number }),
           ...(allowed.barvyStatusLabel !== undefined && { barvyStatusLabel: allowed.barvyStatusLabel as string }),

@@ -161,6 +161,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
           materialOk: block.materialOk,
           materialInStock: block.materialInStock,
           materialIssued: block.materialIssued,
+          materialPartiallyIssued: block.materialPartiallyIssued,
           pantoneRequiredDate: block.pantoneRequiredDate,
           pantoneOk: block.pantoneOk,
           pantoneRequired: block.pantoneRequired,

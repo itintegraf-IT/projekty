@@ -324,6 +324,7 @@ export async function POST(request: NextRequest) {
           pantoneIssued: pantoneIssued,
           materialInStock: body.materialInStock ?? false,
           materialIssued: body.materialIssued ?? false,
+          materialPartiallyIssued: body.materialIssued ? false : (body.materialPartiallyIssued ?? false),
           // OPAKOVÁNÍ
           recurrenceType: finalRecurrence,
           recurrenceParentId: body.recurrenceParentId ?? null,
