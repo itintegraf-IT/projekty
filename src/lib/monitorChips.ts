@@ -41,7 +41,7 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
   // Připravenost materiálu = na skladě NEBO vydáno NEBO potvrzeno — stejná logika
   // jako BlockCard (jinak Monitor hlásí „čeká" na to, co je v plánu zelené, nález I5).
   if (block.materialStatusLabel) {
-    const materialReady = block.materialInStock || block.materialIssued || block.materialOk;
+    const materialReady = block.materialInStock || block.materialIssued || block.materialPartiallyIssued || block.materialOk;
     chips.push({ label: block.materialStatusLabel, tone: materialReady ? "ok" : "wait" });
   }
 

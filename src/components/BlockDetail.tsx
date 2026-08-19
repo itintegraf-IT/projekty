@@ -270,11 +270,11 @@ export function BlockDetail({
               {block.materialStatusLabel && (
                 <DeadlineRow label="Materiál" value={block.materialStatusLabel} ok={block.materialOk} date={block.materialRequiredDate ? formatDate(block.materialRequiredDate) : null} />
               )}
-              {(block.materialInStock || block.materialIssued) && (
+              {(block.materialInStock || block.materialIssued || block.materialPartiallyIssued) && (
                 <div className="flex items-baseline gap-2">
                   <span className="text-[10px] text-slate-500 w-16 flex-shrink-0">Sklad</span>
-                  <span className={block.materialIssued ? "text-blue-400 font-semibold" : "text-green-400 font-semibold"}>
-                    {block.materialIssued ? "Vydáno ➜" : "Skladem ✓"}
+                  <span className={block.materialIssued ? "text-blue-400 font-semibold" : block.materialPartiallyIssued ? "text-amber-400 font-semibold" : "text-green-400 font-semibold"}>
+                    {block.materialIssued ? "Vydáno ➜" : block.materialPartiallyIssued ? "Část. vydáno ½" : "Skladem ✓"}
                   </span>
                 </div>
               )}

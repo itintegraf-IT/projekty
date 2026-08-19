@@ -18,9 +18,11 @@ function mk(over: Partial<Block> = {}): Block {
     dataStatusLabel: null,
     dataOk: false,
     materialStatusLabel: null,
+    materialRequiredDate: null,
     materialOk: false,
     materialInStock: false,
     materialIssued: false,
+    materialPartiallyIssued: false,
     pantoneRequired: false,
     pantoneRequiredDate: null,
     pantoneOk: false,
@@ -84,6 +86,12 @@ test("buildMonitorChips: materiál je připravený i když je jen vydaný (nále
 
   const confirmed = buildMonitorChips(mk({ materialStatusLabel: "Potvrzeno", materialOk: true }));
   assert.equal(confirmed[0].tone, "ok");
+});
+
+test("buildMonitorChips: částečně vydaný materiál je ready (tone ok)", () => {
+  const chips = buildMonitorChips(mk({ materialStatusLabel: "55m", materialInStock: false, materialIssued: false, materialOk: false, materialPartiallyIssued: true }));
+  const mat = chips.find((c) => c.label === "55m");
+  assert.equal(mat?.tone, "ok");
 });
 
 test("buildMonitorChips: materiál bez jediného příznaku připravenosti čeká", () => {
