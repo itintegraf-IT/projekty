@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hoverTooltipLeft, TOOLTIP_MARGIN, TOOLTIP_W } from "./plannerHoverTooltip";
+import {
+  hoverTooltipLeft,
+  hoverTooltipTop,
+  TOOLTIP_MARGIN,
+  TOOLTIP_VERTICAL_GAP,
+  TOOLTIP_W,
+} from "./plannerHoverTooltip";
 
 // Skutečná geometrie planneru na 1920px obrazovce se zavřenými panely:
 // [datum 44][čas 72][XL 105][čas 72][XL 106]. Sloupce strojů si dělí zbytek,
@@ -65,4 +71,57 @@ test("úzký sloupec: bublina přeteče přes levou hranu sloupce, ne mimo obraz
   assert.ok(left < columnLeft, "v úzkém sloupci se překryvu vyhnout nelze");
   assert.ok(left >= TOOLTIP_MARGIN);
   assert.equal(left + TOOLTIP_W, columnRight - TOOLTIP_MARGIN);
+});
+
+// ── hoverTooltipTop — svislé umístění (rozhodnutí V5, 19. 8. 2026) ─────────
+// Bublina má obsahově proměnnou výšku (popis, specifikace, termíny, tiskařské
+// poznámky), takže testy pracují s výškou jako s parametrem, ne s konkrétním
+// obsahem — přesně jako hoverTooltipLeft pracuje se šířkou sloupce.
+const VH = 1080;
+
+test("bublina se umístí pod kartu, když se tam vejde", () => {
+  const top = hoverTooltipTop({ cardTop: 200, cardBottom: 260, tooltipHeight: 150, viewportHeight: VH });
+  assert.equal(top, 260 + TOOLTIP_VERTICAL_GAP);
+});
+
+test("hraniční případ: bublina se PŘESNĚ vejde dole u okraje okna → zůstává pod kartou", () => {
+  // below + tooltipHeight musí přesně dosednout na (viewportHeight - margin).
+  const tooltipHeight = 100;
+  const cardBottom = VH - TOOLTIP_VERTICAL_GAP - tooltipHeight - TOOLTIP_VERTICAL_GAP; // 968
+  const top = hoverTooltipTop({ cardTop: cardBottom - 60, cardBottom, tooltipHeight, viewportHeight: VH });
+  assert.equal(top, cardBottom + TOOLTIP_VERTICAL_GAP, "rovnost vyhrává below větev, ne flip");
+});
+
+test("bublina se nevejde dole u spodního okraje okna → flipne nad kartu", () => {
+  const top = hoverTooltipTop({ cardTop: 900, cardBottom: 960, tooltipHeight: 150, viewportHeight: VH });
+  assert.equal(top, 900 - TOOLTIP_VERTICAL_GAP - 150);
+});
+
+test("po flipu bublina dosedne přesně na horní hranu karty mínus mezera (žádný extra posun)", () => {
+  const cardTop = 900;
+  const tooltipHeight = 150;
+  const top = hoverTooltipTop({ cardTop, cardBottom: 960, tooltipHeight, viewportHeight: VH });
+  assert.equal(top + tooltipHeight + TOOLTIP_VERTICAL_GAP, cardTop);
+});
+
+test("obří karta přes celé okno: nevejde se ani nahoru → clamp k hornímu okraji okna", () => {
+  const top = hoverTooltipTop({ cardTop: -50, cardBottom: 1200, tooltipHeight: 150, viewportHeight: VH });
+  assert.equal(top, TOOLTIP_VERTICAL_GAP, "poslední záchrana: horní okraj okna, ne záporná souřadnice");
+});
+
+test("bublina vyšší než celé okno: last-resort clamp pořád vrátí platnou souřadnici", () => {
+  const top = hoverTooltipTop({ cardTop: 0, cardBottom: VH, tooltipHeight: VH + 500, viewportHeight: VH });
+  assert.equal(top, TOOLTIP_VERTICAL_GAP);
+});
+
+test("vlastní margin parametr se respektuje místo výchozí TOOLTIP_VERTICAL_GAP", () => {
+  const top = hoverTooltipTop({ cardTop: 200, cardBottom: 260, tooltipHeight: 150, viewportHeight: VH, margin: 20 });
+  assert.equal(top, 260 + 20);
+});
+
+test("výchozí margin je TOOLTIP_VERTICAL_GAP, ne vodorovné TOOLTIP_MARGIN (jiná konvence, notepopover vzor)", () => {
+  assert.notEqual(TOOLTIP_VERTICAL_GAP, TOOLTIP_MARGIN);
+  const withDefault = hoverTooltipTop({ cardTop: 200, cardBottom: 260, tooltipHeight: 150, viewportHeight: VH });
+  const withExplicit = hoverTooltipTop({ cardTop: 200, cardBottom: 260, tooltipHeight: 150, viewportHeight: VH, margin: TOOLTIP_VERTICAL_GAP });
+  assert.equal(withDefault, withExplicit);
 });
