@@ -26,7 +26,7 @@ export const UNDO_RESTORABLE_FIELDS = [
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
   // MATERIÁL
   "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk",
-  "materialNote", "materialNoteByUsername", "materialInStock", "materialIssued",
+  "materialNote", "materialNoteByUsername", "materialInStock", "materialIssued", "materialPartiallyIssued",
   // PANTONE
   "pantoneRequired", "pantoneOk", "pantoneRequiredDate", "pantoneInStock", "pantoneIssued",
   // barvy / lak

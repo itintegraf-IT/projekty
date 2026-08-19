@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { SERIES_EXCLUDED_FIELDS, stripSeriesPropagatedFields } from "./seriesPropagation";
 
-test("SERIES_EXCLUDED_FIELDS obsahuje právě 16 očekávaných polí", () => {
+test("SERIES_EXCLUDED_FIELDS obsahuje právě 17 očekávaných polí", () => {
   assert.deepEqual([...SERIES_EXCLUDED_FIELDS], [
     "dataRequiredDate",
     "deadlineExpedice",
@@ -13,6 +13,7 @@ test("SERIES_EXCLUDED_FIELDS obsahuje právě 16 očekávaných polí", () => {
     "pantoneOk",
     "materialIssued",
     "materialInStock",
+    "materialPartiallyIssued",
     "pantoneRequired",
     "pantoneInStock",
     "pantoneIssued",
@@ -23,7 +24,7 @@ test("SERIES_EXCLUDED_FIELDS obsahuje právě 16 očekávaných polí", () => {
   ]);
 });
 
-test("stripSeriesPropagatedFields odstraní per-occurrence pole (SERIES_EXCLUDED_FIELDS má 16 položek)", () => {
+test("stripSeriesPropagatedFields odstraní per-occurrence pole (SERIES_EXCLUDED_FIELDS má 17 položek)", () => {
   const payload = {
     orderNumber: "12345",
     dataRequiredDate: "2026-06-24",

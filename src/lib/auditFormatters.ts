@@ -14,6 +14,7 @@ export const FIELD_LABELS: Record<string, string> = {
   materialNote: "Poznámka MTZ",
   materialInStock: "Materiál skladem",
   materialIssued: "Materiál vydán",
+  materialPartiallyIssued: "Materiál částečně vydán",
   deadlineExpedice: "Expedice termín",
   expediceNote: "Poznámka expedice",
   doprava: "Doprava",
@@ -64,7 +65,7 @@ export function fmtAuditVal(val: string | null, field: string | null): string {
   // k pantoneRequired („je Pantone vůbec potřeba"). Bez téhle větve se řádek
   // v historii vykreslil jako syrové true/false (doplněno 8/2026).
   if (field === "dataOk" || field === "materialOk" || field === "pantoneOk" || field === "pantoneRequired") return val === "true" ? "✓ OK" : "✗ Ne";
-  if (field === "materialInStock" || field === "materialIssued"
+  if (field === "materialInStock" || field === "materialIssued" || field === "materialPartiallyIssued"
    || field === "pantoneInStock" || field === "pantoneIssued") return val === "true" ? "✓ Ano" : "✗ Ne";
   if (field && ["dataRequiredDate", "materialRequiredDate", "pantoneRequiredDate", "deadlineExpedice"].includes(field)) {
     return formatCivilDate(val);

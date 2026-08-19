@@ -25,6 +25,7 @@ export const SERIES_EXCLUDED_FIELDS = [
   "pantoneOk",
   "materialIssued",
   "materialInStock",
+  "materialPartiallyIssued",
   "pantoneRequired",
   "pantoneInStock",
   "pantoneIssued",

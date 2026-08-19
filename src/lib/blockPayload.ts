@@ -57,6 +57,7 @@ export type BlockPayloadSource = {
   pantoneRequired?: boolean | null;
   materialInStock?: boolean | null;
   materialIssued?: boolean | null;
+  materialPartiallyIssued?: boolean | null;
   pantoneInStock?: boolean | null;
   pantoneIssued?: boolean | null;
   recurrenceType?: string;
@@ -113,6 +114,7 @@ export const EXPECTED_PAYLOAD_KEYS = [
   "pantoneRequired",
   "materialInStock",
   "materialIssued",
+  "materialPartiallyIssued",
   "pantoneInStock",
   "pantoneIssued",
   "recurrenceType",
@@ -155,6 +157,7 @@ export function blockToCreatePayload(
     pantoneRequired: block.pantoneRequired ?? false,
     materialInStock: block.materialInStock ?? false,
     materialIssued: block.materialIssued ?? false,
+    materialPartiallyIssued: block.materialPartiallyIssued ?? false,
     pantoneInStock: block.pantoneInStock ?? false,
     pantoneIssued: block.pantoneIssued ?? false,
     recurrenceType: "NONE",

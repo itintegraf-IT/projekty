@@ -8,7 +8,7 @@ const FORBIDDEN = [
 ];
 
 /**
- * Fixture se VŠEMI 45 povoleným poli na rozlišitelných hodnotách + 8 zakázaných.
+ * Fixture se VŠEMI 46 povoleným poli na rozlišitelných hodnotách + 8 zakázaných.
  * Když blockToRestoreFields nějaké povolené pole ztratí, deepEqual selže s názvem pole.
  * Zakázaná pole jsou v fixtuře jen aby se ověřila jejich filtrace.
  */
@@ -45,6 +45,7 @@ const FULL_BLOCK = {
   materialNoteByUsername: "mtz_user",
   materialInStock: true,
   materialIssued: false,
+  materialPartiallyIssued: false,
   // PANTONE
   pantoneRequired: true,
   pantoneOk: false,
@@ -84,9 +85,9 @@ test("allowlist neobsahuje žádné zakázané pole", () => {
   }
 });
 
-test("allowlist má přesně 45 položek (tripwire — nové pole Blocku se přidává vědomě)", () => {
-  assert.equal(UNDO_RESTORABLE_FIELDS.length, 45);
-  assert.equal(new Set(UNDO_RESTORABLE_FIELDS).size, 45, "duplicita v allowlistu");
+test("allowlist má přesně 46 položek (tripwire — nové pole Blocku se přidává vědomě)", () => {
+  assert.equal(UNDO_RESTORABLE_FIELDS.length, 46);
+  assert.equal(new Set(UNDO_RESTORABLE_FIELDS).size, 46, "duplicita v allowlistu");
 });
 
 test("isRestorableField pouští všechna povolená a blokuje zakázaná", () => {
@@ -102,7 +103,7 @@ test("isRestorableField pouští všechna povolená a blokuje zakázaná", () =>
   assert.equal(isRestorableField("neexistujiciSloupec"), false);
 });
 
-test("field-inventory: blockToRestoreFields vrátí všech 45 povolených polí (tripwire)", () => {
+test("field-inventory: blockToRestoreFields vrátí všech 46 povolených polí (tripwire)", () => {
   const restored = blockToRestoreFields(FULL_BLOCK);
   assert.deepEqual(restored, {
     // pozice a tiskové hodiny
@@ -137,6 +138,7 @@ test("field-inventory: blockToRestoreFields vrátí všech 45 povolených polí 
     materialNoteByUsername: "mtz_user",
     materialInStock: true,
     materialIssued: false,
+    materialPartiallyIssued: false,
     // PANTONE
     pantoneRequired: true,
     pantoneOk: false,

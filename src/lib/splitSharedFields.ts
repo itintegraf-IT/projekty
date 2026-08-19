@@ -28,7 +28,7 @@ export const SPLIT_SHARED_FIELDS = [
   "jobPresetId", "jobPresetLabel",
   "type", "blockVariant",
   "dataStatusId", "dataStatusLabel", "dataRequiredDate", "dataOk",
-  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock", "materialIssued",
+  "materialStatusId", "materialStatusLabel", "materialRequiredDate", "materialOk", "materialInStock", "materialIssued", "materialPartiallyIssued",
   "pantoneRequiredDate", "pantoneOk", "pantoneRequired", "pantoneInStock", "pantoneIssued",
   "barvyStatusId", "barvyStatusLabel", "lakStatusId", "lakStatusLabel",
 ] as const;

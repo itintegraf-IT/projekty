@@ -30,7 +30,7 @@ test("Fix round 1: žádné boolean pole ze SPLIT_SHARED_FIELDS nezůstává na 
   // Nový boolean sloupec přidaný do SPLIT_SHARED_FIELDS se sem musí doplnit vědomě —
   // asserce níže na členství v SPLIT_SHARED_FIELDS hlídá, že se tenhle seznam sám nerozejde.
   const knownBooleanSplitFields = [
-    "dataOk", "materialOk", "materialInStock", "materialIssued", "pantoneOk", "pantoneRequired",
+    "dataOk", "materialOk", "materialInStock", "materialIssued", "materialPartiallyIssued", "pantoneOk", "pantoneRequired",
     "pantoneInStock", "pantoneIssued",
   ];
   for (const field of knownBooleanSplitFields) {

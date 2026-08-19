@@ -40,6 +40,7 @@ const FULL_BLOCK: BlockPayloadSource = {
   pantoneRequired: true,
   materialInStock: true,
   materialIssued: true,
+  materialPartiallyIssued: true,
   pantoneInStock: true,
   pantoneIssued: false,
 };
@@ -79,6 +80,7 @@ test("field-inventory: ZAKAZKA payload obsahuje všechna pole 1:1 (tripwire)", (
     pantoneRequired: true,
     materialInStock: true,
     materialIssued: true,
+    materialPartiallyIssued: true,
     pantoneInStock: true,
     pantoneIssued: false,
     recurrenceType: "NONE",
