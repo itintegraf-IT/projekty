@@ -3,7 +3,7 @@
 import type React from "react";
 
 export type DateChipState =
-  | "ok" | "danger" | "warning" | "earlyStart" | "issued" | "empty" | "neutral";
+  | "ok" | "danger" | "warning" | "earlyStart" | "issued" | "partial" | "empty" | "neutral";
 
 /** Deadline barvy. Přesunuto z BlockCard — sdílí je všechny režimy karty. */
 export const DEADLINE_BG: Record<DateChipState, string> = {
@@ -12,6 +12,7 @@ export const DEADLINE_BG: Record<DateChipState, string> = {
   warning:    "color-mix(in oklab, var(--warning) 75%, black 25%)",
   earlyStart: "color-mix(in oklab, #f97316 85%, black 15%)",
   issued:     "color-mix(in oklab, #3b82f6 85%, black 15%)",
+  partial:    "color-mix(in oklab, #f59e0b 85%, black 15%)",
   empty:      "rgba(0,0,0,0.45)",
   neutral:    "rgba(255,255,255,0.18)",
 };
@@ -22,6 +23,7 @@ export const DEADLINE_BORDER: Record<DateChipState, string> = {
   warning:    "color-mix(in oklab, var(--warning) 60%, black 40%)",
   earlyStart: "color-mix(in oklab, #f97316 70%, black 30%)",
   issued:     "color-mix(in oklab, #3b82f6 70%, black 30%)",
+  partial:    "color-mix(in oklab, #f59e0b 70%, black 30%)",
   empty:      "rgba(255,255,255,0.55)",
   neutral:    "rgba(255,255,255,0.30)",
 };

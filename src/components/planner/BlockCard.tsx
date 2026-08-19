@@ -407,7 +407,7 @@ export function BlockCard({
   const dataCanOpenCalendar    = !block.dataOk && !!canEditDataDate && !!onInlineDatePick;
   const dataCanOpenDtpPopover  = !!canEditData && !canEditDataDate && !!onDataChipDoubleClick;
   // materialInStock i materialIssued potlačují warning logiku materiálu
-  const materialHandled = block.materialInStock || block.materialIssued;
+  const materialHandled = block.materialInStock || block.materialIssued || block.materialPartiallyIssued;
   const materialDeadlineState = materialHandled
     ? "ok"
     : deadlineState(block.materialRequiredDate, block.materialOk, now, block.startTime);
@@ -887,7 +887,7 @@ export function BlockCard({
       {/* ── MODE_COMPACT: 2 řádky — [datumy horiz. + chips] / [číslo + popis] ── */}
       {MODE_COMPACT && (() => {
         const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
+        const mStateKey = block.materialIssued ? "issued" : block.materialPartiallyIssued ? "partial" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
@@ -922,12 +922,12 @@ export function BlockCard({
                 />
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
                   <BlockDateChip
-                    text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
+                    text={`M ${block.materialIssued ? "VYD." : block.materialPartiallyIssued ? "ČÁST." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
                     state={mStateKey}
                     accent={FIELD_ACCENT.MATERIAL}
                     fontSize={typeScale.chip}
                     title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued && !block.materialPartiallyIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
                   />
                 </MaterialNoteAffordance>
@@ -1008,7 +1008,7 @@ export function BlockCard({
           14–21 px) tak neztratí D/M/E chipy — dřív MICRO_TEXT ukazoval jen popis bez chipů. ── */}
       {(MODE_TINY || MODE_MICRO_TEXT) && (() => {
         const dStateKey = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mStateKey = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
+        const mStateKey = block.materialIssued ? "issued" : block.materialPartiallyIssued ? "partial" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eStateKey = !block.deadlineExpedice ? "empty" : "neutral";
         // Všechny fontSize v tomhle sdíleném řádku, které mají VLASTNÍ pevné
         // odsazení/rámeček (chip, SpecChip „S", MiniChip), MUSÍ být stropované
@@ -1058,10 +1058,10 @@ export function BlockCard({
                   {block.dataStatusId ? dataDisplayLabel : `D\u00a0${block.dataRequiredDate ? `${fmtDateShort(block.dataRequiredDate)}${dIcon}` : "—"}`}
                 </span>
                 <MaterialNoteAffordance indicatorSize={4} indicatorTop={1} indicatorRight={1} block={block}>
-                  <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock && !block.materialIssued)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                    onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                  <span style={chipStyle(mStateKey, FIELD_ACCENT.MATERIAL, !!block.materialRequiredDate && !block.materialInStock && !block.materialIssued && !block.materialPartiallyIssued)} title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
+                    onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued && !block.materialPartiallyIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                     onDoubleClick={canEditMat && onInlineDatePick ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}>
-                    M&nbsp;{block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
+                    M&nbsp;{block.materialIssued ? "VYD." : block.materialPartiallyIssued ? "ČÁST." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}
                   </span>
                 </MaterialNoteAffordance>
                 <span style={chipStyle(eStateKey, FIELD_ACCENT.EXPEDICE, false)}>
@@ -1206,7 +1206,7 @@ export function BlockCard({
       {/* ── Řádek 2: Datumové chipy (MODE_FULL) — vždy všechny, jednořádkové ── */}
       {showDates && (() => {
         const dSK: DateChipState = block.dataStatusId ? "ok" : !block.dataRequiredDate ? "empty" : dataDeadlineState === "none" ? "neutral" : dataDeadlineState;
-        const mSK: DateChipState = block.materialIssued ? "issued" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
+        const mSK: DateChipState = block.materialIssued ? "issued" : block.materialPartiallyIssued ? "partial" : block.materialInStock ? "ok" : (!block.materialRequiredDate ? "empty" : materialDeadlineState === "none" ? "neutral" : materialDeadlineState);
         const eSK: DateChipState = !block.deadlineExpedice ? "empty" : "neutral";
         const dIcon = dataDeadlineState === "ok" ? " ✓" : dataDeadlineState === "danger" ? " ✕" : dataDeadlineState === "warning" ? " !" : dataDeadlineState === "earlyStart" ? " ⚠" : "";
         const mIcon = materialDeadlineState === "ok" ? " ✓" : materialDeadlineState === "danger" ? " ✕" : materialDeadlineState === "warning" ? " !" : materialDeadlineState === "earlyStart" ? " ⚠" : "";
@@ -1234,12 +1234,12 @@ export function BlockCard({
             />
             <MaterialNoteAffordance block={block}>
               <BlockDateChip
-                text={`M ${block.materialIssued ? "VYD." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
+                text={`M ${block.materialIssued ? "VYD." : block.materialPartiallyIssued ? "ČÁST." : block.materialInStock ? "SKLAD" : block.materialRequiredDate ? `${fmtDateShort(block.materialRequiredDate)}${mIcon}` : "—"}`}
                 state={mSK}
                 accent={FIELD_ACCENT.MATERIAL}
                 fontSize={typeScale.chip}
                 title={materialDeadlineState === "earlyStart" ? "Start zakázky před dodáním materiálu" : undefined}
-                onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
+                onClick={block.materialRequiredDate && !block.materialInStock && !block.materialIssued && !block.materialPartiallyIssued ? (e) => { e.stopPropagation(); if (canEditMat && onInlineDatePick) { if (compactMatTimerRef.current) clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = setTimeout(() => { compactMatTimerRef.current = null; toggleField("materialOk", block.materialOk); }, 350); } else { toggleField("materialOk", block.materialOk); } } : undefined}
                 onDoubleClick={canEditMat ? (e) => { e.stopPropagation(); if (compactMatTimerRef.current) { clearTimeout(compactMatTimerRef.current); compactMatTimerRef.current = null; } onInlineDatePick?.(block.id, "material", block.materialRequiredDate ?? "", e.currentTarget.getBoundingClientRect()); } : undefined}
               />
             </MaterialNoteAffordance>

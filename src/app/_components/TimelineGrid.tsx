@@ -2457,6 +2457,7 @@ export default function TimelineGrid({
             // Nastavení termínu vypíná „skladem"/„vydáno" — nemá smysl mít oboje.
             const body: Record<string, unknown> = { [field]: dateStr };
             if (inlinePickerFlagFields) { body[inlinePickerFlagFields.inStock] = false; body[inlinePickerFlagFields.issued] = false; }
+            if (f === "material") body.materialPartiallyIssued = false;
             try {
               const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
                 method: "PUT",
