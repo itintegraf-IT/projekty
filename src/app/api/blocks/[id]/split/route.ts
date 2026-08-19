@@ -8,6 +8,7 @@ import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { loadMachineCalendar } from "@/lib/printTime.server";
 import { computeSplitPrintMinutes } from "@/lib/splitCompute";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
+import { moveToBefore } from "@/lib/reflowBefore.server";
 import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { emitSSE } from "@/lib/eventBus";
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     // všichni pod jedním `groupId`. Rozdělení je tak v historii jeden krok, ne dva
     // nesouvisející zápisy. UVNITŘ těla se nesmí sáhnout na modulový `prisma` ani pro
     // čtení (viz docblock withRevision).
-    const { result: { head, tail, shifted } } = await withRevision(
+    const { result: { head, tail, shifted, headBefore } } = await withRevision(
       { action: "SPLIT", label: "Rozdělení bloku", user: { id: session.id, username: session.username } },
       async (tx) => {
       // 1. In-tx re-read bloku (čerstvý stav pod row-lockem update níže).
@@ -98,6 +99,16 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       const groupId = block.splitGroupId ?? (await tx.splitGroup.create({ data: {} })).id;
 
       // 6. HLAVA — end autoritativně přes validateAndComputeEnd (NE syrový splitAt).
+      // Snapshot hlavy PŘED zkrácením — Ctrl+Z ho potřebuje, aby split šel vzít zpět.
+      // Jen pole, která split SKUTEČNĚ mění; `startTime`/`machine` zůstávají.
+      const headBefore = {
+        id: block.id,
+        endTime: block.endTime.toISOString(),
+        splitGroupId: block.splitGroupId,          // POZOR: u už rozdělené zakázky NENÍ null
+        printMinutes: block.printMinutes,
+        scheduleBypassed: block.scheduleBypassed,
+        updatedAt: block.updatedAt.toISOString(),
+      };
       const schedH = await validateAndComputeEnd(tx, block.machine, block.startTime, pm.headPm, splitAt, block.type, block.scheduleBypassed);
       if (!schedH.ok) throw new AppError("SCHEDULE_VIOLATION", schedH.error);
       const headUpdated = await tx.block.update({
@@ -203,7 +214,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       // (parita POST/PUT; dřív jen ZAKAZKA, split ne-ZAKAZKA bloku pojistku obcházel).
       await assertNoOverlapForBlocks(block.machine, [headUpdated.id, tailCreated.id, ...shiftedMoves.map((m) => m.id)], tx);
 
-      return { head: headUpdated, tail: tailCreated, shifted: shiftedMoves };
+      return { head: headUpdated, tail: tailCreated, shifted: shiftedMoves, headBefore };
       // Tělo výše si drží PŮVODNÍ odsazení — viz komentář u PUT bloku.
       // Timeout 15 s / maxWait 5 s má `withRevision` jako výchozí, nepředává se.
       },
@@ -233,6 +244,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       head: stripNotesIfDenied(headSer, canSeeNotes),
       tail: stripNotesIfDenied(tailSer, canSeeNotes),
       shifted: shiftedSer.map((b) => stripNotesIfDenied(b, canSeeNotes)),
+      // Snapshot PŘED splitem — klient z něj složí krok historie (Ctrl+Z), viz task S1.
+      // `head.machine` = `block.machine` (split stroj nemění), `shifted` = `shiftedMoves`
+      // (obojí z uzávěru transakce, mimo dosah zde) — obě jména na výstupu z `withRevision`.
+      before: { head: headBefore, shifted: shifted.map((m) => moveToBefore(head.machine, m)) },
     });
   } catch (error: unknown) {
     if (isAppError(error) && error.code === "CASCADE_CONFIRM") {

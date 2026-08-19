@@ -255,8 +255,14 @@ export function buildMoveOrResizeCommand(
   return null;
 }
 
-/** Snapshot vytvořeného bloku — `fields` slouží k obnově při redo. */
-type CreatedRef = { id: number; updatedAt: string; fields: Record<string, unknown> };
+/**
+ * Snapshot vytvořeného bloku — `fields` slouží k obnově při redo.
+ * `createdAt` je nepovinné: `buildCreateCommand` ho nepotřebuje (nový blok se
+ * REDOne bez vlastního data vzniku), ale `buildSplitCommand` ho potřebuje pro
+ * vzkříšení ocasu se STEJNÝM `createdAt`, jaké měl před undo (stejný vzor jako
+ * `DeletedRef.createdAt` u `buildDeleteCommand` níž).
+ */
+export type CreatedRef = { id: number; updatedAt: string; fields: Record<string, unknown>; createdAt?: string };
 
 /**
  * undo = smazat vytvořené bloky A vrátit odsunuté sousedy — v JEDNÉ transakci.
@@ -309,6 +315,62 @@ export function buildCreateCommand(
         ],
       });
       refresh([...created, ...shiftedAfter], res.updated);
+      effects.addToState(res.updated);
+      return affected(res);
+    },
+  };
+}
+
+/**
+ * Krok historie po rozdělení zakázky.
+ *
+ * Split dělá TŘI věci naráz: zkrátí hlavu, vytvoří ocas a chain pushem odsune navazující
+ * bloky. Žádný ze stávajících builderů takový tvar nemá — `buildCreateCommand` umí
+ * create + odsunuté, `buildEditCommand` edit + odsunuté, tohle potřebuje obojí.
+ *
+ * Do 19. 8. 2026 split krok NEZAPISOVAL vůbec, takže Ctrl+Z po něm sáhl po PŘEDCHOZÍ,
+ * cizí akci — táž vada, jakou tahle vlna opravila u přepočtu (spec §1, bod 3).
+ */
+export function buildSplitCommand(
+  label: string,
+  head: { id: number; beforeFields: Record<string, unknown>; afterFields: Record<string, unknown>;
+          beforeUpdatedAt: string; afterUpdatedAt: string },
+  tail: CreatedRef,
+  shiftedBefore: BlockSnapshot[] = [],
+  shiftedAfter: BlockSnapshot[] = [],
+): HistoryEntry {
+  return {
+    label,
+    undo: async (effects) => {
+      const liveTail = effects.getLiveBlock(tail.id);
+      if (!liveTail || liveTail.updatedAt !== tail.updatedAt) throw new StaleUndoError();
+      guard(effects, shiftedAfter);
+      const expMap = new Map(shiftedAfter.map((e) => [e.id, e.updatedAt]));
+      const res = await effects.applyUndo({
+        label, direction: "undo",
+        ops: [
+          { kind: "remove", id: tail.id, expectedUpdatedAt: tail.updatedAt },
+          { kind: "upsert", id: head.id, expectedUpdatedAt: head.afterUpdatedAt, fields: head.beforeFields },
+          ...shiftedBefore.map((t) => posOp(t, expMap.get(t.id))),
+        ],
+      });
+      refresh(shiftedBefore, res.updated);
+      effects.removeFromState(res.removed);
+      effects.addToState(res.updated);
+      return affected(res);
+    },
+    redo: async (effects) => {
+      guard(effects, shiftedBefore);
+      const expMap = new Map(shiftedBefore.map((e) => [e.id, e.updatedAt]));
+      const res = await effects.applyUndo({
+        label, direction: "redo",
+        ops: [
+          { kind: "upsert", id: tail.id, fields: tail.fields, createdAt: tail.createdAt },
+          { kind: "upsert", id: head.id, expectedUpdatedAt: head.beforeUpdatedAt, fields: head.afterFields },
+          ...shiftedAfter.map((t) => posOp(t, expMap.get(t.id))),
+        ],
+      });
+      refresh(shiftedAfter, res.updated);
       effects.addToState(res.updated);
       return affected(res);
     },

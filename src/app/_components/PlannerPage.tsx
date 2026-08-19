@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import TimelineGrid, { dateToY, type Block, type CompanyDay } from "./TimelineGrid";
+import TimelineGrid, { dateToY, type Block, type CompanyDay, type SplitDoneInfo } from "./TimelineGrid";
 import { RESERVATION_FLIP_VARIANT, type BlockVariant } from "@/lib/blockVariants";
 import {
   addDaysToCivilDate,
@@ -21,7 +21,7 @@ import { snapStartToNextRunnableSlot } from "@/lib/printTime";
 import { serializeProductionTags } from "@/lib/productionTags";
 import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
-import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand, buildReflowCommand } from "@/lib/undo/commands";
+import { buildMoveCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand, buildReflowCommand, buildSplitCommand } from "@/lib/undo/commands";
 import { UNDO_MAX_OPS } from "@/lib/undo/limits";
 import { blockToRestoreFields } from "@/lib/undo/restoreFields";
 import { buildSplitEditTargetsWithShifted, buildPassiveSiblingTargets, mergePositionIntoTargets, mergeAnchorPositionIfChanged, pickShiftedSplitSiblings } from "@/lib/undo/splitSiblingFields";
@@ -2150,6 +2150,50 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     recordUndo(buildReflowCommand(label, kept, after));
   }
 
+  /**
+   * Krok historie po rozdělení zakázky (task S1, etapa S, 19. 8. 2026). `TimelineGrid`
+   * provede atomický split a zavolá tohle přes `onSplitDone` — skládání kroku
+   * (`buildSplitCommand`) i zápis (`recordUndo`) žije TADY, ne v `TimelineGrid`,
+   * jinak by se logika zapisování historie rozpadla do dvou souborů.
+   *
+   * Do 19. 8. 2026 split krok NEZAPISOVAL vůbec, takže Ctrl+Z po něm sáhl po
+   * PŘEDCHOZÍ, cizí akci — u splitu závažnější než u přepočtu, protože chain push
+   * tam běží BEZPODMÍNEČNĚ u každé zakázky (žádný opt-in `resolveChain`).
+   */
+  function handleSplitDone(data: SplitDoneInfo): void {
+    const { head, tail, shifted, before, headLive } = data;
+    const snap = (b: Block): BlockSnapshot => ({
+      id: b.id, startTime: b.startTime as string, endTime: b.endTime as string,
+      machine: b.machine, updatedAt: b.updatedAt,
+      printMinutes: b.printMinutes ?? null, scheduleBypassed: b.scheduleBypassed ?? false,
+    });
+    recordUndo(buildSplitCommand(
+      "Rozdělení bloku",
+      {
+        id: headLive.id,
+        // Jen pole, která split SKUTEČNĚ mění (CLAUDE.md) — startTime/machine se
+        // do kroku historie nedávají, split je nemění.
+        beforeFields: {
+          endTime: before.head.endTime,
+          splitGroupId: before.head.splitGroupId,
+          printMinutes: before.head.printMinutes,
+          scheduleBypassed: before.head.scheduleBypassed,
+        },
+        afterFields: {
+          endTime: head.endTime,
+          splitGroupId: head.splitGroupId,
+          printMinutes: head.printMinutes ?? null,
+          scheduleBypassed: head.scheduleBypassed ?? false,
+        },
+        beforeUpdatedAt: before.head.updatedAt,
+        afterUpdatedAt: head.updatedAt,
+      },
+      { id: tail.id, updatedAt: tail.updatedAt, fields: blockToRestoreFields(tail), createdAt: tail.createdAt },
+      before.shifted,
+      shifted.map(snap),
+    ));
+  }
+
   async function handleReflowMachine(machine: string) {
     try {
       const res = await fetchWithCascadeConfirm("/api/blocks/reflow", "POST", { machine }, askCascade);
@@ -3326,6 +3370,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onExpeditionPublish={canEdit ? handleExpeditionPublish : undefined}
             onExpeditionUnpublish={canEdit ? handleExpeditionUnpublish : undefined}
             onReflowMachine={canEdit ? handleReflowMachine : undefined}
+            onSplitDone={handleSplitDone}
             onDataChipDoubleClick={canEditData && !canEditDataDate ? handleDataChipDoubleClick : undefined}
             onShiftBoundsChange={canEdit ? updateShiftBounds : undefined}
             onOpenNotes={canSeeNotes ? (b) => setNotesDialogBlockId(b.id) : undefined}

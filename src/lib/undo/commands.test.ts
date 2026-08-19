@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMoveCommand, buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand, buildReflowCommand } from "./commands";
+import { buildMoveCommand, buildEditCommand, buildMultiEditCommand, buildCreateCommand, buildDeleteCommand, buildMoveOrResizeCommand, buildReflowCommand, buildSplitCommand } from "./commands";
 import { StaleUndoError, type Block, type EditSnapshot, type UndoEffects, type UndoRequest } from "./types";
 import { UNDO_MAX_OPS } from "./limits";
 
@@ -289,6 +289,78 @@ test("buildCreateCommand: bez odsunutých sousedů pošle jen smazání vytvoře
   // addToState SE volá (bezpodmínečně, s res.updated) — jen s prázdným polem, protože
   // nebyl žádný soused k upsertu. Volání samo o sobě je neškodné (no-op merge).
   assert.deepEqual(calls.added, [[]], "addToState dostal prázdné pole — nic se neupsertovalo, jen smazalo");
+});
+
+// ─── buildSplitCommand ────────────────────────────────────────────────────────
+// Task S1 (etapa S, 19. 8. 2026): split rozdělení zakázky do 19. 8. 2026 krok historie
+// NEZAPISOVAL vůbec — Ctrl+Z po splitu sáhl po PŘEDCHOZÍ, cizí akci.
+
+test("buildSplitCommand: undo smaže ocas, vrátí pole hlavy i pozice odsunutých", async () => {
+  const live = new Map([
+    [1, blk(1, { endTime: "2026-08-20T10:00:00.000Z", updatedAt: "h2" })],
+    [2, blk(2, { updatedAt: "t1" })],
+    [3, blk(3, { startTime: "2026-08-20T14:00:00.000Z", updatedAt: "s2" })],
+  ]);
+  const { effects, calls } = makeEffects(live);
+  const entry = buildSplitCommand(
+    "Rozdělení bloku",
+    { id: 1,
+      beforeFields: { endTime: "2026-08-20T14:00:00.000Z", splitGroupId: null, printMinutes: 360, scheduleBypassed: false },
+      afterFields:  { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 9, printMinutes: 240, scheduleBypassed: false },
+      beforeUpdatedAt: "h1", afterUpdatedAt: "h2" },
+    { id: 2, updatedAt: "t1", fields: { orderNumber: "X" }, createdAt: "2026-08-19T00:00:00.000Z" },
+    [{ id: 3, startTime: "2026-08-20T12:00:00.000Z", endTime: "2026-08-20T13:00:00.000Z", machine: "XL_105", updatedAt: "s1", printMinutes: 60, scheduleBypassed: false }],
+    [{ id: 3, startTime: "2026-08-20T14:00:00.000Z", endTime: "2026-08-20T15:00:00.000Z", machine: "XL_105", updatedAt: "s2", printMinutes: 60, scheduleBypassed: false }],
+  );
+  await entry.undo(effects);
+  const ops = calls.undo[0].ops;
+  assert.equal(ops.filter((o) => o.kind === "remove").length, 1, "ocas se maže");
+  assert.equal(ops.find((o) => o.kind === "remove")!.id, 2);
+  const headOp = ops.find((o) => o.kind === "upsert" && o.id === 1) as { fields: Record<string, unknown> } | undefined;
+  assert.equal(headOp!.fields.endTime, "2026-08-20T14:00:00.000Z", "hlavě se vrací PŮVODNÍ konec");
+  assert.equal(headOp!.fields.splitGroupId, null);
+  assert.equal(headOp!.fields.printMinutes, 360);
+  assert.ok(!("startTime" in headOp!.fields), "startTime split nemění → krok ho nesmí zapisovat");
+  const shiftOp = ops.find((o) => o.kind === "upsert" && o.id === 3) as { fields: Record<string, unknown> } | undefined;
+  assert.equal(shiftOp!.fields.startTime, "2026-08-20T12:00:00.000Z");
+});
+
+test("buildSplitCommand: redo ocas vzkřísí a hlavu zase zkrátí", async () => {
+  const live = new Map([
+    [1, blk(1, { endTime: "2026-08-20T14:00:00.000Z", updatedAt: "h1" })],
+    [3, blk(3, { startTime: "2026-08-20T12:00:00.000Z", updatedAt: "s1" })],
+  ]);
+  const { effects, calls } = makeEffects(live);
+  const entry = buildSplitCommand("Rozdělení bloku",
+    { id: 1, beforeFields: { endTime: "2026-08-20T14:00:00.000Z", splitGroupId: null, printMinutes: 360, scheduleBypassed: false },
+      afterFields: { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 9, printMinutes: 240, scheduleBypassed: false },
+      beforeUpdatedAt: "h1", afterUpdatedAt: "h2" },
+    { id: 2, updatedAt: "t1", fields: { orderNumber: "X" }, createdAt: "2026-08-19T00:00:00.000Z" },
+    [{ id: 3, startTime: "2026-08-20T12:00:00.000Z", endTime: "2026-08-20T13:00:00.000Z", machine: "XL_105", updatedAt: "s1", printMinutes: 60, scheduleBypassed: false }],
+    [{ id: 3, startTime: "2026-08-20T14:00:00.000Z", endTime: "2026-08-20T15:00:00.000Z", machine: "XL_105", updatedAt: "s2", printMinutes: 60, scheduleBypassed: false }],
+  );
+  await entry.redo(effects);
+  const ops = calls.undo[0].ops;
+  assert.equal(calls.undo[0].direction, "redo");
+  const tailOp = ops.find((o) => o.id === 2) as { kind: string; createdAt?: string } | undefined;
+  assert.equal(tailOp!.kind, "upsert", "ocas se vzkřísí, ne maže");
+  assert.equal(tailOp!.createdAt, "2026-08-19T00:00:00.000Z", "vzkříšení nese původní createdAt");
+  const headOp = ops.find((o) => o.id === 1) as { fields: Record<string, unknown> } | undefined;
+  assert.equal(headOp!.fields.endTime, "2026-08-20T10:00:00.000Z");
+});
+
+test("buildSplitCommand: PŮVODNÍ splitGroupId se vrací, ne natvrdo null", async () => {
+  // Dělení už rozdělené zakázky — hlava svou skupinu měla a split ji jen převzal.
+  const live = new Map([[1, blk(1, { updatedAt: "h2" })], [2, blk(2, { updatedAt: "t1" })]]);
+  const { effects, calls } = makeEffects(live);
+  await buildSplitCommand("Rozdělení bloku",
+    { id: 1, beforeFields: { endTime: "2026-08-20T14:00:00.000Z", splitGroupId: 5, printMinutes: 360, scheduleBypassed: false },
+      afterFields: { endTime: "2026-08-20T10:00:00.000Z", splitGroupId: 5, printMinutes: 240, scheduleBypassed: false },
+      beforeUpdatedAt: "h1", afterUpdatedAt: "h2" },
+    { id: 2, updatedAt: "t1", fields: {}, createdAt: "2026-08-19T00:00:00.000Z" }, [], [],
+  ).undo(effects);
+  const headOp = calls.undo[0].ops.find((o) => o.id === 1) as { fields: Record<string, unknown> } | undefined;
+  assert.equal(headOp!.fields.splitGroupId, 5);
 });
 
 // ─── buildDeleteCommand ───────────────────────────────────────────────────────

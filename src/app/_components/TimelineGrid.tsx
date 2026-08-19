@@ -22,6 +22,7 @@ import {
 } from "@/lib/dateUtils";
 import { computeShadeParity } from "@/lib/blockShades";
 import { fetchWithCascadeConfirm, type CascadeAsk } from "@/lib/cascadeConfirmClient";
+import type { BlockSnapshot } from "@/lib/undo/types";
 import { blockMatchesQuery } from "@/lib/orderSearch";
 import { type BlockVariant } from "@/lib/blockVariants";
 import { DAY_SLOT_COUNT } from "@/lib/timeSlots";
@@ -218,6 +219,23 @@ type DragPreview = {
   resizePrintMinutes?: number;
 } | null;
 
+/**
+ * Data pro krok historie po rozdělení zakázky (task S1, 19. 8. 2026). `before` je
+ * snapshot PŘED splitem z odpovědi serveru (`before.shifted` má tvar `ReflowBeforeSnapshot`
+ * — ZÁMĚRNĚ totožný s `BlockSnapshot`, viz `reflowBefore.server.ts`). `headLive` je hlava,
+ * jak vypadala PŘED splitem v klientském stavu (parametr `block` v `handleSplitBlockAt`).
+ * Skládání kroku historie (`buildSplitCommand` + `recordUndo`) žije v `PlannerPage`, ne tady.
+ */
+export type SplitDoneInfo = {
+  head: Block;
+  tail: Block;
+  shifted: Block[];
+  before: {
+    head: { id: number; endTime: string; splitGroupId: number | null; printMinutes: number | null; scheduleBypassed: boolean; updatedAt: string };
+    shifted: BlockSnapshot[];
+  };
+  headLive: Block;
+};
 
 interface TimelineGridProps {
   blocks: Block[];
@@ -298,6 +316,12 @@ interface TimelineGridProps {
   /** Banner stroje „Přepočítat" (hromadný reflow driftujících bloků) — implementace
    *  (fetch + confirm + toast) žije v PlannerPage, TimelineGrid jen renderuje chip/tlačítko. */
   onReflowMachine?: (machine: string) => Promise<void>;
+  /**
+   * Krok historie po rozdělení zakázky (task S1) — skládá ho a zapisuje `PlannerPage`
+   * přes `recordUndo`. BEZ výchozí hodnoty (žádné `?? (() => {})`): chybějící callback
+   * má spadnout na `tsc`, ne tiše nezapsat krok (stejná past jako split sám do 19. 8. 2026).
+   */
+  onSplitDone: (data: SplitDoneInfo) => void;
 }
 
 
@@ -589,6 +613,7 @@ export default function TimelineGrid({
   pasteSourceIsZakazka,
   onPasteHere,
   onReflowMachine,
+  onSplitDone,
 }: TimelineGridProps) {
   const visibleMachines: string[] = assignedMachine ? [assignedMachine] : [...MACHINES];
   const effectiveDaysBack  = daysBack  ?? VIEW_DAYS_BACK;
@@ -615,7 +640,7 @@ export default function TimelineGrid({
   const viewStartRef    = useRef<Date | null>(null);
   const slotHeightRef   = useRef(slotHeight);
   const colRefs         = useRef<(HTMLDivElement | null)[]>([null, null]);
-  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange });
+  const callbacksRef    = useRef({ onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange, onSplitDone });
   const queueDragItemRef = useRef(queueDragItem ?? null);
   const lassoRef        = useRef<{ startClientX: number; startClientY: number; active: boolean } | null>(null);
   const lassoRectRef    = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -683,8 +708,8 @@ export default function TimelineGrid({
   useEffect(() => { selectedBlockIdsRef.current = selectedBlockIds ?? new Set<number>(); }, [selectedBlockIds]);
 
   useEffect(() => {
-    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange };
-  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange]);
+    callbacksRef.current = { onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange, onSplitDone };
+  }, [onBlockUpdate, onBlockCreate, onMultiSelect, onMultiBlockUpdate, onError, onInfo, onCascadeConfirm, onQueueDrop, onQueueDragCancel, onShiftBoundsChange, onSplitDone]);
 
   useEffect(() => { shiftEdgePreviewRef.current = shiftEdgePreview; }, [shiftEdgePreview]);
 
@@ -1271,10 +1296,15 @@ export default function TimelineGrid({
         callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo rozdělit.");
         return;
       }
-      const { head, tail, shifted } = await res.json() as { head: Block; tail: Block; shifted?: Block[] };
+      const { head, tail, shifted, before } = await res.json() as {
+        head: Block; tail: Block; shifted?: Block[]; before: SplitDoneInfo["before"];
+      };
       // Chain-push posuny (shifted) nese POUZE hlava; ocas se aplikuje samostatně (žádná dvojitá aplikace).
       onBlockUpdate({ ...head, shifted } as Block & { shifted?: Block[] });
       onBlockCreate(tail);
+      // Krok historie (Ctrl+Z) — sestavuje a zapisuje PlannerPage (task S1). `block` je
+      // hlava, jak vypadala PŘED splitem v klientském stavu (parametr téhle funkce).
+      callbacksRef.current.onSplitDone?.({ head, tail, shifted: shifted ?? [], before, headLive: block });
     } catch (error) {
       console.error("Block split failed", error);
       callbacksRef.current.onError?.("Blok se nepodařilo rozdělit.");
