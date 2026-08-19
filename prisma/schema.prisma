@@ -127,6 +127,7 @@ model Block {
   splitGroupId                                Int?         @db.UnsignedInt
   materialInStock                             Boolean      @default(false)
   materialIssued                              Boolean      @default(false)
+  materialPartiallyIssued                     Boolean      @default(false)
   pantoneRequired                             Boolean      @default(false)
   pantoneOk                                   Boolean      @default(false)
   pantoneRequiredDate                         DateTime?
