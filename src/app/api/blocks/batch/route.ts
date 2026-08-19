@@ -207,7 +207,10 @@ export async function POST(request: NextRequest) {
             { id: u.id, startTime: new Date(u.startTime), endTime: computedEnds.get(u.id)?.end ?? new Date(u.endTime) },
             new Set<number>(),  // nic se neschovává…
             movedIds,           // …sourozenci jsou vidět jako zmrazené překážky
-            { cascadeConfirmed, path: "batch" }
+            // skipCascadeCheck: per-kotva kontrola by u PRVNÍ kotvy vyhodila výjimku
+            // s číslem jen z ní — uživatel by odklepl menší dopad, než se skutečně
+            // provede. Autoritativní je součet za celou dávku (path: "batch-total" níž).
+            { cascadeConfirmed, path: "batch", skipCascadeCheck: true }
           );
           shiftedMoves.push(...moves);
           const arr = checkByMachine.get(u.machine) ?? [];

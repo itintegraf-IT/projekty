@@ -65,6 +65,14 @@ export type ReflowDeps = {
    * důvodů (protéká až k `resolveChainPush`), ne z principu.
    */
   cascadeConfirmed?: boolean;
+  /**
+   * Protéká do `resolveChainPush` jako `skipCascadeCheck`. Sám `reflowBlockInTx`
+   * default false (jednoblokový endpoint `/api/blocks/[id]/reflow` ho neposílá,
+   * takže path "reflow-block" si kaskádu kontroluje sám) — `reflowMachineInTx`
+   * ho nastaví na `true`, protože u hromadného přepočtu rozhoduje součet za
+   * celý běh (path "reflow-machine"), ne každé jednotlivé volání.
+   */
+  skipCascadeCheck?: boolean;
 };
 
 const defaultDeps: ReflowDeps = { resolveChainPush: resolveChainPushFromDb };
@@ -192,7 +200,11 @@ export async function reflowBlockInTx(
   const moves = await deps.resolveChainPush(
     tx, block.machine, { id: blockId, startTime: newStart, endTime: newEnd },
     new Set<number>(), new Set<number>(),
-    { cascadeConfirmed: deps.cascadeConfirmed === true, path: "reflow-block" },
+    {
+      cascadeConfirmed: deps.cascadeConfirmed === true,
+      path: "reflow-block",
+      skipCascadeCheck: deps.skipCascadeCheck === true,
+    },
   );
 
   // Finální tvrdá pojistka — reflow (re-expanze + chain push) nesmí skončit překryvem.
@@ -343,6 +355,11 @@ export async function reflowMachineInTx(
       resolveChainPush: resolveChainPushFromDb,
       preloadedCalendar,
       cascadeConfirmed,
+      // Hromadný přepočet stroje kontroluje kaskádu na SOUČTU za celý běh (path
+      // "reflow-machine" níž) — per-blok kontrola by u prvního driftnutého bloku
+      // vyhodila výjimku s číslem jen z něj a "reflow-block" by se navíc v logu
+      // objevovalo i pro tohle gesto, ne jen pro skutečné jednoblokové Přepočítat.
+      skipCascadeCheck: true,
     });
     if (!outcome.ok) {
       skipped.push({ id: block.id, orderNumber: block.orderNumber, reason: outcome.code });

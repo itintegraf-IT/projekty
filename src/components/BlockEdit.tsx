@@ -21,6 +21,7 @@ import { NativeSelect } from "@/components/NativeSelect";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
 import { durationPayload, resolveDurationSync } from "@/lib/blockEditDuration";
+import { fetchWithCascadeConfirm, type CascadeAsk } from "@/lib/cascadeConfirmClient";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
@@ -88,6 +89,7 @@ export function BlockEdit({
   onDeleteAll,
   onSaveAll,
   onFlipReservation,
+  onCascadeConfirm,
   canEdit = true,
   canEditData = true,
   canEditDataDate = true,
@@ -111,6 +113,13 @@ export function BlockEdit({
   onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<boolean>;
   /** Překlopení rezervace na zakázku včetně ostatních bloků téže rezervace. */
   onFlipReservation?: (anchorId: number, payload: Record<string, unknown>, siblingIds: number[]) => Promise<boolean>;
+  /**
+   * POVINNÉ, žádný default/fallback. Obě zápisové cesty tohoto panelu (Uložit
+   * změny, Uložit termíny série) posílají `resolveChain: true` a mohou narazit
+   * na `CASCADE_CONFIRM` (409) — musí se zeptat uživatele, tiché potvrzení bez
+   * dotazu je přesně vada, kterou tahle etapa řeší (nález review #1).
+   */
+  onCascadeConfirm: CascadeAsk;
   canEdit?: boolean;
   canEditData?: boolean;
   canEditDataDate?: boolean;
@@ -428,6 +437,16 @@ export function BlockEdit({
       if (a.adjustedDate !== b.adjustedDate) return a.adjustedDate.localeCompare(b.adjustedDate);
       return a.adjustedHour - b.adjustedHour;
     });
+    // Uložení termínů série je JEDNO gesto uživatele, i když PUTuje N výskytů ve
+    // smyčce — po prvním potvrzení kaskády se další výskyty už neptají (stejný vzor
+    // jako askCascadeOnceForGroup u group paste v PlannerPage.tsx, nález review #1).
+    let seriesCascadeConfirmed = false;
+    const askCascadeOnceForSeries: CascadeAsk = async (p) => {
+      if (seriesCascadeConfirmed) return true;
+      const ok = await onCascadeConfirm(p);
+      if (ok) seriesCascadeConfirmed = true;
+      return ok;
+    };
     for (const resolved of orderedResolved) {
       const orig = curSeries.find((b) => b.id === resolved.blockId);
       if (!orig) continue;
@@ -450,32 +469,33 @@ export function BlockEdit({
       const newStart = pragueToUTC(resolved.adjustedDate, resolved.adjustedHour);
       const newEnd = new Date(newStart.getTime() + origDuration);
       try {
-        const res = await fetch(`/api/blocks/${resolved.blockId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            startTime: newStart.toISOString(),
-            endTime: newEnd.toISOString(),
-            // Tiskové hodiny výskytu — server dopočítá autoritativní end z nového startu.
-            printMinutes: blockPrintMinutes(orig),
-            dataRequiredDate: resolved.dataRequiredDate || null,
-            deadlineExpedice: resolved.deadlineExpedice || null,
-            // resolveChain — server umístí výskyt a případně odsune navazující bloky
-            // (chain push) v téže transakci; finální pojistka ověří výsledek.
-            resolveChain: true,
-            // bypassScheduleValidation zůstává true záměrně — výskyty série jsou
-            // deadline-driven na přesné datum. Server od etapy 2 ukládá spočítanou
-            // konformitu (effectivelyBypassed) — ALE jen když PUT harmonogram
-            // skutečně přepočítá (etapa 3, commit a112779a). Když timeChanged je
-            // false a mění se jen DATA/EXPEDICE (větev "Změna jen pokud..." výš),
-            // startTime/endTime/machine/printMinutes jsou shodné s uloženými,
-            // přepočet neproběhne a scheduleBypassed se NEnormalizuje — zůstane,
-            // co v DB už bylo. Chování je bezpečné (bypass beze změny geometrie
-            // nikoho neohrozí), jen to neplatí bezpodmínečně pro každý PUT téhle
-            // funkce, jen pro ty, které skutečně hnou startem/endem/strojem.
-            bypassScheduleValidation: true,
-          }),
-        });
+        const body = {
+          startTime: newStart.toISOString(),
+          endTime: newEnd.toISOString(),
+          // Tiskové hodiny výskytu — server dopočítá autoritativní end z nového startu.
+          printMinutes: blockPrintMinutes(orig),
+          dataRequiredDate: resolved.dataRequiredDate || null,
+          deadlineExpedice: resolved.deadlineExpedice || null,
+          // resolveChain — server umístí výskyt a případně odsune navazující bloky
+          // (chain push) v téže transakci; finální pojistka ověří výsledek. Chain push
+          // tu může u KTERÉHOKOLIV výskytu vyvolat CASCADE_CONFIRM (409) — proto
+          // fetchWithCascadeConfirm s askCascadeOnceForSeries níž (nález review #1),
+          // ne holý fetch, který by po zapnutí vynucení tiše "spadl" na chybu a
+          // výskyt by se nezapsal.
+          resolveChain: true,
+          // bypassScheduleValidation zůstává true záměrně — výskyty série jsou
+          // deadline-driven na přesné datum. Server od etapy 2 ukládá spočítanou
+          // konformitu (effectivelyBypassed) — ALE jen když PUT harmonogram
+          // skutečně přepočítá (etapa 3, commit a112779a). Když timeChanged je
+          // false a mění se jen DATA/EXPEDICE (větev "Změna jen pokud..." výš),
+          // startTime/endTime/machine/printMinutes jsou shodné s uloženými,
+          // přepočet neproběhne a scheduleBypassed se NEnormalizuje — zůstane,
+          // co v DB už bylo. Chování je bezpečné (bypass beze změny geometrie
+          // nikoho neohrozí), jen to neplatí bezpodmínečně pro každý PUT téhle
+          // funkce, jen pro ty, které skutečně hnou startem/endem/strojem.
+          bypassScheduleValidation: true,
+        };
+        const res = await fetchWithCascadeConfirm(`/api/blocks/${resolved.blockId}`, "PUT", body, askCascadeOnceForSeries);
         if (res.ok) {
           const updated: Block = await res.json();
           onBlockUpdate?.(updated);
@@ -809,15 +829,15 @@ export function BlockEdit({
       // vrstvy 2a–2c (durationPayload + resync + hláška) tím, že SPRÁVNĚ rozhodnou,
       // jestli se délka vůbec posílá — ne přísnějším zámkem.
       const freshUpdatedAt = allBlocks.find((b) => b.id === block.id)?.updatedAt ?? block.updatedAt;
-      const res = await fetch(`/api/blocks/${block.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...payload,
-          resolveChain: true,
-          ...(conflictOverride ? {} : { expectedUpdatedAt: freshUpdatedAt }),
-        }),
-      });
+      const body = {
+        ...payload,
+        resolveChain: true,
+        ...(conflictOverride ? {} : { expectedUpdatedAt: freshUpdatedAt }),
+      };
+      // resolveChain: true → chain push může vyvolat CASCADE_CONFIRM (409). Nejpoužívanější
+      // editační cesta v aplikaci, takže se MUSÍ ptát přes onCascadeConfirm (nález review #1) —
+      // holý fetch by 409 spadl do obecné větve níž bez možnosti potvrdit.
+      const res = await fetchWithCascadeConfirm(`/api/blocks/${block.id}`, "PUT", body, onCascadeConfirm);
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string; code?: string };
         if (err.code === "CONFLICT") {

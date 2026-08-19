@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { resolveChainPushFromDb, chainPushGeometry } from "./overlapResolver.server";
 import { isAppError } from "./errors";
 import { measureCascade } from "./cascadeLimit";
+import { logger } from "./logger";
 
 // Úterý 16. 6. 2026, prázdné weekShifts → hardcoded fallback XL_105 (souvislý provoz).
 const H = (h: number) => new Date(`2026-06-16T${String(h).padStart(2, "0")}:00:00.000Z`);
@@ -293,6 +294,47 @@ describe("resolveChainPushFromDb — práh kaskády (režim měření)", () => {
     );
     assert.equal(impact.movedCount, moves.length);
     assert.ok(impact.maxShiftMs > 0);
+  });
+
+  // `assertCascadeConfirmed` sama (co dělá v režimu MĚŘENÍ vs. VYNUCENÍ) má vlastní
+  // testy v cascadeLimit.server.test.ts (mock.module na CASCADE_CONFIRM_ENFORCED —
+  // ten se v repu nesmí přepínat). Tady se testuje jen to, co je specifické PRO
+  // resolver: jestli se kontrola vůbec ZAVOLÁ, ne jak se chová při překročení.
+  // Protože CASCADE_CONFIRM_ENFORCED je v tomhle souboru záměrně nedotčené (`false`),
+  // "zavolala se kontrola" nejde poznat z hozené výjimky (v měřicím režimu nikdy
+  // nehodí) — pozná se z toho, že v měřicím režimu při překročení VŽDY zaloguje
+  // (`logger.info`, viz cascadeLimit.server.ts). Spy na logger.info je tedy čistší
+  // signál než cokoliv odvozené z chování `resolveChainPushFromDb` navenek.
+  it("skipCascadeCheck: true nechá i velkou kaskádu projít BEZ kontroly (žádný log)", async () => {
+    const infoSpy = mock.method(logger, "info", () => {});
+    try {
+      const { tx } = mkTx([
+        ...Array.from({ length: 8 }, (_, k) => row(10 + k, 12 + k, 13 + k)),
+      ]);
+      const moves = await resolveChainPushFromDb(
+        tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) },
+        new Set<number>(), new Set<number>(),
+        { skipCascadeCheck: true },
+      );
+      assert.ok(moves.length > 5);
+      assert.equal(infoSpy.mock.calls.length, 0);
+    } finally {
+      infoSpy.mock.restore();
+    }
+  });
+
+  it("bez skipCascadeCheck se kontrola provede (velká kaskáda se zaloguje)", async () => {
+    const infoSpy = mock.method(logger, "info", () => {});
+    try {
+      const { tx } = mkTx([
+        ...Array.from({ length: 8 }, (_, k) => row(10 + k, 12 + k, 13 + k)),
+      ]);
+      const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) });
+      assert.ok(moves.length > 5);
+      assert.equal(infoSpy.mock.calls.length, 1);
+    } finally {
+      infoSpy.mock.restore();
+    }
   });
 });
 

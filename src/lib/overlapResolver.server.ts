@@ -102,7 +102,16 @@ export async function resolveChainPushFromDb(
    * přeskočí. `path` jde jen do logu, aby se z týdne měření dalo poznat, KTERÁ
    * cesta se ptá nejčastěji.
    */
-  opts: { cascadeConfirmed?: boolean; path?: string } = {}
+  opts: {
+    cascadeConfirmed?: boolean;
+    path?: string;
+    /**
+     * Volající si kontrolu prahu udělá SÁM nad součtem za celé gesto (batch, hromadný
+     * přepočet stroje). Per-volání kontrola by u prvního volání vyhodila výjimku s číslem
+     * jen z něj — uživatel by odklepl menší dopad, než jaký se skutečně provede.
+     */
+    skipCascadeCheck?: boolean;
+  } = {}
 ): Promise<AppliedMove[]> {
   // Okno bloků: den před anchorem až 90 dní za jeho koncem (chain push posouvá jen dopředu).
   const windowStart = new Date(anchor.startTime.getTime() - DAY_MS);
@@ -217,17 +226,22 @@ export async function resolveChainPushFromDb(
 
   // Strop kaskády — měří se na SPOČÍTANÝCH posunech, ještě než se cokoliv zapíše.
   // Výjimka odroluje celou transakci, takže se do DB nedostane ani jeden update.
-  assertCascadeConfirmed(
-    measureCascade(
-      result.moves.map((m) => ({
-        id: m.id,
-        startTime: m.startTime,
-        endTime: m.endTime,
-        oldStartTime: rowById.get(m.id)!.startTime,
-      })),
-    ),
-    { confirmed: opts.cascadeConfirmed === true, path: opts.path ?? "chain-push" },
-  );
+  // skipCascadeCheck: volající (batch, hromadný přepočet stroje) kontroluje sám
+  // nad součtem za celé gesto — per-volání kontrola tady by u prvního volání
+  // vyhodila výjimku s číslem jen z něj, ne z celého dopadu gesta.
+  if (opts.skipCascadeCheck !== true) {
+    assertCascadeConfirmed(
+      measureCascade(
+        result.moves.map((m) => ({
+          id: m.id,
+          startTime: m.startTime,
+          endTime: m.endTime,
+          oldStartTime: rowById.get(m.id)!.startTime,
+        })),
+      ),
+      { confirmed: opts.cascadeConfirmed === true, path: opts.path ?? "chain-push" },
+    );
+  }
 
   // Nezávislá pojistka (spec 3.6): každý posunutý blok musí mít end == expandPrintTime(...).
   // computeChainPush to garantuje konstrukcí; tohle chytá případný drift obou implementací.

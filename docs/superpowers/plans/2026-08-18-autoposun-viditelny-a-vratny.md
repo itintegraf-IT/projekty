@@ -1700,6 +1700,15 @@ grep "\[cascade\] práh překročen" ~/.pm2/logs/planovani-out.log | tail -30
 
 Vezmi počet překročení za týden a rozděl ho podle `path`. Když se aplikace ptala víc než ~5× denně, **práh je nízko** — zvyš `CASCADE_CONFIRM_MAX_BLOCKS` a přepnutí odlož; jinak by se dialog odklikával naslepo a přestal by cokoliv znamenat.
 
+**Práh počítej jen z `path` hodnot, které odpovídají JEDNOMU gestu uživatele:**
+`POST /api/blocks` · `PUT /api/blocks/[id]` · `split` · `batch-total` · `reflow-machine`
+
+`batch` a `reflow-block` se **vynechávají**:
+- `batch` je per-kotva mezikrok uvnitř jedné dávky (`skipCascadeCheck: true`, kontrolu za celé gesto dělá až `batch-total`) — počítat ho zvlášť by dávku vynásobil počtem kotev.
+- `reflow-block` se po opravě z review nálezu #2 v hromadném přepočtu stroje už neloguje vůbec (`reflowMachineInTx` posílá `skipCascadeCheck: true`, takže per-blok kontrola uvnitř přepočtu mlčí a rozhoduje `reflow-machine`). Filtr je tu pojistka pro případ, že by se to v budoucnu rozjelo jinak — jednoblokový endpoint `/api/blocks/[id]/reflow` `skipCascadeCheck` neposílá, takže `reflow-block` v logu ZAROVNÁ jen na skutečné jednoblokové „Přepočítat".
+
+**Pozor na slepé místo:** `assertCascadeConfirmed` s `confirmed: true` (uživatel kaskádu už potvrdil přes dialog) nezaloguje nic — loguje se jen větev překročení BEZ potvrzení. Z dnešního logu tedy nejde poznat, kolik potvrzených kaskád proběhlo, jen kolik by se JICH PTALO poprvé. Pokud by B4 potřebovalo i tohle číslo (např. pro odhad, jak často by vynucení skutečně zablokovalo transakci na DRUHÉM pokusu), musí si o tu metriku říct zvlášť — dnešní log ji nenese.
+
 - [ ] **Step 2: Přepni konstantu**
 
 ```ts

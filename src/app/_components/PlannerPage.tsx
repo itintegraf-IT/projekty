@@ -3420,6 +3420,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               onDeleteAll={handleDeleteAll}
               onSaveAll={handleSaveAll}
               onFlipReservation={handleFlipReservation}
+              onCascadeConfirm={askCascade}
               canEdit={canEdit}
               canEditData={canEditData}
               canEditDataDate={canEditDataDate}
