@@ -57,6 +57,7 @@ test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série �
     { label: "2 série", tone: "plain" },
     { label: "Data OK", tone: "ok" },
     { label: "Skladem", tone: "ok" },
+    { label: "MAT. SKLADEM ✓", tone: "ok" },
     { label: "PANTONE", tone: "ok" },
     { label: "Pozastaveno", tone: "danger" },
   ]);
@@ -105,30 +106,30 @@ test("buildMonitorChips: data bez potvrzení čekají", () => {
 });
 
 test("buildMonitorChips: Pantone vzniká ze tří nezávislých cest", () => {
-  assert.equal(buildMonitorChips(mk({ pantoneRequired: true }))[0].label, "PANTONE");
-  assert.equal(buildMonitorChips(mk({ pantoneRequiredDate: "2026-08-12T00:00:00.000Z" }))[0].label, "PANTONE");
+  assert.equal(buildMonitorChips(mk({ pantoneRequired: true }))[0].label, "PANTONE ČEKÁ");
+  assert.equal(buildMonitorChips(mk({ pantoneRequiredDate: "2026-08-12T00:00:00.000Z" }))[0].label, "PANTONE ČEKÁ");
   assert.equal(buildMonitorChips(mk({ pantoneOk: true }))[0].tone, "ok");
   assert.equal(buildMonitorChips(mk({ pantoneRequired: true }))[0].tone, "wait");
 });
 
 test("buildMonitorChips: pantone skladem je hotový stav (tón ok), ne čekání", () => {
   const chips = buildMonitorChips(mk({ pantoneRequired: true, pantoneInStock: true }));
-  assert.deepEqual(chips, [{ label: "PANTONE", tone: "ok" }]);
+  assert.deepEqual(chips, [{ label: "PANTONE SKLADEM", tone: "ok" }]);
 });
 
 test("buildMonitorChips: pantone vydaný je hotový stav (tón ok)", () => {
   const chips = buildMonitorChips(mk({ pantoneRequired: true, pantoneIssued: true }));
-  assert.deepEqual(chips, [{ label: "PANTONE", tone: "ok" }]);
+  assert.deepEqual(chips, [{ label: "PANTONE VYDÁNO", tone: "ok" }]);
 });
 
 test("buildMonitorChips: pantone jen s termínem pořád čeká", () => {
   const chips = buildMonitorChips(mk({ pantoneRequired: true, pantoneRequiredDate: "2026-08-20T00:00:00.000Z" }));
-  assert.deepEqual(chips, [{ label: "PANTONE", tone: "wait" }]);
+  assert.deepEqual(chips, [{ label: "PANTONE ČEKÁ", tone: "wait" }]);
 });
 
 test("buildMonitorChips: pantone skladem se zobrazí i bez pantoneRequired (pojistka proti neviditelnému stavu)", () => {
   const chips = buildMonitorChips(mk({ pantoneInStock: true }));
-  assert.deepEqual(chips, [{ label: "PANTONE", tone: "ok" }]);
+  assert.deepEqual(chips, [{ label: "PANTONE SKLADEM", tone: "ok" }]);
 });
 
 test("buildMonitorChips: STANDARD varianta chip nedělá, POZASTAVENO je červené", () => {
@@ -143,4 +144,22 @@ test("buildMonitorChips: STANDARD varianta chip nedělá, POZASTAVENO je červen
 
 test("buildMonitorChips: chybějící blockVariant (undefined) chip nedělá", () => {
   assert.deepEqual(buildMonitorChips(mk({ blockVariant: undefined })), []);
+});
+
+test("buildMonitorChips: stav materiálu má vlastní textový chip", () => {
+  const issued = buildMonitorChips(mk({ materialIssued: true }));
+  assert.ok(issued.some((c) => c.label === "MAT. VYDÁNO ➜" && c.tone === "ok"));
+  const partial = buildMonitorChips(mk({ materialPartiallyIssued: true }));
+  assert.ok(partial.some((c) => c.label === "MAT. ČÁST. ½" && c.tone === "ok"));
+  const inStock = buildMonitorChips(mk({ materialInStock: true }));
+  assert.ok(inStock.some((c) => c.label === "MAT. SKLADEM ✓" && c.tone === "ok"));
+  const waiting = buildMonitorChips(mk({ materialRequiredDate: "2026-08-21" }));
+  assert.ok(waiting.some((c) => c.label === "MAT. ČEKÁ" && c.tone === "wait"));
+});
+
+test("buildMonitorChips: pantone chip nese stav vydání textově", () => {
+  const issued = buildMonitorChips(mk({ pantoneRequired: true, pantoneIssued: true }));
+  assert.ok(issued.some((c) => c.label === "PANTONE VYDÁNO" && c.tone === "ok"));
+  const none = buildMonitorChips(mk({}));
+  assert.ok(!none.some((c) => c.label.startsWith("PANTONE")));
 });

@@ -45,13 +45,23 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
     chips.push({ label: block.materialStatusLabel, tone: materialReady ? "ok" : "wait" });
   }
 
+  // Stav vydání materiálu — textově (prosba tiskařů 19. 8. 2026: „aby věděli, na co mají vydáno").
+  // Priorita zrcadlí mStateKey na kartě v plánu: issued > partiallyIssued > inStock > termín.
+  if (block.materialIssued) chips.push({ label: "MAT. VYDÁNO ➜", tone: "ok" });
+  else if (block.materialPartiallyIssued) chips.push({ label: "MAT. ČÁST. ½", tone: "ok" });
+  else if (block.materialInStock) chips.push({ label: "MAT. SKLADEM ✓", tone: "ok" });
+  else if (block.materialRequiredDate) chips.push({ label: "MAT. ČEKÁ", tone: "wait" });
+
   // Štítek se zobrazí za stejné podmínky jako v BlockCard (požadováno, má termín,
   // je odklepnuto, nebo je skladem/vydáno). Připravenost = odklepnuto NEBO skladem
   // NEBO vydáno — táž logika jako pantoneHandled v BlockCard.tsx; kdyby se rozešly,
   // Monitor a plán by o téže zakázce tvrdily dvě různé věci (nález I5).
   if (block.pantoneRequired || block.pantoneRequiredDate || block.pantoneOk || block.pantoneInStock || block.pantoneIssued) {
     const pantoneReady = block.pantoneOk || block.pantoneInStock || block.pantoneIssued;
-    chips.push({ label: "PANTONE", tone: pantoneReady ? "ok" : "wait" });
+    const pantoneLabel = block.pantoneIssued ? "PANTONE VYDÁNO"
+      : block.pantoneInStock ? "PANTONE SKLADEM"
+      : pantoneReady ? "PANTONE" : "PANTONE ČEKÁ";
+    chips.push({ label: pantoneLabel, tone: pantoneReady ? "ok" : "wait" });
   }
 
   // Nestandardní varianta zakázky (POZASTAVENO = výrobní stopka) — v plánu je sytě
