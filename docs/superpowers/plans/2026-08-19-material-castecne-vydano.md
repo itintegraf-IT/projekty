@@ -222,6 +222,55 @@ Run: `node --test --import tsx src/lib/monitorChips.test.ts` → Expected: FAIL 
 ```
 - [ ] **Step 5:** Commit — `feat(material): "1/2" v detailu bloku a na Monitoru`
 
+### Task 6b: Textové štítky stavu materiálu a pantone na Monitoru (druhá vlna, bod 3 — přidáno 19. 8.)
+
+**Files:**
+- Modify: `src/lib/monitorChips.ts` + Test: `src/lib/monitorChips.test.ts`
+
+**Interfaces:**
+- Consumes: `materialPartiallyIssued` z Task 1–6 (Task 6 už upravil `materialReady`).
+- Produces: chipy stavu vydání viditelné na hero kartě i ve frontě (sdílená `MonitorChips` je propaguje sama; NEDODĚLÁNO zůstává bez chipů — záměr).
+
+- [ ] **Step 1: Failing testy** — do `monitorChips.test.ts`:
+```typescript
+test("stav materiálu má vlastní textový chip", () => {
+  const issued = monitorChips(mk({ materialIssued: true }));
+  assert.ok(issued.some((c) => c.label === "MAT. VYDÁNO ➜" && c.tone === "ok"));
+  const partial = monitorChips(mk({ materialPartiallyIssued: true }));
+  assert.ok(partial.some((c) => c.label === "MAT. ČÁST. ½" && c.tone === "ok"));
+  const inStock = monitorChips(mk({ materialInStock: true }));
+  assert.ok(inStock.some((c) => c.label === "MAT. SKLADEM ✓" && c.tone === "ok"));
+  const waiting = monitorChips(mk({ materialRequiredDate: "2026-08-21" }));
+  assert.ok(waiting.some((c) => c.label === "MAT. ČEKÁ" && c.tone === "wait"));
+});
+test("pantone chip nese stav vydání textově", () => {
+  const issued = monitorChips(mk({ pantoneRequired: true, pantoneIssued: true }));
+  assert.ok(issued.some((c) => c.label === "PANTONE VYDÁNO" && c.tone === "ok"));
+  const none = monitorChips(mk({}));
+  assert.ok(!none.some((c) => c.label.startsWith("PANTONE")));
+});
+```
+Run: `node --test --import tsx src/lib/monitorChips.test.ts` → FAIL.
+- [ ] **Step 2: Implementace** v `buildMonitorChips` — ZA dnešní chip `materialStatusLabel` (druh, zůstává) přidej stavový chip s prioritou issued > partial > inStock > termín (zrcadlí `mStateKey` z BlockCard):
+```typescript
+  // Stav vydání materiálu — textově (prosba tiskařů 19. 8. 2026: „aby věděli, na co mají vydáno").
+  // Priorita zrcadlí mStateKey na kartě v plánu: issued > partiallyIssued > inStock > termín.
+  if (block.materialIssued) chips.push({ label: "MAT. VYDÁNO ➜", tone: "ok" });
+  else if (block.materialPartiallyIssued) chips.push({ label: "MAT. ČÁST. ½", tone: "ok" });
+  else if (block.materialInStock) chips.push({ label: "MAT. SKLADEM ✓", tone: "ok" });
+  else if (block.materialRequiredDate) chips.push({ label: "MAT. ČEKÁ", tone: "wait" });
+```
+a dnešní pevný chip `PANTONE` (viditelnostní gate zůstává) rozšiř o stav:
+```typescript
+    const pantoneLabel = block.pantoneIssued ? "PANTONE VYDÁNO"
+      : block.pantoneInStock ? "PANTONE SKLADEM"
+      : pantoneReady ? "PANTONE" : "PANTONE ČEKÁ";
+```
+(`pantoneReady` = dnešní podmínka tónu; typ vstupu funkce doplň o `materialPartiallyIssued`/`materialRequiredDate`, pokud je nemá.)
+- [ ] **Step 3:** Testy PASS + celý `monitorChips.test.ts` zelený.
+- [ ] **Step 4:** Ruční ověření na dev Monitoru: hero karta i fronta ukazují nové chipy; NEDODĚLÁNO beze změny; na stupni XL zkontrolovat, že hero obsah neořízne pás specifikace (tlačítko HOTOVO je chráněné pevnou výškou — kontrola je jen o obsahu).
+- [ ] **Step 5:** Commit — `feat(monitor): textove stitky stavu materialu a pantone ve fronte i na hero karte`
+
 ### Task 7: Celá suite, build, dokumenty
 
 - [ ] **Step 1:** Celá test suite (glob nejde do podsložek — každá složka zvlášť, viz CLAUDE.md):
