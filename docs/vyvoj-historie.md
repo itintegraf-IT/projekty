@@ -2143,6 +2143,57 @@ sousedního stroje. Vedlejší zjištění: se starým ořezem na okno by bublin
 XL 106 skončila na 1350–1590 px, tedy **přes panel Job Builderu** — nové
 pravidlo ji drží uvnitř mřížky i tam.
 
+## Hover bublina pod kartou s flipem nahoru (20. 8. 2026)
+
+**Připomínka plánovače (audit druhé vlny, 19. 8. 2026, bod 4 — „bublina
+zasahuje do bloku"):** oprava ze 17. 8. sice zarovnala bublinu pravou hranou
+ke sloupci vlastního stroje — sousední stroj i chipy D/M/E/P vlevo zůstaly
+odkryté — ale protože karta vyplňuje celý sloupec, bublina tím pádem ležela
+VŽDY na pravých ~247 px vlastní karty, od jejího horního okraje (`top =
+rect.top`). Šlo o vědomě přijatý trade-off ze 17. 8. („vpravo na kartě nic
+podstatného není") — přesně na něj Lukáš mířil formulací „Bublina nezasahovat
+do bloku (napravo od bloku)".
+
+**Proč nejde jen „napravo od bloku".** Tři požadavky současně — nezakrývat
+souseda, nezakrývat chipy vlevo, nezakrývat vlastní blok — jsou ve vodorovné
+rovině dohromady nesplnitelné: jediný volný pás mimo kartu je 78 px časové
+osy proti bublině široké 240 px. Řešení proto musí změnit OSU, ne stranu.
+
+**Nové pravidlo (rozhodnutí V5).** Bublina jde vertikálně POD kartu, tři
+úrovně v pevném pořadí — vodorovně beze změny (`hoverTooltipLeft` netknutý):
+1. Pod kartou (výchozí) — `top = rect.bottom + TOOLTIP_VERTICAL_GAP` (6 px,
+   stejný odstup jako u note popoveru, `BlockCard.tsx`, `noteRect.bottom + 6`).
+2. Flip nad kartu, když se dole nevejde k okraji okna — `top = rect.top -
+   margin - tooltipHeight`.
+3. Clamp k hornímu okraji okna jako poslední záchrana (obří karta přes celé
+   okno, nebo bublina vyšší než okno) — nahrazuje dřívější provizorní odhad
+   `Math.max(8, Math.min(rect.top, vh - 220))` skutečně naměřenou výškou
+   místo pevných 220 px.
+
+**Kód.**
+- `src/lib/plannerHoverTooltip.ts` — nová čistá funkce `hoverTooltipTop()` +
+  typ `HoverTooltipVerticalGeometry` + konstanta `TOOLTIP_VERTICAL_GAP`
+  (6 px). Stejný vzor jako `hoverTooltipLeft`: testovatelná čistá funkce mimo
+  JSX, tři úrovně v pevném pořadí (výchozí → kompromis → poslední záchrana),
+  které se nesmí prohodit.
+- `src/components/planner/BlockCard.tsx` — `tooltipRef` + `tooltipHeight`
+  state + `useLayoutEffect` BEZ pole závislostí, který po každém commitu
+  naměří skutečnou výšku bubliny (`tooltipRef.current?.getBoundingClientRect().height
+  ?? 0`). Měření místo pevného odhadu je záměrné — obsah bubliny je délkou
+  proměnlivý (popis, specifikace, termíny, poznámky), takže žádná jedna
+  konstanta nesedí vždy. `useLayoutEffect` (ne `useEffect`) zaručuje, že
+  uživatel nikdy neuvidí bublinu na provizorní pozici z prvního snímku —
+  commitne se ještě PŘED prvním malováním obrazovky, takže dvojí render
+  nezpůsobí viditelný flicker. Chybějící pole závislostí je záměr, ne
+  přehlédnutí: pokrývá i reset výšky na 0, když se bublina zavře
+  (`tooltipRef.current` je pak `null`), aniž je potřeba zvláštní kód navíc;
+  `setState` se stejnou hodnotou jako předtím u Reactu bail-outuje, takže to
+  nezpůsobí nekonečnou smyčku.
+
+**Ověření.** `npm run build` 0 chyb, test suite 1376/1376 zelených
+(`plannerHoverTooltip.test.ts` +8 testů proti stavu ze 17. 8.). Ruční proklik
+na testu proběhne centrálně (Playwright), výsledek doplní koordinátor.
+
 ## Havárie kaskády směn 17. 8. 2026 16:31 — jednorázová oprava, diferenční kontrola, záchranný nástroj
 
 **Co se stalo.** `j.umlauf` posunul blok 1335 (zakázka 18424, XL 105) o 30

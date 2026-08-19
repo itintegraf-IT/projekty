@@ -141,7 +141,7 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 
 ---
 
-## Etapa 8 — Hover bublina vertikálně (druhá vlna, bod 4) · odhad: S · **ROZHODNUTO 19. 8. (V5): varianta (a) — pod kartu**
+## Etapa 8 — Hover bublina vertikálně (druhá vlna, bod 4) · **HOTOVO 20. 8. 2026** · odhad: S · **ROZHODNUTO 19. 8. (V5): varianta (a) — pod kartu**
 
 **Geometrický fakt (audit §2, bod 4):** nezakrývat sousední stroj + chipy vlevo + vlastní blok je horizontálně nesplnitelné (volný pás mimo karty = 78 px časové osy vs. bublina 240 px). **Rozhodnutá varianta:** bublina pod kartou (`top = rect.bottom + 6`), u spodního okraje okna flip nad kartu — vzor notepopover `BlockCard.tsx:1384`; horizontálně zůstává zarovnání ke sloupci. Malá změna v `plannerHoverTooltip.ts` + `BlockCard.tsx` + testy; dát Lukášovi vyzkoušet na testu.
 
