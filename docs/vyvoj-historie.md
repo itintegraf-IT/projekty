@@ -2294,3 +2294,59 @@ posílá na to, že takovou dávku umí vrátit jen správce ze záznamu revizí
 (`BlockRevision`) — NE na tlačítko v historii bloku, protože žádné takové
 tlačítko (etapa D) v aplikaci není. Kdo etapu D doimplementuje, ať text
 vrátí k odkazu na tlačítko a smaže tuhle poznámku.
+
+## Etapa 1 — stav materiálu „ČÁSTEČNĚ VYDÁNO" (19. 8. 2026)
+
+Dosud měl materiál na bloku jen dva stavy vydání — SKLADEM a VYDÁNO (plně).
+Plánovači ale běžně vydávají tiskárně jen část materiálu (např. obálku, ne
+vnitřky) a tenhle mezistav se dal zapsat jen do volného textu. Nový sloupec
+`Block.materialPartiallyIssued` (`Boolean @default(false)`) dává „½" vlastní
+pole vedle `materialInStock`/`materialIssued`, ovládané mini tlačítkem „½" v
+`BlockEdit.tsx` (varianta (a) z interaktivního mockupu, rozhodnutí Vojty
+19. 8.) — vedle amber vizuálu má tlačítko i undo tracking jako ostatní
+stavová pole. Karta v plánu dostala chip „M ČÁST." (`BlockCard.tsx`,
+`mStateKey`), který se v inline pickeru nuluje spolu s ostatními
+materiálovými stavy.
+
+**Server vynucuje vzájemné vyloučení jen vůči plnému VYDÁNO, ne vůči
+SKLADEM.** `PUT /api/blocks/[id]` zapisuje `materialPartiallyIssued` PŘED
+`materialIssued` ve stejném `data` objektu — nastavení jednoho na `true`
+nuluje druhý i `materialRequiredDate` (stejný vzor jako u pantone: silnější
+stav vyhrává, pořadí spreadů rozhoduje, když přijdou obě pole `true`
+najednou). `POST /api/blocks` (nový blok) řeší kolizi jinak, protože
+nemá „předchozí" stav k porovnání: `materialIssued: true` v requestu
+natvrdo vynutí `materialPartiallyIssued: false` bez ohledu na to, co poslal
+klient. SKLAD a plné VYDÁNO se dál vzájemně nevylučují (beze změny) —
+zobrazovací priorita je issued → partial → inStock → termín, sjednocená
+napříč `BlockCard`, `BlockDetail` a Monitorem.
+
+**Propagace do sdílené infrastruktury** — nový sloupec musel projít stejnou
+sadou míst jako každé jiné boolean pole na `Block`: `revision/blockColumns.ts`
+(revizní pokrytí), `splitSharedFields.ts` (`SPLIT_SHARED_FIELDS` — sdílí se
+mezi split sourozenci), `undo/restoreFields.ts` (undo allowlist),
+`POST /api/blocks/[id]/split` (kopíruje se do nového bloku při splitu) a
+`blockPayload.ts` (POST payload). `JobPreset`, builder (`handleAddToQueue`)
+a rezervační `PlanningForm` se záměrně NEMĚNILY — „½" do presetů nepatří a
+obě cesty už dnes posílají/nechávají `materialIssued: false`, takže server
+default `false` pro nové pole stačí beze změny.
+
+**Detail bloku měl nedosažitelný řádek.** `BlockDetail.tsx` skrývá celou
+sekci „Výrobní sloupečky" za dlouhou OR podmínku nad viditelností — vnitřní
+řádek „Část. vydáno ½" existoval od začátku, ale vnější gate na
+`materialPartiallyIssued` zapomněla, takže blok s POUZE částečným vydáním
+(bez ostatních stavových polí sekce) neukázal řádek vůbec. Opraveno
+doplněním `block.materialPartiallyIssued` do vnější podmínky
+(fix `b4079810`).
+
+**Task 6b — textové štítky na Monitoru (prosba tiskařů 19. 8.):** dřív
+Monitor ukazoval jen barevný chip bez textu o TOM, na co přesně je
+vydáno. `monitorChips.ts` teď generuje textový stav materiálu s prioritou
+zrcadlící `mStateKey` z `BlockCard` (VYDÁNO ➜ / ČÁST. ½ / SKLADEM ✓ / ČEKÁ)
+a PANTONE chip nese stav textově místo holého „PANTONE" (VYDÁNO / SKLADEM /
+ČEKÁ / hotovo bez termínu). Platí pro frontu i hero kartu na Monitoru u
+stroje i v DTP přehledu.
+
+**Ověření.** Celá suite 1361/1361 zelených (`node --experimental-test-module-mocks
+--test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts
+src/lib/revision/*.test.ts src/app/_components/*.test.ts`), `npm run build`
+i `npm run lint` bez chyb. Commity `9eb3051e`..`b4079810`.
