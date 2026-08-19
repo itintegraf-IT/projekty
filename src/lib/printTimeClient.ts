@@ -64,43 +64,6 @@ export function companyDayIntervalsFor(
     .map((cd) => ({ start: new Date(cd.startDate), end: new Date(cd.endDate) }));
 }
 
-/**
- * Skupinový snap deltas pro lasso přesun v modelu tiskových hodin: snapují se jen STARTY
- * (délku rozloží server expanzí). Nahrazuje duration-based snapGroupDeltaWithTemplates.
- * Vrací null, když některý start nejde v horizontu umístit — volající mutaci neodešle.
- */
-export function snapGroupDeltaStartOnly(
-  blocks: { machine: string; originalStart: Date }[],
-  proposedDeltaMs: number,
-  weekShifts: MachineWeekShiftsRow[],
-  companyDays: Parameters<typeof companyDayIntervalsFor>[1]
-): { deltaMs: number; wasSnapped: boolean } | null {
-  let delta = proposedDeltaMs;
-  let wasSnapped = false;
-  const intervalsByMachine = new Map<string, CompanyDayInterval[]>();
-  for (const b of blocks) {
-    if (!intervalsByMachine.has(b.machine)) {
-      intervalsByMachine.set(b.machine, companyDayIntervalsFor(b.machine, companyDays));
-    }
-  }
-  for (let attempt = 0; attempt < 5; attempt++) {
-    let maxExtra = 0;
-    for (const b of blocks) {
-      const newStart = new Date(b.originalStart.getTime() + delta);
-      const snapped = snapStartToNextRunnableSlot(
-        b.machine, newStart, weekShifts, intervalsByMachine.get(b.machine)!
-      );
-      if (!snapped) return null;
-      const extra = snapped.getTime() - newStart.getTime();
-      if (extra > maxExtra) maxExtra = extra;
-    }
-    if (maxExtra === 0) break;
-    delta += maxExtra;
-    wasSnapped = true;
-  }
-  return { deltaMs: delta, wasSnapped };
-}
-
 export type GroupSnapBlock = {
   id: number;
   machine: string;

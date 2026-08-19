@@ -1,9 +1,9 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { snapGroupDeltaWithTemplates, snapToNextValidStartWithTemplates } from "@/lib/workingTime";
+import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, SLOT_MS, type CompanyDayInterval } from "@/lib/printTime";
-import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupDeltaStartOnly, splitGroupTotalPrintMinutes, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
+import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupPerBlock, splitGroupTotalPrintMinutes, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
 import { countActionableDriftByMachine } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
 import { MACHINES } from "@/lib/machines";
@@ -183,7 +183,7 @@ type DragInternalState =
     }
   | {
       type: "multi-move";
-      blocks: Array<{ id: number; machine: string; type: string; originalStart: Date; originalEnd: Date }>;
+      blocks: Array<{ id: number; machine: string; type: string; originalStart: Date; originalEnd: Date; printMinutes: number | null; scheduleBypassed: boolean }>;
       startClientY: number;
       startClientX: number;
       startScrollTop: number;
@@ -1156,50 +1156,51 @@ export default function TimelineGrid({
           callbacksRef.current.onError?.("Blok se nepodařilo změnit.");
         }
       } else if (ds.type === "multi-move") {
-        const proposedDeltaMs = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
-        let deltaMs = proposedDeltaMs;
+        const deltaMs    = Math.round((deltaY / sh) * 30 * 60 * 1000 / SLOT_MS) * SLOT_MS;
         // Určit cílový stroj PŘED snapem — snap musí validovat podle správného stroje
         const newMachine = clientXToMachine(e.clientX);
+        const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
+
+        let finalPositions: { id: number; start: Date; end: Date }[];
         if (workingTimeLockRef.current) {
-          const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
-          const zakazkaOnly = blocksOnNewMachine.every((b) => b.type === "ZAKAZKA");
-          if (zakazkaOnly) {
-            const r = snapGroupDeltaStartOnly(
-              blocksOnNewMachine.map((b) => ({ machine: b.machine, originalStart: b.originalStart })),
-              deltaMs,
-              machineWeekShiftsRef.current ?? [],
-              companyDaysRef.current ?? []
-            );
-            if (!r) {
-              callbacksRef.current.onError?.("V okolí není žádný pracovní slot — bloky nelze umístit.");
-              return;
-            }
-            deltaMs = r.deltaMs;
-          } else {
-            // smíšený výběr: starý duration-based snap (ne-ZAKAZKA server nevaliduje)
-            const { deltaMs: snapped } = snapGroupDeltaWithTemplates(blocksOnNewMachine, deltaMs, machineWeekShiftsRef.current ?? []);
-            deltaMs = snapped;
+          const r = snapGroupPerBlock(
+            blocksOnNewMachine,
+            deltaMs,
+            machineWeekShiftsRef.current ?? [],
+            companyDaysRef.current ?? []
+          );
+          if (!r) {
+            callbacksRef.current.onError?.("V okolí není žádný pracovní slot — bloky nelze umístit.");
+            return;
           }
-          // UX (etapa 3a, audit 12. 8. bod 1): rozlišit no-op / velký posun / normální snap.
-          // Beze změny delty (deltaMs === proposedDeltaMs) → nic nehlásit, běžný přesun.
-          // Rohatka umí korigovat jen DOPŘEDU — tažení skupiny ZPĚT přes hranici směny
-          // ji sežere skoro na nulu i přes nenulový návrh (tichý no-op, hlavní nahlášený
-          // symptom „nefunguje") → adresná hláška místo mlčení a beze změny na obrazovce.
-          // Jinak jde o normální korekci mimo pracovní dobu → onInfo (NE onError — nejde
-          // o chybu, blok se přesunul, jen jinam, než uživatel pustil myš).
-          if (deltaMs !== proposedDeltaMs) {
-            if (Math.abs(deltaMs) < SLOT_MS && proposedDeltaMs !== 0) {
-              callbacksRef.current.onError?.("Skupinu nelze posunout zpět přes hranici směny — přesuňte bloky jednotlivě.");
-            } else {
-              callbacksRef.current.onInfo?.("Bloky posunuty mimo pracovní dobu — automaticky umístěny do nejbližšího dostupného slotu.");
-            }
+          finalPositions = r.results;
+          // wasSnapped: skupina se skutečně přeplánovala mimo hrubou (holou) deltu —
+          // ať dopředu (víkend/noc) nebo zpět (rohatka po per-blok snapu už nemůže
+          // sežrat na tichou nulu, takže se sem dostane jen skutečná korekce).
+          if (r.wasSnapped) {
+            callbacksRef.current.onInfo?.("Bloky posunuty mimo pracovní dobu — automaticky umístěny do nejbližšího dostupného slotu, pořadí zůstalo zachováno.");
           }
+        } else {
+          finalPositions = blocksOnNewMachine.map((b) => ({
+            id: b.id,
+            start: new Date(b.originalStart.getTime() + deltaMs),
+            end: new Date(b.originalEnd.getTime() + deltaMs),
+          }));
         }
-        const updates    = ds.blocks.map(b => ({
-          id:        b.id,
+
+        // Skutečný no-op (žádný blok nezměnil pozici ani stroj) — nezakládat prázdnou
+        // dávku (žádný batch POST, žádný prázdný undo krok).
+        const changed = finalPositions.some((p) => {
+          const src = ds.blocks.find((b) => b.id === p.id)!;
+          return p.start.getTime() !== src.originalStart.getTime() || newMachine !== src.machine;
+        });
+        if (!changed) return;
+
+        const updates = finalPositions.map((p) => ({
+          id:        p.id,
           machine:   newMachine,
-          startTime: new Date(b.originalStart.getTime() + deltaMs),
-          endTime:   new Date(b.originalEnd.getTime()   + deltaMs),
+          startTime: p.start,
+          endTime:   p.end,
         }));
         callbacksRef.current.onMultiBlockUpdate?.(updates);
       }
@@ -1240,7 +1241,7 @@ export default function TimelineGrid({
       const selBlocks = blocksRef.current.filter(b => ids.has(b.id) && !b.locked);
       dragStateRef.current = {
         type: "multi-move",
-        blocks: selBlocks.map(b => ({ id: b.id, machine: b.machine, type: b.type, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime) })),
+        blocks: selBlocks.map(b => ({ id: b.id, machine: b.machine, type: b.type, originalStart: new Date(b.startTime), originalEnd: new Date(b.endTime), printMinutes: b.printMinutes ?? null, scheduleBypassed: b.scheduleBypassed ?? false })),
         startClientY: e.clientY, startClientX: e.clientX, startScrollTop: sst,
         anchorBlockId: block.id,
       };

@@ -19,8 +19,6 @@ export function isBlockedSlotDynamic(
   return !isDateTimeActive(machine, dateStr, hour * 60 + minute, weekShifts);
 }
 
-type BlockRef = { machine: string; originalStart: Date; originalEnd: Date };
-
 /** Leží kterýkoli slot bloku mimo pracovní dobu stroje? (používá i serverový chain push) */
 export function blockOverlapsBlockedTimeWithTemplates(
   machine: string,
@@ -68,27 +66,4 @@ export function snapToNextValidStartWithTemplates(
     start = getBlockedPeriodEndWithTemplates(machine, blocked, weekShifts);
   }
   return start;
-}
-
-export function snapGroupDeltaWithTemplates(
-  blocks: BlockRef[],
-  proposedDeltaMs: number,
-  weekShifts: MachineWeekShiftsRow[]
-): { deltaMs: number; wasSnapped: boolean } {
-  let delta = proposedDeltaMs;
-  let wasSnapped = false;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    let maxExtra = 0;
-    for (const b of blocks) {
-      const newStart = new Date(b.originalStart.getTime() + delta);
-      const dur = b.originalEnd.getTime() - b.originalStart.getTime();
-      const snapped = snapToNextValidStartWithTemplates(b.machine, newStart, dur, weekShifts);
-      const extra = snapped.getTime() - newStart.getTime();
-      if (extra > maxExtra) maxExtra = extra;
-    }
-    if (maxExtra === 0) break;
-    delta += maxExtra;
-    wasSnapped = true;
-  }
-  return { deltaMs: delta, wasSnapped };
 }
