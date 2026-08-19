@@ -234,6 +234,8 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   selectedBlockIdsRef.current = selectedBlockIds;
   const selectedBlockRef = useRef<Block | null>(null);
   selectedBlockRef.current = selectedBlock;
+  const menuDeleteBlockRef = useRef<Block | null>(null);
+  menuDeleteBlockRef.current = menuDeleteBlock;
   const editingBlockIdsRef = useRef<Set<number>>(new Set());
   const [sseOffline, setSseOffline] = useState(false);
 
@@ -2808,6 +2810,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         return;
       }
       if ((e.key === "Delete" || e.key === "Backspace") && selectedBlockRef.current) {
+        // Otevřený menu-delete dialog (🗑 Odstranit): Delete klávesa nesmí
+        // přepnout cíl dialogu na selectedBlock — smazal by se jiný blok,
+        // než dialog ukazuje (nález I1 finálního review etapy 7).
+        if (menuDeleteBlockRef.current) return;
         e.preventDefault();
         setKeyDeletePending(true);
         return;
@@ -2891,7 +2897,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // Jediný zdroj pravdy pro delete-confirm dialog níž — klávesnicová cesta
   // (Delete/Backspace na selectedBlock) i menu cesta (🗑 Odstranit na
   // libovolném bloku) sytí týž stav, aniž by se JSX dialogu duplikovalo.
-  const pendingDeleteBlock = keyDeletePending ? selectedBlock : menuDeleteBlock;
+  // SSE smazání nuluje selectedBlock, ale ne keyDeletePending — bez kontroly
+  // &&selectedBlock by zůstal dialog „na prázdno" a uživatel viděl jenom titulek
+  // (nález M1 finálního review etapy 7).
+  const pendingDeleteBlock = (keyDeletePending && selectedBlock) ? selectedBlock : menuDeleteBlock;
 
   return (
     <main style={{ height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }} className="bg-background text-foreground">
