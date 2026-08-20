@@ -1,10 +1,10 @@
 import type { PrismaTransactionClient } from "@/lib/prismaTx";
-import { computeChainPush, type ChainMove, type BlockInterval } from "@/lib/overlapResolver";
+import { computeChainPush, MAX_RIGID_PUSH_MS, type ChainMove, type BlockInterval } from "@/lib/overlapResolver";
 import { serializeWeekShifts } from "@/lib/scheduleValidation";
 import { weekStartStrFromDateStr } from "@/lib/machineWeekShifts";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { pragueOf } from "@/lib/dateUtils";
-import { expandPrintTime, MAX_SPAN_DAYS, type CompanyDayInterval } from "@/lib/printTime";
+import { expandPrintTime, MAX_SPAN_DAYS, usesTiskoveHodiny, type CompanyDayInterval } from "@/lib/printTime";
 import { blockOverlapsBlockedTimeWithTemplates } from "@/lib/workingTime";
 import { AppError } from "@/lib/errors";
 import { measureCascade } from "@/lib/cascadeLimit";
@@ -45,17 +45,32 @@ type GeometryRow = {
  *
  * - ZAKAZKA: tiskové hodiny (délka z `printMinutes`, re-expanze přes pauzy směn,
  *   legacy fallback zarovnaný na 30min mřížku).
- * - REZERVACE / UDRZBA: rigidní interval — PŘESNÁ délka bez zaokrouhlení, bez
- *   roztažení přes pauzy; celý se musí vejít do pracovní doby.
+ * - UDRZBA (a legacy REZERVACE s printMinutes = null): rigidní interval — PŘESNÁ
+ *   délka bez zaokrouhlení, bez roztažení přes pauzy; celý se musí vejít do
+ *   pracovní doby.
+ * - REZERVACE s printMinutes: tiskové hodiny jako ZAKAZKA, ale se 7denním stropem
+ *   posunu (`maxPushMs = MAX_RIGID_PUSH_MS`, rozhodnutí #1 etapy 9).
  */
 export function chainPushGeometry(r: GeometryRow): {
   printMinutes: number;
   scheduleBypassed: boolean;
   rigid: boolean;
+  /** Strop posunu tiskové REZERVACE — viz BlockInterval.maxPushMs (rozhodnutí #1). */
+  maxPushMs?: number;
 } {
   const spanMinutes = (r.endTime.getTime() - r.startTime.getTime()) / 60000;
-  if (r.type !== "ZAKAZKA") {
+  if (r.type === "UDRZBA" || (r.type === "REZERVACE" && !usesTiskoveHodiny(r))) {
+    // UDRZBA vždy; legacy REZERVACE bez printMinutes („funguje jako dnes", spec §3).
     return { printMinutes: spanMinutes, scheduleBypassed: false, rigid: true };
+  }
+  if (r.type === "REZERVACE") {
+    // Tisková geometrie SE STROPEM — dluh P31 se nekopíruje (rozhodnutí #1).
+    return {
+      printMinutes: r.printMinutes as number,
+      scheduleBypassed: r.scheduleBypassed,
+      rigid: false,
+      maxPushMs: MAX_RIGID_PUSH_MS,
+    };
   }
   return {
     printMinutes: r.printMinutes ?? Math.max(30, Math.round(spanMinutes / 30) * 30),
@@ -174,7 +189,10 @@ export async function resolveChainPushFromDb(
   // o týdny. Takový blok zůstává ZDÍ přesně jako před 31. 7. 2026.
   const nonConforming = new Set<number>();
   for (const r of rows) {
-    if (r.type === "ZAKAZKA") continue;
+    // Kandidát na „zeď mimo kalendář" je jen blok s RIGIDNÍ geometrií (údržba,
+    // legacy rezervace). Tisková rezervace se — stejně jako zakázka — zdí nestává:
+    // posouvá se re-expanzí a nekonformitu řeší scheduleBypassed/drift (etapa 9).
+    if (!chainPushGeometry(r).rigid) continue;
     const mimoSmenu = blockOverlapsBlockedTimeWithTemplates(machine, r.startTime, r.endTime, weekShifts);
     const vOdstavce = companyDays.some((cd) => cd.start < r.endTime && cd.end > r.startTime);
     if (mimoSmenu || vOdstavce) nonConforming.add(r.id);

@@ -200,9 +200,11 @@ describe("resolveChainPushFromDb", () => {
     assert.equal(delka, 45, "45min rezervace se nesmí zaokrouhlit na 30 ani 60 minut");
   });
 
-  it("rezervace nepřistane na firemní odstávce v cestě — přeskočí za ni", async () => {
-    // Rezervace teď leží mimo odstávku (13–17), takže je pohyblivá; posun ji
-    // ale musí umístit až za odstávku, ne doprostřed ní.
+  it("rezervace s pm re-expanduje přes firemní odstávku v cestě (tisková geometrie, etapa 9)", async () => {
+    // row() dává printMinutes ≠ null (default = span), takže rezervace od etapy 9
+    // jede tiskovou geometrií jako zakázka: nevyhýbá se odstávce jako celku, ale
+    // PAUZNE přes ni a re-expanduje dál se zachovanou délkou tisku (120 min) —
+    // stejně jako zakázka. Dřív (rigidní geometrie) by přeskočila celá až za 17:00.
     const { tx } = mkTx(
       [row(25, 11, 13, { orderNumber: "REZ-CD", type: "REZERVACE" })],
       [{ startDate: H(13), endDate: H(17) }]
@@ -210,11 +212,8 @@ describe("resolveChainPushFromDb", () => {
     const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(12) });
 
     assert.equal(moves.length, 1);
-    assert.ok(
-      moves[0]!.startTime.getTime() >= H(17).getTime(),
-      `rezervace má začít až za odstávkou, začíná ${moves[0]!.startTime.toISOString()}`
-    );
-    assert.equal((moves[0]!.endTime.getTime() - moves[0]!.startTime.getTime()) / 3600000, 2);
+    assert.deepEqual(moves[0]!.startTime, H(12));
+    assert.deepEqual(moves[0]!.endTime, H(18), "1h do odstávky + 1h po ní = 120 min tisku (pm se zachová)");
   });
 
   // ── Ochrana bloků umístěných vědomě mimo kalendář (review 31. 7. 2026) ──────
@@ -370,5 +369,36 @@ describe("chainPushGeometry", () => {
     const g = chainPushGeometry({ ...base, type: "UDRZBA" });
     assert.equal(g.rigid, true);
     assert.equal(g.printMinutes, 120);
+  });
+});
+
+describe("chainPushGeometry — etapa 9 (REZERVACE s pm = tisková, legacy = rigidní)", () => {
+  it("UDRZBA → rigidní vždy", () => {
+    const g = chainPushGeometry({ type: "UDRZBA", startTime: H(10), endTime: H(12), printMinutes: 120, scheduleBypassed: false });
+    assert.deepEqual(g, { printMinutes: 120, scheduleBypassed: false, rigid: true });
+  });
+  it("REZERVACE bez printMinutes → rigidní (legacy, spec §3)", () => {
+    const g = chainPushGeometry({ type: "REZERVACE", startTime: H(10), endTime: H(12), printMinutes: null, scheduleBypassed: false });
+    assert.deepEqual(g, { printMinutes: 120, scheduleBypassed: false, rigid: true });
+  });
+  it("REZERVACE s printMinutes → tisková geometrie se 7denním stropem (rozhodnutí #1)", () => {
+    const g = chainPushGeometry({ type: "REZERVACE", startTime: H(10), endTime: H(12), printMinutes: 90, scheduleBypassed: true });
+    assert.deepEqual(g, { printMinutes: 90, scheduleBypassed: true, rigid: false, maxPushMs: 7 * 24 * 60 * 60 * 1000 });
+  });
+  it("ZAKAZKA → tisková BEZ stropu (maxPushMs undefined — dluh P31 se nešíří, ale ani neřeší)", () => {
+    const g = chainPushGeometry({ type: "ZAKAZKA", startTime: H(10), endTime: H(12), printMinutes: 120, scheduleBypassed: false });
+    assert.equal(g.rigid, false);
+    assert.equal(g.maxPushMs, undefined);
+  });
+});
+
+describe("resolveChainPushFromDb — tisková REZERVACE (etapa 9)", () => {
+  it("rezervace s pm v cestě anchoru se posune s re-expanzí (fallback 24/7: end = start + pm)", async () => {
+    const { tx, updateMock } = mkTx([row(2, 11, 13, { type: "REZERVACE", printMinutes: 120 })]);
+    const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(12) });
+    assert.equal(moves.length, 1);
+    assert.equal(updateMock.mock.callCount(), 1);
+    const call = updateMock.mock.calls[0]!.arguments[0] as { where: { id: number }; data: { startTime: Date; endTime: Date } };
+    assert.deepEqual(call.data, { startTime: H(12), endTime: H(14) });
   });
 });

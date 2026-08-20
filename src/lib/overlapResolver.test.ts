@@ -371,3 +371,59 @@ describe("computeChainPush — rigidní bloky (rezervace/údržba)", () => {
     if (!r.ok) assert.equal(r.reason, "PLACEMENT_FAILED");
   });
 });
+
+describe("computeChainPush — tisková REZERVACE (etapa 9)", () => {
+  const tiskovaRez = (id: number, start: number, end: number): BlockInterval => ({
+    ...blk(id, start, end),
+    maxPushMs: 7 * 24 * 60 * 60 * 1000,
+  });
+
+  it("tisková rezervace se odsune a re-expanduje jako zakázka (souvislý provoz)", () => {
+    const r = computeChainPush("XL_105", { id: 1, startTime: H(10), endTime: H(12) }, [tiskovaRez(2, 11, 13)], [], NO_CD);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.moves.length, 1);
+      assert.deepEqual(r.moves[0], { id: 2, startTime: H(12), endTime: H(14) });
+    }
+  });
+
+  it("tisková rezervace expanduje přes víkendovou odstávku — délka v tiskových minutách se zachová", () => {
+    // Anchor končí Pá 20:00, rezervace pm 240 začínala Pá 19:00 → nový start Pá 20:00,
+    // pátek běží do 22:00 (2 h tisku), zbylé 2 h až od Ne 22:00 → end Ne/Po 00:00...
+    // přesně: segmenty Pá 20–22 + Ne 22–24 → end Po 00:00 Prahy.
+    const r = computeChainPush(
+      "XL_106",
+      { id: 1, startTime: P("2026-08-21", 18), endTime: P("2026-08-21", 20) },
+      [{ ...blk(2, 0, 0), startTime: P("2026-08-21", 19), endTime: P("2026-08-21", 23), printMinutes: 240, maxPushMs: 7 * 24 * 60 * 60 * 1000 }],
+      SHIFTS, NO_CD,
+    );
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.moves.length, 1);
+      assert.deepEqual(r.moves[0]!.startTime, P("2026-08-21", 20));
+      assert.deepEqual(r.moves[0]!.endTime, P("2026-08-24", 0), "2 h Pá večer + 2 h od Ne 22:00");
+    }
+  });
+
+  it("tisková rezervace za horizontem 7 dní se degraduje na zeď — anchor přes ni vrátí LOCKED_CONFLICT/unplaceable (rozhodnutí #1)", () => {
+    // Odstávka 10 dní hned za anchorem: start rezervace nelze umístit do 7 dnů od kurzoru.
+    const cd = [{ start: H(12), end: new Date(H(12).getTime() + 10 * 24 * 3600000) }];
+    const r = computeChainPush("XL_105", { id: 1, startTime: H(10), endTime: H(12) }, [tiskovaRez(2, 11, 13)], [], cd);
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.equal(r.reason, "LOCKED_CONFLICT");
+    if (r.reason !== "LOCKED_CONFLICT") return;
+    assert.equal(r.lockedId, 2);
+    assert.equal(r.unplaceable, true);
+  });
+
+  it("KONTRAST: zakázka (bez maxPushMs) se ve stejném scénáři posune ZA odstávku — dluh P31 zůstává jen u ní", () => {
+    const cd = [{ start: H(12), end: new Date(H(12).getTime() + 10 * 24 * 3600000) }];
+    const r = computeChainPush("XL_105", { id: 1, startTime: H(10), endTime: H(12) }, [blk(2, 11, 13)], [], cd);
+    assert.equal(r.ok, true);
+    if (r.ok) {
+      assert.equal(r.moves.length, 1);
+      assert.ok(r.moves[0]!.startTime.getTime() >= cd[0]!.end.getTime(), "zakázka teleportuje za odstávku (P31, vědomě neměněno)");
+    }
+  });
+});

@@ -29,6 +29,17 @@ export type BlockInterval = {
    * (`snapToNextValidStartWithTemplates`), takže chain push dá stejný výsledek jako myš.
    */
   rigid?: boolean;
+  /**
+   * Strop dopředného posunu (ms) pro TISKOVOU geometrii — REZERVACE si i po
+   * překlopení na tiskové hodiny drží 7denní horizont (rozhodnutí #1 specu
+   * etapy 9, 20. 8. 2026): bezhorizontový chain push je otevřený dluh P31
+   * a nekopíruje se na druhý typ. Měří se od kurzoru pushe (`fromMs`) na
+   * snapnutý START — expanze smí končit i za horizontem. Neumístitelný blok
+   * se degraduje na zeď (RIGID_UNPLACEABLE), stejně jako rigidní blok.
+   * undefined = bez stropu (ZAKAZKA). U `rigid: true` se ignoruje —
+   * placeRigidAfter má vlastní MAX_RIGID_PUSH_MS.
+   */
+  maxPushMs?: number;
 };
 
 /**
@@ -154,12 +165,14 @@ function computeChainPushAttempt(
     // Pravidlo minimálního segmentu se ho netýká (nedělí se na tiskové úseky).
     const pos = next.rigid
       ? placeRigidAfter(machine, pEnd, pm, locked, weekShifts, companyDays)
-      : placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, MIN_PRINT_SEGMENT_MINUTES) ??
-        placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, 0);
+      : placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, MIN_PRINT_SEGMENT_MINUTES, next.maxPushMs) ??
+        placeAfter(machine, pEnd, pm, next.scheduleBypassed, locked, weekShifts, companyDays, 0, next.maxPushMs);
     if (!pos) {
-      // Rigidní blok se v horizontu nikam nevejde → volající ho zafixuje jako zeď
-      // a spustí průchod znovu. Zakázka horizont nemá, u ní je to skutečné selhání.
-      if (next.rigid) return { ok: false, reason: "RIGID_UNPLACEABLE", blockId: next.id };
+      // Rigidní blok NEBO tisková rezervace se stropem (maxPushMs), která se
+      // v horizontu nikam nevejde → volající ji zafixuje jako zeď a spustí průchod
+      // znovu. Zakázka horizont nemá, u ní je to skutečné selhání (dluh P31,
+      // vědomě neřešeno v této vlně).
+      if (next.rigid || next.maxPushMs != null) return { ok: false, reason: "RIGID_UNPLACEABLE", blockId: next.id };
       return { ok: false, reason: "PLACEMENT_FAILED", blockId: next.id };
     }
 
@@ -235,11 +248,17 @@ function placeAfter(
   locked: BlockInterval[],
   weekShifts: MachineWeekShiftsRow[],
   companyDays: CompanyDayInterval[],
-  minSegmentMinutes: number
+  minSegmentMinutes: number,
+  maxPushMs?: number
 ): { start: Date; end: Date } | null {
+  // Horizont startu (rozhodnutí #1): tisková REZERVACE nesmí být teleportována
+  // dál než maxPushMs od kurzoru. Kontroluje se START (kurzor i snap), ne end —
+  // expanze přes pauzy smí přesáhnout.
+  const horizonMs = maxPushMs != null ? fromMs + maxPushMs : Infinity;
   let cursorMs = Math.ceil(fromMs / SLOT_MS) * SLOT_MS;
 
   for (let g = 0; g < 100; g++) {
+    if (cursorMs > horizonMs) return null;
     if (bypassed) {
       const start = new Date(cursorMs);
       const endMs = cursorMs + printMinutes * 60000;
@@ -258,6 +277,7 @@ function placeAfter(
 
     const snapped = snapStartToNextRunnableSlot(machine, new Date(cursorMs), weekShifts, companyDays);
     if (!snapped) return null;
+    if (snapped.getTime() > horizonMs) return null;
     const exp = expandPrintTime(machine, snapped, printMinutes, weekShifts, companyDays, false);
     if (!exp.ok) return null;
     if (violatesMinPrintSegment(exp.segments, minSegmentMinutes)) {
