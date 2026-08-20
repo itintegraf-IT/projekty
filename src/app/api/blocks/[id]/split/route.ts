@@ -62,6 +62,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       const block = await tx.block.findUnique({ where: { id } });
       if (!block) throw new AppError("NOT_FOUND", "Blok nenalezen.");
 
+      // 1b. Rezervace je nedělitelná (rozhodnutí #7, finální review etapy 9, nález C1):
+      // tisková rezervace by po splitu držela plné printMinutes při zkráceném spanu hlavy
+      // a re-expanze by jí zdvojila kapacitu. UDRZBA split nikdy negeneroval (klient),
+      // guard je defenzivní parita se stejným zdůvodněním.
+      if (block.type !== "ZAKAZKA") throw new AppError("VALIDATION_ERROR", "Rozdělit lze jen blok typu zakázka.");
+
       // 2. Optimistic lock — blok se nezměnil od načtení klientem (jako PUT/batch).
       if (expectedUpdatedAt) {
         const expected = new Date(expectedUpdatedAt);

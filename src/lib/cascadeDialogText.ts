@@ -23,10 +23,13 @@ export function cascadeDialogTitle(machine: string, count: number): string {
 /**
  * Neblokující věta o blocích, kterým se konec PRODLOUŽIL. Jediná věta v celé
  * etapě, která má vztah k riziku kaskády: takový blok je latentní detonátor,
- * protože jeho příští úprava ho nafoukne a odsune navazující zakázky.
+ * protože jeho příští úprava ho nafoukne a odsune navazující bloky.
+ *
+ * Obecně „bloků/bloky", ne „zakázek/zakázky" (F3, finální review etapy 9) —
+ * od etapy 9 může `newlyLonger` nést i tiskovou rezervaci, ne jen ZAKAZKA.
  */
 export function longerBlocksSentence(count: number): string | null {
   if (count === 0) return null;
-  return `Žádný další blok se nevystěhuje. U ${count} zakázek se ale tímto zkrácením prodlouží ` +
-    `spočítaný konec — jejich příští úprava odsune navazující zakázky.`;
+  return `Žádný další blok se nevystěhuje. U ${count} bloků se ale tímto zkrácením prodlouží ` +
+    `spočítaný konec — jejich příští úprava odsune navazující bloky.`;
 }

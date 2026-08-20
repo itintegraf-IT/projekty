@@ -2525,13 +2525,18 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast(fresh.locked ? "Blok byl mezitím zamčen — nelze přesunout." : "Blok byl mezitím vytištěn — nelze přesunout.", "info");
         return;
       }
+      // F4 (finální review etapy 9): rozhoduje ČERSTVÁ klasifikace, ne `isZakazka`
+      // odvozená ze snapshotu `src` z okamžiku Ctrl+X — mezitím se mohla typ/printMinutes
+      // bloku změnit (jinde v appce, SSE clipboard neobčerstvuje) a stará klasifikace
+      // by poslala špatnou dvojici polí (printMinutes vs. endTime).
+      const freshIsZakazka = usesTiskoveHodiny(fresh);
       const moveBody: Record<string, unknown> = {
         startTime: newStart.toISOString(),
         machine: target.machine,
         bypassScheduleValidation: !workingTimeLockRef.current,
         resolveChain: true,
       };
-      if (isZakazka) {
+      if (freshIsZakazka) {
         moveBody.printMinutes = blockPrintMinutes(fresh);
       } else {
         const freshDurationMs = new Date(fresh.endTime).getTime() - new Date(fresh.startTime).getTime();

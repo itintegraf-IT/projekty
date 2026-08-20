@@ -128,7 +128,7 @@ export function ShiftCascadeDialog({
             <thead>
               <tr>
                 <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
-                  Zakázka
+                  Blok
                 </th>
                 <th style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)", borderBottom: "1px solid var(--border)" }}>
                   Popis

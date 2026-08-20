@@ -274,6 +274,16 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
             pm = Math.round((oldBlock.endTime.getTime() - oldBlock.startTime.getTime()) / 60000);
           }
 
+          // Pojistka (I1, finální review etapy 9): pm ≤ 0 tady NESMÍ dotéct do
+          // validateAndComputeEnd samo — `usesTiskoveHodiny({ type: checkType, printMinutes: pm })`
+          // by pro REZERVACI s pm≤0 vrátila false a funkce by short-circuitovala na
+          // `{ ok: true, end: fallbackEnd }` BEZ kontroly end<=start (ta žije jen v
+          // rigidní `!printGeometry` větvi výš). Parita s hodnotovou branou POSTu
+          // (`route.ts` v `/api/blocks`), která end<=start kontroluje vždy, bez ohledu na typ.
+          if (pm != null && pm <= 0) {
+            throw new AppError("VALIDATION_ERROR", "Neplatná délka tisku (printMinutes musí být kladné číslo).");
+          }
+
           const sched = await validateAndComputeEnd(tx, checkMachine, checkStart, pm, requestedEnd, checkType, bypass);
           if (!sched.ok) {
             throw new AppError("SCHEDULE_VIOLATION", sched.error);

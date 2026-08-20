@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { blockPrintMinutes, formatPrintHoursShort, type CalendarDriftInfo } from "@/lib/printTimeClient";
+import { usesTiskoveHodiny } from "@/lib/printTime";
 import { isParkedDrift } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
 import { BLOCK_STYLES, BLOCK_OVERDUE_ALARM, BLOCK_PRINT_DONE, OVERDUE_ALARM, getBlockStyleKey, tint } from "@/lib/blockStyles";
@@ -1525,7 +1526,10 @@ export function BlockCard({
           return h % 1 === 0 ? `${h} h` : `${h.toFixed(1)} h`;
         };
         const elapsedMinsTip = Math.round((endD.getTime() - startD.getTime()) / 60000);
-        const pmTip = block.type === "ZAKAZKA" ? blockPrintMinutes(block) : null;
+        // usesTiskoveHodiny, ne holé `type === "ZAKAZKA"` (F5, finální review etapy 9) —
+        // tisková rezervace má printMinutes taky a bublina má ukázat „Tisk: X · Celkem: Y",
+        // ne jen uplynulý čas.
+        const pmTip = usesTiskoveHodiny(block) ? blockPrintMinutes(block) : null;
         const durationLabel = (pmTip != null && pmTip !== elapsedMinsTip)
           ? `Tisk: ${fmtHoursTip(pmTip)} · Celkem: ${fmtHoursTip(elapsedMinsTip)}`
           : `Délka: ${fmtHoursTip(elapsedMinsTip)}`;
@@ -1738,12 +1742,18 @@ export function BlockCard({
                 ✂ Vyjmout
               </ContextMenuItem>
             )}
-            <ContextMenuItem
-              onClick={() => { if (splitAtRef.current) onBlockSplit?.(splitAtRef.current); }}
-              style={menuItemStyle}
-            >
-              ✂ Rozdělit blok
-            </ContextMenuItem>
+            {/* Rezervace je nedělitelná (finální review etapy 9, nález C1) — split by tiskové
+                rezervaci zkrátil span, ale ponechal plné printMinutes, takže by re-expanze
+                zdvojila kapacitu. Server guard (split/route.ts) je pojistka; tady jen skrýváme
+                položku, aby na ni nešlo kliknout. */}
+            {block.type === "ZAKAZKA" && (
+              <ContextMenuItem
+                onClick={() => { if (splitAtRef.current) onBlockSplit?.(splitAtRef.current); }}
+                style={menuItemStyle}
+              >
+                ✂ Rozdělit blok
+              </ContextMenuItem>
+            )}
           </>
         )}
         {canEdit && !block.locked && (canEditMat || hasNote) && <ContextMenuSeparator />}

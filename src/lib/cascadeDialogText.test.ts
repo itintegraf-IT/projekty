@@ -25,3 +25,9 @@ test("věta o prodloužení je jen když je co říct", () => {
   assert.ok(s && s.includes("2"));
   assert.ok(s.includes("odsune"), "musí říct, co se stane při příští úpravě");
 });
+
+test("věta o prodloužení mluví obecně o blocích, ne o zakázkách (F3 — newlyLonger může nést i rezervaci)", () => {
+  const s = longerBlocksSentence(2);
+  assert.ok(s && s.includes("bloků"));
+  assert.ok(s && !s.includes("zakáz"), "od etapy 9 nese newlyLonger i rezervace, ne jen zakázky");
+});
