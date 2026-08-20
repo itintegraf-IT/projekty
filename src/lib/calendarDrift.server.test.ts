@@ -47,7 +47,7 @@ function fakeCalendarDriftDb(
         const { where, select } = args as {
           where: {
             machine: { in: string[] };
-            type: string;
+            type: { in: string[] };
             scheduleBypassed?: boolean;
             printMinutes: { gt: number };
             printCompletedAt: null;
@@ -59,7 +59,7 @@ function fakeCalendarDriftDb(
         const matched = blockRows.filter(
           (b) =>
             where.machine.in.includes(b.machine) &&
-            b.type === where.type &&
+            where.type.in.includes(b.type) &&
             (where.scheduleBypassed === undefined || b.scheduleBypassed === where.scheduleBypassed) &&
             b.printMinutes !== null &&
             b.printMinutes > where.printMinutes.gt &&
@@ -289,6 +289,22 @@ test("detectCalendarDrift: žádné bloky → [] bez fetche kalendáře", async 
   assert.equal(weekShiftsFetched, false, "kalendář se nesmí fetchovat, když nejsou žádné bloky");
 });
 
+test("detectCalendarDrift — where filtr žádá ZAKAZKA i REZERVACE (etapa 9), UDRZBA nikdy", async () => {
+  let capturedWhere: { type: { in: string[] } } | null = null;
+  const db = {
+    machineWeekShifts: { findMany: async () => [] },
+    companyDay: { findMany: async () => [] },
+    block: {
+      findMany: async (args: { where: { type: { in: string[] } } }) => {
+        capturedWhere = args.where;
+        return [];
+      },
+    },
+  } as never;
+  await detectCalendarDrift(db, ["XL_106"], pragueToUTC("2026-08-17", 0), pragueToUTC("2026-08-24", 0), pragueToUTC("2026-08-17", 0));
+  assert.deepEqual(capturedWhere!.type, { in: ["ZAKAZKA", "REZERVACE"] });
+});
+
 test("parita klient ↔ server: u NEODLOŽENÝCH bloků musí obě strany klasifikovat stejně", async () => {
   // Server plní notifikace, provozní report a pruh „Přepočítat"; klient kreslí štítek
   // na kartě. U běžné zakázky se rozejít nesmí — jinak štítek tvrdí něco jiného než
@@ -365,6 +381,18 @@ test("parita klient ↔ server: u NEODLOŽENÝCH bloků musí obě strany klasif
       // jako drift na žádné straně.
       name: "skupinový přesun: blok skončí přesně na hranici směny (Pá 22:00), bez driftu",
       row: mkBlock({ id: 41, startTime: pragueToUTC("2026-08-21", 21), endTime: pragueToUTC("2026-08-21", 22), printMinutes: 60 }),
+      expected: null,
+    },
+    {
+      // Etapa 9: REZERVACE s printMinutes se posuzuje jako zakázka — rozejitý end
+      // musí obě strany klasifikovat shodně END_MISMATCH.
+      name: "REZERVACE s pm: end nesedí na kalendář → END_MISMATCH na obou stranách",
+      row: mkBlock({ id: 42, type: "REZERVACE", startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0), printMinutes: 240 }),
+      expected: "END_MISMATCH",
+    },
+    {
+      name: "REZERVACE s pm: konformní umístění → žádný drift na žádné straně",
+      row: mkBlock({ id: 43, type: "REZERVACE", startTime: pragueToUTC("2026-08-18", 8), endTime: pragueToUTC("2026-08-18", 12), printMinutes: 240 }),
       expected: null,
     },
   ];

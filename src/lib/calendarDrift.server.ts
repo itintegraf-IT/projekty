@@ -11,7 +11,7 @@ export type PrismaClientLike = CalendarPrismaClientLike & {
     findMany: (args: {
       where: {
         machine: { in: string[] };
-        type: string;
+        type: { in: string[] };
         scheduleBypassed: boolean;
         printMinutes: { gt: number };
         printCompletedAt: null;
@@ -72,7 +72,7 @@ export type DriftedBlock = {
 };
 
 /**
- * Detekuje ZAKAZKA bloky, jejichž uložený `endTime` už nesedí na aktuální
+ * Detekuje ZAKAZKA a REZERVACE bloky (etapa 9 — rezervace s tiskovými hodinami), jejichž uložený `endTime` už nesedí na aktuální
  * pracovní kalendář (weekShifts/companyDays se od uložení změnily). Jen ČTE —
  * neukládá, žádné migrace. Posuzuje jen bloky, které lze poctivě re-expandovat:
  * ne-bypass, printMinutes > 0, zarovnaný start, ještě nevytištěné a neskončené.
@@ -107,7 +107,11 @@ export async function detectCalendarDrift(
   const rawBlocks = await db.block.findMany({
     where: {
       machine: { in: machines },
-      type: "ZAKAZKA",
+      // Etapa 9: drift posuzuje ZAKAZKA i REZERVACE (rozhodnutí #3 — stejný kanál).
+      // Legacy rezervace bez printMinutes odfiltruje printMinutes: { gt: 0 } níž;
+      // odložené (scheduleBypassed) vyřazuje filtr výš — parita s klientem drží
+      // přes usesTiskoveHodiny, viz tabulkový test parity.
+      type: { in: ["ZAKAZKA", "REZERVACE"] },
       scheduleBypassed: false,
       printMinutes: { gt: 0 },
       printCompletedAt: null,
