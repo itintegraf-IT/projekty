@@ -208,9 +208,23 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         const checkStart = allowed.startTime ? new Date(allowed.startTime as string) : oldBlock.startTime;
         const requestedEnd = allowed.endTime ? new Date(allowed.endTime as string) : oldBlock.endTime;
 
-        if (checkType !== "ZAKAZKA") {
-          // Z ZAKAZKA pryč (nebo ne-ZAKAZKA blok): printMinutes vyčistit, end = požadovaný.
-          // Pojistka: ne-ZAKAZKA větev neprochází validateAndComputeEnd, takže je to
+        // Tisková geometrie (etapa 9): ZAKAZKA vždy; REZERVACE jen když má odkud vzít
+        // printMinutes — explicitně v requestu, nebo na záznamu (typicky po backfillu).
+        // Legacy rezervace bez printMinutes zůstává rigidní („funguje jako dnes, dokud
+        // se ručně neopraví", spec §3); UDRZBA rigidní vždy. Přechod ZAKAZKA↔REZERVACE
+        // tudy neprojde clear větví — printMinutes se zachovají (spec 4.3).
+        const printGeometry =
+          checkType === "ZAKAZKA" ||
+          (checkType === "REZERVACE" &&
+            // pm=0/záporné z requestu nesmí protlačit REZERVACE do tiskové větve — zapsalo by
+            // se printMinutes=0 a syrový end bez pojistky end<=start (obrácený interval, který
+            // je pro overlap kontroly neviditelný). Neopisuje klasifikaci usesTiskoveHodiny
+            // (Task 4) — jen její invariant pro tenhle request-scoped případ (review C2).
+            ((typeof allowedPrintMinutes === "number" && allowedPrintMinutes > 0) || oldBlock.printMinutes != null));
+
+        if (!printGeometry) {
+          // Rigidní větev (UDRZBA, legacy REZERVACE): printMinutes vyčistit, end = požadovaný.
+          // Pojistka: rigidní větev neprochází validateAndComputeEnd, takže je to
           // jediné místo, kde lze zachytit end <= start. Takový blok by se navíc vyhnul
           // VŠEM kontrolám překryvu (interval s obráceným pořadím se s ničím neprotne).
           // Vzniká reálně: chain push posune blok pod otevřeným editorem a BlockEdit
@@ -247,16 +261,17 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
               const cal = await loadMachineCalendar(tx, checkMachine, checkStart);
               pm = computePrintMinutes(checkMachine, checkStart, requestedEnd, cal.weekShifts, cal.companyDays);
             }
-          } else if (oldBlock.printMinutes != null && oldBlock.type === "ZAKAZKA") {
+          } else if (oldBlock.printMinutes != null && (oldBlock.type === "ZAKAZKA" || oldBlock.type === "REZERVACE")) {
             // 3) move (start/machine změna) nebo end beze změny — printMinutes ze záznamu.
-            // Klientův poslaný endTime se zde záměrně ignoruje.
+            // Klientův poslaný endTime se zde záměrně ignoruje. Od etapy 9 i pro REZERVACE
+            // (a pro přechody ZAKAZKA↔REZERVACE oběma směry).
             pm = oldBlock.printMinutes;
           } else {
             // fallback (legacy blok bez printMinutes / změna typu na ZAKAZKA): odvodit ze spanu
             pm = Math.round((oldBlock.endTime.getTime() - oldBlock.startTime.getTime()) / 60000);
           }
 
-          const sched = await validateAndComputeEnd(tx, checkMachine, checkStart, pm, requestedEnd, "ZAKAZKA", bypass);
+          const sched = await validateAndComputeEnd(tx, checkMachine, checkStart, pm, requestedEnd, checkType, bypass);
           if (!sched.ok) {
             throw new AppError("SCHEDULE_VIOLATION", sched.error);
           }
