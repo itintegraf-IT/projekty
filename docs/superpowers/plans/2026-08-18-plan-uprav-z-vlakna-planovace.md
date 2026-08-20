@@ -151,7 +151,7 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 
 ---
 
-## Etapa 9 — Rezervace: PLNÉ tiskové hodiny (druhá vlna, bod 5) · odhad: L · **ROZHODNUTO 19. 8. (V6, Vojta): „jako u zakázky, se vším všudy"** · **IMPLEMENTACE: `2026-08-20-rezervace-tiskove-hodiny-plan.md` (fáze 0–3 hotové, fáze 4 = reporty následuje)**
+## Etapa 9 — Rezervace: PLNÉ tiskové hodiny (druhá vlna, bod 5) · **HOTOVO 20. 8. 2026** (všech 5 fází / 17 tasků + fix wave; plán `2026-08-20-rezervace-tiskove-hodiny-plan.md`, ledger v `.superpowers/sdd/`) · nasazení: podmínky viz ledger (CASCADE_CONFIRM_ENFORCED, backfill protokol)
 
 **Rozhodnutí:** rezervace se má lámat přes noc stejně jako zakázka — mechanika tiskových hodin se překlopí i na typ REZERVACE. Vizuální-only varianta zamítnuta. Před implementací **vlastní spec + detailní plán** (největší etapa vlny).
 
