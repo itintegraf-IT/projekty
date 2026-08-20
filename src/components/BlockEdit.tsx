@@ -20,6 +20,7 @@ import { ProductionTagsRow } from "@/components/planner/ProductionTagsRow";
 import { NativeSelect } from "@/components/NativeSelect";
 import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder";
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
+import { usesTiskoveHodiny } from "@/lib/printTime";
 import { durationPayload, resolveDurationSync } from "@/lib/blockEditDuration";
 import { fetchWithCascadeConfirm, type CascadeAsk } from "@/lib/cascadeConfirmClient";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
@@ -172,8 +173,12 @@ export function BlockEdit({
   // přepnutí typu, beze změny na serveru. To je záměr pro DISPLAYOVANOU hodnotu
   // (initial state selectu), ale efekt 2b/2c níž na tenhle zdroj NESMÍ být napojený
   // (viz jeho komentář a `resolveDurationSync` v blockEditDuration.ts).
-  const currentDurationHours = type === "ZAKAZKA"
-    ? blockPrintMinutes(block) / 60
+  // Lokální `type` = tlačítka „Typ záznamu" (viz komentář výš); block.printMinutes je
+  // dál zdroj ze serveru. usesTiskoveHodiny (Task 4) je JEDINÝ zdroj pravdy pro
+  // klasifikaci tiskového bloku — žádná inline dichotomie `type === "ZAKAZKA"`
+  // (poučení P17, review C1 20. 8. 2026).
+  const currentDurationHours = usesTiskoveHodiny({ type, printMinutes: block.printMinutes })
+    ? blockPrintMinutes({ ...block, type }) / 60
     : (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
   const [durationHours, setDurationHours] = useState(currentDurationHours);
   // Incident 18827 (14. 8. 2026): durationHours se dřív počítal jen JEDNOU při
@@ -189,6 +194,9 @@ export function BlockEdit({
   // dřív sledoval currentDurationHours a bral jakoukoliv jeho změnu za serverovou
   // úpravu — jenže currentDurationHours se přepočítá i čistě lokálním kliknutím na
   // „Typ záznamu" (ZAKAZKA↔UDRZBA↔REZERVACE), aniž by se na serveru cokoliv stalo.
+  // Beze změny v etapě 9 (review C1, Task 11): blockPrintMinutes od Tasku 10 už samo
+  // dispatchuje přes usesTiskoveHodiny(block) nad SKUTEČNÝM block.type — žádná
+  // lokální kopie logiky vedle.
   const serverDurationHours = blockPrintMinutes(block) / 60;
   // Poslední známá hodnota ze serveru — sleduje se NEZÁVISLE na durationHours, aby
   // šlo poznat, že se serverDurationHours změnil, i když se durationHours (kvůli

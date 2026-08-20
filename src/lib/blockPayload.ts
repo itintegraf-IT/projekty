@@ -1,4 +1,5 @@
 import { blockPrintMinutes } from "./printTimeClient";
+import { usesTiskoveHodiny } from "@/lib/printTime";
 
 /**
  * Jeden zdroj pravdy pro mapování Block → POST /api/blocks payload (audit #2).
@@ -162,7 +163,7 @@ export function blockToCreatePayload(
     pantoneIssued: block.pantoneIssued ?? false,
     recurrenceType: "NONE",
   };
-  if (block.type === "ZAKAZKA") {
+  if (usesTiskoveHodiny(block)) {
     payload.printMinutes = blockPrintMinutes(block);
   }
   // splitGroupId jen na explicitní přání (undo-obnova) — paste ho vynechává.

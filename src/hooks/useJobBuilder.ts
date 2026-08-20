@@ -11,6 +11,7 @@ import {
 } from "@/lib/dateUtils";
 import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
 import { findNextFreeSlot } from "@/lib/scheduleSlotFinder";
+import { typeUsesTiskoveHodiny } from "@/lib/printTime";
 import type { MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import {
   applyJobPresetToDraft,
@@ -460,7 +461,7 @@ export function useJobBuilder({
       specifikace: bSpecifikace || null,
       recurrenceType: bRecurrenceType,
       autoShiftIfBusy: true,
-      ...(type === "ZAKAZKA" ? { printMinutes: Math.round(durationHours * 60) } : {}),
+      ...(typeUsesTiskoveHodiny(type) ? { printMinutes: Math.round(durationHours * 60) } : {}),
     };
     setSeriesScheduling(true);
     let parentId: number | null = null;

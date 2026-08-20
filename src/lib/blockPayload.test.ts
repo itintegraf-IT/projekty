@@ -208,6 +208,25 @@ test("legacy ZAKAZKA bez printMinutes: fallback z elapsed zarovnaný na 30 min",
   assert.equal(payload.printMinutes, 180); // 3 h elapsed
 });
 
+test("REZERVACE s printMinutes posílá printMinutes (etapa 9)", () => {
+  const b: BlockPayloadSource = {
+    ...FULL_BLOCK,
+    type: "REZERVACE",
+    startTime: "2026-08-21T08:00:00.000Z",
+    endTime: "2026-08-21T09:30:00.000Z",
+    printMinutes: 90,
+  };
+  const payload = blockToCreatePayload(b);
+  assert.equal(payload.printMinutes, 90);
+});
+
+test("legacy REZERVACE (pm null) a UDRZBA printMinutes neposílají", () => {
+  const legacyRezervace: BlockPayloadSource = { ...FULL_BLOCK, type: "REZERVACE", printMinutes: null };
+  const udrzba: BlockPayloadSource = { ...FULL_BLOCK, type: "UDRZBA", printMinutes: null };
+  assert.equal("printMinutes" in blockToCreatePayload(legacyRezervace), false);
+  assert.equal("printMinutes" in blockToCreatePayload(udrzba), false);
+});
+
 test("defenzivní defaulty: chybějící volitelná pole → false/null, ne undefined", () => {
   const minimal: BlockPayloadSource = {
     orderNumber: "99",

@@ -25,7 +25,7 @@ test("dotčeno + ZAKAZKA → printMinutes zaokrouhlené na celé minuty", () => 
   assert.deepEqual(result, { printMinutes: 150 });
 });
 
-test("dotčeno + REZERVACE → endTime dopočítaný ze startTime + durationHours", () => {
+test("dotčeno + REZERVACE → printMinutes, ne endTime (etapa 9: REZERVACE je tiskový typ)", () => {
   const result = durationPayload({
     type: "REZERVACE",
     typeChanged: false,
@@ -33,7 +33,21 @@ test("dotčeno + REZERVACE → endTime dopočítaný ze startTime + durationHour
     durationHours: 3,
     startTime: "2026-08-17T06:00:00.000Z",
   });
-  assert.deepEqual(result, { endTime: "2026-08-17T09:00:00.000Z" });
+  assert.deepEqual(result, { printMinutes: 180 });
+});
+
+test("durationPayload: REZERVACE posílá printMinutes — tiskové hodiny (etapa 9)", () => {
+  assert.deepEqual(
+    durationPayload({ type: "REZERVACE", typeChanged: false, touched: true, durationHours: 2.5, startTime: "2026-08-21T08:00:00.000Z" }),
+    { printMinutes: 150 },
+  );
+});
+
+test("durationPayload: UDRZBA zůstává na endTime (rigidní)", () => {
+  assert.deepEqual(
+    durationPayload({ type: "UDRZBA", typeChanged: false, touched: true, durationHours: 2, startTime: "2026-08-21T08:00:00.000Z" }),
+    { endTime: "2026-08-21T10:00:00.000Z" },
+  );
 });
 
 test("nedotčeno, ale typeChanged → délka se posílá i tak (flip rezervace na zakázku)", () => {
@@ -73,9 +87,9 @@ test("regrese 18827: nedotčený select + ZAKAZKA + durationHours=6 → {} (ne p
   assert.equal("printMinutes" in result, false);
 });
 
-test("startTime jako Date instance funguje stejně jako ISO string", () => {
+test("startTime jako Date instance funguje stejně jako ISO string (UDRZBA, endTime větev)", () => {
   const result = durationPayload({
-    type: "REZERVACE",
+    type: "UDRZBA",
     typeChanged: false,
     touched: true,
     durationHours: 1.5,

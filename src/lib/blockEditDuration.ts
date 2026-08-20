@@ -1,3 +1,5 @@
+import { typeUsesTiskoveHodiny } from "@/lib/printTime";
+
 /**
  * Rozhodnutí, jestli a jak editační formulář (`BlockEdit.tsx`) posílá délku bloku
  * v payloadu PUT/POST. NENÍ součástí `blockPayload.ts` — ten je jediný zdroj pravdy
@@ -38,8 +40,8 @@ export type DurationPayloadInput = {
  * | podmínka                          | výsledek                                    |
  * | ---------------------------------- | -------------------------------------------- |
  * | `!touched && !typeChanged`         | `{}` — délka se NEPOSÍLÁ                     |
- * | jinak a `type === "ZAKAZKA"`       | `{ printMinutes: Math.round(durationHours*60) }` |
- * | jinak (REZERVACE / UDRZBA)         | `{ endTime: <ISO string startTime + durationHours> }` |
+ * | jinak a typ tiskový (ZAKAZKA / REZERVACE) | `{ printMinutes: Math.round(durationHours*60) }` |
+ * | jinak (UDRZBA)                     | `{ endTime: <ISO string startTime + durationHours> }` |
  */
 export function durationPayload(
   input: DurationPayloadInput
@@ -50,7 +52,12 @@ export function durationPayload(
     return {};
   }
 
-  if (type === "ZAKAZKA") {
+  // Etapa 9: REZERVACE je tiskový typ — délka jde jako printMinutes, end počítá
+  // server expanzí. Formulář nový typ VŽDY doprovodí délkou (touched/typeChanged),
+  // takže i legacy rezervace dostane pm, jakmile na délku někdo sáhne — to je
+  // zamýšlená cesta „ručně opravit" ze spec §3 (server nezarovnaný start odmítne
+  // s čitelnou 422, ne s tichým přepisem).
+  if (typeUsesTiskoveHodiny(type)) {
     return { printMinutes: Math.round(durationHours * 60) };
   }
 
