@@ -412,7 +412,21 @@ patří do stejné dávky jako 4.7/4.8, ne do „netýká se".
 
 ---
 
-## 6. K rozhodnutí
+## 6. K rozhodnutí — **ROZHODNUTO 20. 8. 2026 (Vojta)**
+
+| # | Rozhodnutí |
+|---|---|
+| 1 | **7denní strop ponechat** — REZERVACE-only `maxPushMs` i na tiskové geometrii; dluh P31 se nešíří na druhý typ |
+| 2 | `scheduleBypassed` pro rezervace **ANO** (dle doporučení) |
+| 3 | Drift notifikace **stejný kanál jako ZAKAZKA** (dle doporučení) |
+| 4 | Undo MOVE/reflow rezervací **zůstává zahrnuté** (dle doporučení) |
+| 5 | **NE do vytížení + NOVÝ samostatný ukazatel „rezervovaná kapacita"** vedle vytížení (víc než doporučené minimum — vlastní podetapa v reportech) |
+| 6 | **Zatím žádné notifikace obchodníkovi** — synchronizace `scheduled*` běží (v /rezervace vždy aktuální stav), aktivní notifikace případně později |
+| 7 | Split rezervace **mimo rozsah** (dle doporučení) |
+| 8 | Backfill: **dry-run report ke kontrole Vojty** před ostrým zápisem (dle doporučení) |
+| 9 | Tichý sebeposun v POST **odstranit** (dle doporučení) |
+
+Původní znění otázek s dopady (pro kontext rozhodnutí):
 
 Devět otevřených otázek. U každé doporučení a dopad — Vojta rozhoduje ráno, spec sám
 NEROZHODUJE.
