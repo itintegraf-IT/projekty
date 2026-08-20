@@ -13,6 +13,7 @@ import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
 import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } from "@/lib/scheduleSlotFinder";
+import { typeUsesTiskoveHodiny } from "@/lib/printTime";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { withRevision } from "@/lib/revision.server";
@@ -91,14 +92,13 @@ export async function POST(request: NextRequest) {
     const durationMs = endTime.getTime() - startTime.getTime();
     let wasShifted = false;
 
-    // printMinutes: explicitně od klienta, jinak odvozeno z end−start (zpětná kompatibilita —
-    // starý klient posílá end se sémantikou end−start = tiskový čas).
-    // Fallback z elapsed zůstává trvale — kryje legacy bloky (pm=null) a přímé API klienty;
-    // hlavní klient posílá printMinutes explicitně (etapa 4).
+    // ZAKAZKA i REZERVACE (etapa 9): explicitně od klienta, jinak odvozeno z end−start.
+    // Ne-30násobkový elapsed u REZERVACE spadne ve validaci na INVALID_INPUT 422 —
+    // nový blok tiskového typu grid dodržet MUSÍ (klient posílá pm explicitně).
     const rawPrintMinutes: number | null =
       typeof body.printMinutes === "number"
         ? body.printMinutes
-        : blockType === "ZAKAZKA"
+        : typeUsesTiskoveHodiny(blockType)
           ? Math.round((endTime.getTime() - startTime.getTime()) / 60000)
           : null;
 
@@ -195,7 +195,7 @@ export async function POST(request: NextRequest) {
           }
           // Race condition: slot byl mezi pre-check a transakcí obsazen.
           const slot =
-            blockType === "ZAKAZKA" && rawPrintMinutes != null
+            typeUsesTiskoveHodiny(blockType) && rawPrintMinutes != null
               ? await findNextFreePrintSlotFromDb(tx, body.machine, startTime, rawPrintMinutes)
               : await findNextFreeSlotFromDb(tx, body.machine, startTime, durationMs);
           if (!slot.found) {
@@ -227,30 +227,9 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // REZERVACE: auto-posun SEBE na nejbližší volný slot — nezávisle na resolveChain/
-      // autoShiftIfBusy (queue-drop je posílá tak, že existující pre-check větev neběží).
-      // Duration-based (ne-ZAKAZKA nemá printMinutes); slot je jen kandidát, finální
-      // assertNoOverlapForBlocks (níže) drží souběh.
-      // Pozn.: od 31. 7. 2026 platí chain push pro všechny typy, takže s `resolveChain`
-      // si rezervace udělá místo odsunutím následníků a uhýbat sama NESMÍ — jinak by
-      // si uhnula dřív, než chain push dostane šanci, a drop z fronty by se choval
-      // jinak než drag v gridu. Self-shift zůstává jen pro cesty bez resolveChain.
-      if (finalType === "REZERVACE" && !bypassOverlapCheck && !resolveChain) {
-        const conflict = await tx.block.findFirst({
-          where: { machine: body.machine, startTime: { lt: endTime }, endTime: { gt: startTime } },
-          select: { id: true },
-        });
-        if (conflict) {
-          const slot = await findNextFreeSlotFromDb(tx, body.machine, startTime, durationMs);
-          if (!slot.found) {
-            throw new AppError("OVERLAP", "Slot je obsazený a v horizontu není volno — vyber jiné místo.");
-          }
-          startTime = slot.startTime;
-          endTime = slot.endTime;
-          wasShifted = true;
-          logger.info("[POST /api/blocks] REZERVACE self-shift", { machine: body.machine, newStart: startTime.toISOString() });
-        }
-      }
+      // REZERVACE self-shift větev ODSTRANĚNA (rozhodnutí #9 etapy 9): rezervace bez
+      // resolveChain jde stejnou cestou jako zakázka — kolizi vrátí 409 z checkBlockOverlap
+      // výše, žádný tichý sebeposun.
 
       // B2: splitGroupId (undo re-POST) musí odkazovat na existující SplitGroup — jinak by insert
       // spadl na FK constraint. Stará stale-client tail POST self-link (splitGroupId = block.id) tak
@@ -284,8 +263,8 @@ export async function POST(request: NextRequest) {
           blockVariant: finalVariant,
           description: body.description ?? null,
           locked: body.locked ?? false,
-          printMinutes: finalType === "ZAKAZKA" ? rawPrintMinutes : null,
-          scheduleBypassed: finalType === "ZAKAZKA" ? effectiveBypassed : false,
+          printMinutes: typeUsesTiskoveHodiny(finalType) ? rawPrintMinutes : null,
+          scheduleBypassed: typeUsesTiskoveHodiny(finalType) ? effectiveBypassed : false,
           deadlineExpedice: parseNullableCivilDateForDb(body.deadlineExpedice),
           // DATA — auto-derivace: dataOk = true pokud chip nastaven
           dataStatusId: body.dataStatusId ?? null,
