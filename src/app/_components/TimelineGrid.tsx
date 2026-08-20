@@ -451,9 +451,9 @@ const DAY_NAMES_TG   = ["Po","Út","St","Čt","Pá","So","Ne"];
 
 // ─── InlineDatePicker — floating calendar pro dvojklik na badge ───────────────
 function InlineDatePicker({
-  x, y, currentValue, onPick, onClose, onPickSkladem, onPickVydano, sklademActive, vydanoActive,
+  x, y, currentValue, onPick, onClose, onPickSkladem, onPickVydano, sklademActive, vydanoActive, onPickCastecne, castecneActive,
 }: {
-  x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void; onPickSkladem?: () => void; onPickVydano?: () => void; sklademActive?: boolean; vydanoActive?: boolean;
+  x: number; y: number; currentValue: string; onPick: (dateStr: string) => void; onClose: () => void; onPickSkladem?: () => void; onPickVydano?: () => void; sklademActive?: boolean; vydanoActive?: boolean; onPickCastecne?: () => void; castecneActive?: boolean;
 }) {
   const today = todayPragueDateStr();
   const safeDate = normalizeCivilDateInput(currentValue) ?? "";
@@ -533,7 +533,7 @@ function InlineDatePicker({
             );
           })}
         </div>
-        {(onPickSkladem || onPickVydano) && (
+        {(onPickSkladem || onPickVydano || onPickCastecne) && (
           <div style={{ marginTop: 8, borderTop: "1px solid var(--border)", paddingTop: 8, display: "flex", gap: 6 }}>
             {onPickSkladem && (
               <button
@@ -548,6 +548,21 @@ function InlineDatePicker({
                 }}
               >
                 {sklademActive ? "Zrušit skladem" : "Skladem ✓"}
+              </button>
+            )}
+            {onPickCastecne && (
+              <button
+                onClick={() => { onPickCastecne(); onClose(); }}
+                style={{
+                  flex: 1, padding: "6px 0", borderRadius: 8,
+                  border: castecneActive ? "1px solid rgba(245,158,11,0.55)" : "none",
+                  background: castecneActive ? "rgba(245,158,11,0.16)" : "rgba(245,158,11,0.15)",
+                  color: "#d97706",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {castecneActive ? "Zrušit část. vydáno" : "Část. vydáno ½"}
               </button>
             )}
             {onPickVydano && (
@@ -2536,6 +2551,25 @@ export default function TimelineGrid({
               callbacksRef.current.onBlockUpdate(updated, true);
             } catch (err) {
               console.error("Inline vydáno failed", err);
+              callbacksRef.current.onError?.("Nepodařilo se uložit.");
+            }
+          } : undefined}
+          castecneActive={inlinePicker.field === "material" && !!inlinePickerBlock?.materialPartiallyIssued}
+          onPickCastecne={inlinePicker.field === "material" ? async () => {
+            const current = blocks.find((b) => b.id === inlinePicker.blockId);
+            const nextValue = !current?.materialPartiallyIssued;
+            setInlinePicker(null);
+            try {
+              const res = await fetch(`/api/blocks/${inlinePicker.blockId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ materialPartiallyIssued: nextValue }),
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const updated = await res.json();
+              callbacksRef.current.onBlockUpdate(updated, true);
+            } catch (err) {
+              console.error("Inline částečně vydáno failed", err);
               callbacksRef.current.onError?.("Nepodařilo se uložit.");
             }
           } : undefined}
