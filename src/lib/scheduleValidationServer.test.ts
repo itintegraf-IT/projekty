@@ -210,6 +210,13 @@ test("REZERVACE bez printMinutes (legacy): žádná validace, end = fallback (ri
   assert.deepEqual(r, { ok: true, end: fallback, effectivelyBypassed: false });
 });
 
+test("REZERVACE s printMinutes=0 (poškozený záznam): usesTiskoveHodiny ji vidí jako ne-tiskovou → žádná validace, end = fallback bez pojistky end<=start (review Tasku 8 R4 — proto volající SMÍ tuhle funkci zavolat s pm=0 jen přes rigidní větev, nikdy tiskovou)", async () => {
+  const fallback = pragueToUTC("2026-08-21", 11, 45);
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10), 0,
+    fallback, "REZERVACE", false);
+  assert.deepEqual(r, { ok: true, end: fallback, effectivelyBypassed: false });
+});
+
 test("UDRZBA: žádná validace, end = fallback — beze změny etapou 9", async () => {
   const fallback = pragueToUTC("2026-08-22", 14);
   const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-22", 12), 120,

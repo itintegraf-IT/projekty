@@ -216,11 +216,14 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         const printGeometry =
           checkType === "ZAKAZKA" ||
           (checkType === "REZERVACE" &&
-            // pm=0/záporné z requestu nesmí protlačit REZERVACE do tiskové větve — zapsalo by
-            // se printMinutes=0 a syrový end bez pojistky end<=start (obrácený interval, který
-            // je pro overlap kontroly neviditelný). Neopisuje klasifikaci usesTiskoveHodiny
-            // (Task 4) — jen její invariant pro tenhle request-scoped případ (review C2).
-            ((typeof allowedPrintMinutes === "number" && allowedPrintMinutes > 0) || oldBlock.printMinutes != null));
+            // pm=0/záporné z requestu ani ze ZÁZNAMU nesmí protlačit REZERVACE do tiskové
+            // větve — zapsalo by se printMinutes=0 a syrový end bez pojistky end<=start
+            // (obrácený interval, který je pro overlap kontroly neviditelný). STORED pm=0
+            // by navíc nechal usesTiskoveHodiny (Task 4) vyhodnotit REZERVACE jako
+            // ne-tiskovou a validateAndComputeEnd by short-circuitnul ok:true BEZ jakékoliv
+            // pojistky (review Task 8 Important, R4). Neopisuje klasifikaci usesTiskoveHodiny
+            // — jen její invariant pro tenhle request-scoped případ (review C2).
+            ((typeof allowedPrintMinutes === "number" && allowedPrintMinutes > 0) || (oldBlock.printMinutes != null && oldBlock.printMinutes > 0)));
 
         if (!printGeometry) {
           // Rigidní větev (UDRZBA, legacy REZERVACE): printMinutes vyčistit, end = požadovaný.

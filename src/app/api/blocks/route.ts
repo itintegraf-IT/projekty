@@ -263,7 +263,16 @@ export async function POST(request: NextRequest) {
           blockVariant: finalVariant,
           description: body.description ?? null,
           locked: body.locked ?? false,
-          printMinutes: typeUsesTiskoveHodiny(finalType) ? rawPrintMinutes : null,
+          // Hodnotová brána, ne jen typová: `rawPrintMinutes` může nést 0 (explicitní
+          // `body.printMinutes: 0` u REZERVACE) — `typeUsesTiskoveHodiny` se ptá jen na
+          // TYP, takže by 0 nechala projít. Invariant `Block.printMinutes ∈ {délka > 0,
+          // null}` (review Tasku 8, R4) musí platit i tady: uložené pm=0 by jednak
+          // nechalo `usesTiskoveHodiny` (printTime.ts) vyhodnotit REZERVACE jako
+          // ne-tiskovou (a `validateAndComputeEnd` by pro ni při další editaci
+          // short-circuitnul ok:true bez pojistky end<=start), a jednak by ho backfill
+          // (`reservationBackfill.ts`, `SKIP_HAS_PM` = `printMinutes != null`) navždy
+          // přeskakoval jako „už vyplněné" — trvale rozbitý řádek bez cesty k opravě.
+          printMinutes: typeUsesTiskoveHodiny(finalType) && rawPrintMinutes != null && rawPrintMinutes > 0 ? rawPrintMinutes : null,
           scheduleBypassed: typeUsesTiskoveHodiny(finalType) ? effectiveBypassed : false,
           deadlineExpedice: parseNullableCivilDateForDb(body.deadlineExpedice),
           // DATA — auto-derivace: dataOk = true pokud chip nastaven
