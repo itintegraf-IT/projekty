@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { snapToNextValidStartWithTemplates } from "@/lib/workingTime";
-import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, SLOT_MS, type CompanyDayInterval } from "@/lib/printTime";
+import { computePrintMinutes, expandPrintTime, isMachineRunnableAt, snapStartToNextRunnableSlot, SLOT_MS, usesTiskoveHodiny, typeUsesTiskoveHodiny, type CompanyDayInterval } from "@/lib/printTime";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor, getBlockSegments, printMidpoint, snapGroupPerBlock, splitGroupTotalPrintMinutes, type CalendarDriftInfo, type PrintSegment } from "@/lib/printTimeClient";
 import { countActionableDriftByMachine } from "@/lib/calendarDriftUi";
 import { Z_OVERLAY, Z_TIMELINE } from "@/lib/zLayers";
@@ -309,12 +309,12 @@ interface TimelineGridProps {
   clipboardHasContent?: boolean;
   /** Délka zdrojového bloku v ms — používá se pro snap markeru na pracovní dobu,
    *  aby marker ukazoval stejnou pozici, na kterou skutečný paste vloží blok.
-   *  Pro ZAKAZKA zdroj je to tiskové minuty (blockPrintMinutes) × 60000, ne elapsed. */
+   *  Pro blok s tiskovými hodinami je to tiskové minuty (blockPrintMinutes) × 60000, ne elapsed. */
   pasteSlotDurationMs?: number;
-  /** True, když zdroj schránky je ZAKAZKA (single i celá skupina) — marker pak
+  /** True, když zdroj schránky používá tiskové hodiny (single i celá skupina) — marker pak
    *  používá start-only snap přes tiskové hodiny (snapStartToNextRunnableSlot),
    *  stejně jako handlePaste/handleGroupPaste v PlannerPage. */
-  pasteSourceIsZakazka?: boolean;
+  pasteSourceUsesPrintTime?: boolean;
   /** Pravým klikem na prázdný grid — nastaví pasteTarget a okamžitě vloží blok. */
   onPasteHere?: (machine: string, time: Date) => void;
   /** Banner stroje „Přepočítat" (hromadný reflow driftujících bloků) — implementace
@@ -631,7 +631,7 @@ export default function TimelineGrid({
   pasteTarget,
   clipboardHasContent,
   pasteSlotDurationMs,
-  pasteSourceIsZakazka,
+  pasteSourceUsesPrintTime,
   onPasteHere,
   onReflowMachine,
   onSplitDone,
@@ -857,12 +857,12 @@ export default function TimelineGrid({
           const timelineY = e.clientY - rect.top + el.scrollTop - previewHeight / 2;
           const rawSnapped = snapToSlot(yToDate(timelineY, vs, sh));
 
-          // Honest preview: jen ZAKAZKA + zapnutý zámek. Start se snapuje na nejbližší
-          // runnable slot (stejně jako handleQueueDrop v PlannerPage) a výška se rozloží
-          // expanzí přes tiskové hodiny — ne naivních durationHours*2*sh pixelů.
+          // Honest preview: jen typ s tiskovými hodinami + zapnutý zámek. Start se snapuje
+          // na nejbližší runnable slot (stejně jako handleQueueDrop v PlannerPage) a výška
+          // se rozloží expanzí přes tiskové hodiny — ne naivních durationHours*2*sh pixelů.
           let snappedStart = rawSnapped;
           let height = previewHeight;
-          if (workingTimeLockRef.current && qdItem.type === "ZAKAZKA") {
+          if (workingTimeLockRef.current && typeUsesTiskoveHodiny(qdItem.type)) {
             const weekShifts = machineWeekShiftsRef.current ?? [];
             const cdIntervals = companyDayIntervalsFor(machine, companyDaysRef.current ?? []);
             const snapped = snapStartToNextRunnableSlot(machine, rawSnapped, weekShifts, cdIntervals);
@@ -925,8 +925,8 @@ export default function TimelineGrid({
         const snappedStart   = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         const snappedTop     = dateToY(snappedStart, vs, sh);
 
-        // Honest ghost: jen ZAKAZKA + zapnutý zámek. Jinak (nebo při selhání expanze)
-        // dnešní naivní výška = stejná jako originál (blok se jen posouvá, délka se nemění).
+        // Honest ghost: jen typ s tiskovými hodinami + zapnutý zámek. Jinak (nebo při selhání
+        // expanze) dnešní naivní výška = stejná jako originál (blok se jen posouvá, délka se nemění).
         //
         // Odložené zakázky se od 8/2026 NEVYJÍMAJÍ: při zamčeném zámku posílá klient
         // `bypassScheduleValidation: false` a server u skutečné změny pozice bere příznak
@@ -935,7 +935,7 @@ export default function TimelineGrid({
         // se po puštění myši stane; nesoulad tu byl už dřív, jen ho nikdo nespojil se značkou.
         let height = originalHeight;
         const sourceBlock = blocksRef.current.find((b) => b.id === ds.blockId);
-        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA") {
+        if (workingTimeLockRef.current && sourceBlock && usesTiskoveHodiny(sourceBlock)) {
           const pm = blockPrintMinutes(sourceBlock);
           const exp = expandPrintTimeCached(
             newMachine, snappedStart, pm,
@@ -957,7 +957,7 @@ export default function TimelineGrid({
         // Guard nezarovnaného startu (legacy bloky) — computePrintMinutes by v mousemove smyčce házel (vzor getBlockSegments).
         // Odložené zakázky se nevyjímají ze stejného důvodu jako u tažení výš: server je
         // při zamčeném zámku re-expanduje, takže naivní náhled by lhal.
-        if (workingTimeLockRef.current && sourceBlock?.type === "ZAKAZKA" && snappedEnd.getTime() > ds.originalStart.getTime() && ds.originalStart.getTime() % SLOT_MS === 0) {
+        if (workingTimeLockRef.current && sourceBlock && usesTiskoveHodiny(sourceBlock) && snappedEnd.getTime() > ds.originalStart.getTime() && ds.originalStart.getTime() % SLOT_MS === 0) {
           const weekShifts = machineWeekShiftsRef.current ?? [];
           const cdIntervals = companyDayIntervalsFor(ds.originalMachine, companyDaysRef.current ?? []);
           const pm = computePrintMinutes(ds.originalMachine, ds.originalStart, snappedEnd, weekShifts, cdIntervals);
@@ -1100,7 +1100,7 @@ export default function TimelineGrid({
         const duration    = ds.originalEnd.getTime() - ds.originalStart.getTime();
         const requestedStart = snapToSlot(yToDate(originalTop + deltaY, vs, sh));
         const sourceBlock = blocksRef.current.find((b) => b.id === ds.blockId);
-        const isZakazka = sourceBlock?.type === "ZAKAZKA";
+        const isZakazka = sourceBlock != null && usesTiskoveHodiny(sourceBlock);
         let newStart = requestedStart;
         if (workingTimeLockRef.current) {
           if (isZakazka) {
@@ -2143,15 +2143,15 @@ export default function TimelineGrid({
                 {pasteTarget && clipboardHasContent && pasteTarget.machine === machine && viewStart && (() => {
                   // Snap na pracovní dobu pokud lock zapnutý, aby marker přesně odpovídal
                   // pozici, kam handlePaste/handleGroupPaste blok skutečně vloží.
-                  // ZAKAZKA zdroj (single i celá skupina): start-only snap přes tiskové
-                  // hodiny (stejná cesta jako handlePasteWithTarget/handleGroupPasteWithTarget
+                  // Zdroj s tiskovými hodinami (single i celá skupina): start-only snap přes
+                  // tiskové hodiny (stejná cesta jako handlePasteWithTarget/handleGroupPasteWithTarget
                   // v PlannerPage) — délka bloku se nesnapuje, jen start na runnable slot.
-                  // Jinak (ne-ZAKAZKA nebo smíšená skupina): starý duration-based snap přes
-                  // pasteSlotDurationMs. Fallback 30 min, pokud duration není k dispozici
+                  // Jinak (legacy rezervace bez pm nebo smíšená skupina): starý duration-based
+                  // snap přes pasteSlotDurationMs. Fallback 30 min, pokud duration není k dispozici
                   // (např. když je clipboard prázdný a target je jen z grid clicku).
                   let effectiveTime = pasteTarget.time;
                   if (workingTimeLock && machineWeekShifts) {
-                    if (pasteSourceIsZakazka) {
+                    if (pasteSourceUsesPrintTime) {
                       const snapped = snapStartToNextRunnableSlot(
                         pasteTarget.machine, pasteTarget.time, machineWeekShifts,
                         companyDayIntervalsFor(pasteTarget.machine, companyDays ?? [])

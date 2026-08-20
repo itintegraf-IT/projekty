@@ -17,7 +17,7 @@ import { Z_LAYOUT } from "@/lib/zLayers";
 import { computePasteTargetFromBlock, computePasteTargetFromGroup } from "@/lib/pasteTarget";
 import { blockCalendarDrift, blockPrintMinutes, companyDayIntervalsFor } from "@/lib/printTimeClient";
 import { blockToCreatePayload } from "@/lib/blockPayload";
-import { snapStartToNextRunnableSlot } from "@/lib/printTime";
+import { snapStartToNextRunnableSlot, usesTiskoveHodiny, typeUsesTiskoveHodiny } from "@/lib/printTime";
 import { serializeProductionTags } from "@/lib/productionTags";
 import { useUndoManager } from "./useUndoManager";
 import type { BlockSnapshot, EditSnapshot, UndoEffects } from "@/lib/undo/types";
@@ -2280,9 +2280,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const item = queue.find((q) => q.id === itemId) ?? reservationQueue.find((r) => r.id === itemId);
     if (!item) return;
     const durationMs = item.durationHours * 60 * 60 * 1000;
-    // ZAKAZKA → model tiskových hodin: start-only snap, server dopočítá autoritativní end z printMinutes.
-    // REZERVACE / UDRZBA → starý duration-based snap (server tyto typy nevaliduje přes tiskové hodiny).
-    const isZakazka = item.type === "ZAKAZKA";
+    // ZAKAZKA a REZERVACE (etapa 9) → model tiskových hodin: start-only snap, server
+    // dopočítá autoritativní end z printMinutes. UDRZBA → duration-based snap (rigidní).
+    // Nový item z fronty záznam nemá → rozhoduje typ (typeUsesTiskoveHodiny).
+    const isZakazka = typeUsesTiskoveHodiny(item.type);
     const pm = Math.round(item.durationHours * 60);
     let startTime = rawStartTime;
     if (workingTimeLockRef.current) {
@@ -2491,7 +2492,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     if (!src) return;
     const durationMs = new Date(src.endTime).getTime() - new Date(src.startTime).getTime();
     const rawStart = target.time;
-    const isZakazka = src.type === "ZAKAZKA";
+    // Existující blok → rozhoduje záznam (usesTiskoveHodiny): tisková rezervace jde
+    // start-only snap + printMinutes, legacy rezervace bez pm zůstává duration-based.
+    const isZakazka = usesTiskoveHodiny(src);
     let newStart = rawStart;
     if (workingTimeLockRef.current) {
       if (isZakazka) {
@@ -2595,7 +2598,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const anchorMs = Math.min(...group.map((b) => new Date(b.startTime).getTime()));
     const anchorBlock = group.find((b) => new Date(b.startTime).getTime() === anchorMs)!;
     const anchorDuration = new Date(anchorBlock.endTime).getTime() - anchorMs;
-    const allZakazka = group.every((b) => b.type === "ZAKAZKA");
+    const allZakazka = group.every((b) => usesTiskoveHodiny(b));
     // Snap anchor pokud je lock zapnutý. Čistě ZAKAZKA skupina: start-only snap
     // (délku rozloží server expanzí přes printMinutes u každého bloku zvlášť).
     // Smíšená skupina: starý duration-based snap přes celou délku anchor bloku.
@@ -3430,22 +3433,23 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             pasteTarget={pasteTarget}
             clipboardHasContent={!!copiedBlock || clipboardGroupRef.current.length > 0}
             onPasteHere={handlePasteHere}
-            // ZAKAZKA zdroj (single i celá skupina, stejná podmínka jako handlePasteWithTarget /
-            // handleGroupPasteWithTarget) → marker používá start-only snap přes tiskové hodiny,
-            // délka bloku je pro tento snap irelevantní. Jinak (ne-ZAKAZKA nebo smíšená skupina)
-            // marker používá starý duration-based snap a potřebuje pasteSlotDurationMs.
-            pasteSourceIsZakazka={
+            // Zdroj používající tiskové hodiny (single i celá skupina, stejná podmínka jako
+            // handlePasteWithTarget / handleGroupPasteWithTarget) → marker používá start-only
+            // snap přes tiskové hodiny, délka bloku je pro tento snap irelevantní. Jinak (legacy
+            // rezervace bez pm nebo smíšená skupina) marker používá starý duration-based snap
+            // a potřebuje pasteSlotDurationMs.
+            pasteSourceUsesPrintTime={
               clipboardGroupRef.current.length > 0
-                ? clipboardGroupRef.current.every((b) => b.type === "ZAKAZKA")
-                : copiedBlock?.type === "ZAKAZKA"
+                ? clipboardGroupRef.current.every((b) => usesTiskoveHodiny(b))
+                : copiedBlock != null && usesTiskoveHodiny(copiedBlock)
             }
             pasteSlotDurationMs={(() => {
               // Délka pro snap markeru = max délka v aktuálním clipboardu.
               // Pro single copy = délka zdroje; pro group = max ze skupiny (anchor pozice).
-              // ZAKAZKA blok: tiskové minuty (blockPrintMinutes), ne elapsed — server/handlePaste
-              // pro ZAKAZKA taky posílá printMinutes, ne surový (endTime-startTime) rozsah.
+              // Blok s tiskovými hodinami: tiskové minuty (blockPrintMinutes), ne elapsed —
+              // server/handlePaste pro něj taky posílá printMinutes, ne surový (endTime-startTime) rozsah.
               const durationMsFor = (b: Block) =>
-                b.type === "ZAKAZKA" ? blockPrintMinutes(b) * 60000 : new Date(b.endTime).getTime() - new Date(b.startTime).getTime();
+                usesTiskoveHodiny(b) ? blockPrintMinutes(b) * 60000 : new Date(b.endTime).getTime() - new Date(b.startTime).getTime();
               if (clipboardGroupRef.current.length > 0) {
                 return Math.max(...clipboardGroupRef.current.map(durationMsFor));
               }
