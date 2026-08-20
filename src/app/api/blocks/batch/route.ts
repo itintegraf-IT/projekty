@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
 import { serializeBlock } from "@/lib/blockSerialization";
 import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
+import { usesTiskoveHodiny } from "@/lib/printTime";
 import { checkBlockOverlap, assertNoOverlapForBlocks, findIntraBatchOverlap } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
@@ -102,17 +103,19 @@ export async function POST(request: NextRequest) {
         throw new AppError("CONFLICT", `Bloky byly mezitím změněny jiným uživatelem: ${staleBlockIds.join(", ")}`);
       }
 
-      // Validate schedule — only for ZAKAZKA blocks (mirrors single-block PUT behaviour)
-      const zakazkaUpdates = updates.filter((u) => {
+      // Server-authoritative end pro bloky s tiskovými hodinami (etapa 9): ZAKAZKA vždy,
+      // REZERVACE s printMinutes. Legacy rezervace bez pm zůstává rigidní — end z klienta,
+      // jako dnes (zrcadlí PUT).
+      const tiskoveUpdates = updates.filter((u) => {
         const existing = existingBlocks.find((b) => b.id === u.id);
-        return existing?.type === "ZAKAZKA";
+        return existing != null && usesTiskoveHodiny(existing);
       });
 
       // Lasso MOVE: klientův endTime se pro ZAKAZKA ignoruje — printMinutes VŽDY ze záznamu
       // (fallback: odvození ze starého spanu), end počítá server per blok.
       const computedEnds = new Map<number, { end: Date; printMinutes: number; bypassed: boolean }>();
-      if (zakazkaUpdates.length > 0) {
-        for (const u of zakazkaUpdates) {
+      if (tiskoveUpdates.length > 0) {
+        for (const u of tiskoveUpdates) {
           const existing = existingBlocks.find((b) => b.id === u.id)!;
           // Fallback z elapsed zůstává trvale — kryje legacy bloky (pm=null) a přímé API klienty;
           // hlavní klient posílá printMinutes explicitně (etapa 4).
@@ -123,7 +126,7 @@ export async function POST(request: NextRequest) {
           // bypass blok přesunutý na konformní místo se z bypass režimu sám vyčistí.
           const bypass = bypassScheduleValidation || existing.scheduleBypassed;
           const sched = await validateAndComputeEnd(
-            tx, u.machine, new Date(u.startTime), pm, new Date(u.endTime), "ZAKAZKA", bypass
+            tx, u.machine, new Date(u.startTime), pm, new Date(u.endTime), existing.type, bypass
           );
           if (!sched.ok) throw new AppError("SCHEDULE_VIOLATION", sched.error);
           computedEnds.set(u.id, { end: sched.end, printMinutes: pm, bypassed: sched.effectivelyBypassed });
