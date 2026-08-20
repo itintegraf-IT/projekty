@@ -9,6 +9,7 @@ import { resolvePresetForBlock } from "@/lib/jobPresetServer";
 import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
+import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
 import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { findNextFreeSlotFromDb, findNextFreePrintSlotFromDb } from "@/lib/scheduleSlotFinder";
@@ -424,6 +425,10 @@ export async function POST(request: NextRequest) {
       // Finální pojistka — běží VŽDY a pro VŠECHNY typy (i bez resolveChain / s bypassOverlapCheck):
       // žádný blok (zakázka/rezervace/údržba) nesmí skončit překrytý. Jediná záruka souběhu.
       await assertNoOverlapForBlocks(body.machine, [newBlock.id, ...shiftedMoves.map((m) => m.id)], tx);
+
+      // Zrcadlo Reservation.scheduled* — kotva i bloky odsunuté chain pushem (etapa 9, fáze 0).
+      // Pro čerstvě zaplánovanou rezervaci je to no-op (updateMany výše zapsal tytéž hodnoty).
+      await syncReservationScheduleForBlocks(tx, [newBlock.id, ...shiftedMoves.map((m) => m.id)]);
 
       return { newBlock, shiftedMoves };
       // Tělo výše si drží PŮVODNÍ odsazení: přeformátovat 200 řádků kvůli jednomu

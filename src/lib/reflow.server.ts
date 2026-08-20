@@ -10,6 +10,7 @@ import {
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
 import { detectCalendarDrift } from "@/lib/calendarDrift.server";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
 import { moveToBefore, mergeBefore, type ReflowBeforeSnapshot } from "@/lib/reflowBefore.server";
 import { measureCascade } from "@/lib/cascadeLimit";
 import { assertCascadeConfirmed } from "@/lib/cascadeLimit.server";
@@ -210,6 +211,10 @@ export async function reflowBlockInTx(
   // Finální tvrdá pojistka — reflow (re-expanze + chain push) nesmí skončit překryvem.
   // Parita s POST/PUT/batch/split; jediná záruka souběhu v této transakci.
   await assertNoOverlapForBlocks(block.machine, [blockId, ...moves.map((m) => m.id)], tx);
+
+  // Zrcadlo Reservation.scheduled* — přepočítaný blok i odsunuté navazující (etapa 9, fáze 0).
+  // Pokrývá jednoblokové „Přepočítat" i hromadný reflowMachineInTx (volá tuto funkci per blok).
+  await syncReservationScheduleForBlocks(tx, [blockId, ...moves.map((m) => m.id)]);
 
   // Audit odsunutých navazujících bloků — jeden AUTO_SHIFT řádek per posunutý blok (vzor
   // PUT `[id]/route.ts`). En-dash `–` (U+2013) v oldValue/newValue, NE ASCII pomlčka —

@@ -328,7 +328,11 @@ test("applyUndoOps: dávka přes DVA stroje — kontrola stroje B nesmí dostat 
 
   // Volání findMany PO tom prvním (index 0 = počáteční načtení existujících řádků) patří
   // finální pojistce — každé smí obsahovat jen id bloku, který na daný stroj skutečně patří.
-  const overlapCalls = findManyMock.mock.calls.slice(1);
+  // Vyfiltrováno i závěrečné findMany syncReservationScheduleForBlocks (etapa 9) — to má
+  // ve where navíc `reservationId`, assertNoOverlapForBlocks ho tam nikdy nedává.
+  const overlapCalls = findManyMock.mock.calls
+    .slice(1)
+    .filter((c) => !("reservationId" in (c.arguments[0] as { where: Record<string, unknown> }).where));
   assert.equal(overlapCalls.length, 2, "assertNoOverlapForBlocks se volá jednou za cílový stroj");
   for (const call of overlapCalls) {
     const ids = (call.arguments[0] as { where: { id: { in: number[] } } }).where.id.in;
@@ -669,7 +673,11 @@ test("applyUndoOps (D4): finální pojistka prochází stroje SEŘAZENĚ podle j
   ], actor, "undo");
   // Volání findMany PO počátečním načtení existujících řádků (index 0) patří
   // finální pojistce — jedno volání na stroj, v pořadí, ve kterém funkce stroje iteruje.
-  const overlapCalls = findManyMock.mock.calls.slice(1);
+  // Vyfiltrováno i závěrečné findMany syncReservationScheduleForBlocks (etapa 9) — to má
+  // ve where navíc `reservationId`, assertNoOverlapForBlocks ho tam nikdy nedává.
+  const overlapCalls = findManyMock.mock.calls
+    .slice(1)
+    .filter((c) => !("reservationId" in (c.arguments[0] as { where: Record<string, unknown> }).where));
   assert.equal(overlapCalls.length, 2, "assertNoOverlapForBlocks se volá jednou za cílový stroj");
   const firstIds = (overlapCalls[0].arguments[0] as { where: { id: { in: number[] } } }).where.id.in;
   assert.deepEqual(firstIds, [2], "XL_105 (blok 2) musí přijít na řadu PŘED XL_106 (blok 1), i když byl v ops až druhý");

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { AppError } from "@/lib/errors";
 import { isRestorableField } from "@/lib/undo/restoreFields";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
+import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
 import { logger } from "@/lib/logger";
 import { SLOT_MS } from "@/lib/timeSlots";
 import { truncateUtf8 } from "@/lib/textTruncate";
@@ -394,6 +395,11 @@ export async function applyUndoOps(
   for (const machine of [...idsByMachine.keys()].sort()) {
     await assertNoOverlapForBlocks(machine, idsByMachine.get(machine)!, tx);
   }
+
+  // Zrcadlo Reservation.scheduled* — obnovené i vzkříšené bloky s vazbou na rezervaci
+  // (etapa 9, fáze 0). Bez toho by Ctrl+Z vrátil Block.startTime/endTime, ale
+  // Reservation.scheduled* by zůstalo na hodnotě PŘED undem (spec §4.11).
+  await syncReservationScheduleForBlocks(tx, [...result.updatedIds, ...result.createdIds]);
 
   // Logování záměrně NENÍ tady. Funkce běží uvnitř `prisma.$transaction` — log
   // napsaný tady by přežil i rollback (výjimka odjinud v téže transakci, nebo

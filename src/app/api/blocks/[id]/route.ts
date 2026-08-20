@@ -12,6 +12,7 @@ import { computePrintMinutes } from "@/lib/printTime";
 import { loadMachineCalendar } from "@/lib/printTime.server";
 import { checkBlockOverlap, assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
+import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
 import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
@@ -635,6 +636,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         // Finální pojistka — VŠECHNY typy (i bez resolveChain, i s bypassOverlapCheck).
         await assertNoOverlapForBlocks(updated.machine, [updated.id, ...shiftedMoves.map((m) => m.id)], tx);
       }
+
+      // Zrcadlo Reservation.scheduled* — editovaný blok i bloky odsunuté chain pushem (etapa 9, fáze 0).
+      await syncReservationScheduleForBlocks(tx, [updated.id, ...shiftedMoves.map((m) => m.id)]);
 
       return { block: updated, shifted: shiftedMoves, propagatedGroupId };
       // Tělo výše si drží PŮVODNÍ odsazení: přeformátovat 400 řádků kvůli

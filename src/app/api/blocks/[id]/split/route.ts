@@ -8,6 +8,7 @@ import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { loadMachineCalendar } from "@/lib/printTime.server";
 import { computeSplitPrintMinutes } from "@/lib/splitCompute";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
+import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
 import { moveToBefore } from "@/lib/reflowBefore.server";
 import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
@@ -214,6 +215,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       // Finální tvrdá pojistka — VŠECHNY typy: head, tail ani posunutí nesmí skončit překryté
       // (parita POST/PUT; dřív jen ZAKAZKA, split ne-ZAKAZKA bloku pojistku obcházel).
       await assertNoOverlapForBlocks(block.machine, [headUpdated.id, tailCreated.id, ...shiftedMoves.map((m) => m.id)], tx);
+
+      // Zrcadlo Reservation.scheduled* — hlava (nese případný reservationId), ocas i odsunuté (etapa 9, fáze 0).
+      // Split je ZAKAZKA-only, ale ZAKAZKA vzniklá překlopením rezervace si reservationId nese dál.
+      await syncReservationScheduleForBlocks(tx, [headUpdated.id, tailCreated.id, ...shiftedMoves.map((m) => m.id)]);
 
       return { head: headUpdated, tail: tailCreated, shifted: shiftedMoves, headBefore };
       // Tělo výše si drží PŮVODNÍ odsazení — viz komentář u PUT bloku.

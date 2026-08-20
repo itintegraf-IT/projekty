@@ -6,6 +6,7 @@ import { serializeBlock } from "@/lib/blockSerialization";
 import { validateAndComputeEnd } from "@/lib/scheduleValidationServer";
 import { checkBlockOverlap, assertNoOverlapForBlocks, findIntraBatchOverlap } from "@/lib/overlapCheck";
 import { resolveChainPushFromDb, type AppliedMove } from "@/lib/overlapResolver.server";
+import { syncReservationScheduleForBlocks } from "@/lib/reservationSync.server";
 import { AppError, isAppError, errorStatus } from "@/lib/errors";
 import { measureCascade } from "@/lib/cascadeLimit";
 import { assertCascadeConfirmed } from "@/lib/cascadeLimit.server";
@@ -281,6 +282,9 @@ export async function POST(request: NextRequest) {
       }
 
       await tx.auditLog.createMany({ data: auditRows });
+
+      // Zrcadlo Reservation.scheduled* — všechny přesunuté bloky dávky + odsunuté chain pushem (etapa 9, fáze 0).
+      await syncReservationScheduleForBlocks(tx, [...updates.map((u) => u.id), ...shiftedMoves.map((m) => m.id)]);
 
       return { updated, shiftedIds: shiftedMoves.map((m) => m.id) };
       // Tělo výše si drží PŮVODNÍ odsazení — viz komentář u PUT bloku.
