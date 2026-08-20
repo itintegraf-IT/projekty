@@ -31,6 +31,7 @@ function mkBlock(overrides: Partial<Block> = {}): Block {
     materialOk: false,
     materialInStock: false,
     materialIssued: false,
+    materialPartiallyIssued: false,
     pantoneRequiredDate: null,
     pantoneOk: false,
     pantoneRequired: false,

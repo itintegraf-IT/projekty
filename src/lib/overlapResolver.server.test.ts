@@ -35,8 +35,8 @@ const row = (id: number, start: number, end: number, opts: Partial<Row> = {}): R
 });
 
 function mkTx(rows: Row[], companyDays: { startDate: Date; endDate: Date }[] = []) {
-  const updateMock = mock.fn(async () => ({}));
-  const findManyMock = mock.fn(async () => rows);
+  const updateMock = mock.fn(async (params: any) => ({}));
+  const findManyMock = mock.fn(async (params: any) => rows);
   const tx = {
     block: { findMany: findManyMock, update: updateMock },
     machineWeekShifts: { findMany: mock.fn(async () => []) },
@@ -71,7 +71,7 @@ describe("resolveChainPushFromDb", () => {
   it("excludeIds přidá bloky do notIn filtru (lasso: sourozenci se neposouvají)", async () => {
     const { tx, findManyMock } = mkTx([]);
     await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(12) }, new Set([5, 7]));
-    const where = (findManyMock.mock.calls as unknown as { arguments: [{ where: { id: { notIn: number[] } } }] }[])[0]!.arguments[0].where;
+    const where = (findManyMock.mock.calls[0]!.arguments[0] as any)?.where;
     assert.deepEqual(where.id.notIn, [1, 5, 7]);
   });
 
