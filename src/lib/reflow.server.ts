@@ -4,6 +4,7 @@ import {
   expandPrintTime,
   isMachineRunnableAt,
   snapStartToNextRunnableSlot,
+  usesTiskoveHodiny,
   MAX_SPAN_DAYS,
   SLOT_MS,
 } from "@/lib/printTime";
@@ -79,7 +80,8 @@ export type ReflowDeps = {
 const defaultDeps: ReflowDeps = { resolveChainPush: resolveChainPushFromDb };
 
 /**
- * Přepočítá jeden ZAKAZKA blok podle aktuálního kalendáře stroje (start-only snap +
+ * Přepočítá jeden blok s tiskovými hodinami (ZAKAZKA, od etapy 9 i REZERVACE s printMinutes)
+ * podle aktuálního kalendáře stroje (start-only snap +
  * expandPrintTime) — akce plánovače „Přepočítat" pro drift mezi uloženým end a tím, co
  * by dnes vyšlo z tiskových hodin (kalendář se změnil po uložení bloku).
  *
@@ -108,8 +110,11 @@ export async function reflowBlockInTx(
   if (!block) {
     return { ok: false, code: "NOT_FOUND", message: "Blok nenalezen" };
   }
-  if (block.type !== "ZAKAZKA") {
-    return { ok: false, code: "NOT_ZAKAZKA", message: "Lze přepočítat jen blok typu zakázka." };
+  // Etapa 9: přepočítat lze každý blok s tiskovými hodinami — zakázku i rezervaci
+  // s printMinutes. Kód "NOT_ZAKAZKA" se NEPŘEJMENOVÁVÁ (klient na string mapuje
+  // hlášku, spec 4.10) — sémantika je nově „blok nemá tiskové hodiny".
+  if (!usesTiskoveHodiny(block)) {
+    return { ok: false, code: "NOT_ZAKAZKA", message: "Lze přepočítat jen blok s tiskovými hodinami (zakázka, rezervace)." };
   }
   if (block.locked) {
     return { ok: false, code: "LOCKED", message: "Zamčený blok nelze přepočítat — nejdřív ho odemkni." };

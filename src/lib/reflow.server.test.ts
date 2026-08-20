@@ -468,6 +468,38 @@ describe("reflowBlockInTx", () => {
   });
 });
 
+describe("reflowBlockInTx — REZERVACE (etapa 9)", () => {
+  it("tisková rezervace s driftem se přepočítá (fallback 24/7: end = start + pm)", async () => {
+    // Uložený end lže o hodinu — reflow ho srovná na expanzi (souvislý provoz).
+    const block = mkBlock({ type: "REZERVACE", printMinutes: 120, startTime: H(10), endTime: H(13) });
+    const { tx, updateMock } = mkTx(block);
+    const r = await reflowBlockInTx(tx, 1, actor, { resolveChainPush: async () => [] });
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.equal(r.changed, true);
+    assert.deepEqual(r.endTime, H(12));
+    assert.equal(updateMock.mock.callCount(), 1);
+  });
+
+  it("legacy rezervace (pm null) → NOT_ZAKAZKA (nelze poctivě přepočítat)", async () => {
+    const block = mkBlock({ type: "REZERVACE", printMinutes: null });
+    const { tx } = mkTx(block);
+    const r = await reflowBlockInTx(tx, 1, actor, { resolveChainPush: async () => [] });
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.equal(r.code, "NOT_ZAKAZKA");
+  });
+
+  it("UDRZBA → NOT_ZAKAZKA beze změny etapou 9", async () => {
+    const block = mkBlock({ type: "UDRZBA", printMinutes: 120 });
+    const { tx } = mkTx(block);
+    const r = await reflowBlockInTx(tx, 1, actor, { resolveChainPush: async () => [] });
+    assert.equal(r.ok, false);
+    if (r.ok) return;
+    assert.equal(r.code, "NOT_ZAKAZKA");
+  });
+});
+
 describe("reflowMachineInTx", () => {
   /** Fake tx — reflowMachineInTx samo o sobě čte jen kalendář (loadMachineCalendarRange
    * pro preloadedCalendar, T6), zbytek předává injektovaným deps (reflowBlock/detectDrift).
