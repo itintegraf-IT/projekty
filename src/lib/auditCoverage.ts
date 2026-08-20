@@ -88,6 +88,10 @@ const COMPOSITE_FIELDS: Record<string, readonly string[]> = {
 
 const PRINT_COLUMNS = ["printCompletedAt", "printCompletedByUserId", "printCompletedByUsername"] as const;
 const EXPEDITION_COLUMNS = ["expeditionPublishedAt", "expeditionSortOrder"] as const;
+/** `scripts/backfill-reservation-print-minutes.ts` (etapa 9, fix R3) zapisuje OBĚ pole
+ *  v JEDNOM `rtx.block.update` — jedna klasifikace řádku (CONFORMS/MISMATCH) určuje
+ *  printMinutes i scheduleBypassed najednou, nikdy zvlášť. */
+const BACKFILL_COLUMNS = ["printMinutes", "scheduleBypassed"] as const;
 
 /**
  * Akce, jejichž záběr určuje AKCE SAMA, ne `field` — čtenáři je z popisku jasné,
@@ -117,6 +121,11 @@ const ROW_LEVEL_ACTIONS: Record<string, readonly string[] | "ALL"> = {
   // LEGACY bez vazby na sloupce Blocku (dev DB: 1 + 1 řádek).
   RESERVATION_NOTIFY: [],
   CASCADE_DELETE_SHIFT_ASSIGNMENTS: [],
+  // Jednorázový backfill printMinutes/scheduleBypassed pro REZERVACE (etapa 9, fáze 1,
+  // fix R3) — `scripts/backfill-reservation-print-minutes.ts`. Row-level, ne field-driven,
+  // protože skript vždy zapisuje obě pole pohromadě; `field` na auditním řádku nese jen
+  // čitelný popis pro člověka, coverage se na něj nedívá (viz větev 2 níž).
+  BACKFILL_PRINT_MINUTES: BACKFILL_COLUMNS,
 };
 
 /** Akce, u kterých záběr určuje `field` (jméno sloupce nebo složený tvar). */

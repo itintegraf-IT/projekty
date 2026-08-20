@@ -43,3 +43,24 @@ test("backfill: rezervace celá mimo provoz → SKIP_NO_MINUTES (inverze dá 0)"
   const r = row({ startTime: pragueToUTC("2026-08-22", 10), endTime: pragueToUTC("2026-08-22", 12) });
   assert.deepEqual(classifyReservationRow(r, SHIFTS, []), { kind: "SKIP_NO_MINUTES" });
 });
+
+test("backfill: apply-idempotence — po simulovaném zápisu je druhý průchod SKIP_HAS_PM a writes prázdné", () => {
+  // Mirror výběru `writes` ve skriptu: jen CONFORMS/MISMATCH se zapisují.
+  const selectWrites = (rs: Parameters<typeof classifyReservationRow>[0][]) =>
+    rs
+      .map((r) => classifyReservationRow(r, SHIFTS, []))
+      .filter((c) => c.kind === "CONFORMS" || c.kind === "MISMATCH");
+
+  // První průchod: čerstvý řádek (printMinutes null) → CONFORMS, jde do writes.
+  const fresh = row({});
+  const first = classifyReservationRow(fresh, SHIFTS, []);
+  assert.equal(first.kind, "CONFORMS");
+  assert.deepEqual(selectWrites([fresh]), [{ kind: "CONFORMS", printMinutes: 120 }]);
+
+  // Simulace stavu PO --apply: řádek má printMinutes vyplněné (přesně to, co
+  // skript zapsal). Druhý běh nad týmž řádkem musí být idempotentní —
+  // SKIP_HAS_PM, ne opětovné CONFORMS, a writes prázdné (nic se nepřepisuje).
+  const afterApply = { ...fresh, printMinutes: (first as { printMinutes: number }).printMinutes };
+  assert.deepEqual(classifyReservationRow(afterApply, SHIFTS, []), { kind: "SKIP_HAS_PM" });
+  assert.deepEqual(selectWrites([afterApply]), []);
+});
