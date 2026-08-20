@@ -3,6 +3,7 @@ import {
   expandPrintTime,
   snapStartToNextRunnableSlot,
   SLOT_MS,
+  usesTiskoveHodiny,
   type CompanyDayInterval,
   type ExpandResult,
   type PrintSegment,
@@ -18,9 +19,8 @@ export type CompanyDayClientRow = { machine?: string | null; startDate: string |
 export type { PrintSegment };
 
 /**
- * Délka bloku v minutách pro payload: ZAKAZKA = printMinutes (fallback elapsed), jinak elapsed.
- * Elapsed fallback u ZAKAZKA se zarovnává na 30min grid (min 30) — server vyžaduje pm % 30 === 0
- * a legacy blok s nezarovnaným spanem by jinak spadl na SCHEDULE_VIOLATION při uložení.
+ * Délka bloku v minutách pro payload: ZAKAZKA a REZERVACE s printMinutes = printMinutes
+ * (fallback elapsed zarovnaný na 30min grid jen u legacy ZAKAZKA), UDRZBA a legacy REZERVACE = elapsed.
  */
 export function blockPrintMinutes(b: {
   type: string;
@@ -31,7 +31,9 @@ export function blockPrintMinutes(b: {
   const elapsed = Math.round(
     (new Date(b.endTime).getTime() - new Date(b.startTime).getTime()) / 60000
   );
-  if (b.type !== "ZAKAZKA") return elapsed;
+  // UDRZBA a legacy REZERVACE (bez pm) = elapsed; ZAKAZKA a tisková REZERVACE = printMinutes.
+  // Zaokrouhlený fallback se týká jen legacy ZAKAZKA (usesTiskoveHodiny pro ni vrací true i s pm=null).
+  if (!usesTiskoveHodiny(b)) return elapsed;
   return b.printMinutes ?? Math.max(30, Math.round(elapsed / 30) * 30);
 }
 
@@ -87,10 +89,10 @@ export type GroupSnapResult = { id: number; start: Date; end: Date };
  * každý další nesmí začít dřív, než tiskově končí předchůdce (`prevEnd`) —
  * proto se v tom případě znovu snapne, tentokrát OD `prevEnd`.
  *
- * Per-blok dispatch podle typu: ZAKAZKA = start-only snap + expandPrintTime
- * (délka se rozloží přes kalendář); REZERVACE/UDRZBA = rigidní snap se
- * ZACHOVANOU přesnou délkou (žádná expanze). `scheduleBypassed` členy se
- * posouvají DOSLOVNĚ o `proposedDeltaMs` — nesmí se re-expandovat (server
+ * Per-blok dispatch podle GEOMETRIE (usesTiskoveHodiny): ZAKAZKA a REZERVACE
+ * s printMinutes = start-only snap + expandPrintTime; UDRZBA a legacy
+ * REZERVACE bez printMinutes = rigidní snap se ZACHOVANOU přesnou délkou.
+ * `scheduleBypassed` členy se posouvají DOSLOVNĚ o `proposedDeltaMs` — nesmí se re-expandovat (server
  * má na bypass sticky-OR, viz batch/route.ts) ani navazovat na řetěz.
  *
  * Vrací `null`, když některý ne-bypass ZAKAZKA blok nejde v horizontu umístit —
@@ -133,9 +135,11 @@ export function snapGroupPerBlock(
       continue;
     }
 
-    const isZakazka = b.type === "ZAKAZKA";
+    // Etapa 9: tisková geometrie = ZAKAZKA + REZERVACE s printMinutes (usesTiskoveHodiny);
+    // legacy REZERVACE bez pm a UDRZBA zůstávají rigidní.
+    const tiskove = usesTiskoveHodiny({ type: b.type, printMinutes: b.printMinutes });
     const snapOwn = (from: Date): Date | null =>
-      isZakazka
+      tiskove
         ? snapStartToNextRunnableSlot(b.machine, from, weekShifts, intervalsFor(b.machine))
         : snapToNextValidStartWithTemplates(b.machine, from, durationMs, weekShifts);
 
@@ -151,7 +155,7 @@ export function snapGroupPerBlock(
     }
 
     let end: Date;
-    if (isZakazka) {
+    if (tiskove) {
       const pm = blockPrintMinutes({ type: b.type, printMinutes: b.printMinutes, startTime: b.originalStart, endTime: b.originalEnd });
       const exp = expandPrintTime(b.machine, start, pm, weekShifts, intervalsFor(b.machine), false);
       if (!exp.ok) return null;

@@ -525,7 +525,7 @@ test("snapGroupPerBlock — bypass uprostřed řetězu nevrací prevEnd zpět v 
   assert.ok(z3.start.getTime() >= z1.end.getTime(), "Z3 nesmí začít uvnitř expandovaného ocasu Z1");
 });
 
-test("snapGroupPerBlock — smíšený výběr: REZERVACE se snapuje rigidně (přesná délka), ne přes expanzi", () => {
+test("snapGroupPerBlock — smíšený výběr: LEGACY rezervace (bez pm) se snapuje rigidně (přesná délka)", () => {
   const blocks = [
     { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 18), originalEnd: pragueToUTC("2026-08-21", 20), printMinutes: 120 },
     { id: 2, machine: "XL_106", type: "REZERVACE", originalStart: pragueToUTC("2026-08-21", 20), originalEnd: pragueToUTC("2026-08-21", 21) },
@@ -535,4 +535,32 @@ test("snapGroupPerBlock — smíšený výběr: REZERVACE se snapuje rigidně (p
   const b2 = r!.results.find((x) => x.id === 2)!;
   // Rigidní délka 1h se zachovává přesně, žádné rozpuštění přes pauzu.
   assert.equal(b2.end.getTime() - b2.start.getTime(), 3600000);
+});
+
+test("blockPrintMinutes — REZERVACE s pm vrací pm; legacy REZERVACE a UDRZBA elapsed (etapa 9)", () => {
+  const base = { startTime: "2026-08-21T08:00:00.000Z", endTime: "2026-08-21T10:00:00.000Z" };
+  assert.equal(blockPrintMinutes({ type: "REZERVACE", printMinutes: 90, ...base }), 90);
+  assert.equal(blockPrintMinutes({ type: "REZERVACE", printMinutes: null, ...base }), 120, "legacy → elapsed BEZE zaokrouhlení");
+  assert.equal(blockPrintMinutes({ type: "UDRZBA", printMinutes: 90, ...base }), 120, "údržba vždy elapsed");
+  assert.equal(blockPrintMinutes({ type: "ZAKAZKA", printMinutes: 90, ...base }), 90, "zakázka beze změny");
+});
+
+test("snapGroupPerBlock — tisková REZERVACE se snapuje start-only a expanduje přes pauzu (etapa 9)", () => {
+  // Pá 20:00, pm 240: pátek běží do 22:00 → 2 h tisku Pá + 2 h od Ne 22:00.
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "REZERVACE", originalStart: pragueToUTC("2026-08-21", 20), originalEnd: pragueToUTC("2026-08-22", 0), printMinutes: 240 },
+  ];
+  const r = snapGroupPerBlock(blocks, 0, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  assert.deepEqual(r!.results[0]!.start, pragueToUTC("2026-08-21", 20));
+  assert.deepEqual(r!.results[0]!.end, pragueToUTC("2026-08-24", 0), "expanze přes víkendovou odstávku, ne rigidní span");
+});
+
+test("snapGroupPerBlock — legacy REZERVACE (pm null) zůstává rigidní se zachovanou délkou", () => {
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "REZERVACE", originalStart: pragueToUTC("2026-08-21", 20), originalEnd: pragueToUTC("2026-08-21", 21) },
+  ];
+  const r = snapGroupPerBlock(blocks, 3600000, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  assert.equal(r!.results[0]!.end.getTime() - r!.results[0]!.start.getTime(), 3600000, "rigidní přesná délka");
 });
