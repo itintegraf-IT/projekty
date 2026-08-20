@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { pragueToUTC, utcToPragueHour } from "./dateUtils";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
-import { expandPrintTime, isMachineRunnableAt, computePrintMinutes, snapStartToNextRunnableSlot, violatesMinPrintSegment, MIN_PRINT_SEGMENT_MINUTES, type CompanyDayInterval } from "./printTime";
+import { expandPrintTime, isMachineRunnableAt, computePrintMinutes, snapStartToNextRunnableSlot, violatesMinPrintSegment, MIN_PRINT_SEGMENT_MINUTES, usesTiskoveHodiny, typeUsesTiskoveHodiny, type CompanyDayInterval } from "./printTime";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 // Směny: MORNING 6–14 (360–840), AFTERNOON 14–22 (840–1320), NIGHT 22–6 (1320–360 wrap)
@@ -250,4 +250,30 @@ test("minSegment: kusy 12h+15h (Gardena) → neporušuje", () => {
   const r = expandPrintTime("XL_106", start, 27 * 60, SHIFTS, NO_CD);
   assert.equal(r.ok, true);
   if (r.ok) assert.equal(violatesMinPrintSegment(r.segments), false);
+});
+
+// ── usesTiskoveHodiny ───────────────────────────────────────────────────────
+
+test("usesTiskoveHodiny — celý obor hodnot typu × printMinutes (P17)", () => {
+  const cases: Array<{ type: string; pm: number | null | undefined; expected: boolean; why: string }> = [
+    { type: "ZAKAZKA", pm: 120, expected: true, why: "zakázka s pm" },
+    { type: "ZAKAZKA", pm: null, expected: true, why: "legacy zakázka — fallbacky volajících, beze změny proti stavu před etapou 9" },
+    { type: "ZAKAZKA", pm: undefined, expected: true, why: "zakázka bez pole (klientské tvary)" },
+    { type: "REZERVACE", pm: 120, expected: true, why: "backfillnutá/nová rezervace — CÍL etapy 9" },
+    { type: "REZERVACE", pm: null, expected: false, why: "legacy rezervace — zůstává rigidní (spec §3 krok 2)" },
+    { type: "REZERVACE", pm: undefined, expected: false, why: "rezervace bez pole" },
+    { type: "REZERVACE", pm: 0, expected: false, why: "korupce dat → radši rigidní" },
+    { type: "REZERVACE", pm: -30, expected: false, why: "korupce dat → radši rigidní" },
+    { type: "UDRZBA", pm: 120, expected: false, why: "údržba NIKDY — rigidní beze změny" },
+    { type: "UDRZBA", pm: null, expected: false, why: "údržba NIKDY" },
+  ];
+  for (const c of cases) {
+    assert.equal(usesTiskoveHodiny({ type: c.type, printMinutes: c.pm }), c.expected, `${c.type}/pm=${c.pm}: ${c.why}`);
+  }
+});
+
+test("typeUsesTiskoveHodiny — varianta pro nové payloady (bez záznamu)", () => {
+  assert.equal(typeUsesTiskoveHodiny("ZAKAZKA"), true);
+  assert.equal(typeUsesTiskoveHodiny("REZERVACE"), true);
+  assert.equal(typeUsesTiskoveHodiny("UDRZBA"), false);
 });

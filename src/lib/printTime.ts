@@ -144,6 +144,38 @@ export function computePrintMinutes(
 export const MIN_PRINT_SEGMENT_MINUTES = 60;
 
 /**
+ * Používá blok model tiskových hodin (printMinutes + expanze přes pauzy směn)?
+ * JEDINÝ zdroj pravdy pro server (validace, chain push geometrie, drift, reflow)
+ * i klienta (snapy, payloady, kreslení) — etapa 9, „Rezervace dostanou plné
+ * tiskové hodiny".
+ *
+ * - ZAKAZKA: vždy. pm = null (legacy) řeší fallbacky volajících — beze změny
+ *   proti stavu před etapou 9.
+ * - REZERVACE: jen s platnými printMinutes. Legacy rezervace, kterou backfill
+ *   přeskočil (nezarovnaný start/end), zůstává RIGIDNÍ — „funguje jako dnes,
+ *   dokud se ručně neopraví" (spec §3 krok 2).
+ * - UDRZBA: nikdy — zůstává rigidní beze změny (rozhodnutí Vojty 19. 8. 2026).
+ *
+ * Poučení P17: volající NESMÍ tuhle trojcestnou klasifikaci opisovat inline
+ * dichotomií `type === "ZAKAZKA"` — projet celý obor hodnot umí jen jedno místo.
+ */
+export function usesTiskoveHodiny(b: { type: string; printMinutes?: number | null }): boolean {
+  if (b.type === "ZAKAZKA") return true;
+  if (b.type === "REZERVACE") return b.printMinutes != null && Number.isFinite(b.printMinutes) && b.printMinutes > 0;
+  return false;
+}
+
+/**
+ * Varianta pro NOVÉ payloady (builder, fronta, série), kde žádný uložený záznam
+ * neexistuje: nový blok tiskového typu dostává printMinutes VŽDY, rozhoduje jen
+ * typ. Pro EXISTUJÍCÍ bloky vždy `usesTiskoveHodiny` — legacy rezervace bez
+ * printMinutes musí zůstat rigidní.
+ */
+export function typeUsesTiskoveHodiny(type: string): boolean {
+  return type === "ZAKAZKA" || type === "REZERVACE";
+}
+
+/**
  * True, když expanze obsahuje pauzu A některý tiskový segment je kratší než minimum.
  * Souvislá expanze (bez pauzy) neporušuje nikdy — pravidlo krotí jen dělení bloku.
  * Vynucuje se VÝHRADNĚ v automatice (chain push, auto-shift); ruční umístění
