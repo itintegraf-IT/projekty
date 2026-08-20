@@ -12,6 +12,7 @@ import {
   computeThroughputFromOrders,
   computeAvgLeadTimeDaysFromOrders,
   computeMaintenanceRatio,
+  computeReservedRatio,
   computePlanStability,
   resolvePlanCoverage,
   type CalendarCascade,
@@ -19,6 +20,7 @@ import {
 import { OPEN_STATUSES, CLOSED_STATUSES, computeConversionPercent } from "@/lib/reservationStatus";
 import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
 import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
+import { usesTiskoveHodiny } from "@/lib/printTime";
 import { MACHINES } from "@/lib/machines";
 
 const ALLOWED_ROLES = new Set(["ADMIN"]);
@@ -203,15 +205,19 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   // Segmenty 1× per blok — denní smyčka by expanzi opakovala až 30×.
   const segMap = new Map<(typeof blockInputs)[number], PrintSegment[] | null>();
   for (const b of blockInputs) {
-    segMap.set(b, b.type === "ZAKAZKA" ? blockReportSegments(b, weekShifts, companyDays) : null);
+    // ZAKAZKA (vytížení) + REZERVACE s pm (NOVÝ ukazatel rezervované kapacity, etapa 9
+    // rozhodnutí #5). Sumy níž filtrují per typ, takže vytížení se tím NEMĚNÍ; legacy
+    // rezervace (pm null) → null → konzervativní fallback celého spanu.
+    segMap.set(b, usesTiskoveHodiny(b) ? blockReportSegments(b, weekShifts, companyDays) : null);
   }
 
   // Per-machine metrics
   // `maintenanceRatio` je i per stroj — souhrn přes oba stroje ředí odstávku jednoho
   // kapacitou druhého, takže sám o sobě neřekne, který stroj stojí.
-  const machines: Record<string, { utilization: number | null; productionHours: number; maintenanceHours: number; availableHours: number; maintenanceRatio: number | null; cascade: CalendarCascade }> = {};
+  const machines: Record<string, { utilization: number | null; productionHours: number; maintenanceHours: number; availableHours: number; maintenanceRatio: number | null; reservedHours: number; reservedRatio: number | null; cascade: CalendarCascade }> = {};
   let totalAvailable = 0;
   let totalMaintenance = 0;
+  let totalReserved = 0;
 
   for (const machine of MACHINES) {
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
@@ -226,6 +232,8 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 
     const productionHours = sumClipped("ZAKAZKA");
     const maintenanceHours = sumClipped("UDRZBA");
+    // Rezervovaná kapacita — VEDLE vytížení, nikdy uvnitř něj (rozhodnutí #5).
+    const reservedHours = sumClipped("REZERVACE");
     // Potvrzené hodiny = TÝŽ výpočet jako produkční, jen zúžený na bloky, u kterých
     // tiskař klepl HOTOVO. Sdílí `clippedHours` se `sumClipped` ZÁMĚRNĚ: druhá cesta
     // k témuž ořezu by se dřív nebo později rozešla a kaskáda by pak tvrdila, že se
@@ -241,6 +249,8 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
       maintenanceHours: round1(maintenanceHours),
       availableHours: round1(availableHours),
       maintenanceRatio: computeMaintenanceRatio(maintenanceHours, availableHours),
+      reservedHours: round1(reservedHours),
+      reservedRatio: computeReservedRatio(reservedHours, availableHours),
       // Kaskáda jde ven NEZAOKROUHLENÁ — na rozdíl od polí výš. Rozpad nevyužitého
       // kalendáře musí sedět na součet (`total` = víkendy + odstávky + neobsazené
       // směny) a zaokrouhlení každé složky zvlášť by ten součet rozbilo o desetinu.
@@ -257,6 +267,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     };
     totalAvailable += availableHours;
     totalMaintenance += maintenanceHours;
+    totalReserved += reservedHours;
   }
 
   // Daily utilization
@@ -306,6 +317,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
 
   // Maintenance ratio
   const maintenanceRatio = computeMaintenanceRatio(totalMaintenance, totalAvailable);
+  const reservedRatio = computeReservedRatio(totalReserved, totalAvailable);
 
   // Stabilita plánu — jen poziční revize, které vzešly z rozhodnutí uživatele.
   const positionalMoves = revisions
@@ -373,6 +385,7 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     throughput,
     avgLeadTimeDays,
     maintenanceRatio,
+    reservedRatio,
     planning: {
       covered: planningCovered,
       coverageFrom: coverageFrom?.toISOString() ?? null,

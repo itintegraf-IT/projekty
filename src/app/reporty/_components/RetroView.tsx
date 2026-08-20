@@ -89,6 +89,21 @@ export function RetroView({ data }: { data: RetroData }) {
             {machineLabel("XL_106")}: {xl106?.maintenanceRatio == null ? "—" : `${xl106.maintenanceRatio}%`}
           </div>
         </div>
+        {/* Rezervovaná kapacita — VLASTNÍ ukazatel vedle vytížení (etapa 9, rozhodnutí #5):
+            držená kapacita není odvedená práce, do utilization se NEZAPOČÍTÁVÁ. Neutrální
+            barvy (--text) záměrně — pro rezervace neexistují dobrá/špatná pásma jako u vytížení. */}
+        <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: `${reportSpace.md}px ${reportSpace.lg}px`, flex: "1 1 0" }}>
+          <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: reportSpace.xs }}>Rezervovaná kapacita</div>
+          <div style={{ fontSize: reportTypeScale.display, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
+            {data.reservedRatio == null ? "—" : `${data.reservedRatio}%`}
+          </div>
+          <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: reportSpace.xs }}>rezervace / dostupné hodiny (mimo vytížení)</div>
+          <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: reportSpace.xs, fontVariantNumeric: "tabular-nums" }}>
+            {machineLabel("XL_105")}: {xl105?.reservedRatio == null ? "—" : `${xl105.reservedRatio}%`} ({cz(xl105?.reservedHours ?? 0)} h)
+            {" · "}
+            {machineLabel("XL_106")}: {xl106?.reservedRatio == null ? "—" : `${xl106.reservedRatio}%`} ({cz(xl106?.reservedHours ?? 0)} h)
+          </div>
+        </div>
       </div>
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
         <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Denní vytížení</div>

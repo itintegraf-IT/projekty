@@ -15,6 +15,10 @@ export interface RetroMachineData {
   availableHours: number;
   /** Ratio údržby JEN tohoto stroje — souhrn přes oba ho ředí kapacitou druhého. */
   maintenanceRatio: number | null;
+  /** Rezervovaná kapacita stroje v hodinách (ořez oknem jako produkce) — etapa 9, rozhodnutí #5. */
+  reservedHours: number;
+  /** % rezervované kapacity z dostupných hodin JEN tohoto stroje; null při nulové kapacitě. */
+  reservedRatio: number | null;
   /**
    * Kaskáda kalendář → obsazeno směnami → naplánováno → potvrzeno tiskařem.
    *
@@ -32,6 +36,8 @@ export interface RetroData {
   throughput: number;
   avgLeadTimeDays: number | null;
   maintenanceRatio: number | null;
+  /** Rezervovaná kapacita přes oba stroje — VLASTNÍ ukazatel vedle vytížení, ne jeho součást. */
+  reservedRatio: number | null;
   planning: PlanningMetrics;
   plannerActivity: PlannerActivityEntry[];
   pipeline: { open: Record<string, number>; closed: Record<string, number>; conversionPercent: number | null };

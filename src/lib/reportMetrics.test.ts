@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import {
   computeThroughputFromOrders,
   computeAvgLeadTimeDaysFromOrders,
   computeMaintenanceRatio,
+  computeReservedRatio,
   computePlanStability,
   resolvePlanCoverage,
   computeCalendarCascade,
@@ -427,6 +428,16 @@ describe("computeMaintenanceRatio", () => {
     assert.equal(computeMaintenanceRatio(5, 0), null);
     assert.equal(computeMaintenanceRatio(10, 0), null);
   });
+});
+
+// ---------------------------------------------------------------------------
+// computeReservedRatio
+// ---------------------------------------------------------------------------
+test("computeReservedRatio — % rezervované kapacity, null při nulové dostupnosti", () => {
+  assert.equal(computeReservedRatio(20, 100), 20);
+  assert.equal(computeReservedRatio(0, 100), 0);
+  assert.equal(computeReservedRatio(10, 0), null);
+  assert.equal(computeReservedRatio(150, 100), 150, "nad 100 % se nezastropuje — přebukování musí být vidět");
 });
 
 // ---------------------------------------------------------------------------

@@ -433,6 +433,17 @@ export function computeMaintenanceRatio(maintenanceHours: number, availableHours
   return Math.round((maintenanceHours / availableHours) * 100);
 }
 
+/**
+ * Procento REZERVOVANÉ kapacity z dostupných hodin — VLASTNÍ ukazatel vedle
+ * vytížení (rozhodnutí #5 etapy 9: rezervace se do vytížení NEmíchají — držená
+ * kapacita není odvedená práce; tiché sečtení do jednoho čísla je třída P22).
+ * `null` při nulové kapacitě, nad 100 % se nezastropuje — viz computeUtilization.
+ */
+export function computeReservedRatio(reservedHours: number, availableHours: number): number | null {
+  if (availableHours <= 0) return null;
+  return Math.round((reservedHours / availableHours) * 100);
+}
+
 // ---------------------------------------------------------------------------
 // 6. computePlanStability
 // ---------------------------------------------------------------------------
