@@ -93,9 +93,13 @@ export type GroupSnapResult = { id: number; start: Date; end: Date };
  * posouvají DOSLOVNĚ o `proposedDeltaMs` — nesmí se re-expandovat (server
  * má na bypass sticky-OR, viz batch/route.ts) ani navazovat na řetěz.
  *
- * Vrací `null`, když některý (ne-bypass) blok nejde v horizontu umístit —
+ * Vrací `null`, když některý ne-bypass ZAKAZKA blok nejde v horizontu umístit —
  * volající mutaci neodešle (analogie dnešního "V okolí není žádný pracovní
- * slot"). `wasSnapped` signalizuje UI, že se něco reálně přeplánovalo.
+ * slot"). Rigidní snap (REZERVACE/UDRZBA) po 20 iteracích vrátí i nevalidní
+ * start a nezná companyDays — `null` z něj tedy nevzejde (pre-existing
+ * sémantika sdílená s ručním dragem, `snapToNextValidStartWithTemplates`,
+ * i serverovým `chainPushGeometry`). `wasSnapped` signalizuje UI, že se
+ * něco reálně přeplánovalo.
  */
 export function snapGroupPerBlock(
   blocks: GroupSnapBlock[],
@@ -122,7 +126,10 @@ export function snapGroupPerBlock(
       const start = naiveStart;
       const end = new Date(start.getTime() + durationMs);
       results.push({ id: b.id, start, end });
-      prevEnd = end;
+      // Bypass konec nesmí řetěz vrátit zpět v čase — expandovaný ocas
+      // ne-bypass předchůdce zůstává závazný pro další bloky (nález I1
+      // finálního review etapy 3).
+      if (!prevEnd || end.getTime() > prevEnd.getTime()) prevEnd = end;
       continue;
     }
 

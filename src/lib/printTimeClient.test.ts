@@ -509,6 +509,22 @@ test("snapGroupPerBlock — scheduleBypassed člen se posune doslovně, neúčas
   assert.deepEqual(r!.results[0]!.end, pragueToUTC("2026-08-22", 13));
 });
 
+test("snapGroupPerBlock — bypass uprostřed řetězu nevrací prevEnd zpět v čase", () => {
+  // Z1 Pá 20:00 pm 240 expanduje přes víkendovou odstávku (Pá 22:00–Ne 22:00)
+  // → konec Ne/Po. B2 (bypass) se posouvá doslovně a končí v pátek — jeho konec
+  // NESMÍ stáhnout prevEnd zpět, jinak by se Z3 snapl dovnitř ocasu Z1.
+  const blocks = [
+    { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 20), originalEnd: pragueToUTC("2026-08-21", 22), printMinutes: 240 },
+    { id: 2, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 22), originalEnd: pragueToUTC("2026-08-21", 23), printMinutes: 60, scheduleBypassed: true },
+    { id: 3, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 23), originalEnd: pragueToUTC("2026-08-22", 0), printMinutes: 60 },
+  ];
+  const r = snapGroupPerBlock(blocks, 0, [...xl106Week(W1), ...xl106Week(W2)], []);
+  assert.ok(r);
+  const z1 = r!.results.find((x) => x.id === 1)!;
+  const z3 = r!.results.find((x) => x.id === 3)!;
+  assert.ok(z3.start.getTime() >= z1.end.getTime(), "Z3 nesmí začít uvnitř expandovaného ocasu Z1");
+});
+
 test("snapGroupPerBlock — smíšený výběr: REZERVACE se snapuje rigidně (přesná délka), ne přes expanzi", () => {
   const blocks = [
     { id: 1, machine: "XL_106", type: "ZAKAZKA", originalStart: pragueToUTC("2026-08-21", 18), originalEnd: pragueToUTC("2026-08-21", 20), printMinutes: 120 },

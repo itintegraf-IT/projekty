@@ -1162,6 +1162,7 @@ export default function TimelineGrid({
         const blocksOnNewMachine = ds.blocks.map((b) => ({ ...b, machine: newMachine }));
 
         let finalPositions: { id: number; start: Date; end: Date }[];
+        let wasSnapped = false;
         if (workingTimeLockRef.current) {
           const r = snapGroupPerBlock(
             blocksOnNewMachine,
@@ -1174,12 +1175,7 @@ export default function TimelineGrid({
             return;
           }
           finalPositions = r.results;
-          // wasSnapped: skupina se skutečně přeplánovala mimo hrubou (holou) deltu —
-          // ať dopředu (víkend/noc) nebo zpět (rohatka po per-blok snapu už nemůže
-          // sežrat na tichou nulu, takže se sem dostane jen skutečná korekce).
-          if (r.wasSnapped) {
-            callbacksRef.current.onInfo?.("Bloky posunuty mimo pracovní dobu — automaticky umístěny do nejbližšího dostupného slotu, pořadí zůstalo zachováno.");
-          }
+          wasSnapped = r.wasSnapped;
         } else {
           finalPositions = blocksOnNewMachine.map((b) => ({
             id: b.id,
@@ -1195,6 +1191,16 @@ export default function TimelineGrid({
           return p.start.getTime() !== src.originalStart.getTime() || newMachine !== src.machine;
         });
         if (!changed) return;
+
+        // wasSnapped: skupina se skutečně přeplánovala mimo hrubou (holou) deltu —
+        // ať dopředu (víkend/noc) nebo zpět (rohatka po per-blok snapu už nemůže
+        // sežrat na tichou nulu, takže se sem dostane jen skutečná korekce). Emitovat
+        // AŽ ZA `changed` guardem — jinak no-op snap (přistane přesně na původní
+        // pozici) ukáže zavádějící hlášku, aniž by se cokoliv reálně odeslalo
+        // (nález M1 finálního review etapy 3).
+        if (wasSnapped) {
+          callbacksRef.current.onInfo?.("Bloky posunuty mimo pracovní dobu — automaticky umístěny do nejbližšího dostupného slotu, pořadí zůstalo zachováno.");
+        }
 
         const updates = finalPositions.map((p) => ({
           id:        p.id,
