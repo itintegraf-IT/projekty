@@ -1,4 +1,4 @@
-import { expandPrintTime, MAX_PRINT_MINUTES, SLOT_MS } from "@/lib/printTime";
+import { expandPrintTime, MAX_PRINT_MINUTES, SLOT_MS, usesTiskoveHodiny } from "@/lib/printTime";
 import {
   expandPrintTimeFromDb,
   loadMachineCalendar,
@@ -70,11 +70,12 @@ export type ScheduleValidationResult =
 /**
  * Serverová validace harmonogramu — nový model „tiskových hodin".
  *
- * ZAKAZKA bez bypass: start musí ležet na aktivním slotu, end se POČÍTÁ
- * (expandPrintTime přes weekShifts + companyDays — odstávky se překlenou pauzou).
- * ZAKAZKA s bypass: end = start + printMinutes (bez pauz); CompanyDay zůstává
- * tvrdý zákaz (mimořádná směna nesmí kolidovat s celofiremní odstávkou).
- * Ne-ZAKAZKA: bez validace, end = fallbackEnd (dnešní chování).
+ * ZAKAZKA/REZERVACE (s printMinutes) bez bypass: start musí ležet na aktivním
+ * slotu, end se POČÍTÁ (expandPrintTime přes weekShifts + companyDays — odstávky
+ * se překlenou pauzou). S bypass: end = start + printMinutes (bez pauz);
+ * CompanyDay zůstává tvrdý zákaz. Kdo tiskové hodiny používá, říká
+ * `usesTiskoveHodiny` (printTime.ts) — REZERVACE s printMinutes = null je
+ * legacy-rigidní a spolu s UDRZBA jde bez validace, end = fallbackEnd.
  *
  * `effectivelyBypassed` = SPOČÍTANÁ pravda, ne echo request flagu: true jen když
  * výsledné umístění reálně NEkonformuje kalendáři (bypass požadavek na místě, které
@@ -97,7 +98,13 @@ export async function validateAndComputeEnd(
   blockType: string,
   bypass: boolean
 ): Promise<ScheduleValidationResult> {
-  if (blockType !== "ZAKAZKA") return { ok: true, end: fallbackEnd, effectivelyBypassed: false };
+  // UDRZBA je rigidní vždy; REZERVACE bez printMinutes je legacy-rigidní (backfill
+  // ji přeskočil, spec etapy 9 §3) — obě jdou dosavadní ne-tiskovou cestou.
+  // REZERVACE s printMinutes od etapy 9 prochází PLNOU tiskovou validací včetně
+  // bypass větve (rozhodnutí #2: scheduleBypassed pro rezervace ANO).
+  if (!usesTiskoveHodiny({ type: blockType, printMinutes })) {
+    return { ok: true, end: fallbackEnd, effectivelyBypassed: false };
+  }
 
   if (printMinutes == null || !Number.isFinite(printMinutes) || printMinutes <= 0) {
     return { ok: false, error: "Chybí platná délka tisku (printMinutes).", kind: "INVALID_INPUT" };

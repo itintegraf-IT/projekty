@@ -181,3 +181,38 @@ for (const c of RECOMPUTE_CASES) {
     assert.equal(shouldRecomputeSchedule(oldBlock(c.old), c.request), c.expected);
   });
 }
+
+test("REZERVACE s printMinutes: validní start → expanze přes pauzy jako u zakázky (etapa 9)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10), 27 * 60,
+    new Date(0), "REZERVACE", false);
+  assert.deepEqual(r, { ok: true, end: pragueToUTC("2026-08-24", 13), effectivelyBypassed: false });
+});
+
+test("REZERVACE s printMinutes: start v odstávce → PLACEMENT chyba (dřív prošla bez validace)", async () => {
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-22", 12), 4 * 60,
+    new Date(0), "REZERVACE", false);
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.kind, "PLACEMENT");
+});
+
+test("REZERVACE s bypass: end = start + pm slitě, effectivelyBypassed = spočítaná pravda (rozhodnutí #2)", async () => {
+  // Pá 20:00 + 4 h slitě = So 00:00 — přes noční pauzu, takže nekonformní → bypassed true.
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 20), 4 * 60,
+    new Date(0), "REZERVACE", true);
+  assert.deepEqual(r, { ok: true, end: pragueToUTC("2026-08-22", 0), effectivelyBypassed: true });
+});
+
+test("REZERVACE bez printMinutes (legacy): žádná validace, end = fallback (rigidní jako dnes)", async () => {
+  const fallback = pragueToUTC("2026-08-21", 11, 45);
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-21", 10), null,
+    fallback, "REZERVACE", false);
+  assert.deepEqual(r, { ok: true, end: fallback, effectivelyBypassed: false });
+});
+
+test("UDRZBA: žádná validace, end = fallback — beze změny etapou 9", async () => {
+  const fallback = pragueToUTC("2026-08-22", 14);
+  const r = await validateAndComputeEnd(FULL_CAL, "XL_106", pragueToUTC("2026-08-22", 12), 120,
+    fallback, "UDRZBA", false);
+  assert.deepEqual(r, { ok: true, end: fallback, effectivelyBypassed: false });
+});
