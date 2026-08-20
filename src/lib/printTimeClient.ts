@@ -173,7 +173,8 @@ export function snapGroupPerBlock(
 
 /**
  * Sdílený guard + expanzní krok pro getBlockSegments/blockCalendarDrift: ověří
- * ZAKAZKA/platné printMinutes/zarovnaný start (a ve výchozím stavu i ne-bypass)
+ * tiskovou geometrii (usesTiskoveHodiny — ZAKAZKA, REZERVACE s printMinutes)/platné
+ * printMinutes/zarovnaný start (a ve výchozím stavu i ne-bypass)
  * a spustí expandPrintTime. Vrací null, jen když NĚKTERÝ guard selže — to volající
  * mapuje na "bez štítku" (getBlockSegments) resp. "nelze posoudit"
  * (blockCalendarDrift). Když guardy projdou, vrací vždy `ExpandResult` (i `ok: false`
@@ -187,7 +188,9 @@ export function snapGroupPerBlock(
  * dovnitř pás „⏸ PAUZA — mimo provoz", přestože tiskne slitě. Proto je to
  * parametr a ne uvolnění podmínky; hlídá to test „getBlockSegments: bypass blok
  * → null" (poučení P6 v docs/POUCENI.md), jehož fixtura je schválně taková, že
- * BEZ guardu segmenty s pauzou vzniknou.
+ * BEZ guardu segmenty s pauzou vzniknou. Vnější gate reportových rout na
+ * "ZAKAZKA" ZŮSTÁVÁ (rozhodnutí #5 etapy 9) — jediný negated volající je denní
+ * report (členství ve směně), viz plán etapy 9, Task 13.
  */
 function tryExpandForBlock(
   b: { type: string; machine: string; startTime: string | Date; printMinutes?: number | null; scheduleBypassed?: boolean | null },
@@ -195,7 +198,7 @@ function tryExpandForBlock(
   companyDays: CompanyDayClientRow[],
   opts: { includeBypassed?: boolean } = {}
 ): ExpandResult | null {
-  if (b.type !== "ZAKAZKA") return null;
+  if (!usesTiskoveHodiny(b)) return null;
   if (b.scheduleBypassed && !opts.includeBypassed) return null;
   const pm = b.printMinutes;
   if (pm == null || !Number.isFinite(pm) || pm <= 0) return null;

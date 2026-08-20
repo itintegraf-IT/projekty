@@ -122,6 +122,26 @@ test("getBlockSegments: bypass blok → null (MUTAČNÍ POJISTKA, poučení P6)"
   assert.deepEqual(getBlockSegments(unflagged, SHIFTS, [])?.map((s) => s.kind), ["print", "pause", "print"]);
 });
 
+test("getBlockSegments — tisková REZERVACE přes odstávku dostane pauzu (etapa 9)", () => {
+  const b = {
+    type: "REZERVACE", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-24", 0),
+    printMinutes: 240, scheduleBypassed: false,
+  };
+  const segs = getBlockSegments(b, SHIFTS, []);
+  assert.ok(segs, "segmenty musí existovat");
+  assert.ok(segs!.some((s) => s.kind === "pause"), "obsahují pauzu přes víkend");
+});
+
+test("getBlockSegments — ODLOŽENÁ rezervace (bypass) → null, kreslí se slitě (P6 guard platí i pro ni)", () => {
+  const b = {
+    type: "REZERVACE", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0),
+    printMinutes: 240, scheduleBypassed: true,
+  };
+  assert.equal(getBlockSegments(b, SHIFTS, []), null);
+});
+
 test("printMidpoint: Gardena 27 h → polovina (13,5 h) odpracována Ne 23:30", () => {
   // Pá 10–22 = 12 h; zbytek 1,5 h od Ne 22:00 → 23:30
   const b = {
@@ -139,6 +159,15 @@ test("printMidpoint: bez segmentů (souvislý blok) → midpoint z printMinutes/
     printMinutes: 240, scheduleBypassed: false,
   };
   assert.deepEqual(printMidpoint(b, SHIFTS, []), pragueToUTC("2026-08-18", 10));
+});
+
+test("printMidpoint — REZERVACE dál vrací null (split zůstává ZAKAZKA-only, rozhodnutí #7)", () => {
+  const b = {
+    type: "REZERVACE", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 10), endTime: pragueToUTC("2026-08-21", 12),
+    printMinutes: 120,
+  };
+  assert.equal(printMidpoint(b, SHIFTS, []), null);
 });
 
 const NOW = pragueToUTC("2026-08-01", 0); // dávno před všemi fixturami níže → "endTime > now" splněno všude, pokud netestujeme opak
@@ -298,6 +327,25 @@ test("blockCalendarDrift: ne-ZAKAZKA blok → null (i s driftovým endem)", () =
     printMinutes: 27 * 60, scheduleBypassed: false, printCompletedAt: null,
   };
   assert.equal(blockCalendarDrift(b, SHIFTS, [], NOW), null);
+});
+
+test("blockCalendarDrift — tisková REZERVACE s rozejitým endem → END_MISMATCH (etapa 9)", () => {
+  const b = {
+    type: "REZERVACE", machine: "XL_106",
+    startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0),
+    printMinutes: 240, scheduleBypassed: false, printCompletedAt: null,
+  };
+  const d = blockCalendarDrift(b, SHIFTS, [], pragueToUTC("2026-08-20", 12));
+  assert.ok(d);
+  assert.equal(d!.reason, "END_MISMATCH");
+  assert.deepEqual(d!.expectedEnd, pragueToUTC("2026-08-24", 0));
+});
+
+test("blockCalendarDrift — legacy REZERVACE (pm null) a UDRZBA → null (nelze posoudit)", () => {
+  const now = pragueToUTC("2026-08-20", 12);
+  const base = { machine: "XL_106", startTime: pragueToUTC("2026-08-21", 20), endTime: pragueToUTC("2026-08-22", 0), printCompletedAt: null };
+  assert.equal(blockCalendarDrift({ ...base, type: "REZERVACE", printMinutes: null }, SHIFTS, [], now), null);
+  assert.equal(blockCalendarDrift({ ...base, type: "UDRZBA", printMinutes: 240 }, SHIFTS, [], now), null);
 });
 
 // ── blockReportSegments + printOverlapMinutes (etapa 7 — reporty) ───────────
