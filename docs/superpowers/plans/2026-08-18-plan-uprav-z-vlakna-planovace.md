@@ -151,7 +151,7 @@ Přesně tohle mezitím postavila autoposunová vlna (plán `2026-08-18-autoposu
 
 ---
 
-## Etapa 9 — Rezervace: PLNÉ tiskové hodiny (druhá vlna, bod 5) · odhad: L · **ROZHODNUTO 19. 8. (V6, Vojta): „jako u zakázky, se vším všudy"**
+## Etapa 9 — Rezervace: PLNÉ tiskové hodiny (druhá vlna, bod 5) · odhad: L · **ROZHODNUTO 19. 8. (V6, Vojta): „jako u zakázky, se vším všudy"** · **IMPLEMENTACE: `2026-08-20-rezervace-tiskove-hodiny-plan.md` (fáze 0–3 hotové, fáze 4 = reporty následuje)**
 
 **Rozhodnutí:** rezervace se má lámat přes noc stejně jako zakázka — mechanika tiskových hodin se překlopí i na typ REZERVACE. Vizuální-only varianta zamítnuta. Před implementací **vlastní spec + detailní plán** (největší etapa vlny).
 

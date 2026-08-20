@@ -2475,3 +2475,60 @@ falešný intra-batch překryv / jeden průchod bez iterace) v
 `calendarDrift.server.test.ts` dokazuje, že výsledné pozice obě strany
 klasifikují shodně jako bezdriftové. Celá suite zelená, `npm run build`
 i `npm run lint` bez chyb.
+
+## Rezervace dostaly plné tiskové hodiny — etapa 9 (8/2026)
+
+Rozhodnutí Vojty 19.–20. 8. (spec `docs/superpowers/specs/2026-08-20-rezervace-tiskove-hodiny.md`,
+sekce 6 — 9 závazných bodů): `REZERVACE` se láme přes noc „jako zakázka, se vším všudy";
+`UDRZBA` zůstává rigidní.
+
+**Jediný zdroj pravdy:** `usesTiskoveHodiny(b)` (`src/lib/printTime.ts`) — ZAKAZKA vždy,
+REZERVACE jen s `printMinutes` (legacy bez nich zůstává rigidní, „funguje jako dnes"),
+UDRZBA nikdy; `typeUsesTiskoveHodiny(type)` pro nové payloady bez záznamu.
+
+**Fáze:** (0) `syncReservationScheduleForBlocks` — zrcadlo `Reservation.scheduled*` na
+6 zápisových cestách (POST/PUT/batch/split/reflow/undo, strážný test
+`reservationSyncWiring.test.ts`), oprava dluhu z 3. 8.; (1) backfill
+`scripts/backfill-reservation-print-minutes.ts` — inverze `computePrintMinutes`, dry-run
+report pro Vojtu, nezarovnané řádky přeskočeny; (2a) server — `validateAndComputeEnd`,
+POST (vč. ODSTRANĚNÍ tichého self-shiftu rezervace bez `resolveChain`, rozhodnutí #9),
+PUT, batch, chain push s `maxPushMs` = 7 dní pro rezervace (rozhodnutí #1 — dluh P31 se
+nekopíruje); (2b) klient — 10 snap/preview/payload míst + `snapGroupPerBlock` dispatch;
+(3) drift (`detectCalendarDrift` where `in [ZAKAZKA, REZERVACE]`, kaskáda směn a hromadné
+Přepočítat automaticky), pauzy uvnitř bloku, reflow guard, parity testy; (4) reportový
+ukazatel „Rezervovaná kapacita" (rozhodnutí #5 — NE do vytížení, vlastní karta).
+
+**Vědomě mimo rozsah:** split rezervace (#7), notifikace obchodníkovi o posunu (#6 — jen
+sync `scheduled*`), zahrnutí rezervací do vytížení (#5), Monitor, workflow pole
+(potvrzení tisku, expedice, DTP), kosmetická parita délky v `BlockDetail`/`DtpPanel`/
+řádku denního reportu (pm-aware label — drobnost k dotažení později).
+
+### QA checklist fáze 3 (dev, ruční proklik)
+
+Řídicí kroky pro manuální/Playwright ověření po nasazení fáze 0–3 (proklik samotný
+proběhne centrálně po Tasku 17, tohle je jen zapsaný postup):
+
+1. Uprav směny tak, aby se tisková rezervace rozešla s kalendářem → štítek driftu na
+   kartě rezervace + pruh/počítadlo nad strojem ji započítá + notifikace „N bloků
+   nesedí na kalendář" jmenuje kód rezervace.
+2. „Přepočítat" v detailu rezervace → blok se srovná, `Reservation.scheduled*` sedí
+   (fáze 0), Ctrl+Z vrátí blok i značku `scheduleBypassed` a `scheduled*` couvne taky.
+3. Hromadné „Přepočítat" nad strojem → rezervace se přepočítá spolu se zakázkami;
+   kaskádový dialog při velkém dopadu.
+4. Odložená rezervace (bypass) → kreslí se slitě, server drift ji NEhlásí, karta
+   ukazuje PARKED text.
+5. Rezervace expandovaná přes noc → uvnitř bloku pás „⏸ PAUZA — mimo provoz".
+6. Uložení výskytu série u tiskové rezervace (`BlockEdit`) → `printMinutes` v payloadu
+   odpovídá tiskové délce, NE elapsed span (pozitivní vedlejší fix z Tasku 10 — dřív
+   `BlockEdit:477` posílalo elapsed jako pm; ověřit, že se latentní bug nevrátil).
+7. Anomální `durationHours` mimo 30minutový krok (např. 1,25 h) na tiskové rezervaci
+   → POST/PUT vrátí 400, ne tichý zápis mimo mřížku (Task 12 minor).
+
+**Handover s plánovačem (review C3):** projít seznam `MISMATCH` řádků z dry-run reportu
+backfillu (Task 3) s plánovačem adresně, blok po bloku. Komunikovat PŘEDEM: na těchto
+blocích bude po `--apply` viditelný štítek „odloženo" (`scheduleBypassed = true`) a
+hromadné „Přepočítat"/pruh driftu/kaskádová kontrola je nevidí (Task 3 — server je
+filtruje `scheduleBypassed: false`); první adresné „Přepočítat" na takovém bloku ho
+zkrátí ze současného (slitého) spanu na skutečnou tiskovou délku `printMinutes`, takže
+rezervace v `/rezervace` dostane kratší termín, než na jaký byla dřív zvyklá — plánovač
+to musí čekat, ne se tím nechat překvapit.
