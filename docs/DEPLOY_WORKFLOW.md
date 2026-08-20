@@ -297,6 +297,14 @@ PM2 reload
 Deploy dokončen.
 ```
 
+**Gotcha pro RUČNÍ deploy testovací instance (`/var/www/planovanivyroby-test`, bez deploy.sh):**
+při dávce se změnou schématu NESTAČÍ `migrate deploy` — bez následného `npx prisma generate`
+zůstane v `node_modules` starý Prisma klient a `npm run build` spadne na TypeScriptu
+(„Property '…' does not exist"), protože typy nový sloupec neznají. Stalo se 20. 8. 2026
+(sloupec `materialPartiallyIssued`). Správné pořadí: `git pull` → `npx prisma migrate deploy`
+→ `npx prisma generate` → `npm run build` → `pm2 restart planovani-TEST`. Build selže PŘED
+restartem, takže stará verze běží dál — chyba je nepříjemná, ne nebezpečná.
+
 Poznámky:
 
 - `npm ci` může vypsat vulnerability warningy. Ty samy o sobě neznamenají
