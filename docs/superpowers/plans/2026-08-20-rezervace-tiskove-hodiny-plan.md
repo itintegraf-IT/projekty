@@ -671,6 +671,16 @@ main()
   .finally(() => prisma.$disconnect());
 ```
 
+**Provozní poznámka k výstupu (review C3):** řádky `MISMATCH` z dry-run reportu jsou
+PRACOVNÍ SEZNAM k adresnému „Přepočítat" per blok, ne stav, který se sám doladí.
+Hromadné „Přepočítat", pruh/počítadlo driftu nad strojem a kaskádová kontrola
+u editace směn tyhle bloky NEVIDÍ — `detectCalendarDrift` (`calendarDrift.server.ts`)
+filtruje `scheduleBypassed: false` a backfill zapisuje `MISMATCH` řádkům
+`scheduleBypassed = true` (Step 2, `classifyReservationRow`). Bez adresného zásahu tak
+`MISMATCH` blok po `--apply` zůstane trvale mimo dosah hromadných nástrojů — dostane se
+z něj ven jen tím, že ho někdo otevře a dá „Přepočítat" (nebo se posune jinou akcí
+uživatele). Seznam pro tohle adresné procházení jde do Tasku 16 (QA/handover).
+
 - [ ] **Step 4: Dry-run na dev DB**
 
 Run: `npx tsx scripts/backfill-reservation-print-minutes.ts`
@@ -1153,41 +1163,6 @@ export function chainPushGeometry(r: GeometryRow): {
   maxPushMs?: number;
 } {
   const spanMinutes = (r.endTime.getTime() - r.startTime.getTime()) / 60000;
-  // Rigidní zůstává UDRZBA vždy a legacy REZERVACE bez printMinutes (backfill ji
-  // přeskočil — „funguje jako dnes, dokud se ručně neopraví", spec etapy 9 §3).
-  if (!usesTiskoveHodiny(r)) {
-    if (r.type !== "ZAKAZKA") {
-      return { printMinutes: spanMinutes, scheduleBypassed: false, rigid: true };
-    }
-    // ZAKAZKA s pm = null: legacy fallback zarovnaný na 30min mřížku (beze změny).
-    return {
-      printMinutes: Math.max(30, Math.round(spanMinutes / 30) * 30),
-      scheduleBypassed: r.scheduleBypassed,
-      rigid: false,
-    };
-  }
-  if (r.type === "REZERVACE") {
-    // Tisková geometrie SE STROPEM — dluh P31 (bezhorizontový push zakázek)
-    // se nekopíruje na druhý typ (rozhodnutí #1 specu, 20. 8. 2026).
-    return {
-      printMinutes: r.printMinutes as number,
-      scheduleBypassed: r.scheduleBypassed,
-      rigid: false,
-      maxPushMs: MAX_RIGID_PUSH_MS,
-    };
-  }
-  return {
-    printMinutes: r.printMinutes as number,
-    scheduleBypassed: r.scheduleBypassed,
-    rigid: false,
-  };
-}
-```
-
-(Pozn.: `usesTiskoveHodiny` vrací `true` pro ZAKAZKA s pm = null, takže větev `!usesTiskoveHodiny && type === "ZAKAZKA"` je nedosažitelná — přesto tam legacy fallback MUSÍ zůstat čitelně; přepiš raději takto, ať je dispatch doslovný a bez mrtvé větve:)
-
-```typescript
-  const spanMinutes = (r.endTime.getTime() - r.startTime.getTime()) / 60000;
   if (r.type === "UDRZBA" || (r.type === "REZERVACE" && !usesTiskoveHodiny(r))) {
     // UDRZBA vždy; legacy REZERVACE bez printMinutes („funguje jako dnes", spec §3).
     return { printMinutes: spanMinutes, scheduleBypassed: false, rigid: true };
@@ -1206,7 +1181,10 @@ export function chainPushGeometry(r: GeometryRow): {
     scheduleBypassed: r.scheduleBypassed,
     rigid: false,
   };
+}
 ```
+
+(Pozn.: `usesTiskoveHodiny` vrací `true` pro ZAKAZKA s pm = null, takže dispatch výš je psaný doslovně přes `r.type`, ne přes negaci helperu — jinak by větev „`!usesTiskoveHodiny` a zároveň `type === "ZAKAZKA"`" byla nedosažitelná a legacy fallback by tam ležel jako mrtvý kód.)
 
 Dál v témže souboru uprav `nonConforming` smyčku (ř. 176–181): nahraď
 
@@ -1404,7 +1382,11 @@ Najdi v těle PUT `withRevision` blok začínající `if (checkType !== "ZAKAZKA
         const printGeometry =
           checkType === "ZAKAZKA" ||
           (checkType === "REZERVACE" &&
-            (typeof allowedPrintMinutes === "number" || oldBlock.printMinutes != null));
+            // pm=0/záporné z requestu nesmí protlačit REZERVACE do tiskové větve — zapsalo by
+            // se printMinutes=0 a syrový end bez pojistky end<=start (obrácený interval, který
+            // je pro overlap kontroly neviditelný). Neopisuje klasifikaci usesTiskoveHodiny
+            // (Task 4) — jen její invariant pro tenhle request-scoped případ (review C2).
+            ((typeof allowedPrintMinutes === "number" && allowedPrintMinutes > 0) || oldBlock.printMinutes != null));
 
         if (!printGeometry) {
           // Rigidní větev (UDRZBA, legacy REZERVACE): printMinutes vyčistit, end = požadovaný.
@@ -1479,6 +1461,7 @@ Expected: 0 chyb, suite zelená.
 1. Přesuň backfillnutou/nově vytvořenou rezervaci s pm drag-em přes hranici směny (starý klient pošle start+end) → server jí end RE-EXPANDUJE přes pauzu (v DB `endTime` ≠ start+span, `printMinutes` beze změny).
 2. Legacy rezervaci (pm null v DB — vyrob ručně `UPDATE Block SET printMinutes = NULL WHERE id = ...` na dev) přesuň → chová se rigidně jako dřív.
 3. Změň typ rezervace s pm na ZAKAZKA v editoru → `printMinutes` zůstávají (nezmizely clear větví).
+4. Rezervaci s poškozeným `printMinutes = 0` (ručně `UPDATE Block SET printMinutes = 0 WHERE id = ...` na dev) ulož beze změny pozice → jde rigidní větví (žádný zápis pm=0, žádný obrácený interval end<=start; review C2).
 
 - [ ] **Step 4: Commit**
 
@@ -1493,6 +1476,8 @@ Pravidlo 3 (pm ze zaznamu pri move) plati i pro REZERVACE a prechody
 ZAKAZKA<->REZERVACE - clear vetev uz printMinutes u prechodu nenuluje
 (spec 4.3). validateAndComputeEnd dostava skutecny checkType. Legacy
 rezervace bez pm a UDRZBA zustavaji v rigidni vetvi beze zmeny.
+allowedPrintMinutes v podmince navic vyzaduje > 0 (review C2) - pm=0/
+zaporne z requestu uz neproklouzne do tiskove vetve.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 EOF
@@ -1723,10 +1708,11 @@ EOF
 - Modify: `src/lib/blockEditDuration.ts:44-59` (+ docblock tabulka)
 - Modify: `src/lib/blockEditDuration.test.ts`
 - Modify: `src/hooks/useJobBuilder.ts:463`
+- Modify: `src/components/BlockEdit.tsx:174` (`currentDurationHours` — review C1, žádné DOM testy pro tenhle soubor, viz Global Constraints)
 
 **Interfaces:**
 - Consumes: `usesTiskoveHodiny`, `typeUsesTiskoveHodiny` (Task 4).
-- Produces: paste/undo payload (`buildPasteBody`) nese `printMinutes` i pro tiskovou REZERVACE; `durationPayload` vrací pro REZERVACE `{ printMinutes }` (UDRZBA dál `{ endTime }`); builder série posílá pm i pro REZERVACE.
+- Produces: paste/undo payload (`buildPasteBody`) nese `printMinutes` i pro tiskovou REZERVACE; `durationPayload` vrací pro REZERVACE `{ printMinutes }` (UDRZBA dál `{ endTime }`); builder série posílá pm i pro REZERVACE; `BlockEdit.tsx` picker zobrazuje tiskovou délku, ne elapsed, pro tiskovou REZERVACE.
 
 - [ ] **Step 1: Failing testy**
 
@@ -1805,13 +1791,58 @@ a v docblock tabulce (ř. 41–42) nahraď poslední dva řádky za:
       ...(typeUsesTiskoveHodiny(type) ? { printMinutes: Math.round(durationHours * 60) } : {}),
 ```
 
-- [ ] **Step 3: Testy PASS + build + commit**
+- [ ] **Step 3: `BlockEdit.tsx:174` — `currentDurationHours` čte tiskovou délku, ne elapsed (review C1)**
+
+Dnešní podmínka `type === "ZAKAZKA"` (ř. 175) je tatáž inline dichotomie, kterou Task 4
+zakazuje (poučení P17) — po fázích 2a/2b bere tisková REZERVACE `printMinutes`, ale
+picker u ní dál počítá elapsed `endTime − startTime`. U rezervace expandované přes noc
+(např. pm 240 min = 4 h, span přes pauzu 28 h) by select ukázal „28h" místo „4h", 28 h
+navíc leží mimo `DURATION_OPTIONS` (`src/lib/plannerTypes.ts:49`) a uložení beze změny
+délky by `durationTouched` zapsalo špatné `printMinutes` (třída P26/incident 18827).
+
+Do importu `BlockEdit.tsx` z `@/lib/printTime` přidej `usesTiskoveHodiny` (ověř
+`grep -n 'from "@/lib/printTime"' src/components/BlockEdit.tsx` — pokud tam import
+z `printTimeClient.ts` už je, jen ho rozšíř o druhý zdroj). Nahraď (ř. 175–177):
+
+```typescript
+const currentDurationHours = type === "ZAKAZKA"
+  ? blockPrintMinutes(block) / 60
+  : (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
+```
+
+za:
+
+```typescript
+// Lokální `type` = tlačítka „Typ záznamu" (viz komentář výš); block.printMinutes je
+// dál zdroj ze serveru. usesTiskoveHodiny (Task 4) je JEDINÝ zdroj pravdy pro
+// klasifikaci tiskového bloku — žádná inline dichotomie `type === "ZAKAZKA"`
+// (poučení P17, review C1 20. 8. 2026).
+const currentDurationHours = usesTiskoveHodiny({ type, printMinutes: block.printMinutes })
+  ? blockPrintMinutes({ ...block, type }) / 60
+  : (new Date(block.endTime).getTime() - new Date(block.startTime).getTime()) / 3600000;
+```
+
+Sousední `serverDurationHours` (~ř. 192, `blockPrintMinutes(block) / 60`) NEMĚNIT —
+deleguje na `blockPrintMinutes`, které od Tasku 10 už samo dispatchuje přes
+`usesTiskoveHodiny(block)` nad SKUTEČNÝM `block.type`. Zkontroluj jen, že je to
+tak (žádná lokální kopie logiky vedle) a případně dopiš jednořádkový komentář,
+proč tahle konstanta žádnou úpravu nepotřebovala.
+
+Run: `npm run build`
+Expected: 0 TS chyb.
+
+Ruční ověřovací bod navíc do QA checklistu (Task 16 Step 6): otevři detail
+tiskové rezervace expandované přes noc (pm 240 min, span přes pauzu ~28 h) →
+picker ukazuje tiskovou délku (4h), ne elapsed (28h); select nezůstává mimo
+nabízené `DURATION_OPTIONS`; uložení beze změny délky nepřepíše `printMinutes`.
+
+- [ ] **Step 4: Testy PASS + build + commit**
 
 Run: `node --test --import tsx src/lib/blockPayload.test.ts src/lib/blockEditDuration.test.ts && npm run build`
 Expected: vše PASS, build 0 chyb.
 
 ```bash
-git add src/lib/blockPayload.ts src/lib/blockPayload.test.ts src/lib/blockEditDuration.ts src/lib/blockEditDuration.test.ts src/hooks/useJobBuilder.ts
+git add src/lib/blockPayload.ts src/lib/blockPayload.test.ts src/lib/blockEditDuration.ts src/lib/blockEditDuration.test.ts src/hooks/useJobBuilder.ts src/components/BlockEdit.tsx
 git commit -m "$(cat <<'EOF'
 feat(rezervace): payload gaty posilaji printMinutes i pro rezervace
 
@@ -1819,7 +1850,10 @@ buildPasteBody (paste/undo-obnova) nese pm pro tiskovou rezervaci pres
 usesTiskoveHodiny; durationPayload (BlockEdit picker) posila pro
 REZERVACE printMinutes misto endTime (UDRZBA zustava na endTime);
 useJobBuilder serie dtto pres typeUsesTiskoveHodiny (spec 4.7 + pozn.
-k useJobBuilder.ts:463 - patri do skupiny A, ne B).
+k useJobBuilder.ts:463 - patri do skupiny A, ne B). BlockEdit.tsx
+currentDurationHours prepnuto z type === "ZAKAZKA" na usesTiskoveHodiny
+(review C1) - picker u tiskove rezervace uz neukazuje elapsed misto
+tiskove delky.
 
 Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
 EOF
@@ -2351,6 +2385,14 @@ V `docs/superpowers/plans/2026-08-18-plan-uprav-z-vlakna-planovace.md` najdi nad
 3. Hromadné „Přepočítat" nad strojem → rezervace se přepočítá spolu se zakázkami; kaskádový dialog při velkém dopadu.
 4. Odložená rezervace (bypass) → kreslí se slitě, server drift ji NEhlásí, karta ukazuje PARKED text.
 5. Rezervace expandovaná přes noc → uvnitř bloku pás „⏸ PAUZA — mimo provoz".
+6. **Handover s plánovačem (review C3):** projít seznam `MISMATCH` řádků z dry-run reportu
+   backfillu (Task 3) s plánovačem adresně, blok po bloku. Komunikovat PŘEDEM: na těchto
+   blocích bude po `--apply` viditelný štítek „odloženo" (`scheduleBypassed = true`) a
+   hromadné „Přepočítat"/pruh driftu/kaskádová kontrola je nevidí (Task 3 — server je
+   filtruje `scheduleBypassed: false`); první adresné „Přepočítat" na takovém bloku ho
+   zkrátí ze současného (slitého) spanu na skutečnou tiskovou délku `printMinutes`, takže
+   rezervace v `/rezervace` dostane kratší termín, než na jaký byla dřív zvyklá — plánovač
+   to musí čekat, ne se tím nechat překvapit.
 
 - [ ] **Step 7: Celá suite + build + lint + commit**
 
@@ -2585,3 +2627,5 @@ EOF
 **3. Typová konzistence:** `usesTiskoveHodiny(b: { type: string; printMinutes?: number | null })` a `typeUsesTiskoveHodiny(type: string)` definované v Tasku 4 a konzumované identickými signaturami v Tascích 5–17; `syncReservationScheduleForBlocks(tx, blockIds): Promise<number[]>` (Task 1) volaná v Tasku 2 vždy s `number[]`; `maxPushMs?: number` na `BlockInterval` = návratový tvar `chainPushGeometry` (spread `...chainPushGeometry(r)` v `others` mapování zůstává kompatibilní); `reservedHours: number`/`reservedRatio: number | null` shodně v route, `RetroMachineData` i `RetroView`. `computeReservedRatio` jméno konzistentní ve všech třech souborech Tasku 17.
 
 **Známé nejasnosti k potvrzení Vojtou (neblokují start fáze 0–1):** viz závěr zprávy autora plánu (deviace: `actor` param syncu vynechán; helper v `printTime.ts`; MISMATCH řádky backfillu dostávají `scheduleBypassed = true` bez úpravy endu — end srovná až první „Přepočítat"/dotyk).
+
+**Zapracováno review 20. 8.: C1/C2/C3 + Task 6 dedup.** C1 (Critical): `BlockEdit.tsx:174` `currentDurationHours` přepnuto z `type === "ZAKAZKA"` na `usesTiskoveHodiny` (Task 11, nový Step 3) — picker u tiskové rezervace expandované přes noc dřív ukazoval elapsed místo tiskové délky (třída P26/incident 18827). C2 (Important): `printGeometry` v Tasku 8 zpřísněn na `allowedPrintMinutes > 0` — pm=0/záporné z requestu už neproklouzne do tiskové větve REZERVACE. C3 (Important): Task 3 dostal provozní poznámku, že `MISMATCH` řádky backfillu jsou pracovní seznam mimo dosah hromadných nástrojů (drift/kaskáda filtrují `scheduleBypassed: false`), a Task 16 Step 6 dostal handover krok — projít seznam s plánovačem a komunikovat předem štítek „odloženo" i zkrácení při prvním „Přepočítat". Minor: Task 6 Step 5 měl dvě alternativní implementace `chainPushGeometry` za sebou — první (nahrazená) smazána, zůstala jen finální verze s vysvětlující poznámkou.
