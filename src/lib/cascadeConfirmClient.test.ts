@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fetchWithCascadeConfirm } from "./cascadeConfirmClient";
+import { fetchWithCascadeConfirm, askOncePerGesture, type CascadeAsk } from "./cascadeConfirmClient";
 
 function fakeFetch(responses: Array<{ status: number; body: unknown }>) {
   const calls: Array<{ url: string; body: unknown }> = [];
@@ -98,4 +98,31 @@ test("group paste: sdílený 'zeptej se jednou za dávku' wrapper se ptá jen na
   assert.equal((calls[3]!.body as Record<string, unknown>).cascadeConfirmed, true);
   assert.equal(res1.status, 200);
   assert.equal(res2.status, 200);
+});
+
+test("askOncePerGesture: druhý a další požadavek se už neptá", async () => {
+  let asked = 0;
+  const once = askOncePerGesture(async () => { asked++; return true; });
+  assert.equal(await once({ movedCount: 6, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(await once({ movedCount: 9, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(await once({ movedCount: 3, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(asked, 1, "za jedno gesto se ptáme nejvýš jednou");
+});
+
+test("askOncePerGesture: po ZAMÍTNUTÍ se ptá znovu (paměť si drží jen souhlas)", async () => {
+  // Zamítnutí není rozhodnutí o celém gestu — uživatel odmítl JEDEN posun. Kdyby si
+  // wrapper pamatoval i „ne", tiše by zamítl i zbytek dávky bez zeptání.
+  let asked = 0;
+  const once = askOncePerGesture(async () => { asked++; return asked > 1; });
+  assert.equal(await once({ movedCount: 6, maxShiftMs: 1, farthestEnd: null }), false);
+  assert.equal(await once({ movedCount: 6, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(asked, 2);
+});
+
+test("askOncePerGesture: každé gesto má vlastní paměť", async () => {
+  let asked = 0;
+  const ask: CascadeAsk = async () => { asked++; return true; };
+  await askOncePerGesture(ask)({ movedCount: 6, maxShiftMs: 1, farthestEnd: null });
+  await askOncePerGesture(ask)({ movedCount: 6, maxShiftMs: 1, farthestEnd: null });
+  assert.equal(asked, 2, "druhé gesto se musí zeptat znovu");
 });

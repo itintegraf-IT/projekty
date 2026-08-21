@@ -70,7 +70,7 @@ import {
   type PlannerFontScale,
 } from "@/lib/plannerTypography";
 import { reflowMachineToast, reflowBlockToast } from "@/lib/reflowToastText";
-import { fetchWithCascadeConfirm, type CascadeAsk, type CascadePayload } from "@/lib/cascadeConfirmClient";
+import { fetchWithCascadeConfirm, askOncePerGesture, type CascadePayload } from "@/lib/cascadeConfirmClient";
 import { cascadeConfirmMessage } from "@/lib/cascadeLimit";
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
@@ -1369,6 +1369,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
      */
     const reportedSiblingById = new Map<number, Block>();
 
+    // Překlopení rezervace je JEDNO gesto uživatele, i když volá putFlip pro kotvu
+    // a pak pro každého sourozence zvlášť — po prvním potvrzení kaskády se další
+    // volání téhle dávky už neptají (askOncePerGesture, sdílené s group paste
+    // a uložením série).
+    const askOnce = askOncePerGesture(askCascade);
     const putFlip = async (id: number, body: Record<string, unknown>, lock?: string) => {
       // Optimistic lock jen u kotvy (parita s doSave, audit REL-02). Sourozenci
       // ho mít nesmí: kotvin PUT jim serverovou propagací bumpne verzi a lock
@@ -1377,7 +1382,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         `/api/blocks/${id}`,
         "PUT",
         { ...body, resolveChain: true, ...(lock ? { expectedUpdatedAt: lock } : {}) },
-        askCascade,
+        askOnce,
       );
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
@@ -1897,6 +1902,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         shifted.before, shifted.after,
       ));
     };
+    // Hromadné uložení (série / split skupina) je JEDNO gesto uživatele, i když
+    // PUTuje N bloků ve smyčce — po prvním potvrzení kaskády se další bloky dávky
+    // už neptají (askOncePerGesture, sdílené s překlopením rezervace a group paste).
+    const askOnce = askOncePerGesture(askCascade);
     try {
       // Pokud payload obsahuje endTime, spočítat durationMs a aplikovat per-block
       const hasEndTime = payload.endTime !== undefined;
@@ -1943,7 +1952,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           `/api/blocks/${id}`,
           "PUT",
           { ...blockPayload, resolveChain: true },
-          askCascade,
+          askOnce,
         );
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
@@ -2361,6 +2370,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
     };
 
+    // Umístění z fronty je JEDNO gesto uživatele, i když série vytváří rodičovský
+    // blok a pak každý výskyt zvlášť ve smyčce níž — po prvním potvrzení kaskády se
+    // další bloky dávky už neptají (askOncePerGesture, sdílené s ostatními místy).
+    const askOnce = askOncePerGesture(askCascade);
     try {
       // Vytvořit první (rodičovský) blok
       const firstEnd = new Date(startTime.getTime() + durationMs);
@@ -2372,7 +2385,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         bypassScheduleValidation: !workingTimeLockRef.current,
         resolveChain: true,
       };
-      const res1 = await fetchWithCascadeConfirm("/api/blocks", "POST", queueParentBody, askCascade);
+      const res1 = await fetchWithCascadeConfirm("/api/blocks", "POST", queueParentBody, askOnce);
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string; code?: string };
         // Jen 409 z důvodu „rezervace už není QUEUE_READY" (naplánoval ji mezitím
@@ -2419,7 +2432,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 resolveChain: true,
                 autoShiftIfBusy: true,
               },
-              askCascade,
+              askOnce,
             );
             if (res.ok) {
               const childBlock: Block & { autoShift?: { originalStart: string } } = await res.json();
@@ -2666,13 +2679,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // Vložení skupiny je JEDNO gesto uživatele, i když je to N requestů. Po prvním
     // potvrzení se další bloky skupiny už neptají — jinak by plánovač odklikával
     // tentýž dialog pro každý blok zvlášť.
-    let groupCascadeConfirmed = false;
-    const askCascadeOnceForGroup: CascadeAsk = async (p) => {
-      if (groupCascadeConfirmed) return true;
-      const ok = await askCascade(p);
-      if (ok) groupCascadeConfirmed = true;
-      return ok;
-    };
+    const askOnce = askOncePerGesture(askCascade);
     try {
       for (const src of group) {
         const offsetMs = new Date(src.startTime).getTime() - anchorMs;
@@ -2681,7 +2688,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const newEnd = new Date(newStart.getTime() + durationMs);
         // Sdílená cesta s handlePasteWithTarget (buildPasteBody) — request flagy se nerozejdou.
         const groupBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
-        const res = await fetchWithCascadeConfirm("/api/blocks", "POST", groupBody, askCascadeOnceForGroup);
+        const res = await fetchWithCascadeConfirm("/api/blocks", "POST", groupBody, askOnce);
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `HTTP ${res.status}`);

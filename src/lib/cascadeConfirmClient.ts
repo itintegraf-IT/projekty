@@ -50,3 +50,23 @@ export async function fetchWithCascadeConfirm(
 
   return send({ ...body, cascadeConfirmed: true });
 }
+
+/**
+ * Obalí dotaz tak, aby se za JEDNO uživatelské gesto zeptal nejvýš JEDNOU.
+ *
+ * Gesto, které vyrobí N requestů (překlopení rezervace přes sourozence, hromadné
+ * uložení, série výskytů, vložení skupiny), by se jinak zeptalo až N×. Plánovač by
+ * odklikával tentýž dialog dokola a přestal by ho číst — přesně to riziko, kvůli
+ * kterému spec §7 chtěl týden měření před vynucením.
+ *
+ * Vrací NOVOU funkci se soukromou pamětí; každé gesto si musí vyrobit vlastní.
+ */
+export function askOncePerGesture(ask: CascadeAsk): CascadeAsk {
+  let confirmed = false;
+  return async (p) => {
+    if (confirmed) return true;
+    const ok = await ask(p);
+    if (ok) confirmed = true;
+    return ok;
+  };
+}

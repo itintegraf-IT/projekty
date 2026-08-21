@@ -22,7 +22,7 @@ import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
 import { usesTiskoveHodiny } from "@/lib/printTime";
 import { durationPayload, resolveDurationSync } from "@/lib/blockEditDuration";
-import { fetchWithCascadeConfirm, type CascadeAsk } from "@/lib/cascadeConfirmClient";
+import { fetchWithCascadeConfirm, askOncePerGesture, type CascadeAsk } from "@/lib/cascadeConfirmClient";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
@@ -447,15 +447,9 @@ export function BlockEdit({
       return a.adjustedHour - b.adjustedHour;
     });
     // Uložení termínů série je JEDNO gesto uživatele, i když PUTuje N výskytů ve
-    // smyčce — po prvním potvrzení kaskády se další výskyty už neptají (stejný vzor
-    // jako askCascadeOnceForGroup u group paste v PlannerPage.tsx, nález review #1).
-    let seriesCascadeConfirmed = false;
-    const askCascadeOnceForSeries: CascadeAsk = async (p) => {
-      if (seriesCascadeConfirmed) return true;
-      const ok = await onCascadeConfirm(p);
-      if (ok) seriesCascadeConfirmed = true;
-      return ok;
-    };
+    // smyčce — po prvním potvrzení kaskády se další výskyty už neptají
+    // (askOncePerGesture, sdílené se všemi ostatními dávkovými místy).
+    const askCascadeOnceForSeries = askOncePerGesture(onCascadeConfirm);
     for (const resolved of orderedResolved) {
       const orig = curSeries.find((b) => b.id === resolved.blockId);
       if (!orig) continue;
