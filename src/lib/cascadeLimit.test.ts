@@ -69,7 +69,23 @@ test("věta nese počet i nejzazší datum", () => {
   ]);
   const msg = cascadeConfirmMessage(i);
   assert.ok(msg.includes("1 navazujících bloků"), msg);
-  assert.ok(msg.includes(formatPragueDateShort(new Date("2026-08-21T06:00:00.000Z"))), msg);
+  assert.ok(msg.includes(formatPragueDateShort(new Date("2026-08-21T06:00:00.000Z")).slice(0, -1)), msg);
+});
+
+test("věta s datem má právě jednu tečku na konci, ne dvě — \"..\" se nesmí vyskytnout", () => {
+  const i = measureCascade([
+    move(1, "2026-08-18T08:00:00.000Z", "2026-08-20T09:00:00.000Z", "2026-08-21T06:00:00.000Z"),
+  ]);
+  const msg = cascadeConfirmMessage(i);
+  assert.ok(!msg.includes(".."), `Věta nesmí obsahovat ".." (dvě tečky): "${msg}"`);
+  assert.ok(msg.endsWith("Potvrdit?"), msg);
+});
+
+test("věta bez data má právě jednu tečku před \"Potvrdit?\" — \"bloků. Potvrdit?\"", () => {
+  const i = measureCascade([]);
+  const msg = cascadeConfirmMessage(i);
+  assert.ok(msg.includes("bloků. Potvrdit?"), msg);
+  assert.ok(!msg.includes(".."), `Věta nesmí obsahovat ".." (dvě tečky): "${msg}"`);
 });
 
 test("týž blok posunutý dvakrát se počítá jako JEDEN", () => {

@@ -105,6 +105,8 @@ export function measureCascade(
  * „Posunuto N navazujících bloků" (`PlannerPage.tsx`).
  */
 export function cascadeConfirmMessage(i: CascadeImpact): string {
-  const kam = i.farthestEnd ? `, nejdál do ${formatPragueDateShort(i.farthestEnd)}` : "";
+  const kam = i.farthestEnd
+    ? `, nejdál do ${formatPragueDateShort(i.farthestEnd).slice(0, -1)}`
+    : "";
   return `Tato změna odsune ${i.movedCount} navazujících bloků${kam}. Potvrdit?`;
 }
