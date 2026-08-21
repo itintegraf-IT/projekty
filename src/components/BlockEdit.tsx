@@ -442,11 +442,6 @@ export function BlockEdit({
     let saved = 0;
     let attempted = 0;
     let skippedNoSlot = 0;
-    // Kolik výskytů se pokusů o uložení NEDOČKALO, protože uživatel kaskádu
-    // zamítl a smyčka se zastavila (viz `declined++`/`break` níž). Odečítá se
-    // od `attempted` PO smyčce — zamítnutí není pokus, který "selhal", takže
-    // nesmí kazit poměr saved/attempted v souhrnu (finální review, bod 3).
-    let declined = 0;
     const failedReasons: string[] = [];
     const savedAdjusted: Array<{ blockId: number; date: string; hour: number }> = [];
     // Iterujeme v chronologickém pořadí adjustedDate/Hour — totéž pořadí, v jakém
@@ -456,13 +451,12 @@ export function BlockEdit({
       if (a.adjustedDate !== b.adjustedDate) return a.adjustedDate.localeCompare(b.adjustedDate);
       return a.adjustedHour - b.adjustedHour;
     });
-    // Uložení termínů série je JEDNO gesto uživatele, i když PUTuje N výskytů ve
-    // smyčce — po prvním potvrzení kaskády se další výskyty už neptají
-    // (askOncePerGesture, sdílené se všemi ostatními dávkovými místy).
-    const askCascadeOnceForSeries = askOncePerGesture(onCascadeConfirm);
-    for (const resolved of orderedResolved) {
+    // Sdílený derivér "má tenhle výskyt nějakou změnu k uložení" — jedna definice
+    // použitá jak PŘED smyčkou (plannedTotal níž), tak UVNITŘ ní, ať se dvě kopie
+    // stejné podmínky časem nerozejdou.
+    const deriveOccurrenceChange = (resolved: ResolvedDraft) => {
       const orig = curSeries.find((b) => b.id === resolved.blockId);
-      if (!orig) continue;
+      if (!orig) return null;
       const origDate = utcToPragueDateStr(new Date(orig.startTime));
       const origHour = utcToPragueHour(new Date(orig.startTime));
       const origDataDate = orig.dataRequiredDate ? utcToPragueDateStr(new Date(orig.dataRequiredDate)) : "";
@@ -471,7 +465,31 @@ export function BlockEdit({
       const timeChanged = resolved.adjustedDate !== origDate || resolved.adjustedHour !== origHour;
       const dataChanged = resolved.dataRequiredDate !== origDataDate;
       const expediceChanged = resolved.deadlineExpedice !== origExpedice;
-      if (!timeChanged && !dataChanged && !expediceChanged) continue;
+      return { orig, hasChange: timeChanged || dataChanged || expediceChanged };
+    };
+    // Celkový počet výskytů, které DO smyčky vstupují (mají nějakou změnu) —
+    // spočítaný PŘED smyčkou, nezávisle na tom, jestli se zamítnutí kaskády
+    // uprostřed zastaví (`declinedMidSeries`/`break` níž). Bez tohohle by souhrn
+    // po `break` počítal jen s tím, co se STIHLO zkusit, a předstíral, že zbytek
+    // série neexistoval — i když jen nebyl vůbec vyzkoušený (finální review #2,
+    // navazuje na #3/#5/#6 stejné vlny — tam šlo o `attempted`, tady o to, co
+    // `attempted` nikdy nestihlo zahrnout).
+    const plannedTotal = orderedResolved.reduce(
+      (n, resolved) => n + (deriveOccurrenceChange(resolved)?.hasChange ? 1 : 0),
+      0,
+    );
+    // true, jen když zamítnutí kaskády uprostřed série zastavilo `break`em zbytek
+    // (viz větev `isCascadeDeclined` níž) — odlišuje "uživatel řekl Zrušit" od
+    // "došly výskyty" nebo "chyba serveru" v souhrnu za smyčkou.
+    let declinedMidSeries = false;
+    // Uložení termínů série je JEDNO gesto uživatele, i když PUTuje N výskytů ve
+    // smyčce — po prvním potvrzení kaskády se další výskyty už neptají
+    // (askOncePerGesture, sdílené se všemi ostatními dávkovými místy).
+    const askCascadeOnceForSeries = askOncePerGesture(onCascadeConfirm);
+    for (const resolved of orderedResolved) {
+      const change = deriveOccurrenceChange(resolved);
+      if (!change || !change.hasChange) continue;
+      const { orig } = change;
       // Slot nebyl nalezen do 7 dní — skip + počítat pro toast
       if (resolved.noSlotFound) {
         skippedNoSlot++;
@@ -526,8 +544,9 @@ export function BlockEdit({
           // takže zamítnutí bereme za rozhodnutí o CELÉ zbývající sérii, ne jen
           // o tomhle výskytu — bez `break` by se `askOncePerGesture` zeptal
           // znovu u dalšího výskytu a plánovač by odklikával dialog opakovaně
-          // (finální review, bod 5).
-          declined++;
+          // (finální review, bod 5). Souhrn za smyčkou tenhle stav pozná přes
+          // `declinedMidSeries`, ne přes odečet od `attempted` (finální review #2).
+          declinedMidSeries = true;
           break;
         } else {
           const err = await res.json().catch(() => ({})) as { error?: string };
@@ -546,15 +565,24 @@ export function BlockEdit({
       }));
     }
     setSeriesOccSaving(false);
-    // Zamítnutí není "pokus, který selhal" — bez tohohle odečtu by souhrn hlásil
-    // "Uložení selhalo" nebo "N/M — některé selhaly" i tam, kde jediný "problém"
-    // byl uživatelův Zrušit (finální review, bod 3).
-    attempted -= declined;
     const skippedMsg = skippedNoSlot > 0
       ? ` ${skippedNoSlot} ${skippedNoSlot === 1 ? "blok" : "bloků"} nebylo možné naplánovat do 7 dní — zvol jiné datum.`
       : "";
     const reasonsMsg = failedReasons.length > 0 ? ` Důvod: ${failedReasons[0]}` : "";
-    if (attempted === 0 && skippedNoSlot === 0) {
+    if (declinedMidSeries) {
+      // Vlastní větev, NE úprava `attempted` (finální review #2 — oprava
+      // předchozí opravy #3/#5, která odečítala `declined` od `attempted` a
+      // souhrn tak počítal jen s tím, co se STIHLO zkusit před `break`em).
+      // "Y" je `plannedTotal`, spočítaný PŘED smyčkou — celkový počet výskytů
+      // se změnou k uložení, ne jen ty, které smyčka doopravdy navštívila.
+      // `skippedMsg`/`reasonsMsg` se připojují i tady — pokud PŘED zamítnutím
+      // stihly nastat (no-slot skip nebo chyba serveru u dřívějšího výskytu),
+      // uživatel má vidět OBĚ informace, ne jen tu první (finální review #2).
+      onToast?.(
+        `Autoposun zrušen — uloženo ${saved} z ${plannedTotal} výskytů, zbytek beze změny.${reasonsMsg}${skippedMsg}`,
+        "info",
+      );
+    } else if (attempted === 0 && skippedNoSlot === 0) {
       onToast?.("Žádné změny k uložení.", "info");
     } else if (attempted === 0 && skippedNoSlot > 0) {
       onToast?.(`Nelze uložit:${skippedMsg}`, "error");
