@@ -204,6 +204,50 @@ describe("reflowBlockInTx", () => {
     assert.equal(auditCreateManyMock.mock.calls.length, 0);
   });
 
+  it("1d) resolveChain: false → resolveChainPush se VŮBEC nezavolá, moves je [], before je [selfBefore] (Task 6D)", async () => {
+    // Stejný drifted scénář jako 1b) (end nesedí → moved:true, chain push by se jinak
+    // spustil) — jediný rozdíl je deps.resolveChain: false. Mock resolveChainPush dostal
+    // NEPRÁZDNÉ moves (co by vrátil, kdyby se zavolal), aby test odlišil "nezavoláno" od
+    // "zavoláno, ale výsledek se zahodil" — obojí by jinak vypadalo stejně na `moves: []`.
+    const block = mkBlock({ startTime: H(10), endTime: H(13), printMinutes: 120 });
+    const { tx, updateMock, auditCreateMock, auditCreateManyMock } = mkTx(block);
+    const wouldHaveMoved: AppliedMove[] = [{
+      id: 101, orderNumber: "MOVE-101", startTime: H(14), endTime: H(16),
+      oldStartTime: H(12), oldEndTime: H(14),
+      oldUpdatedAt: new Date("2026-06-16T09:00:00.000Z"), oldPrintMinutes: 120, oldScheduleBypassed: false,
+    }];
+    const resolveChainPush = mock.fn(async () => wouldHaveMoved);
+    const deps = { resolveChainPush, resolveChain: false };
+
+    const result = await reflowBlockInTx(tx, 1, actor, deps);
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.changed, true);
+    // Re-expanze startu/endu proběhne (to je smysl "Přepočítat") — jen chain push
+    // navazujících bloků se přeskočí.
+    assert.deepEqual(result.startTime, H(10));
+    assert.deepEqual(result.endTime, H(12));
+
+    assert.equal(resolveChainPush.mock.calls.length, 0,
+      "resolveChain: false musí chain push úplně přeskočit, ne ho zavolat a zahodit výsledek");
+    assert.deepEqual(result.moves, [], "bez chain pushe nejsou žádné odsunuté bloky");
+
+    // Krok historie (Ctrl+Z) stojí na `before` — i s vypnutým chain pushem musí obsahovat
+    // aspoň PŘEPOČÍTÁVANÝ blok sám (selfBefore), jinak by undo neuměl vrátit jeho posun.
+    assert.equal(result.before.length, 1, "before musí nést aspoň selfBefore, i bez chain pushe");
+    assert.equal(result.before[0]!.id, 1);
+    assert.equal(result.before[0]!.startTime, H(10).toISOString());
+    assert.equal(result.before[0]!.endTime, H(13).toISOString());
+    assert.equal(result.before[0]!.machine, "XL_105");
+    assert.equal(result.before[0]!.scheduleBypassed, false);
+
+    // Přepočítávaný blok se pořád zapíše a zaloguje — jen chain push okolí se vynechal.
+    assert.equal(updateMock.mock.calls.length, 1);
+    assert.equal(auditCreateMock.mock.calls.length, 1); // AUTO_REFLOW pro blok samotný
+    assert.equal(auditCreateManyMock.mock.calls.length, 0, "žádné AUTO_SHIFT řádky bez chain pushe");
+  });
+
   it("2) blok sedí → changed:false, žádný block.update/auditLog.create", async () => {
     // H(10)+120min přes souvislý provoz = H(12) — přesně jak je uložený end.
     const block = mkBlock({ startTime: H(10), endTime: H(12), printMinutes: 120 });

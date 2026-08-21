@@ -161,6 +161,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [autoShift, setAutoShift] = useState(true);
   const autoShiftRef = useRef(true);
   autoShiftRef.current = autoShift;
+  // Čtení localStorage AŽ v useEffect, ne v lazy inicializátoru useState — stejný důvod
+  // jako u zoomu (viz komentář u `fontScale` výš): čtení při inicializaci by znamenalo,
+  // že server vyrenderuje jinou hodnotu než klient, a vznikla by chyba hydratace.
+  // BEZ tohohle efektu je vypínač po F5 tiše ZAPNUTÝ, dokud (a pokud vůbec) nedorazí
+  // `GET /api/me/preferences` — okno, ve kterém drag pošle `resolveChain: true` navzdory
+  // vypnuté preferenci, je přesně ten incident, kvůli kterému vypínač vznikl (jen kratší).
+  useEffect(() => {
+    if (isTiskar) return;
+    const stored = localStorage.getItem("ig-planner-autoshift");
+    if (stored) setAutoShift(stored !== "off");
+  }, [isTiskar]);
 
   // ── Peek panel (TISKAR) ──
   // TISKAR: aktuálně zobrazený stroj (default = vlastní). Přepíná se v hlavičce
@@ -426,16 +437,19 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             localStorage.setItem("ig-planner-dtp-panel-width", String(v));
           }
         }
-        // autoshift (Task 6D): preference per uživatel, ne localStorage — Lukáš má mít
-        // vypínač na každém počítači. Chybějící klíč (nikdy nenastaveno) i cokoliv jiného
-        // než výslovné "off" znamená výchozí ZAPNUTO.
+        // autoshift (Task 6D): zdroj pravdy je preference per uživatel (Lukáš má mít
+        // vypínač na každém počítači), localStorage je jen optimistická cache jako
+        // u zoomu/aside-width/dtp-panel-width výš — čte ji efekt hned po mountu (viz
+        // useEffect u `autoShift` state), server ji tady jen případně přepíše. Chybějící
+        // klíč (nikdy nenastaveno) i cokoliv jiného než výslovné "off" znamená ZAPNUTO.
         if (prefs["autoshift"]) {
           const on = prefs["autoshift"] !== "off";
           setAutoShift(on);
           localStorage.setItem("ig-planner-autoshift", on ? "on" : "off");
         }
       })
-      .catch(() => {}); // tiché selhání — localStorage hodnoty z lazy initializerů zůstanou
+      .catch(() => {}); // tiché selhání — localStorage hodnoty (lazy initializery u zoom/
+      // aside-width/dtp-panel-width, načtený efekt u autoshift) zůstanou
   }, [isTiskar]);
 
   // TISKAR zoom nemění (žádný slider), takže by tenhle efekt jen opakovaně zapisoval
@@ -2244,7 +2258,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
    *
    * Do 19. 8. 2026 split krok NEZAPISOVAL vůbec, takže Ctrl+Z po něm sáhl po
    * PŘEDCHOZÍ, cizí akci — u splitu závažnější než u přepočtu, protože chain push
-   * tam běží BEZPODMÍNEČNĚ u každé zakázky (žádný opt-in `resolveChain`).
+   * tam do etapy 6 běžel BEZPODMÍNEČNĚ u každé zakázky (žádný opt-in `resolveChain`
+   * v těle requestu). Od Tasku 6D (vypínač autoposunu) split `resolveChain` posílá
+   * a respektuje — s vypnutým autoposunem se navazující bloky neposunou, ale krok
+   * historie tenhle rozdíl neřeší, jen zapisuje to, co se skutečně stalo.
    *
    * Strop `UNDO_MAX_OPS`, stejná pojistka jako `recordReflowUndo` — když dávka
    * (ocas + hlava + odsunutí) přeroste, krok se ZÁMĚRNĚ nezaznamená a uživateli

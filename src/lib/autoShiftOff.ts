@@ -28,8 +28,11 @@ export function autoShiftExplicitlyOff(body: unknown): boolean {
 /**
  * Hláška pro OVERLAP: při vypnutém autoposunu vysvětlí PROČ se to neposunulo samo
  * (jinak by uživatel viděl stejnou obecnou kolizní hlášku jako při běžném přeplnění
- * a nepochopil by, že za tím stojí jeho vlastní vypínač).
+ * a nepochopil by, že za tím stojí jeho vlastní vypínač). Věta z `AUTOSHIFT_OFF_OVERLAP_MESSAGE`
+ * zůstává DOSLOVA (rozhodnutí review) a původní hláška se připojí v závorce — jinak by
+ * zmizel nejužitečnější detail (číslo kolidujícího bloku a stroj), bez kterého plánovač
+ * neví, kde ručně uvolnit místo.
  */
 export function overlapMessageFor(originalMessage: string, autoShiftOff: boolean): string {
-  return autoShiftOff ? AUTOSHIFT_OFF_OVERLAP_MESSAGE : originalMessage;
+  return autoShiftOff ? `${AUTOSHIFT_OFF_OVERLAP_MESSAGE} (${originalMessage})` : originalMessage;
 }

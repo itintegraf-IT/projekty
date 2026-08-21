@@ -122,9 +122,11 @@ export function BlockEdit({
   onFlipReservation?: (anchorId: number, payload: Record<string, unknown>, siblingIds: number[]) => Promise<"ok" | "declined" | "failed">;
   /**
    * POVINNÉ, žádný default/fallback. Obě zápisové cesty tohoto panelu (Uložit
-   * změny, Uložit termíny série) posílají `resolveChain: true` a mohou narazit
-   * na `CASCADE_CONFIRM` (409) — musí se zeptat uživatele, tiché potvrzení bez
-   * dotazu je přesně vada, kterou tahle etapa řeší (nález review #1).
+   * změny, Uložit termíny série) posílají `resolveChain: autoShift` (hodnotu
+   * vypínače, viz `autoShift` prop níž — do Tasku 6D to byl natvrdo `true`) a se
+   * zapnutým autoposunem mohou narazit na `CASCADE_CONFIRM` (409) — musí se
+   * zeptat uživatele, tiché potvrzení bez dotazu je přesně vada, kterou tahle
+   * etapa řeší (nález review #1).
    */
   onCascadeConfirm: CascadeAsk;
   /**
