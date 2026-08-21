@@ -21,7 +21,7 @@ import {
   utcToPragueDateStr,
 } from "@/lib/dateUtils";
 import { computeShadeParity } from "@/lib/blockShades";
-import { fetchWithCascadeConfirm, type CascadeAsk } from "@/lib/cascadeConfirmClient";
+import { fetchWithCascadeConfirm, isCascadeDeclined, type CascadeAsk } from "@/lib/cascadeConfirmClient";
 import type { BlockSnapshot } from "@/lib/undo/types";
 import { blockMatchesQuery } from "@/lib/orderSearch";
 import { blurEditableFocus } from "@/lib/focusGuard";
@@ -1135,6 +1135,7 @@ export default function TimelineGrid({
         }
         try {
           const res     = await fetchWithCascadeConfirm(`/api/blocks/${ds.blockId}`, "PUT", body, callbacksRef.current.onCascadeConfirm);
+          if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo přesunout.");
@@ -1159,6 +1160,7 @@ export default function TimelineGrid({
             { endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true },
             callbacksRef.current.onCascadeConfirm,
           );
+          if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
           if (!res.ok) {
             const err = await res.json().catch(() => ({})) as { error?: string };
             callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo změnit.");
@@ -1334,6 +1336,7 @@ export default function TimelineGrid({
         { splitAt: splitAt.toISOString(), expectedUpdatedAt: block.updatedAt },
         callbacksRef.current.onCascadeConfirm,
       );
+      if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         callbacksRef.current.onError?.(err.error ?? "Blok se nepodařilo rozdělit.");

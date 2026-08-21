@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fetchWithCascadeConfirm, askOncePerGesture, type CascadeAsk } from "./cascadeConfirmClient";
+import { fetchWithCascadeConfirm, askOncePerGesture, isCascadeDeclined, type CascadeAsk } from "./cascadeConfirmClient";
 
 function fakeFetch(responses: Array<{ status: number; body: unknown }>) {
   const calls: Array<{ url: string; body: unknown }> = [];
@@ -125,4 +125,27 @@ test("askOncePerGesture: každé gesto má vlastní paměť", async () => {
   await askOncePerGesture(ask)({ movedCount: 6, maxShiftMs: 1, farthestEnd: null });
   await askOncePerGesture(ask)({ movedCount: 6, maxShiftMs: 1, farthestEnd: null });
   assert.equal(asked, 2, "druhé gesto se musí zeptat znovu");
+});
+
+test("zamítnutí označí odpověď příznakem, ať ji volající nehlásí jako chybu", async () => {
+  const { fn } = fakeFetch([{ status: 409, body: { code: "CASCADE_CONFIRM", error: "…", cascade: { movedCount: 9, maxShiftMs: 1, farthestEnd: null } } }]);
+  const res = await fetchWithCascadeConfirm("/api/blocks/1", "PUT", {}, async () => false, fn);
+  assert.equal(res.status, 409);
+  assert.equal(isCascadeDeclined(res), true);
+});
+
+test("obyčejná chyba příznak zamítnutí NEMÁ", async () => {
+  const { fn } = fakeFetch([{ status: 409, body: { code: "OVERLAP", error: "koliduje" } }]);
+  const res = await fetchWithCascadeConfirm("/api/blocks/1", "PUT", {}, async () => true, fn);
+  assert.equal(isCascadeDeclined(res), false);
+});
+
+test("úspěch po potvrzení příznak zamítnutí NEMÁ", async () => {
+  const { fn } = fakeFetch([
+    { status: 409, body: { code: "CASCADE_CONFIRM", error: "…", cascade: { movedCount: 9, maxShiftMs: 1, farthestEnd: null } } },
+    { status: 200, body: { id: 1 } },
+  ]);
+  const res = await fetchWithCascadeConfirm("/api/blocks/1", "PUT", {}, async () => true, fn);
+  assert.equal(res.status, 200);
+  assert.equal(isCascadeDeclined(res), false);
 });

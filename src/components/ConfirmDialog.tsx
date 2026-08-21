@@ -94,6 +94,7 @@ export function ConfirmDialog({
             variant="outline"
             size="sm"
             className="flex-1 text-xs h-9 border-slate-600 text-slate-300"
+            autoFocus={!autoFocusConfirm}
             onClick={onCancel}
           >
             {cancelLabel}

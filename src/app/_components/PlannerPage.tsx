@@ -70,11 +70,16 @@ import {
   type PlannerFontScale,
 } from "@/lib/plannerTypography";
 import { reflowMachineToast, reflowBlockToast } from "@/lib/reflowToastText";
-import { fetchWithCascadeConfirm, askOncePerGesture, type CascadePayload } from "@/lib/cascadeConfirmClient";
+import { fetchWithCascadeConfirm, askOncePerGesture, isCascadeDeclined, type CascadePayload } from "@/lib/cascadeConfirmClient";
 import { cascadeConfirmMessage } from "@/lib/cascadeLimit";
 
 // NOTE etapa 8: pro role bez přístupu k builderu stačí nevyrenderovat handle + aside
 // — timeline s flex-1 se automaticky roztáhne na celou šířku
+
+// Interní signál pro throw/catch uvnitř try bloků, které mají sdílenou rollback
+// logiku pro chybu i pro zamítnutí kaskády (group paste) — odlišuje "uživatel
+// řekl Zrušit" (mlčíme) od skutečné chyby (toast), aniž by se duplikoval kód rollbacku.
+const CASCADE_DECLINED_SIGNAL = Symbol("cascadeDeclinedInPlannerPage");
 
 // Pole sledovaná pro undo/redo editace formulářem (BlockEdit.buildPayload) + DTP/MTZ single-field.
 const EDIT_TRACKED_FIELDS = [
@@ -1374,7 +1379,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     // volání téhle dávky už neptají (askOncePerGesture, sdílené s group paste
     // a uložením série).
     const askOnce = askOncePerGesture(askCascade);
-    const putFlip = async (id: number, body: Record<string, unknown>, lock?: string) => {
+    // Vrací `null`, když uživatel kaskádu ZAMÍTL — volající to musí odlišit od
+    // úspěchu a mlčky dávku ukončit (žádný toast, žádná chyba, viz isCascadeDeclined).
+    const putFlip = async (id: number, body: Record<string, unknown>, lock?: string): Promise<Block | null> => {
       // Optimistic lock jen u kotvy (parita s doSave, audit REL-02). Sourozenci
       // ho mít nesmí: kotvin PUT jim serverovou propagací bumpne verzi a lock
       // by je shodil na vlastní 409.
@@ -1384,6 +1391,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         { ...body, resolveChain: true, ...(lock ? { expectedUpdatedAt: lock } : {}) },
         askOnce,
       );
+      if (isCascadeDeclined(res)) return null;
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? `Chyba při překlopení bloku ${id}`);
@@ -1474,6 +1482,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     try {
       const anchorLock = blocksRef.current.find((b) => b.id === anchorId)?.updatedAt;
       const updatedAnchor = await putFlip(anchorId, anchorPayload, anchorLock);
+      if (!updatedAnchor) return false; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       const targetOrderNumber = updatedAnchor.orderNumber;
 
       for (const id of siblingIds) {
@@ -1489,11 +1498,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           after.push({ id, updatedAt: already.updatedAt, fields: flipFields(already) });
           continue;
         }
-        await putFlip(id, {
+        const flippedSibling = await putFlip(id, {
           orderNumber: targetOrderNumber,
           type: "ZAKAZKA",
           blockVariant: RESERVATION_FLIP_VARIANT,
         });
+        if (!flippedSibling) {
+          // Zamítnutí uprostřed dávky — zapsat historii toho, co už prošlo, a mlčky skončit.
+          recordFlipUndo();
+          return false;
+        }
       }
 
       const passiveChangedCount = recordFlipUndo();
@@ -1544,6 +1558,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         },
         askCascade,
       );
+      if (isCascadeDeclined(batchRes)) return false; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       if (!batchRes.ok) {
         const err = await batchRes.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? "Chyba serveru");
@@ -1954,6 +1969,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           { ...blockPayload, resolveChain: true },
           askOnce,
         );
+        if (isCascadeDeclined(res)) {
+          // Uživatel kaskádu zamítl uprostřed dávky — zapsat, co se stihlo
+          // uložit, a mlčky skončit (žádný toast, viz isCascadeDeclined).
+          recordSaveAllUndo();
+          return false;
+        }
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `Chyba při ukládání bloku ${id}`);
@@ -2232,6 +2253,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   async function handleReflowMachine(machine: string) {
     try {
       const res = await fetchWithCascadeConfirm("/api/blocks/reflow", "POST", { machine }, askCascade);
+      if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error ?? "Přepočet se nepodařilo dokončit.", "error");
@@ -2258,6 +2280,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   async function handleReflowBlock(blockId: number) {
     try {
       const res = await fetchWithCascadeConfirm(`/api/blocks/${blockId}/reflow`, "POST", {}, askCascade);
+      if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         showToast(data.error ?? "Přepočet se nepodařilo dokončit.", "error");
@@ -2386,6 +2409,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         resolveChain: true,
       };
       const res1 = await fetchWithCascadeConfirm("/api/blocks", "POST", queueParentBody, askOnce);
+      if (isCascadeDeclined(res1)) {
+        // Uživatel kaskádu zamítl — nic se nestalo, mlčíme (žádný toast).
+        setDraggingQueueItem(null);
+        return;
+      }
       if (!res1.ok) {
         const err = await res1.json().catch(() => ({})) as { error?: string; code?: string };
         // Jen 409 z důvodu „rezervace už není QUEUE_READY" (naplánoval ji mezitím
@@ -2447,6 +2475,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 });
                 shiftedToasts.push({ original: fmt(orig), final: fmt(final) });
               }
+            } else if (isCascadeDeclined(res)) {
+              // Uživatel kaskádu pro tenhle výskyt zamítl — nic se nestalo,
+              // netahat do failedSlots (není to chyba).
             } else {
               const err = await res.json().catch(() => ({ error: "neznámá chyba" }));
               const dateLabel = curStart.toLocaleString("cs-CZ", {
@@ -2558,6 +2589,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       cutMoveInFlightRef.current = true;
       try {
         const res = await fetchWithCascadeConfirm(`/api/blocks/${src.id}`, "PUT", moveBody, askCascade);
+        if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? "Chyba serveru");
@@ -2579,6 +2611,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     const pasteBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
     try {
       const res = await fetchWithCascadeConfirm("/api/blocks", "POST", pasteBody, askCascade);
+      if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? "Chyba serveru");
@@ -2689,6 +2722,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         // Sdílená cesta s handlePasteWithTarget (buildPasteBody) — request flagy se nerozejdou.
         const groupBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
         const res = await fetchWithCascadeConfirm("/api/blocks", "POST", groupBody, askOnce);
+        if (isCascadeDeclined(res)) throw CASCADE_DECLINED_SIGNAL;
         if (!res.ok) {
           const err = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(err.error ?? `HTTP ${res.status}`);
@@ -2696,7 +2730,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         created.push(await res.json() as Block);
       }
     } catch (err) {
-      console.error("Group paste failed", err);
+      // Uživatel kaskádu zamítl — zachází se s tím jako se zrušením celé dávky
+      // (stejný rollback jako u chyby), ale MLČKY: žádný toast, nic se nestalo záměrně.
+      const declined = err === CASCADE_DECLINED_SIGNAL;
+      if (!declined) console.error("Group paste failed", err);
       // Rollback: smaž bloky, které se stihly vytvořit před selháním
       if (created.length > 0) {
         const rollbackResults = await Promise.allSettled(
@@ -2710,10 +2747,11 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           // allSettled zachovává pořadí — blok na indexu i odpovídá rollbackResults[i]
           const survivingBlocks = created.filter((_, i) => rollbackResults[i].status === "rejected");
           survivingBlocks.forEach((b) => handleBlockCreate(b));
-          showToast(`Chyba vložení — ${survivingBlocks.length} blok(ů) zůstal(y) v DB. Zkontroluj timeline.`, "error");
+          if (!declined) showToast(`Chyba vložení — ${survivingBlocks.length} blok(ů) zůstal(y) v DB. Zkontroluj timeline.`, "error");
           return;
         }
       }
+      if (declined) return;
       const errMsg = err instanceof Error ? err.message : "Chyba při vložení skupiny";
       showToast(`${errMsg} — žádné bloky nebyly přidány.`, "error");
       return;

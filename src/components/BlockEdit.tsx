@@ -22,7 +22,7 @@ import { findNextFreeSlot, type BlockedInterval } from "@/lib/scheduleSlotFinder
 import { blockPrintMinutes, formatPrintHoursShort, splitGroupTotalPrintMinutes } from "@/lib/printTimeClient";
 import { usesTiskoveHodiny } from "@/lib/printTime";
 import { durationPayload, resolveDurationSync } from "@/lib/blockEditDuration";
-import { fetchWithCascadeConfirm, askOncePerGesture, type CascadeAsk } from "@/lib/cascadeConfirmClient";
+import { fetchWithCascadeConfirm, askOncePerGesture, isCascadeDeclined, type CascadeAsk } from "@/lib/cascadeConfirmClient";
 import { type MachineWeekShiftsRow } from "@/lib/machineWeekShifts";
 import { type Toast } from "@/components/ToastContainer";
 import {
@@ -510,6 +510,9 @@ export function BlockEdit({
           }
           savedAdjusted.push({ blockId: resolved.blockId, date: resolved.adjustedDate, hour: resolved.adjustedHour });
           saved++;
+        } else if (isCascadeDeclined(res)) {
+          // Uživatel kaskádu pro tenhle výskyt zamítl — nic se nestalo,
+          // netahat do failedReasons (není to chyba).
         } else {
           const err = await res.json().catch(() => ({})) as { error?: string };
           if (err.error) failedReasons.push(err.error);
@@ -842,6 +845,7 @@ export function BlockEdit({
       // editační cesta v aplikaci, takže se MUSÍ ptát přes onCascadeConfirm (nález review #1) —
       // holý fetch by 409 spadl do obecné větve níž bez možnosti potvrdit.
       const res = await fetchWithCascadeConfirm(`/api/blocks/${block.id}`, "PUT", body, onCascadeConfirm);
+      if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string; code?: string };
         if (err.code === "CONFLICT") {

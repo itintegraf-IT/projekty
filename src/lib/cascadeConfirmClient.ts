@@ -9,6 +9,17 @@ export type CascadeAsk = (p: CascadePayload) => Promise<boolean>;
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
 /**
+ * Uživatel kaskádu ZAMÍTL — na odpovědi visí tenhle příznak, aby ji volající
+ * nezpracoval jako chybu. Zamítnutí není selhání: nic se nestalo, protože to tak
+ * uživatel chtěl. Červený toast s otázkou, na kterou právě odpověděl „Zrušit",
+ * je matoucí a vypadá jako pád.
+ */
+export const CASCADE_DECLINED = Symbol.for("ig.cascadeDeclined");
+export function isCascadeDeclined(res: Response): boolean {
+  return (res as Response & { [CASCADE_DECLINED]?: boolean })[CASCADE_DECLINED] === true;
+}
+
+/**
  * Odešle mutaci a při 409 `CASCADE_CONFIRM` se zeptá uživatele; po potvrzení
  * požadavek ZOPAKUJE s `cascadeConfirmed: true`.
  *
@@ -16,9 +27,9 @@ type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
  * souběžná změna), vrátí se ta odpověď volajícímu a dialog se už neotevře.
  * Nekonečné odklepávání by bylo horší než chyba.
  *
- * Při odmítnutí se vrací PŮVODNÍ odpověď 409, aby si volající pustil svou
- * dosavadní chybovou větev (dnes: toast a žádná změna stavu — obě dragové
- * cesty v `TimelineGrid.tsx` při `!res.ok` do stavu nezapisují).
+ * Při odmítnutí se vrací PŮVODNÍ odpověď 409, ale OZNAČENÁ příznakem
+ * `CASCADE_DECLINED` (`isCascadeDeclined`) — volající si ji nemá zpracovat jako
+ * chybu (viz komentář u příznaku výš), jen mlčky skončit.
  *
  * `fetchImpl` existuje jen kvůli testům; v aplikaci se nepředává.
  */
@@ -46,7 +57,10 @@ export async function fetchWithCascadeConfirm(
   if (data.code !== "CASCADE_CONFIRM" || !data.cascade) return res;
 
   const confirmed = await ask(data.cascade);
-  if (!confirmed) return res;
+  if (!confirmed) {
+    (res as Response & { [CASCADE_DECLINED]?: boolean })[CASCADE_DECLINED] = true;
+    return res;
+  }
 
   return send({ ...body, cascadeConfirmed: true });
 }
