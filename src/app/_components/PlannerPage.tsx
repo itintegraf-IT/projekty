@@ -1287,8 +1287,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   /**
    * Otevře potvrzení velké kaskády a počká na odpověď. Fokus je na „Zrušit"
-   * (`autoFocusConfirm={false}`) — stejné rozhodnutí jako u dialogu zkrácení
-   * směn: potvrzovací tlačítko u destruktivní akce nesmí být pod Enterem.
+   * (`autoFocusConfirm={false}` + `autoFocusCancel` na `ConfirmDialog` níž) —
+   * stejné rozhodnutí jako u dialogu zkrácení směn: potvrzovací tlačítko
+   * u destruktivní akce nesmí být pod Enterem.
    */
   const askCascade = useCallback(
     (payload: CascadePayload) => new Promise<boolean>((resolve) => setCascadeAsk({ payload, resolve })),
@@ -1307,11 +1308,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
    * Sourozenec, kterého server překlopil sám (split skupina, SPLIT_SHARED_FIELDS),
    * se přeskočí. Celá akce je JEDEN krok historie, takže Ctrl+Z vrátí všechny.
    */
+  // Vrací třístavovou hodnotu, ne boolean — "declined" (uživatel kaskádu zamítl)
+  // NENÍ totéž jako "failed" (skutečná chyba). BlockEdit.tsx (runFlip) na "failed"
+  // reaguje červenou hláškou v panelu; "declined" a "ok" ne (viz komentář u
+  // volajícího místa a bod 6 finálního review — mlčíme jen tehdy, když se
+  // opravdu nic nestalo, jinak ozve neutrální info toast, viz níž).
   async function handleFlipReservation(
     anchorId: number,
     anchorPayload: Record<string, unknown>,
     siblingIds: number[],
-  ): Promise<boolean> {
+  ): Promise<"ok" | "declined" | "failed"> {
     // endTime je součástí snapshotu záměrně: překlopení na ZAKAZKA přepne blok
     // na model tiskových hodin a server ho může re-expandovat přes pauzy směn.
     // Bez endTime by Ctrl+Z vrátil typ, ale nechal prodlouženou délku.
@@ -1482,7 +1488,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     try {
       const anchorLock = blocksRef.current.find((b) => b.id === anchorId)?.updatedAt;
       const updatedAnchor = await putFlip(anchorId, anchorPayload, anchorLock);
-      if (!updatedAnchor) return false; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
+      // Zamítnutí u úplně PRVNÍHO požadavku dávky — nic se ještě nestihlo
+      // uložit, takže je to skutečně tiché "nic se nestalo".
+      if (!updatedAnchor) return "declined";
       const targetOrderNumber = updatedAnchor.orderNumber;
 
       for (const id of siblingIds) {
@@ -1504,9 +1512,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           blockVariant: RESERVATION_FLIP_VARIANT,
         });
         if (!flippedSibling) {
-          // Zamítnutí uprostřed dávky — zapsat historii toho, co už prošlo, a mlčky skončit.
+          // Zamítnutí uprostřed dávky — na rozdíl od zamítnutí kotvy tady
+          // NĚCO už prošlo (min. kotva), takže ticho by lhalo. Zapsat historii
+          // toho, co se stihlo, a ozvat se neutrálním info toastem (bod 6
+          // finálního review) — ne chybou, jen stavem.
           recordFlipUndo();
-          return false;
+          const done = after.length;
+          showToast(
+            `Autoposun zrušen — provedeno ${done} z ${1 + siblingIds.length} bloků, zbytek beze změny (Ctrl+Z vrátí).`,
+            "info",
+          );
+          return "declined";
         }
       }
 
@@ -1524,7 +1540,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           : "Rezervace překlopena na zakázku.",
         "success",
       );
-      return true;
+      return "ok";
     } catch (error) {
       console.error("Reservation flip failed", error);
       recordFlipUndo(); // co prošlo, musí jít vrátit
@@ -1535,7 +1551,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           : (error instanceof Error ? error.message : "Chyba při překlopení rezervace."),
         "error",
       );
-      return false;
+      return "failed";
     }
   }
 
@@ -1971,8 +1987,20 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         );
         if (isCascadeDeclined(res)) {
           // Uživatel kaskádu zamítl uprostřed dávky — zapsat, co se stihlo
-          // uložit, a mlčky skončit (žádný toast, viz isCascadeDeclined).
+          // uložit. Ticho platí jen pro jednopožadavkovou cestu ("nic se
+          // nestalo") — tady se něco stalo (výsledek == results.length bloků
+          // už je v DB uložených), takže se ozve neutrální info toast, ne
+          // chyba (finální review, bod 6). Panel se ZÁMĚRNĚ nezavírá (na
+          // rozdíl od úspěšné větve níž) — plánovač musí vidět, že dávka
+          // není kompletní.
           recordSaveAllUndo();
+          const done = results.length;
+          if (done > 0) {
+            showToast(
+              `Autoposun zrušen — uloženo ${done} z ${ids.length} bloků, zbytek beze změny (Ctrl+Z vrátí).`,
+              "info",
+            );
+          }
           return false;
         }
         if (!res.ok) {
@@ -2442,6 +2470,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       let createdChildren = 0;
       const shiftedToasts: Array<{ original: string; final: string }> = [];
       const failedSlots: Array<{ date: string; reason: string }> = [];
+      // Zamítnutí zastaví CELOU zbývající sérii (viz `break` níž) — nastaví se
+      // jen když k tomu doopravdy dojde, aby souhrn níž rozlišil "zamítnuto" od
+      // "nastala chyba" (finální review, bod 5).
+      let declinedMidSeries = false;
       if (rType !== "NONE" && rCount > 1) {
         let curStart = addRecurrenceInterval(startTime, rType);
         for (let i = 1; i < rCount; i++) {
@@ -2476,8 +2508,13 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 shiftedToasts.push({ original: fmt(orig), final: fmt(final) });
               }
             } else if (isCascadeDeclined(res)) {
-              // Uživatel kaskádu pro tenhle výskyt zamítl — nic se nestalo,
-              // netahat do failedSlots (není to chyba).
+              // Uživatel kaskádu zamítl — nic se nestalo, netahat do failedSlots
+              // (není to chyba). Série je JEDNO gesto (askOnce), takže zamítnutí
+              // bereme za rozhodnutí o CELÉ zbývající sérii — bez `break` by se
+              // `askOncePerGesture` zeptal znovu u dalšího výskytu a plánovač by
+              // odklikával tentýž dialog opakovaně (finální review, bod 5).
+              declinedMidSeries = true;
+              break;
             } else {
               const err = await res.json().catch(() => ({ error: "neznámá chyba" }));
               const dateLabel = curStart.toLocaleString("cs-CZ", {
@@ -2505,9 +2542,17 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         showToast(`+${shiftedToasts.length - 5} dalších bloků posunuto. Zkontroluj timeline.`, "info");
       }
 
-      // Souhrn selhání série — bez tohoto větev tiše přeskočila výskyty, které se nepodařilo umístit.
-      if (failedSlots.length > 0) {
-        const totalOccurrences = rCount - 1;
+      // Souhrn série — bez tohoto větev tiše přeskočila výskyty, které se
+      // nepodařilo umístit NEBO se vůbec nevytvořily (zamítnutá kaskáda,
+      // finální review bod 5 — "objednal 10, dostal 2, nedozvěděl se nic").
+      const totalOccurrences = rCount - 1;
+      if (declinedMidSeries) {
+        showToast(
+          `Autoposun zrušen — vytvořeno ${createdChildren} z ${totalOccurrences} výskytů, zbytek se nevytvořil.`
+          + (failedSlots.length > 0 ? ` (${failedSlots.length} dalších se navíc nepodařilo umístit.)` : ""),
+          "info",
+        );
+      } else if (failedSlots.length > 0) {
         showToast(
           `Série: vytvořeno ${createdChildren}/${totalOccurrences} výskytů. ${failedSlots.length} se nepodařilo umístit — zkontroluj timeline.`,
           "error"
@@ -2731,7 +2776,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       }
     } catch (err) {
       // Uživatel kaskádu zamítl — zachází se s tím jako se zrušením celé dávky
-      // (stejný rollback jako u chyby), ale MLČKY: žádný toast, nic se nestalo záměrně.
+      // (stejný rollback jako u chyby). Tichý je jen ÚSPĚŠNÝ rollback (nic
+      // nezůstalo, nic se opravdu nestalo) — když rollback SÁM selže a bloky
+      // zůstanou v DB, ozve se i při zamítnutí (viz toast níž, finální review bod 4).
       const declined = err === CASCADE_DECLINED_SIGNAL;
       if (!declined) console.error("Group paste failed", err);
       // Rollback: smaž bloky, které se stihly vytvořit před selháním
@@ -2747,7 +2794,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           // allSettled zachovává pořadí — blok na indexu i odpovídá rollbackResults[i]
           const survivingBlocks = created.filter((_, i) => rollbackResults[i].status === "rejected");
           survivingBlocks.forEach((b) => handleBlockCreate(b));
-          if (!declined) showToast(`Chyba vložení — ${survivingBlocks.length} blok(ů) zůstal(y) v DB. Zkontroluj timeline.`, "error");
+          // Tenhle toast NENÍ o kaskádě — hlásí, že SELHAL ROLLBACK a bloky
+          // zůstaly v DB. To je pravda bez ohledu na to, jestli dávku zastavila
+          // chyba nebo uživatelovo "Zrušit" — mlčet by tu bylo horší než hláška
+          // (finální review, bod 4). Jen se přeformuluje, ať nezní jako pád.
+          showToast(
+            declined
+              ? `Vložení zrušeno — ${survivingBlocks.length} blok(ů) zůstal(y) v DB. Zkontroluj timeline.`
+              : `Chyba vložení — ${survivingBlocks.length} blok(ů) zůstal(y) v DB. Zkontroluj timeline.`,
+            "error",
+          );
           return;
         }
       }
@@ -3058,6 +3114,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         cancelLabel="Zrušit"
         danger
         autoFocusConfirm={false}
+        autoFocusCancel
         onConfirm={() => { cascadeAsk?.resolve(true); setCascadeAsk(null); }}
         onCancel={() => { cascadeAsk?.resolve(false); setCascadeAsk(null); }}
       />

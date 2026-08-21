@@ -58,7 +58,15 @@ export async function fetchWithCascadeConfirm(
 
   const confirmed = await ask(data.cascade);
   if (!confirmed) {
-    (res as Response & { [CASCADE_DECLINED]?: boolean })[CASCADE_DECLINED] = true;
+    // Zápis vlastnosti (byť symbolové) na `Response` je dnes bezpečný — je to
+    // běžný rozšiřitelný JS objekt. `try/catch` je jen pojistka pro budoucnost:
+    // kdyby `fetchImpl` jednou vracel zapečetěný/frozen obal (polyfill, mock),
+    // nesmí `TypeError` spadnout doprostřed mutační cesty jen kvůli tomuhle
+    // vedlejšímu příznaku (finální review, bod 7). Bez příznaku se odpověď
+    // chová jako dřív — volající ji prostě vyhodnotí jako běžné odmítnutí (409).
+    try {
+      (res as Response & { [CASCADE_DECLINED]?: boolean })[CASCADE_DECLINED] = true;
+    } catch { /* viz komentář výš — příznak je jen vylepšení, ne nutná podmínka */ }
     return res;
   }
 

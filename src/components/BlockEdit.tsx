@@ -112,8 +112,13 @@ export function BlockEdit({
   /** Vrací false, když mazání čeká na potvrzení (zamčený/vytištěný blok) — panel pak nezavírat. */
   onDeleteAll: (ids: number[]) => Promise<boolean | void>;
   onSaveAll: (ids: number[], payload: Record<string, unknown>) => Promise<boolean>;
-  /** Překlopení rezervace na zakázku včetně ostatních bloků téže rezervace. */
-  onFlipReservation?: (anchorId: number, payload: Record<string, unknown>, siblingIds: number[]) => Promise<boolean>;
+  /**
+   * Překlopení rezervace na zakázku včetně ostatních bloků téže rezervace.
+   * Třístavový výsledek, NE boolean — "declined" (uživatel zamítl kaskádu
+   * autoposunu) není totéž co "failed" (skutečná chyba); runFlip níž na ně
+   * reaguje jinak (viz komentář u volání).
+   */
+  onFlipReservation?: (anchorId: number, payload: Record<string, unknown>, siblingIds: number[]) => Promise<"ok" | "declined" | "failed">;
   /**
    * POVINNÉ, žádný default/fallback. Obě zápisové cesty tohoto panelu (Uložit
    * změny, Uložit termíny série) posílají `resolveChain: true` a mohou narazit
@@ -437,6 +442,11 @@ export function BlockEdit({
     let saved = 0;
     let attempted = 0;
     let skippedNoSlot = 0;
+    // Kolik výskytů se pokusů o uložení NEDOČKALO, protože uživatel kaskádu
+    // zamítl a smyčka se zastavila (viz `declined++`/`break` níž). Odečítá se
+    // od `attempted` PO smyčce — zamítnutí není pokus, který "selhal", takže
+    // nesmí kazit poměr saved/attempted v souhrnu (finální review, bod 3).
+    let declined = 0;
     const failedReasons: string[] = [];
     const savedAdjusted: Array<{ blockId: number; date: string; hour: number }> = [];
     // Iterujeme v chronologickém pořadí adjustedDate/Hour — totéž pořadí, v jakém
@@ -511,8 +521,14 @@ export function BlockEdit({
           savedAdjusted.push({ blockId: resolved.blockId, date: resolved.adjustedDate, hour: resolved.adjustedHour });
           saved++;
         } else if (isCascadeDeclined(res)) {
-          // Uživatel kaskádu pro tenhle výskyt zamítl — nic se nestalo,
-          // netahat do failedReasons (není to chyba).
+          // Uživatel kaskádu zamítl — nic se nestalo, netahat do failedReasons
+          // (není to chyba). Dávka je JEDNO gesto (askCascadeOnceForSeries),
+          // takže zamítnutí bereme za rozhodnutí o CELÉ zbývající sérii, ne jen
+          // o tomhle výskytu — bez `break` by se `askOncePerGesture` zeptal
+          // znovu u dalšího výskytu a plánovač by odklikával dialog opakovaně
+          // (finální review, bod 5).
+          declined++;
+          break;
         } else {
           const err = await res.json().catch(() => ({})) as { error?: string };
           if (err.error) failedReasons.push(err.error);
@@ -530,6 +546,10 @@ export function BlockEdit({
       }));
     }
     setSeriesOccSaving(false);
+    // Zamítnutí není "pokus, který selhal" — bez tohohle odečtu by souhrn hlásil
+    // "Uložení selhalo" nebo "N/M — některé selhaly" i tam, kde jediný "problém"
+    // byl uživatelův Zrušit (finální review, bod 3).
+    attempted -= declined;
     const skippedMsg = skippedNoSlot > 0
       ? ` ${skippedNoSlot} ${skippedNoSlot === 1 ? "blok" : "bloků"} nebylo možné naplánovat do 7 dní — zvol jiné datum.`
       : "";
@@ -804,14 +824,17 @@ export function BlockEdit({
       // Povinní (split) se do siblingIds nedávají — server je propaguje přes
       // SPLIT_SHARED_FIELDS už samotným PUTem na kotvu. siblingIds nese jen
       // volitelné, o kterých si plánovač řekl.
-      const ok = await onFlipReservation(
+      const result = await onFlipReservation(
         block.id,
         buildFlipPayload(num),
         includeSiblings ? optionalSiblings.map((b) => b.id) : [],
       );
-      // Chybu už ohlásil toast z PlannerPage; tady jen necháme panel otevřený
-      // s hláškou, aby plánovač viděl, že se nic neuložilo.
-      if (!ok) setError("Překlopení se nepovedlo. Zkuste to znovu.");
+      // Jen "failed" je skutečná chyba — tu ohlašuje i toast z PlannerPage, tady
+      // navíc necháme panel otevřený s červenou hláškou, ať plánovač vidí, že se
+      // nic neuložilo. "declined" (uživatel řekl kaskádě "Zrušit") NENÍ chyba:
+      // PlannerPage o tom případně informovala vlastním neutrálním toastem
+      // (částečně provedená dávka) — tady se nesmí objevit červený box.
+      if (result === "failed") setError("Překlopení se nepovedlo. Zkuste to znovu.");
     } finally {
       setSaving(false);
     }

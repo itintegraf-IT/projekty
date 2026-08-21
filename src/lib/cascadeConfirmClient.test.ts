@@ -149,3 +149,11 @@ test("úspěch po potvrzení příznak zamítnutí NEMÁ", async () => {
   assert.equal(res.status, 200);
   assert.equal(isCascadeDeclined(res), false);
 });
+
+test("potvrzeno, ale server vrátil 409 podruhé — příznak zamítnutí NESMÍ spolknout skutečnou chybu", async () => {
+  const body = { code: "CASCADE_CONFIRM", error: "…", cascade: { movedCount: 9, maxShiftMs: 1, farthestEnd: null } };
+  const { fn } = fakeFetch([{ status: 409, body }, { status: 409, body }]);
+  const res = await fetchWithCascadeConfirm("/api/blocks/1", "PUT", {}, async () => true, fn);
+  assert.equal(res.status, 409);
+  assert.equal(isCascadeDeclined(res), false);
+});

@@ -21,6 +21,18 @@ type ConfirmDialogProps = {
   width?: number;
   /** false, když si fokus po otevření bere vlastní obsah (input v children). */
   autoFocusConfirm?: boolean;
+  /**
+   * true = fokus po otevření dostane „Zrušit" (destruktivní/kaskádová akce, Enter
+   * má padnout na bezpečnou volbu). ZÁMĚRNĚ samostatný prop, NE odvozený od
+   * `!autoFocusConfirm` — `autoFocusConfirm={false}` dnes používají i dialogy,
+   * jejichž `children` má VLASTNÍ `autoFocus` prvek (input na důvod zamítnutí u
+   * mazání rezervace, tlačítko „Jen tento blok" u překlopení rozdělené rezervace).
+   * Odvození by jim to přebilo — `children` se renderuje PŘED tlačítky, takže by
+   * poslední namountovaný `autoFocus` (Zrušit) vyhrál nad jejich vlastním. Kdo
+   * chce fokus na Zrušit, musí si o něj řeknout EXPLICITNĚ (dnes jen kaskádový
+   * dialog v `PlannerPage.tsx`). Default `false` = beze změny pro všechny ostatní.
+   */
+  autoFocusCancel?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
@@ -35,6 +47,7 @@ export function ConfirmDialog({
   danger = false,
   width = 300,
   autoFocusConfirm = true,
+  autoFocusCancel = false,
   onConfirm,
   onCancel,
   children,
@@ -94,7 +107,7 @@ export function ConfirmDialog({
             variant="outline"
             size="sm"
             className="flex-1 text-xs h-9 border-slate-600 text-slate-300"
-            autoFocus={!autoFocusConfirm}
+            autoFocus={autoFocusCancel}
             onClick={onCancel}
           >
             {cancelLabel}
