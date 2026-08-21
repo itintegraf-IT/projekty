@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     const autoShiftIfBusy = body.autoShiftIfBusy === true;
     // resolveChain: nový blok zůstane na cíli a server odsune navazující (chain push).
     const resolveChain = body.resolveChain === true;
-    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu — nad prahem se bez toho transakce odroluje (409 CASCADE_CONFIRM, vynuceno od 21. 8. 2026).
     const cascadeConfirmed = body.cascadeConfirmed === true;
 
     let startTime = new Date(body.startTime);

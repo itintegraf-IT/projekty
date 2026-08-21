@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
   if (!machine || typeof machine !== "string" || !MACHINES.includes(machine as (typeof MACHINES)[number])) {
     return NextResponse.json({ error: `Neznámý stroj: ${machine ?? ""}` }, { status: 400 });
   }
-  // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+  // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu — nad prahem se bez toho transakce odroluje (409 CASCADE_CONFIRM, vynuceno od 21. 8. 2026).
   const cascadeConfirmed = body?.cascadeConfirmed === true;
   // resolveChain: vypínač autoposunu (Task 6D). Přepočet celého stroje posouvá cizí bloky
   // stejně jako drag — chybějící příznak (starý klient) znamená ZAPNUTO, `false` chain push

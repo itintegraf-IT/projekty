@@ -2563,3 +2563,33 @@ zamítnutí uživatelem se přestalo hlásit jako chyba.
 **`CASCADE_CONFIRM_ENFORCED` zůstává `false`.** Zapnutí vynuceného potvrzení je
 samostatný commit až po rozhodnutí o prahu (Lukáš navrhuje 3–4 dotčené bloky, dnešní
 default je 5) — mimo rozsah téhle etapy.
+
+## Etapa B4 — vynucení kaskádového prahu zapnuto (21. 8. 2026)
+
+Rozhodnutí Vojty: `CASCADE_CONFIRM_ENFORCED` přepnuto z `false` na `true`, práh
+zůstává `CASCADE_CONFIRM_MAX_BLOCKS = 5`. Dosavadní režim MĚŘENÍ (etapy A+C+6,
+18.–20. 8.) jen logoval překročení prahu a transakce prošla; od tohohle commitu
+`assertCascadeConfirmed` (`cascadeLimit.server.ts`) při překročení transakci
+odroluje a vrátí 409 `CASCADE_CONFIRM` — klient dopad ukáže v dialogu a po
+potvrzení zopakuje požadavek s `cascadeConfirmed: true`.
+
+**Proč zrovna teď:** všechny podmínky z Tasku B4 Step 1b byly splněné už etapou 6
+(dialog se ptá jednou za gesto přes `askOncePerGesture`, fokus po otevření na
+„Zrušit" přes `autoFocusCancel`, zamítnutí uživatelem se nehlásí jako chyba,
+strážný test hlídá párování). Navíc existuje per-uživatelský vypínač autoposunu
+(`autoshift`) jako tvrdá pojistka vedle tohohle měkkého dialogu.
+
+**Proč práh zůstává 5, ne Lukášův návrh 3–4:** z logu testovací instance vyšlo, že
+běžné přetažení plánovače posouvá 3–4 navazující bloky. Práh 5 tedy sedí těsně nad
+běžnou prací — dialog se ozve až u nezvyklé kaskády. Práh 3–4 by se ptal skoro
+pořád a dialog by přestal cokoli znamenat.
+
+**Rozsah změny:** jeden konstantní přepínač (`src/lib/cascadeLimit.ts`) + obrácená
+tvrzení ve třech testovacích souborech (`cascadeLimit.test.ts`,
+`cascadeLimit.server.test.ts`, `overlapResolver.server.test.ts` — nově ověřuje i
+`updateMock.mock.calls.length === 0` po odmítnutí, tedy že se nad prahem
+NEZAPSALO nic) + komentáře u čtení `cascadeConfirmed` na šesti zápisových cestách
+(POST/PUT/batch/split/reflow bloku/reflow stroje). Samotná logika (`chain push` →
+`measureCascade` → `assertCascadeConfirmed`) se neměnila, jen se přestala větvit
+do no-op větve. Celý přepínač je záměrně JEDEN commit, aby šel vrátit jedním
+`git revert`, kdyby se práh 5 v provozu ukázal špatně.

@@ -29,7 +29,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   }
 
   const body = (await request.json().catch(() => null)) as { cascadeConfirmed?: boolean; resolveChain?: boolean } | null;
-  // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+  // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu — nad prahem se bez toho transakce odroluje (409 CASCADE_CONFIRM, vynuceno od 21. 8. 2026).
   const cascadeConfirmed = body?.cascadeConfirmed === true;
   // resolveChain: vypínač autoposunu (Task 6D). „Přepočítat" je akce, kterou si uživatel
   // vyžádal, ale pořád posouvá cizí bloky stejně jako drag — chybějící příznak (starý

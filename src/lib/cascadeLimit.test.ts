@@ -101,7 +101,7 @@ test("CASCADE_CONFIRM má HTTP 409 — errorStatus je switch s default 500, tohl
   assert.equal(errorStatus("CASCADE_CONFIRM"), 409);
 });
 
-test("vlna se nasazuje v režimu MĚŘENÍ — vynucení se zapíná až samostatným commitem", () => {
-  assert.equal(CASCADE_CONFIRM_ENFORCED, false);
+test("práh je od 21. 8. 2026 VYNUCEN — CASCADE_CONFIRM_ENFORCED je true, práh zůstává 5", () => {
+  assert.equal(CASCADE_CONFIRM_ENFORCED, true);
   assert.equal(CASCADE_CONFIRM_MAX_BLOCKS, 5);
 });

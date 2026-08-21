@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     bypassScheduleValidation = body.bypassScheduleValidation === true;
     bypassOverlapCheck = body.bypassOverlapCheck === true;
     resolveChain = body.resolveChain === true;
-    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu — nad prahem se bez toho transakce odroluje (409 CASCADE_CONFIRM, vynuceno od 21. 8. 2026).
     cascadeConfirmed = body.cascadeConfirmed === true;
     autoShiftOff = autoShiftExplicitlyOff(body);
   } catch {

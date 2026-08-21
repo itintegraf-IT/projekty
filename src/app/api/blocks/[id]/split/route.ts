@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const splitAt = new Date((body as Record<string, unknown>).splitAt as string);
     if (isNaN(splitAt.getTime())) throw new AppError("VALIDATION_ERROR", "Neplatný čas rozdělení (splitAt).");
     const expectedUpdatedAt = (body as Record<string, unknown>).expectedUpdatedAt as string | undefined;
-    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
+    // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu — nad prahem se bez toho transakce odroluje (409 CASCADE_CONFIRM, vynuceno od 21. 8. 2026).
     const cascadeConfirmed = (body as Record<string, unknown>).cascadeConfirmed === true;
     // resolveChain: vypínač autoposunu (Task 6D). Do etapy 6 byl chain push ocasu u ZAKAZKY
     // BEZPODMÍNEČNÝ a tělo requestu `resolveChain` vůbec neneslo — proto `!== false`

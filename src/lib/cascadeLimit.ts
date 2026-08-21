@@ -12,12 +12,27 @@ import { formatPragueDateShort } from "@/lib/dateUtils";
 export const CASCADE_CONFIRM_MAX_BLOCKS = 5;
 
 /**
- * Vypnuto = režim MĚŘENÍ: překročení prahu se jen zaloguje a transakce projde.
- * Po týdnu provozu se z logu pozná, jak často by se aplikace ptala, a teprve
- * pak se konstanta přepne SAMOSTATNÝM commitem (etapa B4). NENÍ to feature flag
- * za běhu — je to jeden commit tam a druhý zpět.
+ * Zapnuto = práh se VYNUCUJE: překročení odroluje celou transakci a vrátí 409
+ * `CASCADE_CONFIRM` (`assertCascadeConfirmed`, `cascadeLimit.server.ts`).
+ * Uživatel dopad potvrdí v dialogu a požadavek se zopakuje s
+ * `cascadeConfirmed: true`, které kontrolu na daném volání přeskočí.
+ *
+ * Vynuceno od 21. 8. 2026 (rozhodnutí Vojty) — týden měření (etapy A+C+6,
+ * 18.–20. 8.) potvrdil, že podmínky z Tasku B4 Step 1b jsou splněné: dialog se
+ * ptá jednou za gesto, fokus sedí na „Zrušit", zamítnutí není chyba a strážný
+ * test hlídá párování. Navíc existuje vypínač autoposunu (`autoshift`
+ * preference) jako tvrdá pojistka vedle tohohle měkkého dialogu.
+ *
+ * Práh 5 je podložený měřením z logu testovací instance: běžné přetažení
+ * plánovače posouvá 3–4 navazující bloky. Práh 5 tedy sedí těsně nad běžnou
+ * prací — dialog se ozve až u nezvyklé kaskády, ne u každého druhého tahu.
+ * (Lukášův návrh 3–4 by se ptal skoro pořád a dialog by přestal cokoli
+ * znamenat.)
+ *
+ * NENÍ to feature flag za běhu — je to jeden commit tam (zapnutí, 21. 8. 2026)
+ * a druhý zpět (`git revert`), pokud se ukáže, že práh nesedí.
  */
-export const CASCADE_CONFIRM_ENFORCED = false;
+export const CASCADE_CONFIRM_ENFORCED = true;
 
 export type CascadeImpact = {
   /** Kolik bloků by se posunulo. */

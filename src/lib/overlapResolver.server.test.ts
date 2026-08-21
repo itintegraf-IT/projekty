@@ -274,15 +274,37 @@ describe("resolveChainPushFromDb", () => {
   });
 });
 
-describe("resolveChainPushFromDb — práh kaskády (režim měření)", () => {
-  it("chain push nad prahem se v režimu MĚŘENÍ nezastaví", async () => {
-    // CASCADE_CONFIRM_ENFORCED je false, takže i velká kaskáda projde — a to je
-    // záměr prvního týdne provozu. Test tím drží, že se vlna nasadí neškodná.
-    const { tx } = mkTx([
+describe("resolveChainPushFromDb — práh kaskády (vynuceno od 21. 8. 2026)", () => {
+  it("chain push nad prahem se ODMÍTNE — AppError CASCADE_CONFIRM, transakce se odroluje", async () => {
+    // CASCADE_CONFIRM_ENFORCED je true — překročení prahu hodí, nic se nezapíše.
+    const { tx, updateMock } = mkTx([
       ...Array.from({ length: 8 }, (_, k) => row(10 + k, 12 + k, 13 + k)),
     ]);
+    await assert.rejects(
+      () => resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) }),
+      (e: unknown) => isAppError(e) && e.code === "CASCADE_CONFIRM"
+    );
+    assert.equal(updateMock.mock.calls.length, 0, "transakce se odrolovala, nic se nemělo zapsat");
+  });
+
+  it("chain push pod prahem projde beze změny", async () => {
+    const { tx, updateMock } = mkTx([row(10, 12, 13), row(11, 13, 14)]);
     const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) });
+    assert.ok(moves.length <= 5);
+    assert.equal(updateMock.mock.calls.length, moves.length);
+  });
+
+  it("nad prahem, ale s cascadeConfirmed: true projde beze změny", async () => {
+    const { tx, updateMock } = mkTx([
+      ...Array.from({ length: 8 }, (_, k) => row(10 + k, 12 + k, 13 + k)),
+    ]);
+    const moves = await resolveChainPushFromDb(
+      tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) },
+      new Set<number>(), new Set<number>(),
+      { cascadeConfirmed: true },
+    );
     assert.ok(moves.length > 5);
+    assert.equal(updateMock.mock.calls.length, moves.length);
   });
 
   it("measureCascade nad výsledkem chain pushe vidí skutečný dopad", async () => {
@@ -297,13 +319,12 @@ describe("resolveChainPushFromDb — práh kaskády (režim měření)", () => {
 
   // `assertCascadeConfirmed` sama (co dělá v režimu MĚŘENÍ vs. VYNUCENÍ) má vlastní
   // testy v cascadeLimit.server.test.ts (mock.module na CASCADE_CONFIRM_ENFORCED —
-  // ten se v repu nesmí přepínat). Tady se testuje jen to, co je specifické PRO
-  // resolver: jestli se kontrola vůbec ZAVOLÁ, ne jak se chová při překročení.
-  // Protože CASCADE_CONFIRM_ENFORCED je v tomhle souboru záměrně nedotčené (`false`),
-  // "zavolala se kontrola" nejde poznat z hozené výjimky (v měřicím režimu nikdy
-  // nehodí) — pozná se z toho, že v měřicím režimu při překročení VŽDY zaloguje
-  // (`logger.info`, viz cascadeLimit.server.ts). Spy na logger.info je tedy čistší
-  // signál než cokoliv odvozené z chování `resolveChainPushFromDb` navenek.
+  // ten se v repu nesmí přepínat, tady se testuje reálný modul, tj. VYNUCENÍ).
+  // Tady se testuje jen to, co je specifické PRO resolver: jestli se kontrola
+  // vůbec ZAVOLÁ. S `CASCADE_CONFIRM_ENFORCED === true` se to dnes pozná přímo
+  // z hozené výjimky (kontrola proběhla → CASCADE_CONFIRM, transakce se
+  // odrolovala) i z logu (`logger.warn`, viz cascadeLimit.server.ts) —
+  // `skipCascadeCheck: true` obojí vynechá úplně.
   it("skipCascadeCheck: true nechá i velkou kaskádu projít BEZ kontroly (žádný log)", async () => {
     const infoSpy = mock.method(logger, "info", () => {});
     try {
@@ -322,17 +343,20 @@ describe("resolveChainPushFromDb — práh kaskády (režim měření)", () => {
     }
   });
 
-  it("bez skipCascadeCheck se kontrola provede (velká kaskáda se zaloguje)", async () => {
-    const infoSpy = mock.method(logger, "info", () => {});
+  it("bez skipCascadeCheck se kontrola provede (velká kaskáda se odmítne a zaloguje warn)", async () => {
+    const warnSpy = mock.method(logger, "warn", () => {});
     try {
-      const { tx } = mkTx([
+      const { tx, updateMock } = mkTx([
         ...Array.from({ length: 8 }, (_, k) => row(10 + k, 12 + k, 13 + k)),
       ]);
-      const moves = await resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) });
-      assert.ok(moves.length > 5);
-      assert.equal(infoSpy.mock.calls.length, 1);
+      await assert.rejects(
+        () => resolveChainPushFromDb(tx, "XL_105", { id: 1, startTime: H(10), endTime: H(13) }),
+        (e: unknown) => isAppError(e) && e.code === "CASCADE_CONFIRM"
+      );
+      assert.equal(warnSpy.mock.calls.length, 1);
+      assert.equal(updateMock.mock.calls.length, 0);
     } finally {
-      infoSpy.mock.restore();
+      warnSpy.mock.restore();
     }
   });
 });
