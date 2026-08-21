@@ -69,7 +69,18 @@ test("věta nese počet i nejzazší datum", () => {
   ]);
   const msg = cascadeConfirmMessage(i);
   assert.ok(msg.includes("1 navazujících bloků"), msg);
-  assert.ok(msg.includes(formatPragueDateShort(new Date("2026-08-21T06:00:00.000Z")).slice(0, -1)), msg);
+  assert.ok(msg.includes(formatPragueDateShort(new Date("2026-08-21T06:00:00.000Z")).replace(/\.$/, "")), msg);
+});
+
+test("věta obsahuje KOMPLETNÍ datum (ochranu proti useknutí číslice při změně Intl.DateTimeFormat)", () => {
+  // Test, který se provalí, pokud by .slice(0, -1) někdy useklo místo tečky poslední číslici.
+  // Ověřujeme, že v textu jsou přítomny DEN i MĚSÍC bez jejich useknutí.
+  const i = measureCascade([
+    move(1, "2026-08-18T08:00:00.000Z", "2026-08-20T09:00:00.000Z", "2026-08-21T06:00:00.000Z"),
+  ]);
+  const msg = cascadeConfirmMessage(i);
+  // formatPragueDateShort vrací např. "21. 08.", takže po odebrání tečky má být "21. 08"
+  assert.ok(msg.includes("21. 08"), `Věta musí obsahovat kompletní datum: "${msg}"`);
 });
 
 test("věta s datem má právě jednu tečku na konci, ne dvě — \"..\" se nesmí vyskytnout", () => {

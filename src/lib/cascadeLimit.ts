@@ -103,10 +103,15 @@ export function measureCascade(
 /**
  * Věta do potvrzovacího dialogu. Skloňování se neřeší — parita s dnešní hláškou
  * „Posunuto N navazujících bloků" (`PlannerPage.tsx`).
+ *
+ * Pozn. na formatPragueDateShort: vrací datum s koncovou tečkou (např. „03. 09."),
+ * věta si vlastní tečku doplňuje sama — proto se koncová tečka odebírá, aby
+ * nevznikly dvě za sebou. Odebrání je PODMÍNĚNÉ (replace), ne slepé (slice),
+ * aby se při změně výstupu Intl.DateTimeFormat neuřízla číslice.
  */
 export function cascadeConfirmMessage(i: CascadeImpact): string {
   const kam = i.farthestEnd
-    ? `, nejdál do ${formatPragueDateShort(i.farthestEnd).slice(0, -1)}`
+    ? `, nejdál do ${formatPragueDateShort(i.farthestEnd).replace(/\.$/, "")}`
     : "";
   return `Tato změna odsune ${i.movedCount} navazujících bloků${kam}. Potvrdit?`;
 }
