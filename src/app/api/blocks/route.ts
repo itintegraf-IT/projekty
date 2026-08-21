@@ -55,11 +55,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Hoistnuto NAD try — catch blok (overlapMessageFor/autoShiftExplicitlyOff) potřebuje
-  // `body`, ale `const` deklarovaná uvnitř try je scoped jen na try blok, ne na jeho catch.
+  // Hoistnuto NAD try — catch blok (overlapMessageFor) potřebuje `body`, ale `const`/`let`
+  // deklarovaná uvnitř try je scoped jen na try blok, ne na jeho catch (JS block scoping).
+  // `autoShiftOff` se navíc vyzvedává hned po parsování `body`, ne až v catch — tahle
+  // routa dnes z `body` nic nemaže, ale PUT `/api/blocks/[id]` to dělá (`allowed`/`body`
+  // sdílená reference) a přesně tenhle vzorec tam hlášku o vypnutém autoposunu tiše
+  // rozbil (naostro naměřeno 21. 8. 2026) — vyzvednutí hned po parsování je obrana
+  // proti tomu, aby to samé vzniklo i tady, kdyby někdy někdo `body` začal mutovat.
   let body: any;
+  let autoShiftOff = false;
   try {
     body = await request.json();
+    autoShiftOff = autoShiftExplicitlyOff(body);
 
     if (!body.orderNumber || !body.machine || !body.startTime || !body.endTime) {
       return NextResponse.json(
@@ -462,7 +469,7 @@ export async function POST(request: NextRequest) {
     if (isAppError(error)) {
       const status409 = error.code === "OVERLAP" || error.code === "AUTO_SHIFT_FAILED";
       const message = error.code === "OVERLAP"
-        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        ? overlapMessageFor(error.message, autoShiftOff)
         : error.message;
       return NextResponse.json(
         { error: message, code: error.code },

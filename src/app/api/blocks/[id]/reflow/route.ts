@@ -35,6 +35,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
   // vyžádal, ale pořád posouvá cizí bloky stejně jako drag — chybějící příznak (starý
   // klient) znamená ZAPNUTO, `resolveChain: false` chain push u tohoto bloku vypne.
   const resolveChain = body?.resolveChain !== false;
+  // autoShiftOff se vyzvedává TADY, hned vedle resolveChain, ne až v catch — `body`
+  // je tu sice `const` mimo try a dnes se nikde nemutuje, ale vzorec „vyzvedni hned
+  // po parsování, nečekej na catch" je obrana proti tomu, aby se sem nepřenesla past,
+  // kterou naostro naměřil test 21. 8. 2026 u PUT `/api/blocks/[id]` (tam `body`
+  // sdílí referenci s objektem, který se pak `delete`-uje).
+  const autoShiftOff = autoShiftExplicitlyOff(body);
 
   try {
     // Transakci otevírá `withRevision` — přepočítaný blok i bloky odsunuté jeho chain
@@ -107,7 +113,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
     if (isAppError(error)) {
       const message = error.code === "OVERLAP"
-        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        ? overlapMessageFor(error.message, autoShiftOff)
         : error.message;
       return NextResponse.json({ error: message, code: error.code }, { status: errorStatus(error.code) });
     }

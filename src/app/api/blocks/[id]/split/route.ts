@@ -38,9 +38,13 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function POST(request: NextRequest, { params }: RouteContext) {
   // Hoistnuto NAD try — `requireRole` níž může hodit AppError dřív, než se tělo stihne
-  // naparsovat, a catch blok pod tím potřebuje `body` (autoShiftExplicitlyOff) i v té
-  // větvi. Deklarace uvnitř try by tam skončila v TDZ (ReferenceError místo řízené 401/403).
+  // naparsovat, a catch blok pod tím potřebuje obě proměnné. Deklarace uvnitř try by
+  // tam skončila v TDZ (ReferenceError místo řízené 401/403). `autoShiftOff` se navíc
+  // vyzvedává hned po parsování `body`, ne až v catch — obrana proti pasti, kterou
+  // naostro naměřil test 21. 8. 2026 u PUT `/api/blocks/[id]` (tam `body` mutuje `delete`
+  // o pár řádků níž po přečtení, takže pozdní čtení vidělo vždy "zapnuto").
   let body: unknown = null;
+  let autoShiftOff = false;
   try {
     const session = await requireRole(["ADMIN", "PLANOVAT"]);
 
@@ -49,6 +53,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (isNaN(id)) throw new AppError("VALIDATION_ERROR", "Neplatné ID");
 
     body = await request.json();
+    autoShiftOff = autoShiftExplicitlyOff(body);
     const splitAt = new Date((body as Record<string, unknown>).splitAt as string);
     if (isNaN(splitAt.getTime())) throw new AppError("VALIDATION_ERROR", "Neplatný čas rozdělení (splitAt).");
     const expectedUpdatedAt = (body as Record<string, unknown>).expectedUpdatedAt as string | undefined;
@@ -280,7 +285,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     }
     if (isAppError(error)) {
       const message = error.code === "OVERLAP"
-        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        ? overlapMessageFor(error.message, autoShiftOff)
         : error.message;
       return NextResponse.json({ error: message }, { status: errorStatus(error.code) });
     }

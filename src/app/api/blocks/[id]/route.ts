@@ -21,7 +21,7 @@ import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { buildSplitPropagateAuditRows } from "@/lib/splitPropagateAudit";
 import { AUDITED_FIELDS, type AuditedField } from "@/lib/auditedFields";
 import { withRevision } from "@/lib/revision.server";
-import { autoShiftExplicitlyOff, overlapMessageFor } from "@/lib/autoShiftOff";
+import { overlapMessageFor } from "@/lib/autoShiftOff";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -68,9 +68,15 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
   }
 
-  // Hoistnuto NAD try — catch blok (overlapMessageFor/autoShiftExplicitlyOff) potřebuje
-  // `body`, ale `const` deklarovaná uvnitř try je scoped jen na try blok, ne na jeho catch.
+  // Hoistnuto NAD try — catch blok (overlapMessageFor) potřebuje obě proměnné, ale
+  // `const`/`let` deklarovaná uvnitř try je scoped jen na try blok, ne na jeho catch
+  // (JS block scoping — ověřeno, ne jen TDZ). `autoShiftOff` navíc MUSÍ být vyzvednuté
+  // ještě PŘED `delete (allowed as …).resolveChain` níž — pro ADMIN/PLANOVAT je `allowed`
+  // totožná reference jako `body`, takže by ho delete smazal z obou a catch by pak vždycky
+  // viděl "zapnuto" (naostro naměřeno na testu 21. 8. 2026, hláška o vypnutém autoposunu
+  // se u PUT nikdy neukázala).
   let body: any;
+  let autoShiftOff = false;
   try {
     body = await request.json();
 
@@ -116,6 +122,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     // je `allowed` totožná reference jako `body`, takže delete pole odstraní
     // i z body a kontrola v transakci by ho už nenašla (tichý lost update).
     const expectedUpdatedAtRaw = (body as Record<string, unknown>).expectedUpdatedAt;
+    // autoShiftOff (Task 6D) — zápis do PROMĚNNÉ HOISTNUTÉ NAD try (viz komentář výš),
+    // vyzvednuté TADY, PŘED `delete (allowed as …).resolveChain` níž. `allowed`/`body`
+    // je pro ADMIN/PLANOVAT jedna a tatáž reference, takže by delete smazal `resolveChain`
+    // z obou a catch by pak vždycky viděl "zapnuto".
+    autoShiftOff = (body as Record<string, unknown>).resolveChain === false;
     // Explicitně smazat příznaky z allowed — nesmí jít do prisma.block.update
     delete (allowed as Record<string, unknown>).bypassScheduleValidation;
     delete (allowed as Record<string, unknown>).bypassOverlapCheck;
@@ -748,7 +759,7 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         OVERLAP: 409,
       };
       const message = error.code === "OVERLAP"
-        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        ? overlapMessageFor(error.message, autoShiftOff)
         : error.message;
       return NextResponse.json(
         { error: message, code: error.code },

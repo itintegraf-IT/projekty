@@ -47,6 +47,10 @@ export async function POST(request: NextRequest) {
   // stejně jako drag — chybějící příznak (starý klient) znamená ZAPNUTO, `false` chain push
   // pro celý běh vypne.
   const resolveChain = body?.resolveChain !== false;
+  // autoShiftOff se vyzvedává TADY, hned vedle resolveChain, ne až v catch — stejná obrana
+  // jako u jednoblokového reflow: `body` je dnes `const` mimo try beze změny, past by hrozila
+  // až budoucí mutací, viz test 21. 8. 2026 u PUT `/api/blocks/[id]`.
+  const autoShiftOff = autoShiftExplicitlyOff(body);
 
   // In-flight guard — když přepočet TOHOTO stroje už běží, odmítni místo souběhu (self-DoS).
   if (reflowInFlight.get(machine)) {
@@ -129,7 +133,7 @@ export async function POST(request: NextRequest) {
     if (isAppError(error)) {
       logger.warn(`[POST /api/blocks/reflow] přepočet zastaven`, { machine, code: error.code, message: error.message });
       const message = error.code === "OVERLAP"
-        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        ? overlapMessageFor(error.message, autoShiftOff)
         : error.message;
       return NextResponse.json(
         { error: `Přepočet zastaven: ${message}`, code: error.code },
