@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { stripComments } from "@/lib/sourceTextTestUtils";
 
 /**
  * STRÁŽNÝ TEST ZAPOJENÍ — hlídá, že devět mutačních cest pořád píše do
@@ -68,43 +69,6 @@ const ROUTES: RouteExpectation[] = [
     actions: ["EXPEDITION_PUBLISH", "EXPEDITION_REORDER", "EXPEDITION_UNPUBLISH"],
   },
 ];
-
-/**
- * Zdroják bez komentářů, řetězce zachované.
- *
- * Musí se to udělat DŘÍV než cokoli jiného, jinak test lže v obou směrech:
- * český komentář typu „EXPEDITION" nese nepárovou uvozovku a posunul by hledání
- * řetězcových literálů o jednu (hodnota `action` by z meta „zmizela"), a naopak
- * komentář, který o `$transaction(` jen mluví, by vypadal jako obcházení obalu.
- */
-function stripComments(src: string): string {
-  const out: string[] = [];
-  let i = 0;
-  while (i < src.length) {
-    const ch = src[i];
-    if (ch === '"' || ch === "'" || ch === "`") {
-      const quote = ch;
-      const open = i;
-      i++;
-      while (i < src.length && src[i] !== quote) i += src[i] === "\\" ? 2 : 1;
-      i++;
-      out.push(src.slice(open, i));
-      continue;
-    }
-    if (ch === "/" && src[i + 1] === "/") {
-      while (i < src.length && src[i] !== "\n") i++;
-      continue;
-    }
-    if (ch === "/" && src[i + 1] === "*") {
-      const end = src.indexOf("*/", i + 2);
-      i = end === -1 ? src.length : end + 2;
-      continue;
-    }
-    out.push(ch);
-    i++;
-  }
-  return out.join("");
-}
 
 function readRoute(file: string): string {
   return stripComments(readFileSync(join(process.cwd(), file), "utf8"));
