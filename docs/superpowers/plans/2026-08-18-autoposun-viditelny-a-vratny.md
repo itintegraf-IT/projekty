@@ -1749,6 +1749,445 @@ git commit -m "feat(cascade): zapnuti vynuceni prahu po tydnu mereni"
 
 ---
 
+---
+
+# ETAPA 6 — dokončení autoposunové vlny (rozhodnutí V4)
+
+Vojta 19. 8.: **obojí** — dotáhnout potvrzovací dialog A postavit vypínač autoposunu. Obě pojistky
+se doplňují: vypínač je tvrdý (chain push se vůbec nespustí), dialog je měkký (spustí se, ale zeptá se).
+
+**`CASCADE_CONFIRM_ENFORCED` se v téhle etapě NEZAPÍNÁ.** Zapnutí je samostatný commit až po
+rozhodnutí o prahu — Lukáš navrhuje 3–4, dnešní default je 5. Postup zapnutí je popsaný v Tasku B4
+(Step 2–4) a tahle etapa plní jeho Step 1b, tedy podmínky, které musí být hotové PŘED zapnutím.
+
+**Kontext z jiných etap, se kterým je nutné počítat:**
+- Etapa 9 rozšířila `detectCalendarDrift` o REZERVACE s `printMinutes` a kaskádové texty jsou
+  přeformulované obecně („bloky", ne „zakázky", commit `e2426b4c`). Měření i potvrzení teď potkají
+  i rezervace — testy to musí odrážet.
+- `usesTiskoveHodiny` (`src/lib/blockGeometry.ts` nebo kde žije) je jediný zdroj pravdy o tom,
+  které typy jedou na tiskových hodinách. Nový kód se ho drží, neduplikuje podmínku na typ.
+
+---
+
+## Task 6A: Dialog se ptá JEDNOU za gesto (tři zbylá volající místa)
+
+Vzor `askCascadeOnceForGroup` už v `PlannerPage.tsx` existuje (group paste) a `askCascadeOnceForSeries`
+v `BlockEdit.tsx` (termíny série). Tři místa ho nepoužívají a ptají se per iterace.
+
+**Files:**
+- Modify: `src/app/_components/PlannerPage.tsx` — `putFlip` (překlopení rezervace, smyčka přes
+  sourozence), `handleSaveAll` (smyčka přes id), smyčka výskytů série z fronty
+- Modify: `src/lib/cascadeConfirmClient.test.ts`
+
+**Interfaces:**
+- Consumes: `fetchWithCascadeConfirm`, `CascadeAsk` (`src/lib/cascadeConfirmClient.ts`), `askCascade`
+- Produces: nic nového ven — jen lokální closury u volajících
+
+- [ ] **Step 1: Vytáhni „zeptej se jednou" do sdílené funkce**
+
+Tři kopie téže closury (group paste, série v BlockEditu, a nově tři další) jsou už čtyři až šest —
+to je moment, kdy se to má vytáhnout. Do `src/lib/cascadeConfirmClient.ts` přidej:
+
+```ts
+/**
+ * Obalí dotaz tak, aby se za JEDNO uživatelské gesto zeptal nejvýš JEDNOU.
+ *
+ * Gesto, které vyrobí N requestů (překlopení rezervace přes sourozence, hromadné
+ * uložení, série výskytů, vložení skupiny), by se jinak zeptalo až N×. Plánovač by
+ * odklikával tentýž dialog dokola a přestal by ho číst — přesně to riziko, kvůli
+ * kterému spec §7 chtěl týden měření před vynucením.
+ *
+ * Vrací NOVOU funkci se soukromou pamětí; každé gesto si musí vyrobit vlastní.
+ */
+export function askOncePerGesture(ask: CascadeAsk): CascadeAsk {
+  let confirmed = false;
+  return async (p) => {
+    if (confirmed) return true;
+    const ok = await ask(p);
+    if (ok) confirmed = true;
+    return ok;
+  };
+}
+```
+
+- [ ] **Step 2: Napiš padající test**
+
+Do `src/lib/cascadeConfirmClient.test.ts`:
+
+```ts
+test("askOncePerGesture: druhý a další požadavek se už neptá", async () => {
+  let asked = 0;
+  const once = askOncePerGesture(async () => { asked++; return true; });
+  assert.equal(await once({ movedCount: 6, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(await once({ movedCount: 9, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(await once({ movedCount: 3, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(asked, 1, "za jedno gesto se ptáme nejvýš jednou");
+});
+
+test("askOncePerGesture: po ZAMÍTNUTÍ se ptá znovu (paměť si drží jen souhlas)", async () => {
+  // Zamítnutí není rozhodnutí o celém gestu — uživatel odmítl JEDEN posun. Kdyby si
+  // wrapper pamatoval i „ne", tiše by zamítl i zbytek dávky bez zeptání.
+  let asked = 0;
+  const once = askOncePerGesture(async () => { asked++; return asked > 1; });
+  assert.equal(await once({ movedCount: 6, maxShiftMs: 1, farthestEnd: null }), false);
+  assert.equal(await once({ movedCount: 6, maxShiftMs: 1, farthestEnd: null }), true);
+  assert.equal(asked, 2);
+});
+
+test("askOncePerGesture: každé gesto má vlastní paměť", async () => {
+  let asked = 0;
+  const ask: CascadeAsk = async () => { asked++; return true; };
+  await askOncePerGesture(ask)({ movedCount: 6, maxShiftMs: 1, farthestEnd: null });
+  await askOncePerGesture(ask)({ movedCount: 6, maxShiftMs: 1, farthestEnd: null });
+  assert.equal(asked, 2, "druhé gesto se musí zeptat znovu");
+});
+```
+
+- [ ] **Step 3: Ověř, že padá, pak implementuj a ověř, že prochází**
+
+```bash
+node --test --import tsx src/lib/cascadeConfirmClient.test.ts
+```
+
+- [ ] **Step 4: Zapoj na třech místech a sjednoť dvě stávající**
+
+V `PlannerPage.tsx` u `putFlip`, `handleSaveAll` a smyčky výskytů série z fronty vyrob NAD smyčkou
+`const askOnce = askOncePerGesture(askCascade);` a předej `askOnce` do všech volání uvnitř té smyčky.
+
+**Zároveň nahraď obě ruční kopie** — `askCascadeOnceForGroup` v `PlannerPage.tsx` a
+`askCascadeOnceForSeries` v `BlockEdit.tsx` — voláním `askOncePerGesture`. Šest kopií téhož pravidla
+je přesně ta třída vady, kterou tenhle repozitář opakovaně řešil.
+
+- [ ] **Step 5: Kontroly a commit**
+
+```bash
+npx tsc --noEmit && npx eslint src/app/_components/PlannerPage.tsx src/components/BlockEdit.tsx
+node --experimental-test-module-mocks --test --import tsx \
+  src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+git commit -m "feat(cascade): dialog se pta jednou za gesto - sdilene askOncePerGesture"
+```
+
+---
+
+## Task 6B: Fokus na „Zrušit" a odmítnutá kaskáda není chyba
+
+**Files:**
+- Modify: `src/components/ConfirmDialog.tsx`
+- Modify: `src/app/_components/PlannerPage.tsx` (komentář u `askCascade`, zpracování zamítnutí)
+- Modify: `src/lib/cascadeConfirmClient.ts` (rozlišit zamítnutí od chyby)
+- Modify: `src/lib/cascadeConfirmClient.test.ts`
+
+- [ ] **Step 1: Fokus**
+
+`ConfirmDialog.tsx` má dnes `autoFocus={autoFocusConfirm}` jen na potvrzovacím tlačítku, takže při
+`autoFocusConfirm={false}` **nemá dialog klávesovou cestu vůbec** — Enter nedělá nic. Dej
+`autoFocus={!autoFocusConfirm}` na tlačítko „Zrušit". U destruktivní akce má být pod Enterem
+bezpečná volba, ne ta nebezpečná.
+
+Zároveň oprav komentář u `askCascade` v `PlannerPage.tsx`, který dnes tvrdí, že fokus na „Zrušit"
+je — teprve teď to bude pravda.
+
+- [ ] **Step 2: Zamítnutí není chyba**
+
+Dnes `fetchWithCascadeConfirm` po kliknutí „Zrušit" vrátí PŮVODNÍ 409 a volající ji zpracuje svou
+chybovou větví → červený toast s otázkou „…Potvrdit?", na kterou uživatel právě odpověděl Zrušit.
+
+Rozšiř návratovou hodnotu tak, aby zamítnutí šlo poznat, aniž by se rozbila stávající volající
+místa (dnes všechna čtou `Response`):
+
+```ts
+/**
+ * Uživatel kaskádu ZAMÍTL — na odpovědi visí tenhle příznak, aby ji volající
+ * nezpracoval jako chybu. Zamítnutí není selhání: nic se nestalo, protože to tak
+ * uživatel chtěl. Červený toast s otázkou, na kterou právě odpověděl „Zrušit",
+ * je matoucí a vypadá jako pád.
+ */
+export const CASCADE_DECLINED = Symbol.for("ig.cascadeDeclined");
+export function isCascadeDeclined(res: Response): boolean {
+  return (res as Response & { [CASCADE_DECLINED]?: boolean })[CASCADE_DECLINED] === true;
+}
+```
+`fetchWithCascadeConfirm` při zamítnutí příznak na vracenou `Response` nastaví.
+
+Na volajících místech, která dnes ukazují chybu z `data.error`, přidej před ni:
+```ts
+if (isCascadeDeclined(res)) return;   // uživatel kaskádu zamítl — nic se nestalo, mlčíme
+```
+
+**Tohle se musí projít u VŠECH volajících `fetchWithCascadeConfirm`.** Najdeš je
+`grep -rn "fetchWithCascadeConfirm" src/`. Mělo by jich být 15 (12 s příznakem + 3 bez).
+
+- [ ] **Step 3: Testy**
+
+```ts
+test("zamítnutí označí odpověď příznakem, ať ji volající nehlásí jako chybu", async () => {
+  const { fn } = fakeFetch([{ status: 409, body: { code: "CASCADE_CONFIRM", error: "…", cascade: { movedCount: 9, maxShiftMs: 1, farthestEnd: null } } }]);
+  const res = await fetchWithCascadeConfirm("/api/blocks/1", "PUT", {}, async () => false, fn);
+  assert.equal(res.status, 409);
+  assert.equal(isCascadeDeclined(res), true);
+});
+
+test("obyčejná chyba příznak zamítnutí NEMÁ", async () => {
+  const { fn } = fakeFetch([{ status: 409, body: { code: "OVERLAP", error: "koliduje" } }]);
+  const res = await fetchWithCascadeConfirm("/api/blocks/1", "PUT", {}, async () => true, fn);
+  assert.equal(isCascadeDeclined(res), false);
+});
+
+test("úspěch po potvrzení příznak zamítnutí NEMÁ", async () => {
+  const { fn } = fakeFetch([
+    { status: 409, body: { code: "CASCADE_CONFIRM", error: "…", cascade: { movedCount: 9, maxShiftMs: 1, farthestEnd: null } } },
+    { status: 200, body: { id: 1 } },
+  ]);
+  const res = await fetchWithCascadeConfirm("/api/blocks/1", "PUT", {}, async () => true, fn);
+  assert.equal(res.status, 200);
+  assert.equal(isCascadeDeclined(res), false);
+});
+```
+
+- [ ] **Step 4: Kontroly a commit**
+
+```bash
+npx tsc --noEmit && node --experimental-test-module-mocks --test --import tsx \
+  src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+git commit -m "feat(cascade): fokus na Zrusit a zamitnuta kaskada neni chyba"
+```
+
+---
+
+## Task 6C: Strážný test párování `skipCascadeCheck` ↔ souhrnné volání
+
+Dnes nic nehlídá, že každé místo, které vypne per-volání kontrolu, má párové souhrnné
+`assertCascadeConfirmed` nad celým gestem. Kdyby souhrn při refaktoru vypadl, dvě nejrizikovější
+gesta (hromadný přesun lasem, hromadný přepočet stroje) by práh ztratila **úplně a tiše** — per-volání
+kontrola je tam schválně vypnutá.
+
+**Files:**
+- Create: `src/lib/cascadeWiring.test.ts`
+
+Vzor je `src/lib/revisionWiring.test.ts`, který prochází zdrojáky regulárem.
+
+- [ ] **Step 1: Napiš strážný test**
+
+```ts
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+/**
+ * Párování `skipCascadeCheck` ↔ souhrnné `assertCascadeConfirmed`.
+ *
+ * `skipCascadeCheck: true` vypíná kontrolu prahu UVNITŘ `resolveChainPushFromDb`, protože
+ * u gesta s několika chain-push voláními by první volání vyhodilo výjimku s číslem jen
+ * ze sebe — uživatel by odklepl menší dopad, než jaký se provede. Autoritativní je souhrn
+ * za celé gesto. Kdyby ten souhrn vypadl, práh by u toho gesta neplatil VŮBEC a nic by
+ * nespadlo: per-volání kontrola je vypnutá, takže by mlčel i běžný provoz.
+ */
+const SOUBORY = [
+  { path: "src/app/api/blocks/batch/route.ts", souhrn: 'path: "batch-total"' },
+  { path: "src/lib/reflow.server.ts", souhrn: 'path: "reflow-machine"' },
+];
+
+for (const s of SOUBORY) {
+  test(`${s.path}: skipCascadeCheck má párové souhrnné assertCascadeConfirmed`, () => {
+    const src = readFileSync(s.path, "utf8");
+    assert.ok(src.includes("skipCascadeCheck: true"),
+      `${s.path} už neposílá skipCascadeCheck — jestli to je záměr, uprav i tenhle test`);
+    assert.ok(src.includes("assertCascadeConfirmed"),
+      `${s.path} vypíná per-volání kontrolu, ale nevolá souhrnné assertCascadeConfirmed — práh tam NEPLATÍ`);
+    assert.ok(src.includes(s.souhrn),
+      `${s.path} nevolá souhrn s ${s.souhrn} — bez něj nejde v logu poznat, že gesto práh překročilo`);
+  });
+}
+
+test("žádný DALŠÍ soubor neposílá skipCascadeCheck bez souhrnu", () => {
+  // Nový volající se skipCascadeCheck musí do seznamu výš přibýt VĚDOMĚ, i s párovým souhrnem.
+  const kandidati = [
+    "src/app/api/blocks/route.ts",
+    "src/app/api/blocks/[id]/route.ts",
+    "src/app/api/blocks/[id]/split/route.ts",
+    "src/app/api/blocks/[id]/reflow/route.ts",
+    "src/app/api/blocks/reflow/route.ts",
+  ];
+  for (const p of kandidati) {
+    const src = readFileSync(p, "utf8");
+    assert.ok(!src.includes("skipCascadeCheck"),
+      `${p} nově posílá skipCascadeCheck — přidej ho do SOUBORY i s párovým souhrnem, jinak tam práh tiše neplatí`);
+  }
+});
+```
+
+- [ ] **Step 2: Ověř, že test skutečně hlídá**
+
+Dočasně zakomentuj souhrnné `assertCascadeConfirmed` v `reflow.server.ts`, spusť test, ověř že
+**spadne**, a vrať zpět. Bez tohohle ověření je strážný test jen dekorace. V reportu to popiš.
+
+- [ ] **Step 3: Kontroly a commit**
+
+```bash
+node --test --import tsx src/lib/cascadeWiring.test.ts
+git commit -m "feat(cascade): strazny test parovani skipCascadeCheck se souhrnem"
+```
+
+---
+
+## Task 6D: Vypínač autoposunu
+
+Tvrdá pojistka vedle měkkého dialogu. Vypnuto ⇒ chain push se vůbec nespustí a kolize skončí 409
+s hláškou, která říká proč.
+
+**Files:**
+- Create: `src/lib/autoShiftOff.ts` (hláška — jediný zdroj pravdy)
+- Modify: `src/app/_components/PlannerPage.tsx` (přepínač v hlavičce, preference, `resolveChain`
+  na všech klientských cestách)
+- Modify: `src/app/_components/TimelineGrid.tsx` (drag, resize, split — příznak dolů)
+- Modify: `src/components/BlockEdit.tsx` (uložení, série)
+- Modify: `src/app/api/blocks/[id]/split/route.ts` (respektovat `resolveChain`)
+- Modify: šest routes (hláška při vypnutém autoposunu)
+- Create: `src/lib/autoShiftWiring.test.ts` (strážný test na všech 6 cest)
+
+**Interfaces:**
+```ts
+// src/lib/autoShiftOff.ts
+export const AUTOSHIFT_OFF_OVERLAP_MESSAGE =
+  "Posun koliduje s navazující zakázkou — autoposun je vypnutý, uvolni místo ručně.";
+/** Request výslovně vypnul autoposun (`resolveChain: false`), ne jen neposlal příznak. */
+export function autoShiftExplicitlyOff(body: unknown): boolean;
+/** Hláška pro OVERLAP: při vypnutém autoposunu vysvětlí PROČ se to neposunulo samo. */
+export function overlapMessageFor(originalMessage: string, autoShiftOff: boolean): string;
+```
+
+**Čtyři věci, na kterých to stojí:**
+
+1. **Preference, ne localStorage.** Lukáš má vypínač mít na každém počítači — `savePreference`
+   (`PlannerPage.tsx`), klíč `"autoshift"`, hodnota `"on"`/`"off"`. Načítá se ve stejném `useEffect`,
+   který už čte `zoom`/`aside-width`. `localStorage` je jen optimistická cache, jak to `savePreference`
+   dělá u ostatních klíčů. Viz paměť „nastavení: zařízení vs. uživatel".
+2. **Výchozí stav je ZAPNUTO.** Kdo si vypínač nikdy nenastavil, má chování jako dnes.
+3. **Split je jiný než ostatní.** Dnes pouští chain push **bezpodmínečně** (`split/route.ts:199`,
+   `if (block.type === "ZAKAZKA")`), request `resolveChain` vůbec nečte. Nově ho číst musí — ale
+   **chybějící příznak znamená ZAPNUTO** (`body.resolveChain !== false`), ne vypnuto. Jinak by starý
+   klient po nasazení tiše přišel o chain push u splitu. U ostatních pěti cest zůstává dnešní
+   `=== true`, protože ty klient vždycky posílá výslovně.
+4. **Vypínač se týká JEN chain pushe.** Snap vlastního taženého bloku do pracovní doby zůstává —
+   to je zámek pracovní doby, jiná funkce a jiný přepínač. Nepleť je.
+
+- [ ] **Step 1: Napiš padající testy**
+
+Vytvoř `src/lib/autoShiftOff.test.ts`:
+
+```ts
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { AUTOSHIFT_OFF_OVERLAP_MESSAGE, autoShiftExplicitlyOff, overlapMessageFor } from "./autoShiftOff";
+
+test("výslovné vypnutí se pozná; chybějící příznak vypnutí NENÍ", () => {
+  assert.equal(autoShiftExplicitlyOff({ resolveChain: false }), true);
+  assert.equal(autoShiftExplicitlyOff({ resolveChain: true }), false);
+  assert.equal(autoShiftExplicitlyOff({}), false, "chybějící příznak není vypnutí");
+  assert.equal(autoShiftExplicitlyOff(null), false);
+  assert.equal(autoShiftExplicitlyOff({ resolveChain: "false" }), false, "řetězec není false");
+});
+
+test("hláška se mění jen při vypnutém autoposunu", () => {
+  assert.equal(overlapMessageFor("Blok koliduje s blokem #18673 na stroji XL 105.", true),
+    AUTOSHIFT_OFF_OVERLAP_MESSAGE);
+  assert.equal(overlapMessageFor("Blok koliduje s blokem #18673 na stroji XL 105.", false),
+    "Blok koliduje s blokem #18673 na stroji XL 105.");
+});
+```
+
+A strážný test `src/lib/autoShiftWiring.test.ts`, který ověří, že **všech šest** serverových cest
+příznak čte:
+
+```ts
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+/**
+ * Vypínač autoposunu musí platit na VŠECH šesti cestách, které sahají na
+ * `resolveChainPushFromDb`. Kdyby ho jedna ignorovala, plánovač si autoposun vypne,
+ * a ta jedna cesta mu bloky posune dál — a on se to dozví až z plánu.
+ *
+ * Split je zvlášť: chain push tam byl do etapy 6 BEZPODMÍNEČNÝ (žádný `resolveChain`
+ * v těle requestu), takže se u něj kontroluje tvar `!== false` (chybějící příznak =
+ * zapnuto, kvůli zpětné snášenlivosti se starým klientem).
+ */
+const CESTY = [
+  { path: "src/app/api/blocks/route.ts", vzor: /resolveChain\s*===\s*true/ },
+  { path: "src/app/api/blocks/[id]/route.ts", vzor: /resolveChain\s*===\s*true/ },
+  { path: "src/app/api/blocks/batch/route.ts", vzor: /resolveChain\s*===\s*true/ },
+  { path: "src/app/api/blocks/[id]/split/route.ts", vzor: /resolveChain\s*!==\s*false/ },
+  { path: "src/app/api/blocks/[id]/reflow/route.ts", vzor: /resolveChain\s*!==\s*false/ },
+  { path: "src/app/api/blocks/reflow/route.ts", vzor: /resolveChain\s*!==\s*false/ },
+];
+
+for (const c of CESTY) {
+  test(`${c.path} respektuje vypínač autoposunu`, () => {
+    assert.match(readFileSync(c.path, "utf8"), c.vzor,
+      `${c.path} nečte resolveChain očekávaným způsobem — vypínač tam neplatí`);
+  });
+}
+```
+
+**Pozn. k oběma reflow cestám:** přepočet je akce, kterou si uživatel VYŽÁDAL kliknutím na
+„Přepočítat" — otázka je, jestli má vypnutý autoposun bránit i jí. **Rozhodnutí: ano, má.**
+Vypínač říká „neposouvej mi cizí bloky", a přepočet je posouvá stejně jako drag. Kdo si autoposun
+vypnul a klikne na Přepočítat, dostane přepočet vlastního bloku a kolizi ohlášenou, ne tichý posun
+sousedů. Reflow cesty proto čtou `!== false` (výchozí zapnuto, jako split).
+
+- [ ] **Step 2: Server — všech šest cest**
+
+- `src/lib/autoShiftOff.ts` podle rozhraní výš.
+- **Split**: `const resolveChain = body?.resolveChain !== false;` a chain push obal
+  `if (block.type === "ZAKAZKA" && resolveChain)`. Do komentáře napiš, proč je default `true`
+  (zpětná snášenlivost se starým klientem) — jinak to příští čtenář „sjednotí" na `=== true`
+  a starý klient přijde o chain push.
+- **Obě reflow cesty**: přečti `resolveChain !== false` z těla a předej do
+  `ReflowDeps`/`ReflowMachineDeps` jako `resolveChain?: boolean`; `reflowBlockInTx` chain push
+  přeskočí, když je `false`. Pozor: `reflowBlockInTx` musí i tak vrátit `moves: []` a korektní
+  `before`, ať krok historie sedí.
+- **Všech šest**: v catch větvi nahraď hlášku `overlapMessageFor(error.message, autoShiftOff)`
+  pro `error.code === "OVERLAP"`.
+
+- [ ] **Step 3: Klient — přepínač a příznak**
+
+- `PlannerPage.tsx`: `const [autoShift, setAutoShift] = useState(true);` + `autoShiftRef`.
+  Načtení v `useEffect` s ostatními preferencemi (`prefs["autoshift"] !== "off"`), zápis přes
+  `savePreference("autoshift", autoShift ? "on" : "off")`.
+- Přepínač v hlavičce **vedle zámku pracovní doby**, stejný vizuální jazyk (ikona + title, barvy
+  přes tokeny, **žádný hex literál**). Title: zapnuto → „Autoposun zapnutý — navazující bloky se
+  odsunou samy; klik pro vypnutí"; vypnuto → „Autoposun vypnutý — kolize se odmítne, místo uvolníš
+  ručně; klik pro zapnutí".
+- Všechna volání, která dnes posílají `resolveChain: true`, posílají `resolveChain: autoShiftRef.current`.
+  Najdeš je `grep -rn "resolveChain: true" src/` — pozor, u paste je příznak ve sdíleném staviteli
+  `buildPasteBody` a u splitu v těle vůbec není. **Spolehlivé kritérium je „volání míří na jednu ze
+  šesti serverových cest", ne „obsahuje literál"** — na tomhle už tahle vlna pětkrát naletěla.
+- `TimelineGrid.tsx` a `BlockEdit.tsx` příznak dostanou propem (povinným, bez defaultu — když ho
+  někdo zapomene předat, ať spadne `tsc`).
+- Split volání v `TimelineGrid` nově posílá `resolveChain` v těle.
+
+- [ ] **Step 4: Kontroly a commit**
+
+```bash
+npx tsc --noEmit && npx eslint src/app/_components/PlannerPage.tsx src/app/_components/TimelineGrid.tsx src/components/BlockEdit.tsx
+node --experimental-test-module-mocks --test --import tsx \
+  src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts
+git commit -m "feat(autoposun): vypinac autoposunu per uzivatel - vsech sest zapisovych cest"
+```
+
+- [ ] **Step 5: Ruční proklik (patří uživateli, neprovádět za něj)**
+
+- [ ] Vypnout autoposun → přetáhnout blok na obsazené místo → 409 s hláškou o vypnutém autoposunu
+- [ ] Vypnout autoposun → přetáhnout na VOLNÉ místo → projde, nic se neodsune
+- [ ] Vypnout autoposun → rozdělit zakázku, za kterou navazuje jiná → kolize se odmítne, neposune
+- [ ] Vypnout autoposun → „Přepočítat" na bloku → přepočte vlastní blok, sousedy neposune
+- [ ] Přepnout na jiném počítači → stav se drží (preference, ne localStorage)
+- [ ] Zapnout zpátky → chování jako dnes
+- [ ] Zámek pracovní doby funguje nezávisle na vypínači (jsou to dvě různé věci)
+
+---
+
 # ETAPA S — undo rozdělení zakázky (PŘED PRODUKCÍ)
 
 Objeveno 19. 8. 2026 při prokliku testovací instance. **Rozdělení zakázky nezapisuje krok do
