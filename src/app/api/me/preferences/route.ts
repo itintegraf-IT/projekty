@@ -48,11 +48,21 @@ export async function PUT(request: NextRequest) {
     }
 
     const ALLOWED_NUMERIC_KEYS = new Set(["zoom", "aside-width", "dtp-panel-width"]);
-    if (!ALLOWED_NUMERIC_KEYS.has(key)) {
+    // autoshift (Task 6D): vypínač autoposunu, hodnota je "on"/"off", ne číslo — proto
+    // vlastní allowlist místo ALLOWED_NUMERIC_KEYS výš.
+    const ALLOWED_ENUM_KEYS: Record<string, ReadonlySet<string>> = {
+      autoshift: new Set(["on", "off"]),
+    };
+    if (ALLOWED_NUMERIC_KEYS.has(key)) {
+      if (isNaN(Number(value))) {
+        throw new AppError("VALIDATION_ERROR", "Hodnota pro tento klíč musí být číslo.");
+      }
+    } else if (ALLOWED_ENUM_KEYS[key]) {
+      if (!ALLOWED_ENUM_KEYS[key].has(value)) {
+        throw new AppError("VALIDATION_ERROR", "Neplatná hodnota pro tento klíč.");
+      }
+    } else {
       throw new AppError("VALIDATION_ERROR", "Neznámý klíč preference.");
-    }
-    if (isNaN(Number(value))) {
-      throw new AppError("VALIDATION_ERROR", "Hodnota pro tento klíč musí být číslo.");
     }
 
     await prisma.userPreference.upsert({

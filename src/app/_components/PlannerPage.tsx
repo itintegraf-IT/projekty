@@ -32,7 +32,7 @@ import { ShiftCascadeDialog, type CascadeBlock } from "@/components/admin/ShiftC
 import { SearchField } from "@/components/SearchField";
 import { Label }     from "@/components/ui/label";
 import { Button }    from "@/components/ui/button";
-import { Lock, Unlock } from "lucide-react";
+import { Lock, Unlock, Zap, ZapOff } from "lucide-react";
 import ThemeToggle from "./ThemeToggle";
 import DatePickerField from "./DatePickerField";
 import { ToastContainer, useToast } from "@/components/ToastContainer";
@@ -100,7 +100,10 @@ const DEFAULT_SLOT_HEIGHT = 26;
 
 // POST tělo pro vložení kopie bloku (single i group paste) — jedna cesta, aby se
 // request flagy nerozešly mezi handlePasteWithTarget a handleGroupPasteWithTarget.
-function buildPasteBody(src: Block, machine: string, newStart: Date, newEnd: Date, bypass: boolean) {
+// `resolveChain` je POVINNÝ parametr (bez defaultu) — vypínač autoposunu (Task 6D) je tu
+// schovaný uvnitř sdíleného staviteli těla, ne jako literál na volajícím fetchi; kdo ho
+// zapomene předat, ať spadne tsc, ne aby se chain push tiše rozešel od zbytku aplikace.
+function buildPasteBody(src: Block, machine: string, newStart: Date, newEnd: Date, bypass: boolean, resolveChain: boolean) {
   return {
     ...blockToCreatePayload(src, {
       machine,
@@ -109,7 +112,7 @@ function buildPasteBody(src: Block, machine: string, newStart: Date, newEnd: Dat
       locked: false,
     }),
     bypassScheduleValidation: bypass,
-    resolveChain: true,
+    resolveChain,
   };
 }
 
@@ -152,6 +155,12 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const [workingTimeLock, setWorkingTimeLock] = useState(true);
   const workingTimeLockRef = useRef(true);
   workingTimeLockRef.current = workingTimeLock;
+
+  // Vypínač autoposunu (Task 6D) — tvrdá pojistka vedle měkkého kaskádového dialogu.
+  // Výchozí stav ZAPNUTO (chování jako dnes), dokud si plánovač nenastaví preferenci.
+  const [autoShift, setAutoShift] = useState(true);
+  const autoShiftRef = useRef(true);
+  autoShiftRef.current = autoShift;
 
   // ── Peek panel (TISKAR) ──
   // TISKAR: aktuálně zobrazený stroj (default = vlastní). Přepíná se v hlavičce
@@ -417,6 +426,14 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             localStorage.setItem("ig-planner-dtp-panel-width", String(v));
           }
         }
+        // autoshift (Task 6D): preference per uživatel, ne localStorage — Lukáš má mít
+        // vypínač na každém počítači. Chybějící klíč (nikdy nenastaveno) i cokoliv jiného
+        // než výslovné "off" znamená výchozí ZAPNUTO.
+        if (prefs["autoshift"]) {
+          const on = prefs["autoshift"] !== "off";
+          setAutoShift(on);
+          localStorage.setItem("ig-planner-autoshift", on ? "on" : "off");
+        }
       })
       .catch(() => {}); // tiché selhání — localStorage hodnoty z lazy initializerů zůstanou
   }, [isTiskar]);
@@ -425,6 +442,10 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   // výchozí hodnotu zpátky do localStorage i na server preferenci — beze smyslu,
   // navíc by to při každém mountu volalo API. Viz past popsaná u efektů výš.
   useEffect(() => { if (!isTiskar) savePreference("zoom", String(slotHeight)); }, [slotHeight, isTiskar]);
+
+  // autoshift (Task 6D) — stejný vzor jako zoom výš: uložit při každé změně, TISKAR toggle
+  // nemá (read-only, chain push nespouští), takže ho neukládá zbytečně opakovaně.
+  useEffect(() => { if (!isTiskar) savePreference("autoshift", autoShift ? "on" : "off"); }, [autoShift, isTiskar]);
 
   // Resizable aside
   const [asideWidth, setAsideWidth] = useState<number>(320);
@@ -1394,7 +1415,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
       const res = await fetchWithCascadeConfirm(
         `/api/blocks/${id}`,
         "PUT",
-        { ...body, resolveChain: true, ...(lock ? { expectedUpdatedAt: lock } : {}) },
+        { ...body, resolveChain: autoShiftRef.current, ...(lock ? { expectedUpdatedAt: lock } : {}) },
         askOnce,
       );
       if (isCascadeDeclined(res)) return null;
@@ -1570,7 +1591,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             machine: u.machine,
           })),
           bypassScheduleValidation: !workingTimeLockRef.current,
-          resolveChain: true,
+          resolveChain: autoShiftRef.current,
         },
         askCascade,
       );
@@ -1982,7 +2003,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const res = await fetchWithCascadeConfirm(
           `/api/blocks/${id}`,
           "PUT",
-          { ...blockPayload, resolveChain: true },
+          { ...blockPayload, resolveChain: autoShiftRef.current },
           askOnce,
         );
         if (isCascadeDeclined(res)) {
@@ -2280,7 +2301,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   async function handleReflowMachine(machine: string) {
     try {
-      const res = await fetchWithCascadeConfirm("/api/blocks/reflow", "POST", { machine }, askCascade);
+      const res = await fetchWithCascadeConfirm("/api/blocks/reflow", "POST", { machine, resolveChain: autoShiftRef.current }, askCascade);
       if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2307,7 +2328,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
 
   async function handleReflowBlock(blockId: number) {
     try {
-      const res = await fetchWithCascadeConfirm(`/api/blocks/${blockId}/reflow`, "POST", {}, askCascade);
+      const res = await fetchWithCascadeConfirm(`/api/blocks/${blockId}/reflow`, "POST", { resolveChain: autoShiftRef.current }, askCascade);
       if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2434,7 +2455,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         endTime: firstEnd.toISOString(),
         ...(isZakazka ? { printMinutes: pm } : {}),
         bypassScheduleValidation: !workingTimeLockRef.current,
-        resolveChain: true,
+        resolveChain: autoShiftRef.current,
       };
       const res1 = await fetchWithCascadeConfirm("/api/blocks", "POST", queueParentBody, askOnce);
       if (isCascadeDeclined(res1)) {
@@ -2489,7 +2510,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
                 ...(isZakazka ? { printMinutes: pm } : {}),
                 recurrenceParentId: parentBlock.id,
                 bypassScheduleValidation: !workingTimeLockRef.current,
-                resolveChain: true,
+                resolveChain: autoShiftRef.current,
                 autoShiftIfBusy: true,
               },
               askOnce,
@@ -2623,7 +2644,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         startTime: newStart.toISOString(),
         machine: target.machine,
         bypassScheduleValidation: !workingTimeLockRef.current,
-        resolveChain: true,
+        resolveChain: autoShiftRef.current,
       };
       if (freshIsZakazka) {
         moveBody.printMinutes = blockPrintMinutes(fresh);
@@ -2653,7 +2674,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
     }
     // Kompletní Block→payload mapa (audit #2) — kopie nese i pantone/SKLADEM/materialNote;
     // vkládá se vždy odemčená (locked: false). Sdílená cesta s group paste (buildPasteBody).
-    const pasteBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
+    const pasteBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current, autoShiftRef.current);
     try {
       const res = await fetchWithCascadeConfirm("/api/blocks", "POST", pasteBody, askCascade);
       if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
@@ -2765,7 +2786,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         const newStart = new Date(pasteMs + offsetMs);
         const newEnd = new Date(newStart.getTime() + durationMs);
         // Sdílená cesta s handlePasteWithTarget (buildPasteBody) — request flagy se nerozejdou.
-        const groupBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current);
+        const groupBody = buildPasteBody(src, target.machine, newStart, newEnd, !workingTimeLockRef.current, autoShiftRef.current);
         const res = await fetchWithCascadeConfirm("/api/blocks", "POST", groupBody, askOnce);
         if (isCascadeDeclined(res)) throw CASCADE_DECLINED_SIGNAL;
         if (!res.ok) {
@@ -3340,6 +3361,22 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               }}
             >{workingTimeLock ? <Lock size={14} strokeWidth={1.5} /> : <Unlock size={14} strokeWidth={1.5} />}</button>
           )}
+          {canEdit && (
+            <button
+              onClick={() => setAutoShift(p => !p)}
+              title={autoShift
+                ? "Autoposun zapnutý — navazující bloky se odsunou samy; klik pro vypnutí"
+                : "Autoposun vypnutý — kolize se odmítne, místo uvolníš ručně; klik pro zapnutí"}
+              style={{
+                width: 28, height: 28, borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: autoShift ? "color-mix(in oklab, var(--info) 12%, transparent)" : "var(--surface-2)",
+                border: `1px solid ${autoShift ? "color-mix(in oklab, var(--info) 30%, transparent)" : "var(--border)"}`,
+                color: autoShift ? "var(--info)" : "var(--text-muted)",
+                cursor: "pointer", transition: "all 120ms ease-out", padding: 0,
+              }}
+            >{autoShift ? <Zap size={14} strokeWidth={1.5} /> : <ZapOff size={14} strokeWidth={1.5} />}</button>
+          )}
 
           {/* Tier 2 — textová tlačítka */}
           {canEdit && (
@@ -3514,6 +3551,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onInfo={(msg) => showToast(msg, "info")}
             onCascadeConfirm={askCascade}
             workingTimeLock={workingTimeLock}
+            autoShift={autoShift}
             badgeColorMap={badgeColorMap}
             machineWeekShifts={machineWeekShifts}
             isTiskar={isTiskar}
@@ -3629,6 +3667,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               onSaveAll={handleSaveAll}
               onFlipReservation={handleFlipReservation}
               onCascadeConfirm={askCascade}
+              autoShift={autoShift}
               canEdit={canEdit}
               canEditData={canEditData}
               canEditDataDate={canEditDataDate}

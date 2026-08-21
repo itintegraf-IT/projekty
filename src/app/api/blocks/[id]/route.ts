@@ -21,6 +21,7 @@ import { SPLIT_SHARED_FIELDS } from "@/lib/splitSharedFields";
 import { buildSplitPropagateAuditRows } from "@/lib/splitPropagateAudit";
 import { AUDITED_FIELDS, type AuditedField } from "@/lib/auditedFields";
 import { withRevision } from "@/lib/revision.server";
+import { autoShiftExplicitlyOff, overlapMessageFor } from "@/lib/autoShiftOff";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -67,8 +68,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
   }
 
+  // Hoistnuto NAD try — catch blok (overlapMessageFor/autoShiftExplicitlyOff) potřebuje
+  // `body`, ale `const` deklarovaná uvnitř try je scoped jen na try blok, ne na jeho catch.
+  let body: any;
   try {
-    const body = await request.json();
+    body = await request.json();
 
     // Role-based field filter
     let allowed: Record<string, unknown>;
@@ -743,8 +747,11 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
         CONFLICT: 409,
         OVERLAP: 409,
       };
+      const message = error.code === "OVERLAP"
+        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        : error.message;
       return NextResponse.json(
-        { error: error.message, code: error.code },
+        { error: message, code: error.code },
         { status: statusMap[error.code] ?? 400 }
       );
     }

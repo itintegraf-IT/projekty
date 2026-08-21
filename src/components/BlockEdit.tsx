@@ -91,6 +91,7 @@ export function BlockEdit({
   onSaveAll,
   onFlipReservation,
   onCascadeConfirm,
+  autoShift,
   canEdit = true,
   canEditData = true,
   canEditDataDate = true,
@@ -126,6 +127,11 @@ export function BlockEdit({
    * dotazu je přesně vada, kterou tahle etapa řeší (nález review #1).
    */
   onCascadeConfirm: CascadeAsk;
+  /**
+   * Vypínač autoposunu (Task 6D) — BEZ výchozí hodnoty, stejný důvod jako
+   * `onCascadeConfirm` výš: kdo prop zapomene předat, ať spadne tsc.
+   */
+  autoShift: boolean;
   canEdit?: boolean;
   canEditData?: boolean;
   canEditDataDate?: boolean;
@@ -513,7 +519,7 @@ export function BlockEdit({
           // fetchWithCascadeConfirm s askCascadeOnceForSeries níž (nález review #1),
           // ne holý fetch, který by po zapnutí vynucení tiše "spadl" na chybu a
           // výskyt by se nezapsal.
-          resolveChain: true,
+          resolveChain: autoShift,
           // bypassScheduleValidation zůstává true záměrně — výskyty série jsou
           // deadline-driven na přesné datum. Server od etapy 2 ukládá spočítanou
           // konformitu (effectivelyBypassed) — ALE jen když PUT harmonogram
@@ -889,12 +895,14 @@ export function BlockEdit({
       const freshUpdatedAt = allBlocks.find((b) => b.id === block.id)?.updatedAt ?? block.updatedAt;
       const body = {
         ...payload,
-        resolveChain: true,
+        resolveChain: autoShift,
         ...(conflictOverride ? {} : { expectedUpdatedAt: freshUpdatedAt }),
       };
-      // resolveChain: true → chain push může vyvolat CASCADE_CONFIRM (409). Nejpoužívanější
-      // editační cesta v aplikaci, takže se MUSÍ ptát přes onCascadeConfirm (nález review #1) —
-      // holý fetch by 409 spadl do obecné větve níž bez možnosti potvrdit.
+      // resolveChain: autoShift — se zapnutým autoposunem může chain push vyvolat
+      // CASCADE_CONFIRM (409). Nejpoužívanější editační cesta v aplikaci, takže se MUSÍ
+      // ptát přes onCascadeConfirm (nález review #1) — holý fetch by 409 spadl do obecné
+      // větve níž bez možnosti potvrdit. Vypnutý autoposun chain push vůbec nespustí —
+      // kolize s navazujícím blokem skončí OVERLAP s vysvětlující hláškou (Task 6D).
       const res = await fetchWithCascadeConfirm(`/api/blocks/${block.id}`, "PUT", body, onCascadeConfirm);
       if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
       if (!res.ok) {

@@ -16,6 +16,7 @@ import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { buildBatchAuditRows } from "@/lib/batchAuditRows";
 import { withRevision } from "@/lib/revision.server";
+import { autoShiftExplicitlyOff, overlapMessageFor } from "@/lib/autoShiftOff";
 
 type BatchUpdate = {
   id: number;
@@ -37,6 +38,10 @@ export async function POST(request: NextRequest) {
   let bypassOverlapCheck = false;
   let resolveChain = false;
   let cascadeConfirmed = false;
+  // Vypínač autoposunu (Task 6D) — hoistnuto ze stejného důvodu jako `resolveChain` výš:
+  // druhý try/catch pár níž potřebuje vědět, jestli request VÝSLOVNĚ vypnul autoposun,
+  // aby uměl OVERLAP hlášku vysvětlit.
+  let autoShiftOff = false;
   try {
     const body = await request.json();
     if (!Array.isArray(body.updates) || body.updates.length === 0) {
@@ -49,6 +54,7 @@ export async function POST(request: NextRequest) {
     resolveChain = body.resolveChain === true;
     // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
     cascadeConfirmed = body.cascadeConfirmed === true;
+    autoShiftOff = autoShiftExplicitlyOff(body);
   } catch {
     return NextResponse.json({ error: "Neplatný JSON" }, { status: 400 });
   }
@@ -321,8 +327,9 @@ export async function POST(request: NextRequest) {
         CONFLICT: 409,
         SCHEDULE_VIOLATION: 422,
       };
+      const message = error.code === "OVERLAP" ? overlapMessageFor(error.message, autoShiftOff) : error.message;
       return NextResponse.json(
-        { error: error.message, code: error.code },
+        { error: message, code: error.code },
         { status: statusMap[error.code] ?? 400 }
       );
     }

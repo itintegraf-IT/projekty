@@ -75,6 +75,16 @@ export type ReflowDeps = {
    * celý běh (path "reflow-machine"), ne každé jednotlivé volání.
    */
   skipCascadeCheck?: boolean;
+  /**
+   * Vypínač autoposunu (Task 6D, etapa 6) — request-scoped `resolveChain` z těla
+   * HTTP requestu, protéká sem stejnou cestou jako `cascadeConfirmed`. Chybějící
+   * příznak (`undefined`) znamená ZAPNUTO — `/api/blocks/[id]/reflow` a hromadný
+   * reflow stroje ho do etapy 6 vůbec nečetly, takže starý klient nesmí tiše
+   * přijít o chain push. `false` chain push úplně vypne — `moves` pak zůstane
+   * prázdné a finální `assertNoOverlapForBlocks` sama chytí kolizi s neposunutým
+   * sousedem jako běžný OVERLAP.
+   */
+  resolveChain?: boolean;
 };
 
 const defaultDeps: ReflowDeps = { resolveChainPush: resolveChainPushFromDb };
@@ -203,15 +213,21 @@ export async function reflowBlockInTx(
 
   // Chain push navazujících bloků — kolize se zamčeným/vytištěným následníkem hází
   // AppError, záměrně NECHYTÁNO zde: bublá do route, transakce se odvolá.
-  const moves = await deps.resolveChainPush(
-    tx, block.machine, { id: blockId, startTime: newStart, endTime: newEnd },
-    new Set<number>(), new Set<number>(),
-    {
-      cascadeConfirmed: deps.cascadeConfirmed === true,
-      path: "reflow-block",
-      skipCascadeCheck: deps.skipCascadeCheck === true,
-    },
-  );
+  // resolveChain !== false: vypínač autoposunu (Task 6D) je pro reflow default
+  // ZAPNUTO — chybějící příznak chain push nevypíná (viz ReflowDeps.resolveChain).
+  // Vypnuto ⇒ moves zůstane [] a finální assertNoOverlapForBlocks níž kolizi
+  // s neposunutým sousedem chytí sama jako OVERLAP.
+  const moves = deps.resolveChain !== false
+    ? await deps.resolveChainPush(
+        tx, block.machine, { id: blockId, startTime: newStart, endTime: newEnd },
+        new Set<number>(), new Set<number>(),
+        {
+          cascadeConfirmed: deps.cascadeConfirmed === true,
+          path: "reflow-block",
+          skipCascadeCheck: deps.skipCascadeCheck === true,
+        },
+      )
+    : [];
 
   // Finální tvrdá pojistka — reflow (re-expanze + chain push) nesmí skončit překryvem.
   // Parita s POST/PUT/batch/split; jediná záruka souběhu v této transakci.
@@ -287,6 +303,12 @@ export type ReflowMachineDeps = {
    * běh), ne z principu.
    */
   cascadeConfirmed?: boolean;
+  /**
+   * Vypínač autoposunu (Task 6D) — protéká do KAŽDÉHO `reflowBlock` volání
+   * v běhu (viz `ReflowDeps.resolveChain`). Request-scoped, stejný důvod jako
+   * `cascadeConfirmed` výš.
+   */
+  resolveChain?: boolean;
 };
 
 const defaultReflowMachineDeps: ReflowMachineDeps = {
@@ -365,6 +387,7 @@ export async function reflowMachineInTx(
       resolveChainPush: resolveChainPushFromDb,
       preloadedCalendar,
       cascadeConfirmed,
+      resolveChain: deps.resolveChain,
       // Hromadný přepočet stroje kontroluje kaskádu na SOUČTU za celý běh (path
       // "reflow-machine" níž) — per-blok kontrola by u prvního driftnutého bloku
       // vyhodila výjimku s číslem jen z něj a "reflow-block" by se navíc v logu

@@ -11,6 +11,7 @@ import { cascadeConfirmBody } from "@/lib/cascadeResponse";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { withRevision } from "@/lib/revision.server";
+import { autoShiftExplicitlyOff, overlapMessageFor } from "@/lib/autoShiftOff";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -27,9 +28,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "Neplatné ID" }, { status: 400 });
   }
 
-  const body = (await request.json().catch(() => null)) as { cascadeConfirmed?: boolean } | null;
+  const body = (await request.json().catch(() => null)) as { cascadeConfirmed?: boolean; resolveChain?: boolean } | null;
   // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
   const cascadeConfirmed = body?.cascadeConfirmed === true;
+  // resolveChain: vypínač autoposunu (Task 6D). „Přepočítat" je akce, kterou si uživatel
+  // vyžádal, ale pořád posouvá cizí bloky stejně jako drag — chybějící příznak (starý
+  // klient) znamená ZAPNUTO, `resolveChain: false` chain push u tohoto bloku vypne.
+  const resolveChain = body?.resolveChain !== false;
 
   try {
     // Transakci otevírá `withRevision` — přepočítaný blok i bloky odsunuté jeho chain
@@ -44,6 +49,7 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         reflowBlockInTx(tx, id, { id: session.id, username: session.username }, {
           resolveChainPush: resolveChainPushFromDb,
           cascadeConfirmed,
+          resolveChain,
         }),
     );
 
@@ -100,7 +106,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
     }
     if (isAppError(error)) {
-      return NextResponse.json({ error: error.message, code: error.code }, { status: errorStatus(error.code) });
+      const message = error.code === "OVERLAP"
+        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        : error.message;
+      return NextResponse.json({ error: message, code: error.code }, { status: errorStatus(error.code) });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2028") {
       logger.warn(`[POST /api/blocks/${id}/reflow] transakce vypršela (P2028)`);

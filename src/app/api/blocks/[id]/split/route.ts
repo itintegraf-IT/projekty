@@ -15,6 +15,7 @@ import { assertNoOverlapForBlocks } from "@/lib/overlapCheck";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { withRevision } from "@/lib/revision.server";
+import { autoShiftExplicitlyOff, overlapMessageFor } from "@/lib/autoShiftOff";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -36,6 +37,10 @@ type RouteContext = { params: Promise<{ id: string }> };
  *    do přímé odpovědi stripNotesIfDenied, do SSE plné (per-connection strip v /api/events).
  */
 export async function POST(request: NextRequest, { params }: RouteContext) {
+  // Hoistnuto NAD try — `requireRole` níž může hodit AppError dřív, než se tělo stihne
+  // naparsovat, a catch blok pod tím potřebuje `body` (autoShiftExplicitlyOff) i v té
+  // větvi. Deklarace uvnitř try by tam skončila v TDZ (ReferenceError místo řízené 401/403).
+  let body: unknown = null;
   try {
     const session = await requireRole(["ADMIN", "PLANOVAT"]);
 
@@ -43,12 +48,18 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const id = parseInt(rawId, 10);
     if (isNaN(id)) throw new AppError("VALIDATION_ERROR", "Neplatné ID");
 
-    const body = await request.json();
-    const splitAt = new Date(body.splitAt);
+    body = await request.json();
+    const splitAt = new Date((body as Record<string, unknown>).splitAt as string);
     if (isNaN(splitAt.getTime())) throw new AppError("VALIDATION_ERROR", "Neplatný čas rozdělení (splitAt).");
     const expectedUpdatedAt = (body as Record<string, unknown>).expectedUpdatedAt as string | undefined;
     // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
     const cascadeConfirmed = (body as Record<string, unknown>).cascadeConfirmed === true;
+    // resolveChain: vypínač autoposunu (Task 6D). Do etapy 6 byl chain push ocasu u ZAKAZKY
+    // BEZPODMÍNEČNÝ a tělo requestu `resolveChain` vůbec neneslo — proto `!== false`
+    // (chybějící příznak = ZAPNUTO), NE `=== true` jako u POST/PUT/batch, kde ho klient
+    // vždycky posílá výslovně. Sjednocení na `=== true` by starému klientovi tiše vypnulo
+    // chain push u splitu.
+    const resolveChain = (body as Record<string, unknown>).resolveChain !== false;
 
     // Transakci otevírá `withRevision` — zkrácená hlava dostane revizi `kind: "UPDATE"`,
     // nově vzniklý ocas `kind: "CREATE"` a chain pushem odsunutí sousedé `kind: "UPDATE"`,
@@ -194,9 +205,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
         data: { blockId: tailCreated.id, orderNumber: tailCreated.orderNumber, userId: session.id, username: session.username, action: "CREATE" },
       });
 
-      // 9. Chain push ocasu (jen ZAKAZKA; ne-ZAKAZKA se nepřekládá).
+      // 9. Chain push ocasu (jen ZAKAZKA; ne-ZAKAZKA se nepřekládá). resolveChain: vypínač
+      // autoposunu (Task 6D) — vypnuto ⇒ shiftedMoves zůstane [] a finální
+      // assertNoOverlapForBlocks níž kolizi s neposunutým sousedem chytí jako OVERLAP.
       let shiftedMoves: AppliedMove[] = [];
-      if (block.type === "ZAKAZKA") {
+      if (block.type === "ZAKAZKA" && resolveChain) {
         shiftedMoves = await resolveChainPushFromDb(
           tx, block.machine,
           { id: tailCreated.id, startTime: tailCreated.startTime, endTime: tailCreated.endTime },
@@ -265,7 +278,12 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (isAppError(error) && error.code === "CASCADE_CONFIRM") {
       return NextResponse.json(cascadeConfirmBody(error), { status: errorStatus(error.code) });
     }
-    if (isAppError(error)) return NextResponse.json({ error: error.message }, { status: errorStatus(error.code) });
+    if (isAppError(error)) {
+      const message = error.code === "OVERLAP"
+        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        : error.message;
+      return NextResponse.json({ error: message }, { status: errorStatus(error.code) });
+    }
     logger.error("[POST /api/blocks/[id]/split] neočekávaná chyba", error);
     return NextResponse.json({ error: "Interní chyba serveru." }, { status: 500 });
   }

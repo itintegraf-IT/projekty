@@ -17,6 +17,7 @@ import { typeUsesTiskoveHodiny } from "@/lib/printTime";
 import { emitSSE } from "@/lib/eventBus";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { withRevision } from "@/lib/revision.server";
+import { autoShiftExplicitlyOff, overlapMessageFor } from "@/lib/autoShiftOff";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -54,8 +55,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Hoistnuto NAD try — catch blok (overlapMessageFor/autoShiftExplicitlyOff) potřebuje
+  // `body`, ale `const` deklarovaná uvnitř try je scoped jen na try blok, ne na jeho catch.
+  let body: any;
   try {
-    const body = await request.json();
+    body = await request.json();
 
     if (!body.orderNumber || !body.machine || !body.startTime || !body.endTime) {
       return NextResponse.json(
@@ -457,8 +461,11 @@ export async function POST(request: NextRequest) {
     }
     if (isAppError(error)) {
       const status409 = error.code === "OVERLAP" || error.code === "AUTO_SHIFT_FAILED";
+      const message = error.code === "OVERLAP"
+        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        : error.message;
       return NextResponse.json(
-        { error: error.message, code: error.code },
+        { error: message, code: error.code },
         { status: status409 ? 409 : 400 }
       );
     }

@@ -12,6 +12,7 @@ import { MACHINES } from "@/lib/machines";
 import { canAccessBlockNotes, stripNotesIfDenied, type NoteRole } from "@/lib/blockNotePermissions";
 import { withRevision } from "@/lib/revision.server";
 import { cascadeConfirmBody } from "@/lib/cascadeResponse";
+import { autoShiftExplicitlyOff, overlapMessageFor } from "@/lib/autoShiftOff";
 
 /**
  * Per-machine in-flight guard proti self-DoS: přepočet celého stroje otevírá 365denní okno
@@ -35,13 +36,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = (await request.json().catch(() => null)) as { machine?: string; cascadeConfirmed?: boolean } | null;
+  const body = (await request.json().catch(() => null)) as { machine?: string; cascadeConfirmed?: boolean; resolveChain?: boolean } | null;
   const machine = body?.machine;
   if (!machine || typeof machine !== "string" || !MACHINES.includes(machine as (typeof MACHINES)[number])) {
     return NextResponse.json({ error: `Neznámý stroj: ${machine ?? ""}` }, { status: 400 });
   }
   // cascadeConfirmed: uživatel velkou kaskádu odklepl v dialogu (zatím jen měření — CASCADE_CONFIRM_ENFORCED je false).
   const cascadeConfirmed = body?.cascadeConfirmed === true;
+  // resolveChain: vypínač autoposunu (Task 6D). Přepočet celého stroje posouvá cizí bloky
+  // stejně jako drag — chybějící příznak (starý klient) znamená ZAPNUTO, `false` chain push
+  // pro celý běh vypne.
+  const resolveChain = body?.resolveChain !== false;
 
   // In-flight guard — když přepočet TOHOTO stroje už běží, odmítni místo souběhu (self-DoS).
   if (reflowInFlight.get(machine)) {
@@ -73,6 +78,7 @@ export async function POST(request: NextRequest) {
           reflowBlock: reflowBlockInTx,
           detectDrift: detectCalendarDrift,
           cascadeConfirmed,
+          resolveChain,
         }),
     );
 
@@ -122,8 +128,11 @@ export async function POST(request: NextRequest) {
     }
     if (isAppError(error)) {
       logger.warn(`[POST /api/blocks/reflow] přepočet zastaven`, { machine, code: error.code, message: error.message });
+      const message = error.code === "OVERLAP"
+        ? overlapMessageFor(error.message, autoShiftExplicitlyOff(body))
+        : error.message;
       return NextResponse.json(
-        { error: `Přepočet zastaven: ${error.message}`, code: error.code },
+        { error: `Přepočet zastaven: ${message}`, code: error.code },
         { status: errorStatus(error.code) }
       );
     }

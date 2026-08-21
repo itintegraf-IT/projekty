@@ -286,6 +286,12 @@ interface TimelineGridProps {
    */
   onCascadeConfirm: CascadeAsk;
   workingTimeLock?: boolean;
+  /**
+   * Vypínač autoposunu (Task 6D) — BEZ výchozí hodnoty, stejně jako `onCascadeConfirm`
+   * výš. Kdo zapomene prop předat, ať spadne tsc, ne aby se chain push tiše choval
+   * jinak, než plánovač v hlavičce vidí.
+   */
+  autoShift: boolean;
   badgeColorMap?: Record<number, string | null>;
   machineWeekShifts?: MachineWeekShiftsRow[];
   isTiskar?: boolean;
@@ -616,6 +622,7 @@ export default function TimelineGrid({
   onInfo,
   onCascadeConfirm,
   workingTimeLock = true,
+  autoShift,
   badgeColorMap = {},
   machineWeekShifts,
   isTiskar,
@@ -718,6 +725,8 @@ export default function TimelineGrid({
   const autoScrollRef = useRef({ active: false, speed: 0, rafId: 0 });
   const lastMouseRef  = useRef({ clientX: 0, clientY: 0 });
   const workingTimeLockRef  = useRef(workingTimeLock);
+  const autoShiftRef        = useRef(autoShift);
+  autoShiftRef.current = autoShift;
   workingTimeLockRef.current = workingTimeLock;
   const machineWeekShiftsRef = useRef(machineWeekShifts);
   machineWeekShiftsRef.current = machineWeekShifts;
@@ -1126,7 +1135,7 @@ export default function TimelineGrid({
           startTime: newStart.toISOString(),
           machine: newMachine,
           bypassScheduleValidation: !workingTimeLockRef.current,
-          resolveChain: true,
+          resolveChain: autoShiftRef.current,
         };
         if (isZakazka && sourceBlock) {
           body.printMinutes = blockPrintMinutes(sourceBlock);
@@ -1157,7 +1166,7 @@ export default function TimelineGrid({
           const res     = await fetchWithCascadeConfirm(
             `/api/blocks/${ds.blockId}`,
             "PUT",
-            { endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: true },
+            { endTime: finalEnd >= minEnd ? finalEnd.toISOString() : minEnd.toISOString(), bypassScheduleValidation: !workingTimeLockRef.current, resolveChain: autoShiftRef.current },
             callbacksRef.current.onCascadeConfirm,
           );
           if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
@@ -1325,15 +1334,15 @@ export default function TimelineGrid({
     // zkrátí hlavu (end přes tiskové hodiny), vytvoří ocas (věrná kopie zakázky) a přeloží
     // navazující bloky. Nahradilo 3-request orchestr s LIFO kompenzací — žádný rozbitý mezistav
     // (selhání = rollback celé transakce). expectedUpdatedAt = optimistic lock proti souběhu.
-    // Tělo requestu NENESE `resolveChain` — u splitu není chain push opt-in, server ho
-    // u ZAKAZKY dělá bezpodmínečně (`/api/blocks/[id]/split/route.ts`). I tak potřebuje
-    // potvrzení velké kaskády stejně jako ostatní cesty, jinak dialog nikdy nedostane
-    // šanci se zeptat a rozdělení nad prahem skončí slepě na chybové hlášce.
+    // resolveChain (Task 6D): do etapy 6 tělo requestu tenhle příznak vůbec neneslo — server
+    // u ZAKAZKY dělal chain push bezpodmínečně. Nově se posílá výslovně, ať vypínač autoposunu
+    // platí i u splitu. I tak potřebuje potvrzení velké kaskády stejně jako ostatní cesty, jinak
+    // dialog nikdy nedostane šanci se zeptat a rozdělení nad prahem skončí slepě na chybové hlášce.
     try {
       const res = await fetchWithCascadeConfirm(
         `/api/blocks/${block.id}/split`,
         "POST",
-        { splitAt: splitAt.toISOString(), expectedUpdatedAt: block.updatedAt },
+        { splitAt: splitAt.toISOString(), expectedUpdatedAt: block.updatedAt, resolveChain: autoShiftRef.current },
         callbacksRef.current.onCascadeConfirm,
       );
       if (isCascadeDeclined(res)) return; // uživatel kaskádu zamítl — nic se nestalo, mlčíme
