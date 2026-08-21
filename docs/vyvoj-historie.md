@@ -2532,3 +2532,34 @@ filtruje `scheduleBypassed: false`); první adresné „Přepočítat" na takov�
 zkrátí ze současného (slitého) spanu na skutečnou tiskovou délku `printMinutes`, takže
 rezervace v `/rezervace` dostane kratší termín, než na jaký byla dřív zvyklá — plánovač
 to musí čekat, ne se tím nechat překvapit.
+
+## Etapa 6 — vypínač autoposunu (21. 8. 2026)
+
+Autoposunová vlna dosud dělala jen chain push samotný viditelný a vratný (etapy A+C,
+18. 8.); etapa 6 přidává možnost ho vůbec nepustit ke slovu. Nová per-uživatelská
+preference `autoshift` (výchozí zapnuto) se ovládá přepínačem v hlavičce planneru vedle
+zámku pracovní doby. Vypnuto ⇒ chain push se nespustí a kolize skončí 409 s hláškou,
+která to říká místo tichého selhání.
+
+**Vypínač platí na všech šesti serverových cestách**, které sahají na
+`resolveChainPushFromDb` (POST/PUT/batch/split/reflow ×2) — žádná z nich chain push
+nespouští mimo tuhle jednu bránu.
+
+**Dva různé tvary téže podmínky, záměrně.** `POST`/`PUT`/`batch` čtou `resolveChain ===
+true`, protože klient tenhle příznak posílá vždy výslovně. `split` a obě reflow cesty
+čtou `resolveChain !== false` — u nich příznak v těle dosud vůbec neexistoval, takže
+chybějící klíč musí znamenat ZAPNUTO; kdyby čekaly na výslovné `true`, starý klient (bez
+znalosti nového pole) by po nasazení tiše přišel o chain push, aniž by si toho kdokoli
+všiml.
+
+**Vypínač se netýká zámku pracovní doby** — snap vlastního taženého bloku na nejbližší
+platný slot je jiná funkce a přepínačem se neřídí.
+
+**Potvrzovací dialog dotažen** (drobnosti z recenze etapy 6, ne nová funkce): ptá se
+jednou za gesto přes sdílenou `askOncePerGesture` (dřív u série uměl vyskočit až 12×
+za sebou), fokus po otevření sedí na „Zrušit" přes nový prop `autoFocusCancel`, a
+zamítnutí uživatelem se přestalo hlásit jako chyba.
+
+**`CASCADE_CONFIRM_ENFORCED` zůstává `false`.** Zapnutí vynuceného potvrzení je
+samostatný commit až po rozhodnutí o prahu (Lukáš navrhuje 3–4 dotčené bloky, dnešní
+default je 5) — mimo rozsah téhle etapy.

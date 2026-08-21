@@ -701,3 +701,32 @@ ne od velikosti vstupního gesta — „posunul jsem o 30 minut" neznamená „d
 `computeChainPush`/`computeChainPushAttempt` (`src/lib/overlapResolver.ts`,
 volané z `resolveChainPushFromDb`) mají konstantu `MAX_RIGID_PUSH_MS` jen pro
 rezervaci/údržbu, ne pro zakázku — otevřený dluh, zapsaný i v `CLAUDE.md`.
+
+---
+
+## P32 — Umlčení chyby nesmí umlčet informaci
+
+**Co se stalo (recenze etapy 6, 21. 8. 2026, vypínač autoposunu):** Když se
+z uživatelské akce udělá „nic se nestalo", je správné nehlásit chybu — ale
+jen tehdy, když se opravdu nic nestalo. Recenze etapy 6 našla čtyři místa,
+kde se s umlčením zamítnuté kaskády ztratila i informace, kterou uživatel
+potřeboval: souhrn dávky hlásil zelené „Uloženo N" i pro výskyty, které se
+vůbec nezkusily uložit; a toast o SELHANÉM rollbacku (bloky zůstaly v DB) se
+umlčel taky, takže po kliknutí „Zrušit" mohl na plánu tiše zůstat blok navíc.
+
+**Pravidlo:** Ticho patří jen tam, kde se nic nestalo. U částečně provedené
+dávky se aplikace musí ozvat — neutrálně, ne červeně, ale musí.
+
+---
+
+## P33 — Nová preference se musí umět přečíst, ne jen zapsat
+
+**Co se stalo (etapa 6, 21. 8. 2026, vypínač autoposunu):** Vypínač
+autoposunu ukládal preferenci správně (server i localStorage), ale nikdo
+lokální cache po mountu nečetl. Po každém F5 — a při selhání načtení
+preferencí ze serveru po celou session — se tedy hlásil jako ZAPNUTÝ, ačkoli
+ho uživatel vypnul, a chain push mezitím běžel dál.
+
+**Pravidlo:** U nového nastavení vždy projít celý okruh zápis → obnovení
+stránky → čtení, včetně větve, kdy načtení ze serveru selže. Zapsat a
+nepřečíst je horší než neuložit vůbec — uživatel věří, že to platí.

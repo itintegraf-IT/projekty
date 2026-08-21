@@ -442,7 +442,9 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
         // u zoomu/aside-width/dtp-panel-width výš — čte ji efekt hned po mountu (viz
         // useEffect u `autoShift` state), server ji tady jen případně přepíše. Chybějící
         // klíč (nikdy nenastaveno) i cokoliv jiného než výslovné "off" znamená ZAPNUTO.
-        if (prefs["autoshift"]) {
+        // `!isTiskar` guard stejně jako u zoomu výš — sdílený kioskový localStorage by
+        // jinak mohl přenést cizí roli preferenci na TISKAR účet daného zařízení.
+        if (prefs["autoshift"] && !isTiskar) {
           const on = prefs["autoshift"] !== "off";
           setAutoShift(on);
           localStorage.setItem("ig-planner-autoshift", on ? "on" : "off");
