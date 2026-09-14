@@ -2617,3 +2617,32 @@ obrácení záměru ze 13. 8. 2026, kdy se zúžený řádek zavedl bez štítk�
   specifikace v něm dál není. Zapojení hlídá `src/lib/monitorChipsWiring.test.ts`.
 - `prisma/seed-monitor.ts` — `MON-2410`, včerejší neodklepnutá zakázka s barvami
   a lakem, na které jde sekci NEDODĚLÁNO ověřit.
+
+## Hover bublina nad sousedním strojem, s prodlevou 400 ms (14. 9. 2026)
+
+**Připomínka plánovače (září 2026, bod 2):** „Posunout okno s podrobnostmi mimo
+tiskový stroj, na kterém daná zakázka je zaplánována." Od 20. 8. seděla bublina
+pod kartou ve sloupci téhož stroje a zakrývala ~3,5 h navazujícího plánu;
+vyskakovala bez prodlevy, takže pre-pressu a MTZ při projíždění sloupcem blikala
+nad každou kartou.
+
+**Rozhodnutí Vojty (rozhodovací artefakt 14. 9. 2026):** O1 = A (nad druhý stroj,
+pravou hranou k jeho sloupci), O2 = A (prodleva 400 ms). Pevné místo („dok")
+zůstalo zamítnuté jako 19. 8.
+
+**Nové pravidlo.** `hoverTooltipPlacement()` v `src/lib/plannerHoverTooltip.ts`:
+soused vpravo, jinak vlevo; pravá hrana bubliny = pravá hrana souseda − 10 px;
+svisle ve výšce karty, sevřeno do okna. Záchranný režim = pravidlo z 20. 8.
+(tiskař s jedním sloupcem, chybějící hák, úzké okno, kde by bublina zasáhla do
+vlastního stroje). Tabulkové testy pokrývají rozložení plánovače, pre-pressu
+a MTZ na 1920 i 1366 px.
+
+**Kód.**
+- `src/components/planner/BlockHoverTooltip.tsx` — bublina vytažená z
+  `BlockCard.tsx` (pravidlo „extract before add", soubor měl 1856 řádků); sama si
+  drží naměřenou výšku, hledá sousední sloupec a počítá polohu.
+- `BlockCard.tsx` — stav `tooltipOpen` s časovačem `TOOLTIP_OPEN_DELAY_MS`;
+  `hovered` dál okamžitě řídí stín a vrstvu karty. Náhled poznámky MTZ sdílí
+  tutéž konstantu. Zapojení hlídá `src/lib/plannerHoverWiring.test.ts`.
+
+**Vědomý kompromis:** bublina dočasně zakryje pravý kraj karet druhého stroje.

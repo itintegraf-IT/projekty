@@ -1983,13 +1983,13 @@ export default function TimelineGrid({
                   </div>
                 )}
               {/* Sloupec stroje. Atribut `data-machine-col` je stabilní hák pro hover
-                  bublinu v BlockCard (oprava 17. 8. 2026): bublina se zarovnává pravou
-                  hranou k TOMUTO sloupci — jen tak nepřepadne do sousedního stroje
-                  a zároveň nezakryje levou hranu vlastní karty s chipy D/M/E/P.
-                  Pravidlo i jeho odůvodnění žijí v `src/lib/plannerHoverTooltip.ts`.
-                  Předchůdce `data-timeline-grid` na obalu mřížky zanikl: rozhodovat
-                  se podle STŘEDU mřížky přestalo dávat smysl ve chvíli, kdy strana
-                  bubliny přestala být volbou.
+                  bublinu (`BlockHoverTooltip.tsx`): od 14. 9. 2026 bublina hledá mezi
+                  SOUROZENCI s tímto atributem sousední stroj a staví se nad něj
+                  („mimo stroj zakázky"); vlastní sloupec slouží jen záchrannému
+                  režimu. Sloupce proto musí zůstat sourozenci v jednom rodiči
+                  a pořadí v DOM musí odpovídat pořadí zleva doprava — žádný obal
+                  kolem jednotlivého sloupce. Pravidlo žije v
+                  `src/lib/plannerHoverTooltip.ts`.
                   POZOR: komentář patří SEM, ne dovnitř `ContextMenuTrigger asChild` —
                   ten smí obalovat právě jeden prvek. */}
               <ContextMenu>

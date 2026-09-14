@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatPrintHoursShort, type CalendarDriftInfo } from "@/lib/printTimeClient";
 import { isParkedDrift } from "@/lib/calendarDriftUi";
@@ -39,6 +39,7 @@ import {
 import { type Block } from "@/app/_components/TimelineGrid";
 import { PrintDoneButton } from "@/components/planner/PrintDoneButton";
 import { BlockHoverTooltip } from "@/components/planner/BlockHoverTooltip";
+import { TOOLTIP_OPEN_DELAY_MS } from "@/lib/plannerHoverTooltip";
 import { printDoneSize, isBlockRunningNow, splitChipFits, splitChipFitsInHeaderRow, specBandFits, descLineClampFor, MIN_CARD_CONTENT_HEIGHT_PX } from "@/lib/tiskarBlockView";
 import { BlockDateChip, DEADLINE_BG, DEADLINE_BORDER, type DateChipState } from "@/components/planner/BlockDateChip";
 import { DEFAULT_FONT_SCALE, plannerTypeScale, type PlannerTypeScale } from "@/lib/plannerTypography";
@@ -197,7 +198,7 @@ function MaterialNoteAffordance({
   if (!hasNote) return inner;
 
   return (
-    <HoverCard openDelay={400} closeDelay={100}>
+    <HoverCard openDelay={TOOLTIP_OPEN_DELAY_MS} closeDelay={100}>
       <HoverCardTrigger asChild>{inner}</HoverCardTrigger>
       <HoverCardContent
         side="right" align="start"
@@ -317,6 +318,17 @@ export function BlockCard({
   const [badgeHovered, setBadgeHovered]   = useState(false);
   const [printPending, setPrintPending]   = useState(false);
   const blockCardRef = useRef<HTMLDivElement>(null);
+  // Hover bublina se otevírá až po TOOLTIP_OPEN_DELAY_MS nepřetržitého najetí
+  // (volba O2, 14. 9. 2026) — pre-press a MTZ jezdí myší po sloupci a bez
+  // prodlevy jim bublina blikala nad každou kartou. `hovered` výš dál OKAMŽITĚ
+  // řídí stín a vrstvu karty; prodleva se týká jen bubliny.
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Karta se může odmontovat dřív, než časovač doběhne (přetažení na jiný stroj,
+  // smazání, přepnutí dne) — úklid, ať se nevolá setState na odmontované kartě.
+  useEffect(() => () => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+  }, []);
   const compactDataTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compactMatTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const compactPanTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -682,8 +694,22 @@ export function BlockCard({
       data-block="true"
       data-planner-block-card="true"
       onMouseDown={(e) => { e.preventDefault(); if (!block.locked) onMouseDown?.(e); }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={() => {
+        setHovered(true);
+        if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+        tooltipTimerRef.current = setTimeout(() => {
+          tooltipTimerRef.current = null;
+          setTooltipOpen(true);
+        }, TOOLTIP_OPEN_DELAY_MS);
+      }}
+      onMouseLeave={() => {
+        setHovered(false);
+        if (tooltipTimerRef.current) {
+          clearTimeout(tooltipTimerRef.current);
+          tooltipTimerRef.current = null;
+        }
+        setTooltipOpen(false);
+      }}
       onClick={onClick}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
       style={{
@@ -1458,7 +1484,7 @@ export function BlockCard({
       <BlockHoverTooltip
         block={block}
         anchorRef={blockCardRef}
-        open={showTooltip && hovered}
+        open={showTooltip && hovered && tooltipOpen}
         splitTotal={splitTotal}
         splitTotalMinutes={splitTotalMinutes}
       />

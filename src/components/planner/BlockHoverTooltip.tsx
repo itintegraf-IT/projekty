@@ -7,7 +7,7 @@ import { blockPrintMinutes } from "@/lib/printTimeClient";
 import { usesTiskoveHodiny } from "@/lib/printTime";
 import { Z_OVERLAY } from "@/lib/zLayers";
 import { civilDateToUTCMidnight, normalizeCivilDateInput } from "@/lib/dateUtils";
-import { hoverTooltipLeft, hoverTooltipTop, TOOLTIP_W } from "@/lib/plannerHoverTooltip";
+import { hoverTooltipPlacement, TOOLTIP_W, type ColumnBox } from "@/lib/plannerHoverTooltip";
 
 /**
  * Hover bublina nad kartou bloku v planneru („okno s podrobnostmi").
@@ -51,26 +51,27 @@ export function BlockHoverTooltip({
   if (!rect || typeof document === "undefined") return null;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  // Bublina se zarovná pravou hranou ke sloupci VLASTNÍHO stroje: nepřepadne
-  // do sousedního sloupce a zároveň nezakryje levou hranu karty s chipy
-  // D/M/E/P. Pravidlo, jeho odůvodnění i to, co neřeší, viz
+  // Poloha: nad SOUSEDNÍM strojem, pravou hranou k jeho sloupci, ve výšce karty;
+  // záchranný režim (tiskař s jedním sloupcem, chybějící hák, úzké okno) =
+  // dřívější pravidlo pod kartou. Pravidlo, pořadí záchran i historie viz
   // `src/lib/plannerHoverTooltip.ts` — tady zůstává jen odečet geometrie.
   //
-  // Když hák `[data-machine-col]` nenajdeme (mřížka se nestihla vykreslit),
-  // spadneme na pravou hranu samotné karty. Ta sloupec vyplňuje na 3 px
-  // přesně (`left: 3` + `calc(100% - 6px)` v `BlockCard.tsx`), takže je to
-  // věrná náhrada — a obrazovka u stroje kvůli bublině spadnout nesmí.
-  const colEl = anchorRef.current?.closest("[data-machine-col]");
-  const columnRight = colEl?.getBoundingClientRect().right ?? rect.right + 3;
-  const left = hoverTooltipLeft({ columnRight, viewportWidth: vw });
-  // Svislé umístění: pod kartou, s flipem nahoru u spodního okraje okna
-  // a clampem do okna jako poslední záchranou. Pravidlo, jeho pořadí
-  // i odůvodnění viz `src/lib/plannerHoverTooltip.ts` — tady zůstává
-  // jen odečet geometrie, stejně jako u vodorovného `left` výš.
-  const top = hoverTooltipTop({
-    cardTop: rect.top,
-    cardBottom: rect.bottom,
+  // Sloupce strojů jsou v mřížce sourozenci s hákem `data-machine-col`
+  // (`TimelineGrid.tsx`), pořadí v DOM = pořadí zleva doprava.
+  const colEl = anchorRef.current?.closest("[data-machine-col]") ?? null;
+  const siblings = colEl?.parentElement
+    ? Array.from(colEl.parentElement.children).filter((el) => el.hasAttribute("data-machine-col"))
+    : [];
+  const columns: ColumnBox[] = siblings.map((el) => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right };
+  });
+  const { left, top } = hoverTooltipPlacement({
+    columns,
+    ownIndex: colEl ? siblings.indexOf(colEl) : -1,
+    cardRect: { top: rect.top, bottom: rect.bottom, right: rect.right },
     tooltipHeight,
+    viewportWidth: vw,
     viewportHeight: vh,
   });
   // Format time
