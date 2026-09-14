@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildMonitorChips } from "./monitorChips.js";
+import { buildMonitorChips, monitorChipsRowStyle } from "./monitorChips.js";
 import { serializeProductionTags } from "./productionTags.js";
 import type { Block } from "../app/_components/TimelineGrid.js";
 
@@ -196,4 +196,20 @@ test("buildMonitorChips: text barev a laku se jen ořízne o okrajové mezery, j
       { label: "vysoce lesklá disperse", tone: "plain" },
     ],
   );
+});
+
+test("monitorChipsRowStyle: na velké kartě smí štítky ustoupit jako první (pojistka časové osy)", () => {
+  const s = monitorChipsRowStyle("hero");
+  assert.equal(s.minHeight, 0);
+  assert.equal(s.overflow, "hidden");
+  assert.equal(s.flexWrap, "wrap");
+  assert.equal(s.gap, 6);
+});
+
+test("monitorChipsRowStyle: ve frontě štítky rostou do výšky a nic se neořezává", () => {
+  const s = monitorChipsRowStyle("queue");
+  assert.equal(s.minHeight, undefined);
+  assert.equal(s.overflow, undefined);
+  assert.equal(s.flexWrap, "wrap");
+  assert.equal(s.gap, 5);
 });

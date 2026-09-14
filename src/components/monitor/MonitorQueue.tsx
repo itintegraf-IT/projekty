@@ -29,7 +29,8 @@ type Props = {
  * Pravý sloupec Monitoru — zakázky na stroji: nedodělané z minulých dnů
  * (sekce NEDODĚLÁNO, zúženým řádkem, všechny bez stropu), dnešek a zítřek.
  * Dnes/Zítra nesou totéž, co velká karta: číslo, popis, čas, amber pás se
- * specifikací a výrobní i stavové chipy. Odklepnuté jsou ztlumené se zeleným
+ * specifikací a výrobní i stavové štítky. NEDODĚLÁNO má štítky taky (od
+ * 14. 9. 2026), jen bez pásu specifikace. Odklepnuté jsou ztlumené se zeleným
  * háčkem (včetně pásu), zakázka na velké kartě zvýrazněná. Kliknutí ji
  * vytáhne na velkou kartu (tiskař tím přebíjí pořadí od plánovače).
  */
@@ -79,10 +80,13 @@ function QueueSection({
   tone?: "muted" | "warning";
   /** Řádek ukáže i den, ne jen čas. Povinné u zakázek z minulých dnů. */
   showDate?: boolean;
-  /** Zúžený řádek: jen číslo, popis a čas. Bez pásu specifikace a bez chipů.
-   *  Sekce NEDODĚLÁNO umí mít i deset položek (ostrá data 12. 8. 2026: XL 106
-   *  jich má devět) a v plném tvaru by zatlačila nadpis „DNES" pod okraj
-   *  obrazovky. Detaily tiskař dostane kliknutím — vyjede velká karta. */
+  /** Zúžený řádek: číslo, popis, čas a štítky — bez pásu specifikace.
+   *  Štítky dostal 14. 9. 2026 (volba M2 = B: tiskaři mají vidět všechny
+   *  štítky i u nedodělaných zakázek). Sekce NEDODĚLÁNO umí mít i deset
+   *  položek (ostrá data 12. 8. 2026: XL 106 jich měla devět) a se štítky
+   *  se prodlouží — fronta ale scrolluje (`overflowY: auto` výš), takže DNES
+   *  zůstává dosažitelná. Pás specifikace a detail vyjedou kliknutím na
+   *  velké kartě. */
   compact?: boolean;
 }) {
   if (blocks.length === 0) return null;
@@ -113,7 +117,7 @@ function QueueSection({
             key={b.id}
             onClick={(e) => { if (e.button !== 0) return; onSelect(b); }}
             style={{
-              display: "flex", flexDirection: "column", alignItems: "stretch", gap: compact ? 0 : 7,
+              display: "flex", flexDirection: "column", alignItems: "stretch", gap: compact ? 5 : 7,
               padding: compact ? "7px 12px" : "10px 12px",
               borderRadius: 10,
               textAlign: "left",
@@ -182,7 +186,9 @@ function QueueSection({
               </span>
             )}
 
-            {!compact && <MonitorChips block={b} size="queue" ts={ts} />}
+            {/* Štítky kreslí i zúžený řádek NEDODĚLÁNO (14. 9. 2026, volba M2 = B) —
+                hlídá to `src/lib/monitorChipsWiring.test.ts`. */}
+            <MonitorChips block={b} size="queue" ts={ts} />
           </button>
         );
       })}

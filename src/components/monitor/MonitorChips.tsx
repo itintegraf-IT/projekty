@@ -1,7 +1,7 @@
 "use client";
 
 import type { Block } from "@/app/_components/TimelineGrid";
-import { buildMonitorChips, type MonitorChipTone } from "@/lib/monitorChips";
+import { buildMonitorChips, monitorChipsRowStyle, type MonitorChipTone } from "@/lib/monitorChips";
 import type { MonitorTypeScale } from "@/lib/monitorTypography";
 
 /**
@@ -15,7 +15,7 @@ export function MonitorChips({ block, size, ts }: { block: Block; size: "hero" |
   const hero = size === "hero";
 
   return (
-    <span style={{ display: "flex", flexWrap: "wrap", gap: hero ? 6 : 5 }}>
+    <span style={monitorChipsRowStyle(size)}>
       {chips.map((c, i) => (
         <span
           key={`${c.label}-${i}`}

@@ -2593,3 +2593,27 @@ NEZAPSALO nic) + komentáře u čtení `cascadeConfirmed` na šesti zápisových
 `measureCascade` → `assertCascadeConfirmed`) se neměnila, jen se přestala větvit
 do no-op větve. Celý přepínač je záměrně JEDEN commit, aby šel vrátit jedním
 `git revert`, kdyby se práh 5 v provozu ukázal špatně.
+
+## Štítky BARVY a LAK na Monitoru, i v sekci NEDODĚLÁNO (14. 9. 2026)
+
+**Připomínka plánovače (září 2026, bod 1):** „Zobrazit tiskařům v Monitoru
+všechny štítky." Štítky jsou v aplikaci šestice DATA · MATERIÁL · BARVY · LAK ·
+ARCHY · SÉRIE; `buildMonitorChips` z ní neměl barvy a lak, přestože je karta
+v plánu kreslí a tiskař je v plánu vidí.
+
+**Rozhodnutí Vojty (rozhodovací artefakt 14. 9. 2026):** M1 = A (doplnit jen
+barvy a lak, bez termínů a poznámek), M2 = B (štítky i v sekci NEDODĚLÁNO —
+obrácení záměru ze 13. 8. 2026, kdy se zúžený řádek zavedl bez štítků).
+
+**Kód.**
+- `src/lib/monitorChips.ts` — barvy a lak za PANTONE, před variantou, tón
+  `plain`: na Monitoru zelená znamená „připraveno" a jantarová „čeká", a takový
+  stav barvy ani lak nemají. Karta v plánu je barví podle číselníku — vědomá
+  odchylka, zapsaná v hlavičce funkce.
+- `monitorChipsRowStyle()` — pojistka velké karty. Obal štítků smí jako jediný
+  prvek obsahu zmenšit výšku pod obsah, takže na XL a nízké obrazovce ustoupí
+  štítky, ne časová osa tisku (spec odd. 1.3). `MonitorView.tsx` se neměnil.
+- `MonitorQueue.tsx` — zúžený řádek NEDODĚLÁNO kreslí `MonitorChips`, pás
+  specifikace v něm dál není. Zapojení hlídá `src/lib/monitorChipsWiring.test.ts`.
+- `prisma/seed-monitor.ts` — `MON-2410`, včerejší neodklepnutá zakázka s barvami
+  a lakem, na které jde sekci NEDODĚLÁNO ověřit.

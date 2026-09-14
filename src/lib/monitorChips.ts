@@ -1,6 +1,7 @@
 import type { Block } from "@/app/_components/TimelineGrid";
 import { VARIANT_CONFIG } from "@/lib/blockVariants";
 import { compactTagChip } from "@/lib/productionTags";
+import type { CSSProperties } from "react";
 
 export type MonitorChipTone = "brand" | "ok" | "wait" | "plain" | "danger";
 export type MonitorChip = { label: string; tone: MonitorChipTone };
@@ -89,4 +90,24 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
   }
 
   return chips;
+}
+
+/**
+ * Styl obalu štítků na Monitoru.
+ *
+ * Velká karta: obal smí zmenšit výšku pod svůj obsah (`minHeight: 0`
+ * + `overflow: hidden`), a to jako JEDINÝ prvek obsahu karty. Obsah karty
+ * ořezává zespodu, takže když na stupni XL a nízké obrazovce dojde místo,
+ * ustoupí spodek štítků a časová osa tisku i řádek druhého stroje zůstanou
+ * vidět (spec 2026-09-14, odd. 1.3). Ostatní prvky karty mají automatickou
+ * minimální výšku podle obsahu, takže se zmenšit nemůžou. Tytéž štítky jsou
+ * ve většině případů vidět i ve zvýrazněném řádku fronty.
+ *
+ * Fronta: obal roste do výšky a nic neořezává — fronta sama scrolluje.
+ */
+export function monitorChipsRowStyle(size: "hero" | "queue"): CSSProperties {
+  if (size === "hero") {
+    return { display: "flex", flexWrap: "wrap", gap: 6, minHeight: 0, overflow: "hidden" };
+  }
+  return { display: "flex", flexWrap: "wrap", gap: 5 };
 }

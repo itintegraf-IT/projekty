@@ -108,6 +108,16 @@ async function seed() {
     printCompletedAt: at(-7.5 * H + 11 * MIN), printCompletedByUsername: "tiskar",
   });
 
+  // ── NEDODĚLÁNO: včerejší neodklepnutá zakázka. Sekce NEDODĚLÁNO kreslí
+  //    od 14. 9. 2026 i štítky — barvy a lak z číselníku jako všude jinde (P16) ──
+  add(morningIn(-1), 120, {
+    ...ready, orderNumber: "MON-2410", machine: MAIN,
+    description: "Etiketa IML víčko — Alimpex 500 g",
+    specifikace: "IML · 4/0 · PP 60 µm",
+    barvyStatusId: barvy.id, barvyStatusLabel: barvy.label,
+    lakStatusId: lak.id, lakStatusLabel: lak.label,
+  });
+
   // ── PŘETAHUJE: čas vypršel, nikdo neodklepl ──
   add(at(-3 * H), 90, {
     ...ready, orderNumber: "MON-2403", machine: MAIN,
