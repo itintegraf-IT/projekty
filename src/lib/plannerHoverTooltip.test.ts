@@ -18,6 +18,8 @@ const VW = 1920;
 const XL105_RIGHT = 44 + 72 + 866;   // 982
 const XL106_RIGHT = XL105_RIGHT + 72 + 866; // 1920
 
+// ── hoverTooltipLeft / hoverTooltipTop — od 14. 9. 2026 záchranný režim („own") v hoverTooltipPlacement; hlavní pravidlo (nad sousedním strojem) testuje oddíl hoverTooltipPlacement níž ──
+
 test("bublina se zarovná pravou hranou ke sloupci vlastního stroje", () => {
   assert.equal(
     hoverTooltipLeft({ columnRight: XL105_RIGHT, viewportWidth: VW }),
@@ -226,6 +228,16 @@ test("hák sloupce chybí: záchranný režim od pravé hrany karty + 3 px", () 
   assert.equal(p.left, hoverTooltipLeft({ columnRight: 803, viewportWidth: 1920 }));
 });
 
+test("ownIndex −1 při neprázdných sloupcích: záchranný režim, žádný pád", () => {
+  const columns = twoMachineGrid(1920 - 8 - 320);
+  const p = hoverTooltipPlacement({
+    columns, ownIndex: -1, cardRect: { top: 300, bottom: 380, right: 800 },
+    tooltipHeight: 180, viewportWidth: 1920, viewportHeight: 1080,
+  });
+  assert.equal(p.mode, "own");
+  assert.equal(p.left, hoverTooltipLeft({ columnRight: 803, viewportWidth: 1920 }));
+});
+
 test("úzké okno (1366 px, panel 600 + notifikace): u XL 105 by bublina zasáhla do vlastního stroje → záchranný režim", () => {
   const columns = twoMachineGrid(1366 - 600 - 320 - 8); // sloupce po 125 px
   const p = hoverTooltipPlacement({
@@ -243,6 +255,7 @@ test("totéž úzké okno: u XL 106 se bublina vejde nad XL 105 bez zásahu do v
   });
   assert.equal(p.mode, "neighbour");
   assert.ok(p.left + TOOLTIP_W <= columns[1].left, "pravá hrana bubliny leží před vlastním sloupcem");
+  assert.equal(p.left, TOOLTIP_MARGIN, "sevřeno k levému okraji okna");
 });
 
 test("tři stroje: prostřední sloupec bere souseda vpravo", () => {

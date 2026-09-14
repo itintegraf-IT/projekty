@@ -35,7 +35,7 @@ export const TOOLTIP_W = 240;
 export const TOOLTIP_MARGIN = 10;
 
 export type HoverTooltipGeometry = {
-  /** Pravý okraj sloupce stroje, na kterém blok leží (souřadnice viewportu). */
+  /** Pravý okraj sloupce, ke kterému se bublina ukotví (souřadnice viewportu) — vlastní sloupec v záchranném režimu, sousední sloupec v režimu nad sousedem (`hoverTooltipPlacement`). */
   columnRight: number;
   /** Šířka okna prohlížeče. */
   viewportWidth: number;
@@ -56,6 +56,10 @@ export type HoverTooltipGeometry = {
  * Svislé umístění řeší samostatná funkce `hoverTooltipTop()` níž v tomto
  * souboru — jiná osa, jiné pravidlo (pod kartu s flipem), ale stejný důvod
  * mít to jako testovatelnou čistou funkci mimo JSX.
+ *
+ * Od 14. 9. 2026 `hoverTooltipLeft` řeší jen záchranný režim (`own`) volaný
+ * z `hoverTooltipPlacement` — hlavní pravidlo umísťuje bublinu nad sousední
+ * stroj.
  */
 export function hoverTooltipLeft({
   columnRight,
@@ -106,6 +110,10 @@ export type HoverTooltipVerticalGeometry = {
  *     okraji okna — poslední záchrana, nahrazuje dřívější provizorní
  *     `Math.max(8, Math.min(rect.top, vh - 220))`, jen teď se skutečnou
  *     naměřenou výškou místo pevně odhadnutých 220 px.
+ *
+ * Od 14. 9. 2026 `hoverTooltipTop` řeší jen záchranný režim (`own`) volaný
+ * z `hoverTooltipPlacement` — hlavní pravidlo umísťuje bublinu nad sousední
+ * stroj.
  *
  * Pořadí je záměrné a nesmí se prohodit, ze stejného důvodu jako u
  * `hoverTooltipLeft`: bublina, která odejde z obrazovky, nenese informaci

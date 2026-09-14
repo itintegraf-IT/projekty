@@ -12,14 +12,11 @@ import { MONITOR_DRIFT_NOTE_TEXT } from "@/lib/monitorDriftMark";
  * podle vlastního bloku, komponenta jen sjednocuje vykreslení.
  */
 export function MonitorDriftNote({
-  show, size, ts, compact = false,
+  show, size, ts,
 }: {
   show: boolean;
   size: "hero" | "queue";
   ts: MonitorTypeScale;
-  /** Řádek fronty NEDODĚLÁNO má nulovou mezeru mezi prvky (`gap: 0`) — bez
-   *  vlastní odsazení by značka lepila přímo na hlavičku řádku. */
-  compact?: boolean;
 }) {
   if (!show) return null;
   return (
@@ -27,7 +24,6 @@ export function MonitorDriftNote({
       style={{
         fontSize: size === "hero" ? ts.heroDriftNote : ts.queueDriftNote,
         color: "var(--text-muted)",
-        marginTop: compact ? 3 : 0,
       }}
     >
       {MONITOR_DRIFT_NOTE_TEXT}

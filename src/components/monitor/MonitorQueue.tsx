@@ -162,7 +162,7 @@ function QueueSection({
               </span>
             </span>
 
-            <MonitorDriftNote show={drift} size="queue" ts={ts} compact={compact} />
+            <MonitorDriftNote show={drift} size="queue" ts={ts} />
 
             {!compact && b.specifikace?.trim() && (
               // Amber pás jako na kartě bloku v plánu i na velké kartě Monitoru.

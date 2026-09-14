@@ -12,9 +12,11 @@ import { hoverTooltipPlacement, TOOLTIP_W, type ColumnBox } from "@/lib/plannerH
 /**
  * Hover bublina nad kartou bloku v planneru („okno s podrobnostmi").
  *
- * Vytažená z `BlockCard.tsx` 14. 9. 2026 BEZE ZMĚNY CHOVÁNÍ — soubor měl
- * 1856 řádků při limitu 500 (pravidlo „extract before add", CLAUDE.md)
- * a bublina je uzavřený celek s vlastním stavem (naměřená výška, poloha).
+ * Vytažená z `BlockCard.tsx` 14. 9. 2026 (commit ae35fe6c, beze změny
+ * chování); poloha nad sousedním strojem a prodleva 400 ms přibyly
+ * v navazujícím commitu. Soubor měl 1856 řádků při limitu 500 (pravidlo
+ * „extract before add", CLAUDE.md) a bublina je uzavřený celek s vlastním
+ * stavem (naměřená výška, poloha).
  *
  * KDY se bublina ukáže, rozhoduje volající přes `open`; tady se řeší jen poloha
  * a obsah. Portálovaná do `body`, mimo stacking context mřížky. Pravidla polohy

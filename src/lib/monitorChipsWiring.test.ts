@@ -20,6 +20,7 @@ const chips = stripComments(readFileSync("src/components/monitor/MonitorChips.ts
 test("sekce NEDODĚLÁNO kreslí štítky stejně jako DNES/ZÍTRA (volba M2 = B)", () => {
   assert.match(queue, /<MonitorChips\s+block=\{b\}\s+size="queue"/);
   assert.doesNotMatch(queue, /!compact\s*&&\s*<MonitorChips/);
+  assert.doesNotMatch(queue, /compact\s*\?\s*null\s*:\s*<MonitorChips/);
 });
 
 test("obal štítků bere styl z monitorChipsRowStyle (pojistka velké karty)", () => {

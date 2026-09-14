@@ -1395,6 +1395,8 @@ EOF
 
 Tenhle task dělá koordinátor sám. Potřebuje funkční dev databázi a běžící server.
 
+> **Oprava po závěrečné revizi (15. 9. 2026):** na velké kartě je v seedu MON-2403 (přetahující zakázka má přednost před běžící), ne MON-2404. Skript proto před měřením nejhoršího případu **ručně vybere MON-2404** klikem v sekci DNES (přibude i řádek „vybráno ručně" — realistický nejhorší případ) a navíc změří **pozastavenou MON-2407** doplněnou o barvy, lak, obálku, archy, sérii a pantone (vybranou ze ZÍTRA): štítek „Pozastaveno" musí být na XL při 1366×768 vidět. Aktuální verzi skriptu drží koordinátor ve scratchpadu session.
+
 - [ ] **Krok 1: Předpoklad — dev databáze**
 
 Dnes (14. 9.) na 3306 běží Homebrew MySQL (`/opt/homebrew/opt/mysql`) a `.env` míří na databázi v AMPPS. **Nic nezastavuj ani nespouštěj bez Vojtova souhlasu** (globální CLAUDE.md: žádné ukončování procesů bez zeptání). Po jeho zásahu ověř:
