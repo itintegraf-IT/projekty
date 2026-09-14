@@ -1,36 +1,31 @@
 /**
- * Vodorovné umístění hover bubliny nad kartou bloku v planneru.
+ * Umístění hover bubliny nad kartou bloku v planneru („okno s podrobnostmi").
  *
- * ── Pravidlo ────────────────────────────────────────────────────────────────
- * Bublina se zarovná PRAVOU hranou ke sloupci stroje, na kterém hovorovaný blok
- * leží. Plyne z toho obojí naráz:
+ * ── Pravidlo (od 14. 9. 2026) ───────────────────────────────────────────────
+ * Bublina se staví nad SOUSEDNÍ stroj (vpravo, když existuje, jinak vlevo),
+ * pravou hranou k jeho sloupci a ve výšce hovorované karty
+ * (`hoverTooltipPlacement`). Stroj zakázky tak zůstane celý vidět — prosba
+ * plánovače ze září 2026 „posunout okno s podrobnostmi mimo tiskový stroj, na
+ * kterém daná zakázka je zaplánována". Zarovnání k PRAVÉ hraně souseda nechá
+ * odkrytý jeho levý kraj se štítky D/M/E/P a čísly zakázek.
  *
- *  - nikdy nepřepadne do sloupce SOUSEDNÍHO stroje (bublina napravo od bloku
- *    v XL 105 zakrývala celý sloupec XL 106 — připomínka tiskařů 13. 8. 2026),
- *  - nikdy nezakryje LEVOU hranu vlastní karty, kde sedí chipy D/M/E/P, číslo
- *    zakázky a popis — tedy přesně to, co pre-press a MTZ potřebují vidět
- *    a odklepnout (připomínka plánovače 17. 8. 2026).
+ * Záchranný režim = pravidlo z 20. 8. 2026 (vlastní sloupec, pod kartou
+ * s flipem; `hoverTooltipLeft` + `hoverTooltipTop`): když soused není (tiskař
+ * vidí jeden stroj), když chybí hák sloupce, nebo když by bublina po sevření
+ * do okna zasáhla do vlastního stroje (úzké okno s více panely).
  *
- * Oba stroje se tím chovají doslova stejně, jen posunuté o šířku sloupce.
- *
- * ── Proč to nahradilo „vnější stranu mřížky" ────────────────────────────────
- * Do 17. 8. 2026 platilo pravidlo „bublina jde vždy na vnější stranu mřížky"
- * s odůvodněním, že vlevo od levého sloupce je jen časová osa, kde překryv
- * nikoho nestojí informaci. To odůvodnění bylo NEPRAVDIVÉ: vlevo od sloupce
- * XL 105 je `DATE_COL_W` + `TIME_COL_W` = 116 px, zatímco bublina potřebuje
- * `TOOLTIP_W` + `TOOLTIP_MARGIN` = 250 px. Nevešla se tam ani jednou —
- * pojistka proti odchodu z obrazovky ji pokaždé přiskřípla k levému okraji
- * okna a zbylých ~134 px přeteklo přes levou hranu karty, tedy přes chipy.
- * (Poučení: pravidlo „umísti prvek na stranu X" se nesmí zapsat, aniž se
- * ověří, že na straně X je pro ten prvek fyzicky místo — `docs/POUCENI.md`.)
- *
- * ── Co pravidlo NEŘEŠÍ ──────────────────────────────────────────────────────
- * Když je sloupec stroje užší než bublina i s odstupy (zhruba pod 260 px —
- * otevřený editační, notifikační i DTP panel naráz na malé obrazovce), bublina
- * se do sloupce nevejde a přeteče přes jeho levou hranu. Překryv v takovém
- * stavu nastane tak jako tak; funkce drží jen to, že bublina nikdy neopustí
- * obrazovku. Kdyby se to v provozu ukázalo jako problém, řešením je zúžit
- * bublinu podle sloupce, ne měnit stranu.
+ * ── Historie — proč už pátá podoba ─────────────────────────────────────────
+ *  1. do 13. 8. 2026: vpravo od karty → u XL 105 zakryla sloupec XL 106.
+ *  2. 13. 8.: vnější strana mřížky → vlevo od XL 105 je jen 116 px na
+ *     bublinu 250 px, přetékala přes chipy vlastní karty (P28).
+ *  3. 17. 8.: pravou hranou k vlastnímu sloupci → ležela na pravé části
+ *     vlastní karty.
+ *  4. 20. 8. (V5): pod kartu s flipem → zakrývala ~3,5 h navazujícího plánu
+ *     téhož stroje.
+ *  5. 14. 9. (O1 = A): nad sousední stroj. Vědomý kompromis: dočasně zakryje
+ *     pravý kraj karet druhého stroje.
+ * Poučení P28 platí dál: umístění „na stranu X" se nesmí zapsat, aniž se
+ * spočítá, že na straně X je místo — proto záchranný režim a tabulkové testy.
  */
 
 /** Šířka hover bubliny v px. Jediný zdroj pravdy pro výpočet i pro `style.width`. */
@@ -137,4 +132,98 @@ export function hoverTooltipTop({
   // vyhrává, aby se nevrátila souřadnice mimo obrazovku.
   const maxTop = viewportHeight - tooltipHeight - margin;
   return Math.max(margin, Math.min(above, maxTop));
+}
+
+/**
+ * Prodleva, než bublina vyskočí (ms). Pre-press a MTZ jezdí myší po sloupci
+ * a bublina bez prodlevy blikala nad každou kartou (volba O2, 14. 9. 2026).
+ * Stejnou hodnotu má náhled poznámky MTZ (`HoverCard` v `BlockCard.tsx`) —
+ * obě se napojují sem, ať se nerozejdou.
+ */
+export const TOOLTIP_OPEN_DELAY_MS = 400;
+
+/** Vodorovný rozsah sloupce stroje (souřadnice viewportu). */
+export type ColumnBox = { left: number; right: number };
+
+export type HoverTooltipPlacementInput = {
+  /** Sloupce strojů v pořadí zleva doprava (pořadí v DOM), včetně vlastního. */
+  columns: ColumnBox[];
+  /** Index sloupce, na kterém karta leží; −1, když hák v DOM chybí. */
+  ownIndex: number;
+  /** Hovorovaná karta (souřadnice viewportu). */
+  cardRect: { top: number; bottom: number; right: number };
+  /** Skutečná (naměřená) výška bubliny v px. */
+  tooltipHeight: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  /** Výchozí `TOOLTIP_W`. */
+  tooltipWidth?: number;
+  /** Vodorovný odstup; výchozí `TOOLTIP_MARGIN`. */
+  margin?: number;
+  /** Svislý odstup od okraje okna; výchozí `TOOLTIP_VERTICAL_GAP`. */
+  verticalMargin?: number;
+};
+
+export type HoverTooltipPlacement = {
+  left: number;
+  top: number;
+  /** `neighbour` = nad sousedním strojem; `own` = záchranný režim (pod kartou ve vlastním sloupci). */
+  mode: "neighbour" | "own";
+};
+
+/**
+ * Vrátí polohu `position: fixed` bubliny (pravidlo v hlavičce souboru).
+ *
+ * Pořadí je záměrné a nesmí se prohodit: bublina musí být CELÁ v okně
+ * (`hoverTooltipLeft` sevře polohu do okna), a teprve pak se hlídá zákaz
+ * vlastního sloupce — když by ho sevřená bublina protnula, platí záchranný
+ * režim. Bublina mimo obrazovku nenese informaci žádnou.
+ */
+export function hoverTooltipPlacement({
+  columns,
+  ownIndex,
+  cardRect,
+  tooltipHeight,
+  viewportWidth,
+  viewportHeight,
+  tooltipWidth = TOOLTIP_W,
+  margin = TOOLTIP_MARGIN,
+  verticalMargin = TOOLTIP_VERTICAL_GAP,
+}: HoverTooltipPlacementInput): HoverTooltipPlacement {
+  const own = ownIndex >= 0 ? columns[ownIndex] : undefined;
+
+  // Záchranný režim = pravidlo z 20. 8. 2026. Když hák chybí, pravá hrana karty
+  // + 3 px je věrná náhrada pravé hrany sloupce (karta ho vyplňuje s okrajem
+  // 3 px: `left: 3` + `calc(100% - 6px)` v `BlockCard.tsx`).
+  const ownColumnFallback = (): HoverTooltipPlacement => ({
+    mode: "own",
+    left: hoverTooltipLeft({
+      columnRight: own ? own.right : cardRect.right + 3,
+      viewportWidth,
+      tooltipWidth,
+      margin,
+    }),
+    top: hoverTooltipTop({
+      cardTop: cardRect.top,
+      cardBottom: cardRect.bottom,
+      tooltipHeight,
+      viewportHeight,
+      margin: verticalMargin,
+    }),
+  });
+
+  if (!own) return ownColumnFallback();
+  const neighbour = columns[ownIndex + 1] ?? columns[ownIndex - 1];
+  if (!neighbour) return ownColumnFallback();
+
+  // Pravá hrana bubliny k pravé hraně souseda — stejné ukotvení i sevření do
+  // okna jako u vlastního sloupce, jen k jinému sloupci.
+  const left = hoverTooltipLeft({ columnRight: neighbour.right, viewportWidth, tooltipWidth, margin });
+  if (left < own.right && left + tooltipWidth > own.left) return ownColumnFallback();
+
+  // Svisle ve výšce karty, sevřeno do okna. Podlaha vyhrává nad stropem, stejně
+  // jako u `hoverTooltipTop` — záporná souřadnice by bublinu schovala.
+  const maxTop = viewportHeight - tooltipHeight - verticalMargin;
+  const top = Math.max(verticalMargin, Math.min(cardRect.top, maxTop));
+  return { mode: "neighbour", left, top };
 }

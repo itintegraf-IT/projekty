@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   hoverTooltipLeft,
+  hoverTooltipPlacement,
   hoverTooltipTop,
   TOOLTIP_MARGIN,
+  TOOLTIP_OPEN_DELAY_MS,
   TOOLTIP_VERTICAL_GAP,
   TOOLTIP_W,
+  type ColumnBox,
 } from "./plannerHoverTooltip";
 
 // Skutečná geometrie planneru na 1920px obrazovce se zavřenými panely:
@@ -124,4 +127,134 @@ test("výchozí margin je TOOLTIP_VERTICAL_GAP, ne vodorovné TOOLTIP_MARGIN (ji
   const withDefault = hoverTooltipTop({ cardTop: 200, cardBottom: 260, tooltipHeight: 150, viewportHeight: VH });
   const withExplicit = hoverTooltipTop({ cardTop: 200, cardBottom: 260, tooltipHeight: 150, viewportHeight: VH, margin: TOOLTIP_VERTICAL_GAP });
   assert.equal(withDefault, withExplicit);
+});
+
+// ── hoverTooltipPlacement — bublina nad sousedním strojem (14. 9. 2026) ─────
+// Mřížka začíná na x = 0: [datum 44][čas 72][XL 105][čas 72][XL 106], vpravo
+// panely. Sloupec stroje = (šířka mřížky − 188) / 2 — vzorec z průzkumu
+// 14. 9. 2026, sedí na měření Playwrightem ze 17. 8. (1600 px: 116–617 a 689–1190).
+function twoMachineGrid(gridWidth: number): ColumnBox[] {
+  const c = (gridWidth - 188) / 2;
+  const xl105 = { left: 116, right: 116 + c };
+  const xl106 = { left: xl105.right + 72, right: xl105.right + 72 + c };
+  return [xl105, xl106];
+}
+
+const LAYOUTS = [
+  { name: "plánovač 1920 px, boční panel 320", vw: 1920, grid: 1920 - 8 - 320 },
+  { name: "plánovač 1920 px, panel + notifikace", vw: 1920, grid: 1920 - 8 - 320 - 320 },
+  { name: "plánovač 1366 px, boční panel 320", vw: 1366, grid: 1366 - 8 - 320 },
+  { name: "plánovač 1366 px, panel + notifikace", vw: 1366, grid: 1366 - 8 - 320 - 320 },
+  { name: "pre-press 1920 px, DTP přehled 260", vw: 1920, grid: 1920 - 260 },
+  { name: "pre-press 1366 px, DTP přehled 260", vw: 1366, grid: 1366 - 260 },
+  { name: "MTZ / čtenář 1920 px, bez panelu", vw: 1920, grid: 1920 },
+  { name: "MTZ / čtenář 1366 px, bez panelu", vw: 1366, grid: 1366 },
+];
+
+for (const l of LAYOUTS) {
+  for (const ownIndex of [0, 1]) {
+    const machine = ownIndex === 0 ? "XL 105" : "XL 106";
+    test(`${l.name}: bublina u zakázky ${machine} leží nad druhým strojem`, () => {
+      const columns = twoMachineGrid(l.grid);
+      const own = columns[ownIndex];
+      const neighbour = columns[1 - ownIndex];
+      const p = hoverTooltipPlacement({
+        columns, ownIndex,
+        cardRect: { top: 300, bottom: 380, right: own.right - 3 },
+        tooltipHeight: 180, viewportWidth: l.vw, viewportHeight: 1080,
+      });
+      assert.equal(p.mode, "neighbour");
+      assert.equal(p.left + TOOLTIP_W, neighbour.right - TOOLTIP_MARGIN, "pravá hrana k pravé hraně souseda");
+      assert.ok(p.left >= neighbour.left, "levý kraj souseda (štítky D/M/E/P) zůstává odkrytý");
+      assert.ok(p.left >= own.right || p.left + TOOLTIP_W <= own.left, "nezasáhne do vlastního stroje");
+      assert.ok(p.left >= TOOLTIP_MARGIN && p.left + TOOLTIP_W <= l.vw - TOOLTIP_MARGIN, "celá v okně");
+    });
+  }
+}
+
+const GRID_1920 = twoMachineGrid(1920 - 8 - 320);
+
+test("nad sousedem začíná bublina ve výšce horní hrany karty", () => {
+  const p = hoverTooltipPlacement({
+    columns: GRID_1920, ownIndex: 0, cardRect: { top: 300, bottom: 380, right: 815 },
+    tooltipHeight: 180, viewportWidth: 1920, viewportHeight: 1080,
+  });
+  assert.equal(p.top, 300);
+});
+
+test("karta u spodního okraje: bublina se zvedne, aby byla celá v okně", () => {
+  const p = hoverTooltipPlacement({
+    columns: GRID_1920, ownIndex: 0, cardRect: { top: 1000, bottom: 1060, right: 815 },
+    tooltipHeight: 180, viewportWidth: 1920, viewportHeight: 1080,
+  });
+  assert.equal(p.top, 1080 - 180 - TOOLTIP_VERTICAL_GAP);
+});
+
+test("karta odrolovaná nad horní okraj: bublina u horního okraje okna", () => {
+  const p = hoverTooltipPlacement({
+    columns: GRID_1920, ownIndex: 0, cardRect: { top: -40, bottom: 120, right: 815 },
+    tooltipHeight: 180, viewportWidth: 1920, viewportHeight: 1080,
+  });
+  assert.equal(p.top, TOOLTIP_VERTICAL_GAP);
+});
+
+test("bublina vyšší než okno: horní okraj vyhrává, žádná záporná souřadnice", () => {
+  const p = hoverTooltipPlacement({
+    columns: GRID_1920, ownIndex: 0, cardRect: { top: 300, bottom: 380, right: 815 },
+    tooltipHeight: 1300, viewportWidth: 1920, viewportHeight: 1080,
+  });
+  assert.equal(p.top, TOOLTIP_VERTICAL_GAP);
+});
+
+test("tiskař — jediný sloupec: záchranný režim, bublina pod kartou ve vlastním sloupci", () => {
+  const p = hoverTooltipPlacement({
+    columns: [{ left: 116, right: 1920 }], ownIndex: 0,
+    cardRect: { top: 300, bottom: 380, right: 1917 },
+    tooltipHeight: 180, viewportWidth: 1920, viewportHeight: 1080,
+  });
+  assert.equal(p.mode, "own");
+  assert.equal(p.left, hoverTooltipLeft({ columnRight: 1920, viewportWidth: 1920 }));
+  assert.equal(p.top, hoverTooltipTop({ cardTop: 300, cardBottom: 380, tooltipHeight: 180, viewportHeight: 1080 }));
+});
+
+test("hák sloupce chybí: záchranný režim od pravé hrany karty + 3 px", () => {
+  const p = hoverTooltipPlacement({
+    columns: [], ownIndex: -1, cardRect: { top: 300, bottom: 380, right: 800 },
+    tooltipHeight: 180, viewportWidth: 1920, viewportHeight: 1080,
+  });
+  assert.equal(p.mode, "own");
+  assert.equal(p.left, hoverTooltipLeft({ columnRight: 803, viewportWidth: 1920 }));
+});
+
+test("úzké okno (1366 px, panel 600 + notifikace): u XL 105 by bublina zasáhla do vlastního stroje → záchranný režim", () => {
+  const columns = twoMachineGrid(1366 - 600 - 320 - 8); // sloupce po 125 px
+  const p = hoverTooltipPlacement({
+    columns, ownIndex: 0, cardRect: { top: 300, bottom: 380, right: columns[0].right - 3 },
+    tooltipHeight: 180, viewportWidth: 1366, viewportHeight: 768,
+  });
+  assert.equal(p.mode, "own");
+});
+
+test("totéž úzké okno: u XL 106 se bublina vejde nad XL 105 bez zásahu do vlastního stroje", () => {
+  const columns = twoMachineGrid(1366 - 600 - 320 - 8);
+  const p = hoverTooltipPlacement({
+    columns, ownIndex: 1, cardRect: { top: 300, bottom: 380, right: columns[1].right - 3 },
+    tooltipHeight: 180, viewportWidth: 1366, viewportHeight: 768,
+  });
+  assert.equal(p.mode, "neighbour");
+  assert.ok(p.left + TOOLTIP_W <= columns[1].left, "pravá hrana bubliny leží před vlastním sloupcem");
+});
+
+test("tři stroje: prostřední sloupec bere souseda vpravo", () => {
+  const columns = [{ left: 0, right: 400 }, { left: 470, right: 870 }, { left: 940, right: 1340 }];
+  const p = hoverTooltipPlacement({
+    columns, ownIndex: 1, cardRect: { top: 300, bottom: 380, right: 867 },
+    tooltipHeight: 180, viewportWidth: 1400, viewportHeight: 1080,
+  });
+  assert.equal(p.mode, "neighbour");
+  assert.equal(p.left, 1340 - TOOLTIP_MARGIN - TOOLTIP_W);
+});
+
+test("prodleva bubliny je 400 ms (volba O2, 14. 9. 2026)", () => {
+  assert.equal(TOOLTIP_OPEN_DELAY_MS, 400);
 });
