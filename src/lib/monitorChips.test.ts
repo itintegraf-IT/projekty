@@ -37,7 +37,7 @@ test("buildMonitorChips: prázdná zakázka nemá jediný chip", () => {
   assert.deepEqual(buildMonitorChips(mk()), []);
 });
 
-test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série → data → materiál → pantone → varianta", () => {
+test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série → data → materiál → pantone → barvy → lak → varianta", () => {
   const chips = buildMonitorChips(mk({
     obalka: true,
     vnitrky: true,
@@ -48,6 +48,8 @@ test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série �
     materialStatusLabel: "Skladem",
     materialInStock: true,
     pantoneOk: true,
+    barvyStatusLabel: "SCH Lumina LED",
+    lakStatusLabel: "UV lak",
     blockVariant: "POZASTAVENO",
   }));
   assert.deepEqual(chips, [
@@ -59,6 +61,8 @@ test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série �
     { label: "Skladem", tone: "ok" },
     { label: "MAT. SKLADEM ✓", tone: "ok" },
     { label: "PANTONE", tone: "ok" },
+    { label: "SCH Lumina LED", tone: "plain" },
+    { label: "UV lak", tone: "plain" },
     { label: "Pozastaveno", tone: "danger" },
   ]);
 });
@@ -167,4 +171,29 @@ test("buildMonitorChips: pantone chip nese stav vydání textově", () => {
 test("buildMonitorChips: materiál s termínem a materialOk:true NEMÁ MAT. ČEKÁ (nález I1)", () => {
   const chips = buildMonitorChips(mk({ materialRequiredDate: "2026-08-21", materialOk: true }));
   assert.ok(!chips.some((c) => c.label === "MAT. ČEKÁ"), "materiál s termínem + materialOk=true by neměl mít chip MAT. ČEKÁ");
+});
+
+test("buildMonitorChips: barvy a lak mají vlastní neutrální štítek (prosba plánovače 14. 9. 2026)", () => {
+  assert.deepEqual(buildMonitorChips(mk({ barvyStatusLabel: "SCH Lumina LED" })), [
+    { label: "SCH Lumina LED", tone: "plain" },
+  ]);
+  assert.deepEqual(buildMonitorChips(mk({ lakStatusLabel: "disperse lesk" })), [
+    { label: "disperse lesk", tone: "plain" },
+  ]);
+});
+
+test("buildMonitorChips: prázdné, jen mezerové nebo chybějící barvy/lak štítek nedělají", () => {
+  assert.deepEqual(buildMonitorChips(mk({ barvyStatusLabel: "", lakStatusLabel: "   " })), []);
+  assert.deepEqual(buildMonitorChips(mk({ barvyStatusLabel: null, lakStatusLabel: null })), []);
+  assert.deepEqual(buildMonitorChips(mk()), []);
+});
+
+test("buildMonitorChips: text barev a laku se jen ořízne o okrajové mezery, jinak zůstává z číselníku", () => {
+  assert.deepEqual(
+    buildMonitorChips(mk({ barvyStatusLabel: "  IML COLORGRAF ", lakStatusLabel: "vysoce lesklá disperse" })),
+    [
+      { label: "IML COLORGRAF", tone: "plain" },
+      { label: "vysoce lesklá disperse", tone: "plain" },
+    ],
+  );
 });

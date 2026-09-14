@@ -15,6 +15,9 @@ export type MonitorChip = { label: string; tone: MonitorChipTone };
  * inline, vlastní kopií — tahle funkce ji nenahrazuje ani nevynucuje. Obě strany
  * dnes souhlasí, ale je to jen shoda, ne záruka; kdo mění pravidlo tady, musí ho
  * ručně promítnout i do `BlockCard.tsx` (viz nález I5, kde se to jednou rozešlo).
+ * Výjimka je vědomá: barvy a lak kreslí karta v plánu barvou z číselníku,
+ * Monitor neutrálně (tón `plain`) — zelená a jantarová tu znamenají
+ * „připraveno" a „čeká", a takový stav barvy ani lak nemají (14. 9. 2026).
  *
  * Čistá funkce v `lib`, ne logika uvnitř JSX: pravidla jsou netriviální a už se
  * jednou rozešla, takže je chceme mít pod testy (stejný vzor jako `monitorView.ts`).
@@ -64,6 +67,17 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
       : pantoneReady ? "PANTONE" : "PANTONE ČEKÁ";
     chips.push({ label: pantoneLabel, tone: pantoneReady ? "ok" : "wait" });
   }
+
+  // Barvy a lak (14. 9. 2026, prosba plánovače „všechny štítky"). Štítky jsou
+  // v aplikaci šestice DATA · MATERIÁL · BARVY · LAK · ARCHY · SÉRIE a Monitoru
+  // chyběly právě tyhle dva. Tón je ZÁMĚRNĚ `plain`: barvy a lak nemají stav
+  // hotovo/čeká, a zelená s jantarovou nesou na Monitoru právě tenhle význam.
+  // Karta v plánu je kreslí barvou z číselníku (`MiniChip` + `badgeColorMap`) —
+  // vědomá odchylka, ne rozejití pravidel (viz hlavička).
+  const barvyLabel = block.barvyStatusLabel?.trim();
+  if (barvyLabel) chips.push({ label: barvyLabel, tone: "plain" });
+  const lakLabel = block.lakStatusLabel?.trim();
+  if (lakLabel) chips.push({ label: lakLabel, tone: "plain" });
 
   // Nestandardní varianta zakázky (POZASTAVENO = výrobní stopka) — v plánu je sytě
   // červená, na Monitoru se dřív neukazovala vůbec (nález I5).
