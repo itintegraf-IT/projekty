@@ -2606,7 +2606,8 @@ barvy a lak, bez termínů a poznámek), M2 = B (štítky i v sekci NEDODĚLÁNO
 obrácení záměru ze 13. 8. 2026, kdy se zúžený řádek zavedl bez štítků).
 
 **Kód.**
-- `src/lib/monitorChips.ts` — barvy a lak za PANTONE, před variantou, tón
+- `src/lib/monitorChips.ts` — barvy a lak za PANTONE a před ostatními variantami
+  (POZASTAVENO je od 15. 9. první, viz níž), tón
   `plain`: na Monitoru zelená znamená „připraveno" a jantarová „čeká", a takový
   stav barvy ani lak nemají. Karta v plánu je barví podle číselníku — vědomá
   odchylka, zapsaná v hlavičce funkce.
