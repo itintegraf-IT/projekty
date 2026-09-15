@@ -53,6 +53,10 @@ protože nedodělaných bývá až devět.
   „UV lak“, „parciální“…).
 - **Pořadí:** … → PANTONE → **BARVY → LAK** → varianta. Barvy a lak patří
   k barevné části zakázky vedle pantone. Varianta zůstává poslední jako dnes.
+  **Změna 15. 9. 2026** (nález I3 závěrečné revize, Vojta „OK“): štítek
+  POZASTAVENO jde na začátek řady. Velká karta při přetečení ořezává štítky
+  zespodu a výrobní stopku tiskař přehlédnout nesmí. Ostatní varianty jsou jen
+  informace a zůstávají poslední.
 - **Tón `plain`** (neutrální šedá). Barvy a lak nemají stav hotovo/čeká.
   Na Monitoru zelená znamená „připraveno / odklepnuto“ a jantarová „čeká“.
   Barva z číselníku (tak je kreslí karta v plánu přes `badgeColorMap`) by
@@ -194,7 +198,7 @@ na sdílenou konstantu prodlevy.
 
 | Oblast | Jak |
 | --- | --- |
-| `buildMonitorChips` | Unit testy: jen barvy, jen lak, obojí, `null`/prázdné/mezery → žádný štítek, tón `plain`, pořadí v plném testu (… PANTONE → BARVY → LAK → varianta). |
+| `buildMonitorChips` | Unit testy: jen barvy, jen lak, obojí, `null`/prázdné/mezery → žádný štítek, tón `plain`, pořadí v plném testu (… PANTONE → BARVY → LAK → varianta; od 15. 9. 2026 POZASTAVENO první, viz 1.1). |
 | Písmo Monitoru | Strážný test `monitorTypography.test.ts` musí zůstat zelený, tedy žádné holé `fontSize` v `src/components/monitor/*.tsx`. |
 | Geometrie bubliny | Tabulkové testy přes scénáře z průzkumu: 1920/1366 px × panel / panel + notifikace / DTP panel / bez panelu × zakázka XL 105 / XL 106. Tvrzení: bublina celá v okně; neprotne sloupec vlastního stroje; při dost širokém cíli pravou hranou přesně na `cíl.right − 10`; záchranný režim pro chybějící soused, úzké rozložení a chybějící hák; svislé sevření do okna nahoře i dole. Každý test, který hlídá konkrétní řádek, se ověří z druhé strany: bez hlídaného řádku musí padnout (P11). |
 | Prodleva | Konstanta a její sdílení s náhledem poznámky MTZ; chování časovače prokliknutím (projekt nemá komponentní harness). |

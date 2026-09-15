@@ -82,11 +82,15 @@ export function buildMonitorChips(block: Block): MonitorChip[] {
 
   // Nestandardní varianta zakázky (POZASTAVENO = výrobní stopka) — v plánu je sytě
   // červená, na Monitoru se dřív neukazovala vůbec (nález I5).
+  // POZASTAVENO jde na ZAČÁTEK řady (nález I3 závěrečné revize, Vojta 15. 9. 2026):
+  // velká karta při přetečení ořezává štítky zespodu (`monitorChipsRowStyle`)
+  // a výrobní stopku tiskař přehlédnout nesmí. Ostatní varianty jsou jen
+  // informace a zůstávají na konci.
   if (block.blockVariant && block.blockVariant !== "STANDARD") {
-    chips.push({
-      label: VARIANT_CONFIG[block.blockVariant].label,
-      tone: block.blockVariant === "POZASTAVENO" ? "danger" : "plain",
-    });
+    const isStop = block.blockVariant === "POZASTAVENO";
+    const chip: MonitorChip = { label: VARIANT_CONFIG[block.blockVariant].label, tone: isStop ? "danger" : "plain" };
+    if (isStop) chips.unshift(chip);
+    else chips.push(chip);
   }
 
   return chips;

@@ -53,13 +53,15 @@ export type HoverTooltipGeometry = {
  * z obrazovky, nenese informaci žádnou — překryv aspoň nějakou.
  *
  * ── Svislá osa ──────────────────────────────────────────────────────────────
- * Svislé umístění řeší samostatná funkce `hoverTooltipTop()` níž v tomto
- * souboru — jiná osa, jiné pravidlo (pod kartu s flipem), ale stejný důvod
- * mít to jako testovatelnou čistou funkci mimo JSX.
+ * Svislou polohu tahle funkce neřeší. V záchranném režimu ji počítá samostatná
+ * `hoverTooltipTop()` níž v tomto souboru (pod kartu s flipem), v hlavním
+ * režimu přímo `hoverTooltipPlacement` (ve výšce karty). Důvod je u obou
+ * stejný: testovatelná čistá funkce mimo JSX.
  *
- * Od 14. 9. 2026 `hoverTooltipLeft` řeší jen záchranný režim (`own`) volaný
- * z `hoverTooltipPlacement` — hlavní pravidlo umísťuje bublinu nad sousední
- * stroj.
+ * Od 14. 9. 2026 ji volá jen `hoverTooltipPlacement`, a to v OBOU režimech:
+ * v hlavním (`neighbour`) s pravou hranou sousedního sloupce, v záchranném
+ * (`own`) s pravou hranou vlastního sloupce (když hák chybí, s pravou hranou
+ * karty + 3 px). Ukotvení i sevření do okna jsou v obou režimech stejné.
  */
 export function hoverTooltipLeft({
   columnRight,

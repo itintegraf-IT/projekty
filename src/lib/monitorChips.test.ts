@@ -37,7 +37,10 @@ test("buildMonitorChips: prázdná zakázka nemá jediný chip", () => {
   assert.deepEqual(buildMonitorChips(mk()), []);
 });
 
-test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série → data → materiál → pantone → barvy → lak → varianta", () => {
+// Pozastaveno jde PRVNÍ (nález I3 závěrečné revize, Vojta 15. 9. 2026): velká karta
+// při přetečení ořezává štítky zespodu a výrobní stopka je jediný štítek, který
+// tiskař nesmí přehlédnout.
+test("buildMonitorChips: pořadí je Pozastaveno → obálka → vnitřky → archy → série → data → materiál → pantone → barvy → lak", () => {
   const chips = buildMonitorChips(mk({
     obalka: true,
     vnitrky: true,
@@ -53,6 +56,7 @@ test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série �
     blockVariant: "POZASTAVENO",
   }));
   assert.deepEqual(chips, [
+    { label: "Pozastaveno", tone: "danger" },
     { label: "OBÁLKA", tone: "brand" },
     { label: "VNITŘKY", tone: "brand" },
     { label: "3 TA", tone: "plain" },
@@ -63,7 +67,15 @@ test("buildMonitorChips: pořadí je obálka → vnitřky → archy → série �
     { label: "PANTONE", tone: "ok" },
     { label: "SCH Lumina LED", tone: "plain" },
     { label: "UV lak", tone: "plain" },
-    { label: "Pozastaveno", tone: "danger" },
+  ]);
+});
+
+test("buildMonitorChips: ostatní varianty jsou jen informace a zůstávají na konci řady", () => {
+  const chips = buildMonitorChips(mk({ obalka: true, lakStatusLabel: "UV lak", blockVariant: "BEZ_SACKU" }));
+  assert.deepEqual(chips, [
+    { label: "OBÁLKA", tone: "brand" },
+    { label: "UV lak", tone: "plain" },
+    { label: "Bez sáčku", tone: "plain" },
   ]);
 });
 

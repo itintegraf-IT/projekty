@@ -2613,6 +2613,9 @@ obrácení záměru ze 13. 8. 2026, kdy se zúžený řádek zavedl bez štítk�
 - `monitorChipsRowStyle()` — pojistka velké karty. Obal štítků smí jako jediný
   prvek obsahu zmenšit výšku pod obsah, takže na XL a nízké obrazovce ustoupí
   štítky, ne časová osa tisku (spec odd. 1.3). `MonitorView.tsx` se neměnil.
+- **Pořadí, změna 15. 9. 2026** (nález I3 závěrečné revize, Vojta „OK“): štítek
+  POZASTAVENO jde na začátek řady, protože pojistka výš ořezává štítky zespodu
+  a výrobní stopku tiskař přehlédnout nesmí. Ostatní varianty zůstávají na konci.
 - `MonitorQueue.tsx` — zúžený řádek NEDODĚLÁNO kreslí `MonitorChips`, pás
   specifikace v něm dál není. Zapojení hlídá `src/lib/monitorChipsWiring.test.ts`.
 - `prisma/seed-monitor.ts` — `MON-2410`, včerejší neodklepnutá zakázka s barvami
