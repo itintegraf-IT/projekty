@@ -21,7 +21,7 @@ import {
 } from "@/lib/reportMetrics";
 import { OPEN_STATUSES, CLOSED_STATUSES, computeConversionPercent } from "@/lib/reservationStatus";
 import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
-import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
+import { blockReportSegments, type PrintSegment } from "@/lib/printTimeClient";
 import { usesTiskoveHodiny } from "@/lib/printTime";
 import { intersectIntervals, type Interval } from "@/lib/intervals";
 import { MACHINES } from "@/lib/machines";
@@ -208,10 +208,17 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   // Segmenty 1× per blok — denní smyčka by expanzi opakovala až 30×.
   const segMap = new Map<(typeof blockInputs)[number], PrintSegment[] | null>();
   for (const b of blockInputs) {
-    // ZAKAZKA (vytížení) + REZERVACE s pm (NOVÝ ukazatel rezervované kapacity, etapa 9
-    // rozhodnutí #5). Sumy níž filtrují per typ, takže vytížení se tím NEMĚNÍ; legacy
-    // rezervace (pm null) → null → konzervativní fallback celého spanu.
+    // ZAKAZKA (vytížení) + REZERVACE s pm (ukazatel rezervované kapacity, etapa 9
+    // rozhodnutí #5). Sumy níž filtrují per typ, takže vytížení se tím NEMĚNÍ.
+    // Legacy rezervace (pm null) a údržba dostanou null → `occupiedMinutes` je
+    // ořeže na obsazené směny (etapa 2 září 2026), ne na hrubý span.
     segMap.set(b, usesTiskoveHodiny(b) ? blockReportSegments(b, weekShifts, companyDays) : null);
+  }
+
+  // Obsazené směny 1× per stroj — viz týž komentář v `handleOutlook`.
+  const staffedByMachine = new Map<string, Interval[]>();
+  for (const machine of MACHINES) {
+    staffedByMachine.set(machine, staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, companyDays));
   }
 
   // Per-machine metrics
@@ -223,13 +230,20 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
   let totalReserved = 0;
 
   for (const machine of MACHINES) {
+    const staffed = staffedByMachine.get(machine) ?? [];
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
     // Souhrn se ořezává STEJNĚ jako denní graf. Dřív se sčítala celá délka bloků, které
     // období jen protínají, kdežto dostupné hodiny ořezané byly — na produkci 26 h ze
     // 399 h v srpnu 2026, a tytéž hodiny se započetly znovu i v září. Tímhle zároveň
     // mizí rozpor mezi kartou a grafem pod ní: obě čísla jedou přes týž `segMap`.
+    //
+    // Od etapy 2 (září 2026) se blok BEZ segmentů ořezává na OBSAZENÉ SMĚNY, ne jen
+    // oknem: týká se to údržby (`usesTiskoveHodiny` je u ní natrvalo false), legacy
+    // rezervací bez `printMinutes` a odložených či rozejitých zakázek, u kterých
+    // expanze vrátí null. Zakázka zaparkovaná přes víkend tím přestává nafukovat
+    // vytížení a „Podíl údržby" přestává účtovat noční servis mimo směnu.
     const clippedHours = (b: (typeof blockInputs)[number]) =>
-      printOverlapMinutes(segMap.get(b) ?? null, b, startUtc, endUtc) / 60;
+      occupiedMinutes(segMap.get(b) ?? null, b, startUtc, endUtc, staffed) / 60;
     const sumClipped = (type: string) =>
       blockInputs.filter((b) => b.machine === machine && b.type === type).reduce((s, b) => s + clippedHours(b), 0);
 
@@ -284,9 +298,13 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     const entry: { date: string; XL_105: number | null; XL_106: number | null } = { date: cur, XL_105: null, XL_106: null };
     for (const machine of MACHINES) {
       const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
+      // Den průnikem z celoobdobových intervalů — viz týž komentář v `handleOutlook`.
+      const dayStaffed = intersectIntervals(staffedByMachine.get(machine) ?? [], [
+        { start: dayStart.getTime(), end: dayEnd.getTime() },
+      ]);
       const prodMin = dayBlocks
         .filter((b) => b.machine === machine && b.type === "ZAKAZKA")
-        .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd), 0);
+        .reduce((sum, b) => sum + occupiedMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd, dayStaffed), 0);
       entry[machine] = computeUtilization(prodMin / 60, avail);
     }
     dailyUtilization.push(entry);
