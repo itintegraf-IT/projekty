@@ -13,9 +13,11 @@ import {
   computePlanStability,
   resolvePlanCoverage,
   computeCalendarCascade,
+  staffedIntervals,
 } from "./reportMetrics";
 import { printOverlapMinutes } from "./printTimeClient";
 import { addDaysToCivilDate } from "./dateUtils";
+import { totalHours } from "./intervals";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
 
 // ---------------------------------------------------------------------------
@@ -267,6 +269,60 @@ describe("computeAvailableHours", () => {
 
     // So 24. 10. 22:00 CEST → Ne 25. 10. 06:00 CET; hodina se opakuje
     assert.equal(computeAvailableHours("XL_105", "2026-10-24", "2026-10-25", onlySaturdayNight("2026-10-19"), []), 9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// staffedIntervals — jediný zdroj „kde ty hodiny leží"
+// ---------------------------------------------------------------------------
+describe("staffedIntervals", () => {
+  it("součet intervalů je TOTOŽNÝ s computeAvailableHours", () => {
+    const shifts = make16hShifts();
+    const iv = staffedIntervals("XL_105", "2026-04-13", "2026-04-17", shifts, []);
+    assert.equal(totalHours(iv), computeAvailableHours("XL_105", "2026-04-13", "2026-04-17", shifts, []));
+    assert.equal(totalHours(iv), 80);
+  });
+
+  it("vrací seřazené a nepřekrývající se intervaly i u překrývajících směn", () => {
+    // Noční 22:00–08:00 (override konce na 480 min) vedle výchozí ranní 06:00–14:00:
+    // `PUT /api/machine-week-shifts` validuje každou směnu izolovaně, takže tenhle
+    // rozvrh v DB skutečně vznikne. Naivní součet směn dá 28 h, sloučený 26 h.
+    const rows = [0, 1, 2, 3, 4, 5, 6].map((dow) => ({
+      ...makeRow("XL_105", dow, { morningOn: true, nightOn: true }),
+      nightEndMin: 480,
+    }));
+    const iv = staffedIntervals("XL_105", "2026-04-13", "2026-04-14", rows, []);
+    for (let i = 1; i < iv.length; i++) {
+      assert.ok(iv[i].start >= iv[i - 1].end, "intervaly se nesmí překrývat ani jít zpět");
+    }
+    assert.equal(totalHours(iv), 26);
+    assert.equal(totalHours(iv), computeAvailableHours("XL_105", "2026-04-13", "2026-04-14", rows, []));
+  });
+
+  it("odstávka uvnitř směny interval rozdělí, ne zkrátí zprava", () => {
+    // Po 6–22 (16 h), zavřeno 04:00–06:00 UTC = 06:00–08:00 Praha, tedy začátek ranní.
+    const rows = [makeRow("XL_105", 1, { morningOn: true, afternoonOn: true })];
+    const shutdown = [{ machine: null, startDate: "2026-04-13T04:00:00.000Z", endDate: "2026-04-13T06:00:00.000Z" }];
+    const iv = staffedIntervals("XL_105", "2026-04-13", "2026-04-13", rows, shutdown);
+    assert.equal(totalHours(iv), 14);
+    assert.equal(iv.length, 1, "odstávka na kraji směnu jen zkrátí");
+    assert.equal(iv[0].start, new Date("2026-04-13T06:00:00.000Z").getTime());
+  });
+
+  it("odstávka uprostřed směny udělá DVA intervaly", () => {
+    const rows = [makeRow("XL_105", 1, { morningOn: true, afternoonOn: true })]; // 6–22 Praha
+    const shutdown = [{ machine: null, startDate: "2026-04-13T08:00:00.000Z", endDate: "2026-04-13T10:00:00.000Z" }];
+    const iv = staffedIntervals("XL_105", "2026-04-13", "2026-04-13", rows, shutdown);
+    assert.equal(iv.length, 2);
+    assert.equal(totalHours(iv), 14);
+  });
+
+  it("stroj bez řádků MachineWeekShifts → prázdné pole, ne výjimka", () => {
+    assert.deepEqual(staffedIntervals("XL_105", "2026-04-13", "2026-04-17", [], []), []);
+  });
+
+  it("obrácený rozsah → prázdné pole", () => {
+    assert.deepEqual(staffedIntervals("XL_105", "2026-04-17", "2026-04-13", make16hShifts(), []), []);
   });
 });
 

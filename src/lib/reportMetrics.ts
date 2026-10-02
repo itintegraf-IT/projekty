@@ -57,99 +57,20 @@ function shiftIntervalsForDay(row: MachineWeekShiftsRow, dateStr: string): Inter
 }
 
 /**
- * Dostupné pracovní hodiny stroje v rozsahu civil date (inclusive), **po odečtení odstávek**.
+ * Obsazené směny v okně `window` jako UTC intervaly — a k tomu rozpad, který
+ * potřebuje kaskáda kalendáře: směny PŘED odečtením odstávek (`rawShifts`) a dny
+ * bez řádku v `MachineWeekShifts` (`noRoster`).
  *
- * Bez odečtení tvrdil report o týdnu celozávodní dovolené „0 % ze 152 dostupných hodin“
- * místo poctivého „0 z 0“ — čitatel odstávku respektuje (expanze tisku v ní vrátí
- * START_NOT_RUNNABLE), jmenovatel ji dřív ignoroval. Na produkci 153,9 h v prosinci 2026.
+ * Jediné místo v repu, které rozvrh na intervaly převádí. Veřejná `staffedIntervals`
+ * si sem chodí pro čistý seznam (a `computeAvailableHours` skrz ni pro jeho součet),
+ * `computeCalendarCascade` pro celý rozpad. Dokud si jmenovatel a čitatel stavěli
+ * intervaly každý po svém, hlásil report „přeplánováno o 1 h" na stroji s prázdnou
+ * směnou (spec etapy 2 září 2026, odd. 2.1).
  *
- * Směny se staví i pro den PŘED rozsahem: noční směna patří ke dni svého startu a do
- * okna zasahuje ocasem po půlnoci. Ořez oknem pak zajistí, že se počítají jen hodiny
- * uvnitř zvoleného období.
+ * Začíná se DEN PŘED rozsahem: noční směna patří ke dni svého startu a do okna
+ * zasahuje ocasem po půlnoci. Ořez oknem pak drží jen hodiny uvnitř období.
  */
-export function computeAvailableHours(
-  machine: string,
-  rangeStart: string,
-  rangeEnd: string,
-  weekShifts: MachineWeekShiftsRow[],
-  companyDays: CompanyDayRow[],
-): number {
-  const winStart = pragueToUTC(rangeStart, 0, 0).getTime();
-  const winEnd = pragueToUTC(addDaysToCivilDate(rangeEnd, 1), 0, 0).getTime();
-  if (winEnd <= winStart) return 0;
-
-  const rawShifts: Interval[] = [];
-  let cur = addDaysToCivilDate(rangeStart, -1);
-  while (cur <= rangeEnd) {
-    const weekStart = weekStartStrFromDateStr(cur);
-    const dayOfWeek = new Date(cur + "T12:00:00Z").getUTCDay();
-    const row = weekShifts.find(
-      (w) => w.machine === machine && w.weekStart === weekStart && w.dayOfWeek === dayOfWeek,
-    );
-    if (row && row.isActive) rawShifts.push(...shiftIntervalsForDay(row, cur));
-    cur = addDaysToCivilDate(cur, 1);
-  }
-
-  // Směny se slučují ze stejného důvodu jako odstávky: `PUT /api/machine-week-shifts` validuje
-  // každou směnu IZOLOVANĚ, takže noční do 08:00 vedle výchozí ranní od 06:00 projde — a průnik
-  // by se do jmenovatele započetl dvakrát. Nafouknutá kapacita podhodnocuje vytížení, takže by
-  // se přeplánování schovalo právě tam, kde má být nejlíp vidět.
-  const shifts = mergeIntervals(rawShifts);
-
-  const shutdowns = mergeIntervals(
-    companyDayIntervalsFor(machine, companyDays).map((i) => ({
-      start: i.start.getTime(),
-      end: i.end.getTime(),
-    })),
-  );
-
-  let ms = 0;
-  for (const iv of shifts) {
-    const s = Math.max(iv.start, winStart);
-    const e = Math.min(iv.end, winEnd);
-    if (e <= s) continue;
-    let free = e - s;
-    for (const sd of shutdowns) {
-      free -= Math.max(0, Math.min(e, sd.end) - Math.max(s, sd.start));
-    }
-    ms += Math.max(0, free);
-  }
-  return ms / 3_600_000;
-}
-
-// ---------------------------------------------------------------------------
-// 1b. computeCalendarCascade
-// ---------------------------------------------------------------------------
-
-export type CalendarCascade = {
-  calendarHours: number;
-  staffedHours: number;
-  plannedHours: number;
-  confirmedHours: number;
-  /** Podíl potvrzených na naplánovaných. `null` když se nic neplánovalo. */
-  confirmedShareOfPlanned: number | null;
-  unused: {
-    total: number;
-    weekend: number;
-    shutdown: number;
-    /** Hodiny dnů, pro které v `MachineWeekShifts` chybí řádek — „nevíme", ne „neobsazeno". */
-    noRoster: number;
-    unstaffedShift: number;
-  };
-};
-
-/**
- * Absolutní UTC intervaly OBSAZENÝCH směn v okně `[winStart, winEnd)`, po odečtení odstávek.
- *
- * Záměrně TÝŽ postup jako v `computeAvailableHours` — jen vrací, KDE ty hodiny leží,
- * místo pouhého součtu. Rozpad nevyužitého kalendáře potřebuje polohu; kdyby se
- * rekonstrukce s originálem rozešla, přestalo by platit `kalendář − obsazeno = nevyužito`
- * a rozpad by tiše lhal (hlídá test parity s `computeAvailableHours`).
- *
- * Proto se stejně jako tam začíná DEN PŘED rozsahem: noční směna patří ke dni svého
- * startu a do okna zasahuje ocasem po půlnoci.
- */
-function staffedIntervals(
+function staffedBreakdown(
   machine: string,
   rangeStart: string,
   rangeEnd: string,
@@ -193,6 +114,83 @@ function staffedIntervals(
 }
 
 /**
+ * Obsazené směny stroje v rozsahu civil date (inclusive) jako UTC intervaly,
+ * po odečtení odstávek. Intervaly jsou seřazené a nepřekrývající se.
+ *
+ * **Jediný zdroj pravdy pro obě strany poměru vytížení.** Jmenovatel z nich dělá
+ * součet (`computeAvailableHours`), čitatel rigidního bloku na nich počítá průnik
+ * (`staffedOverlapMinutes`). Dřív si každá strana stavěla vlastní představu o tom,
+ * kdy stroj jede, a proto stroj s osmihodinovou noční údržbou mimo jedinou ranní
+ * směnu hlásil 100 % vytížení a „0 h volných" (spec etapy 2 září 2026, odd. 2.1).
+ *
+ * Okno je už v intervalech zahrnuté — volající ho neřeší.
+ */
+export function staffedIntervals(
+  machine: string,
+  rangeStart: string,
+  rangeEnd: string,
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayRow[],
+): Interval[] {
+  const winStart = pragueMinuteToUtcMs(rangeStart, 0);
+  const winEnd = pragueMinuteToUtcMs(addDaysToCivilDate(rangeEnd, 1), 0);
+  if (winEnd <= winStart) return [];
+
+  const shutdowns = mergeIntervals(
+    companyDayIntervalsFor(machine, companyDays).map((i) => ({
+      start: i.start.getTime(),
+      end: i.end.getTime(),
+    })),
+  );
+
+  return staffedBreakdown(machine, rangeStart, rangeEnd, weekShifts, shutdowns, [
+    { start: winStart, end: winEnd },
+  ]).staffed;
+}
+
+/**
+ * Dostupné pracovní hodiny stroje v rozsahu civil date (inclusive), **po odečtení odstávek**.
+ *
+ * Bez odečtení tvrdil report o týdnu celozávodní dovolené „0 % ze 152 dostupných hodin"
+ * místo poctivého „0 z 0" — čitatel odstávku respektuje (expanze tisku v ní vrátí
+ * START_NOT_RUNNABLE), jmenovatel ji dřív ignoroval. Na produkci 153,9 h v prosinci 2026.
+ *
+ * Je to VÝHRADNĚ součet `staffedIntervals`; slučování překrývajících se směn, ořez oknem
+ * i ocas noční směny ze dne před rozsahem řeší ta funkce. Vlastní cesta k témuž číslu tady
+ * byla do etapy 2 září 2026 a právě ta umožnila, aby se čitatel s jmenovatelem rozešel.
+ */
+export function computeAvailableHours(
+  machine: string,
+  rangeStart: string,
+  rangeEnd: string,
+  weekShifts: MachineWeekShiftsRow[],
+  companyDays: CompanyDayRow[],
+): number {
+  return totalHours(staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, companyDays));
+}
+
+// ---------------------------------------------------------------------------
+// 1b. computeCalendarCascade
+// ---------------------------------------------------------------------------
+
+export type CalendarCascade = {
+  calendarHours: number;
+  staffedHours: number;
+  plannedHours: number;
+  confirmedHours: number;
+  /** Podíl potvrzených na naplánovaných. `null` když se nic neplánovalo. */
+  confirmedShareOfPlanned: number | null;
+  unused: {
+    total: number;
+    weekend: number;
+    shutdown: number;
+    /** Hodiny dnů, pro které v `MachineWeekShifts` chybí řádek — „nevíme", ne „neobsazeno". */
+    noRoster: number;
+    unstaffedShift: number;
+  };
+};
+
+/**
  * Kaskáda kalendář → obsazeno směnami → naplánováno → potvrzeno tiskařem.
  *
  * Odpovídá na otázku, kterou dnešní „vytížení" položit neumí: **jakou část
@@ -232,7 +230,7 @@ export function computeCalendarCascade(args: {
       end: i.end.getTime(),
     })),
   );
-  const { staffed, rawShifts, noRoster } = staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, shutdowns, period);
+  const { staffed, rawShifts, noRoster } = staffedBreakdown(machine, rangeStart, rangeEnd, weekShifts, shutdowns, period);
   const unusedIntervals = subtractIntervals(period, staffed);
 
   // Víkendy jako intervaly — soboty a neděle podle PRAŽSKÉHO data, celý den
