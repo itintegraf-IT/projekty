@@ -10,16 +10,20 @@ import { pipelineToneFor, reportTypeScale, reportRadius, reportSpace } from "@/l
 import { SectionHeader, BarChart, cz, type RetroData } from "./reportShared";
 
 /**
- * Barva hodnoty na KPI kartě vytížení — TŘI pásma, shodně s `capacityColor`
+ * Barva hodnoty na kartě „Vytížení výrobou" — TŘI pásma, shodně s `capacityColor`
  * v záložce Výhled. Etapa R2 měla měnit barvy, ne meze.
  *
  * Navázat kartu na `heatToneFor` je svůdné a je to chyba: heatmapa má pásem
  * pět, protože rozlišuje „stroj nejede" od nuly a nevytížení od varování.
  * Karta by tím dostala dvě nová pásma, která na ní nikdy nebyla — stroj na
  * 42 % by z oranžové („pozor") přeskočil na modrošedou („nic se neděje") a
- * hlavně: karta „Kapacita" v sousední záložce by týž stroj na týchž 42 %
- * barvila dál oranžově. Dvě karty téže veličiny, dvě barvy podle záložky.
- * Přesně ten rozpor, který etapa odstraňovala u chipů typu bloku.
+ * hlavně: karta „Obsazenost směn" v sousední záložce by týž stroj na týchž
+ * 42 % barvila dál oranžově. Dvě karty dvou různých veličin, dvě barevné
+ * stupnice podle záložky. Přesně ten rozpor, který etapa odstraňovala
+ * u chipů typu bloku.
+ *
+ * Od etapy 2 (září 2026) nesou obě karty i popisek, CO se do nich počítá:
+ * tady jen zakázky, ve Výhledu všechny typy uvnitř směn.
  */
 const utilizationColor = (pct: number | null): string | undefined => {
   if (pct == null) return undefined;
@@ -61,15 +65,17 @@ export function RetroView({ data }: { data: RetroData }) {
             právě podíl těchhle dvou čísel), ale hodiny samy o sobě informaci
             nesou — proto se stěhují sem, ne do koše. */}
         <KpiCard
-          label="Vytížení XL 105"
+          label="Vytížení výrobou XL 105"
           value={xl105?.utilization == null ? "—" : `${xl105.utilization}%`}
           subtitle={`${cz(xl105?.productionHours ?? 0)} z ${cz(xl105?.availableHours ?? 0)} h dostupných`}
+          note="jen zakázky, z hodin obsazených směn"
           color={utilizationColor(xl105?.utilization ?? null)}
         />
         <KpiCard
-          label="Vytížení XL 106"
+          label="Vytížení výrobou XL 106"
           value={xl106?.utilization == null ? "—" : `${xl106.utilization}%`}
           subtitle={`${cz(xl106?.productionHours ?? 0)} z ${cz(xl106?.availableHours ?? 0)} h dostupných`}
+          note="jen zakázky, z hodin obsazených směn"
           color={utilizationColor(xl106?.utilization ?? null)}
         />
         {/* Vnitřek MUSÍ být týž jako u `KpiCard` vedle (`md` svisle, `lg`

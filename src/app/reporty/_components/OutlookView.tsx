@@ -8,13 +8,14 @@ import { ATTENTION_THRESHOLDS, plural } from "@/lib/attentionItems";
 import { SectionHeader, DOW_LABELS, cz, type OutlookData, type OutlookMachineData } from "./reportShared";
 
 /**
- * Podtitulek karty kapacity musí přiznat totéž co hodnota nad ním. Dokud se řídil jen
- * `freeHours ?? 0`, hlásila karta u stroje bez směn „—" a hned pod tím „0 h volných“ —
- * což se čte jako „stroj je plný". Táž ztráta rozdílu mezi „nevím" a „nula", jakou
- * etapa opravovala u procent, jen přenesená do hodin.
+ * Podtitulek karty „Obsazenost směn" musí přiznat totéž co hodnota nad ním. Dokud se
+ * řídil jen `freeHours ?? 0`, hlásila karta u stroje bez směn „—" a hned pod tím
+ * „0 h volných“ — což se čte jako „stroj je plný". Táž ztráta rozdílu mezi „nevím"
+ * a „nula", jakou etapa opravovala u procent, jen přenesená do hodin.
  *
  * Od R3 je tenhle podtitulek JEDINÝM nositelem hodin volna: samostatné karty
- * „Volné hod." byly duplicitou téhož čísla vedle téhož stroje.
+ * „Volné hod." byly duplicitou téhož čísla vedle téhož stroje. Věta o tom, CO se
+ * do čísla počítá, proto jde do `note`, ne sem (etapa 2 září 2026).
  */
 function capacitySubtitle(m: OutlookMachineData | undefined): string {
   if (m == null || m.plannedCapacity == null) return "stroj nejede";
@@ -25,7 +26,9 @@ function capacitySubtitle(m: OutlookMachineData | undefined): string {
 /**
  * Barva se řídí TÝMŽ signálem jako podtitulek (`overbookedHours`), ne zaokrouhleným
  * procentem. Jinak by při 100,4 % vyšel `Math.round` na 100, karta by svítila zeleně
- * a pod ní stálo „přeplánováno o 0,1 h".
+ * a pod ní stálo „přeplánováno o 0,1 h". Meze jsou shodné s kartou „Vytížení výrobou"
+ * v Retrospektivě (`utilizationColor`) — jsou to dvě různé veličiny, ale stejná
+ * stupnice, aby týž stroj nesvítil na dvou záložkách jinak.
  */
 function capacityColor(m: OutlookMachineData | undefined): string | undefined {
   if (m == null || m.plannedCapacity == null) return undefined;
@@ -96,23 +99,28 @@ export function OutlookView({ data }: { data: OutlookData }) {
       {/* KPI row */}
       <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
         <KpiCard
-          label="Kapacita XL 105"
+          label="Obsazenost směn XL 105"
           value={xl105?.plannedCapacity == null ? "—" : `${xl105.plannedCapacity}%`}
           subtitle={capacitySubtitle(xl105)}
+          note="zakázky, rezervace i údržba uvnitř směn"
           color={capacityColor(xl105)}
         />
         <KpiCard
-          label="Kapacita XL 106"
+          label="Obsazenost směn XL 106"
           value={xl106?.plannedCapacity == null ? "—" : `${xl106.plannedCapacity}%`}
           subtitle={capacitySubtitle(xl106)}
+          note="zakázky, rezervace i údržba uvnitř směn"
           color={capacityColor(xl106)}
         />
       </div>
 
-      {/* KAPACITA */}
-      <SectionHeader label="KAPACITA" />
+      {/* OBSAZENOST SMĚN */}
+      <SectionHeader label="OBSAZENOST SMĚN" />
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: reportRadius.lg, padding: reportSpace.md }}>
-        <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Heatmapa vytížení</div>
+        {/* „Obsazenosti", ne „vytížení": vytížení je jméno té DRUHÉ definice
+            (Retrospektiva, jen zakázky). Jedna mřížka se dvěma jmény na dvou
+            záložkách je přesně ten zmatek, který etapa 2 odstraňovala. */}
+        <div style={{ fontSize: reportTypeScale.sm, color: "var(--text-muted)", marginBottom: 8 }}>Heatmapa obsazenosti</div>
         {/* Posouvá se MŘÍŽKA ve vlastním kontejneru, ne stránka: měsíční období má
             31 sloupců a vodorovný posun celé stránky by rozhoupal i sekce, které
             se šířky netýkají. `minWidth` drží dlaždice čitelně široké. */}

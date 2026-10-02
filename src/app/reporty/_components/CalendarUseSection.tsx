@@ -215,12 +215,13 @@ function MachineCascade({ machine, data }: { machine: string; data: RetroMachine
 /**
  * Sekce VYUŽITÍ KALENDÁŘE retrospektivy.
  *
- * Nesmí se jmenovat „KAPACITA" — tak se jmenuje sekce ve **Výhledu** a znamená
- * něco jiného (volné hodiny dopředu). Dvě stejnojmenné sekce na dvou záložkách
- * jsou přesně ten zmatek, který odstraňovala etapa R3.
+ * Nesmí se jmenovat „OBSAZENOST SMĚN" — tak se od etapy 2 (září 2026) jmenuje
+ * sekce ve **Výhledu** a znamená něco jiného (volné hodiny dopředu). Dvě
+ * stejnojmenné sekce na dvou záložkách jsou přesně ten zmatek, který odstraňovala
+ * etapa R3 a po ní pojmenování z etapy 2.
  *
- * Odpovídá na otázku, kterou karta „Vytížení" položit neumí: vytížení je poměr
- * naplánovaných hodin k OBSAZENÝM směnám, takže o kalendáři neříká nic. Stroj
+ * Odpovídá na otázku, kterou karta „Vytížení výrobou" položit neumí: vytížení je
+ * poměr naplánovaných hodin k OBSAZENÝM směnám, takže o kalendáři neříká nic. Stroj
  * na jednu směnu může mít vytížení 95 % a přitom stát tři čtvrtiny roku.
  *
  * Vlastní nadpis (`SectionHeader`) si drží volající — sekce vykresluje jen obsah.

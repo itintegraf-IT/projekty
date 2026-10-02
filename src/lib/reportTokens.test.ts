@@ -149,7 +149,6 @@ const DIMENSION_DEBT: Record<string, number> = {
   "src/app/reporty/_components/CheckExplainer.tsx": 2,
   "src/app/reporty/_components/HealthPanel.tsx": 27,
   "src/app/reporty/_components/IntegrityRow.tsx": 8,
-  "src/app/reporty/_components/KpiCard.tsx": 2,
   "src/app/reporty/_components/OutlookView.tsx": 25,
   "src/app/reporty/_components/PlanningSection.tsx": 2,
   "src/app/reporty/_components/ReportDashboard.tsx": 13,

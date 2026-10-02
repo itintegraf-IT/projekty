@@ -2650,3 +2650,49 @@ a MTZ na 1920 i 1366 px.
   tutéž konstantu. Zapojení hlídá `src/lib/plannerHoverWiring.test.ts`.
 
 **Vědomý kompromis:** bublina dočasně zakryje pravý kraj karet druhého stroje.
+
+## Reporty pro plánovače a poctivé vytížení (etapa 2 září 2026, 28. 9. 2026)
+
+**Zadání.** Plánovač reporty nevidí (modul je jen pro ADMIN) a čísla v nich nejsou
+důvěryhodná: „vytížení" znamená v každé záložce něco jiného a u strojů s noční či
+víkendovou údržbou hlásí přeplánování i tam, kde je celá směna volná. Spec:
+`docs/superpowers/specs/2026-09-16-reporty-pro-planovace-design.md`.
+
+**Přístup.** `/reporty` a všechna tři reportová API pouští ADMIN i PLANOVAT (volba
+R1 = A). Je to sedm míst: middleware 2×, stránka, `api/report/dashboard`,
+`api/report/attention`, `api/report/health` a odkaz v hlavičce planneru. Middleware
+`attention` ani `health` nejmenuje, takže obě stojí čistě na `requireRole` uvnitř
+routy a musí se měnit společně — rozpojené jedno místo neshodí nic, jen roli funguje
+část stránky. Hlídá `src/lib/reportAccessWiring.test.ts`; do téhle etapy autorizaci
+reportů nehlídal žádný test. `plannerActivity` v odpovědi zůstává beze změny
+(rozhodnutí Vojty 16. 9. 2026): plánovači si ho zobrazí v nástrojích prohlížeče,
+rozhodnutí z R3 platilo pro vzhled stránky, ne pro data.
+
+**Poctivý čitatel.** Obsazené směny mají jeden zdroj — `staffedIntervals`
+(`src/lib/reportMetrics.ts`). `computeAvailableHours` je nově jen jeho součet
+(`totalHours`), takže jmenovatel a čitatel stojí na týchž intervalech a nemohou se
+rozejít. Rigidní blok se počítá `staffedOverlapMinutes`, tedy průnikem s obsazenými
+směnami; rozhodnutí „segmenty, nebo ořez na směny" má jedno jméno `occupiedMinutes`
+a používají ho všechny tři agregace. Výhled i stavový pás se zároveň přepnuly
+z `b.type === "ZAKAZKA"` na `usesTiskoveHodiny`, takže IML zadané jako rezervace
+s tiskovými minutami se konečně počítá tiskovým časem. Zapojení hlídá
+`src/lib/reportNumeratorWiring.test.ts`. `printOverlapMinutes` zůstalo nedotčené —
+je to obecný nástroj a jinde je hrubý span správně.
+
+**Dopad na čísla.** Klesla obsazenost ve Výhledu, heatmapa, stavový pás a „Podíl
+údržby" u strojů s noční či víkendovou údržbou a s legacy rezervacemi mimo směny;
+falešné „přeplánováno o X h" u prázdné směny zmizelo. Vytížení výrobou se změnilo
+jen u odložených (`scheduleBypassed`) a rozejitých bloků — zakázka zaparkovaná přes
+víkend přestala vytížení nafukovat. Modelový příklad: stroj s jedinou ranní směnou
+6–14 a osmihodinovou noční údržbou hlásil „100 %, 0 h volných" a po přidání jedné
+hodiny „113 %, přeplánováno o 1 h"; nově 13 % a 7 h volných. Poměry se dál
+nezastropují — skutečné přeplánování uvnitř směn musí být vidět (P22).
+
+**Pojmenování.** Retrospektiva má kartu „Vytížení výrobou", Výhled „Obsazenost
+směn" (sekce i heatmapa stejně), obě s popiskem, co se do nich počítá. `KpiCard`
+kvůli tomu dostala volitelnou prop `note` — podtitulek se nesměl obětovat, u Výhledu
+je od R3 jediným nositelem hodin volna.
+
+**Vědomý kompromis:** rozpis tiskařů jako zdroj kapacity (R3 = A) je až po
+31. 10. 2026, takže „obsazené směny" znamená dál rozvrh `MachineWeekShifts`, ne
+skutečně přítomné lidi.
