@@ -14,6 +14,8 @@ import {
   resolvePlanCoverage,
   computeCalendarCascade,
   staffedIntervals,
+  staffedOverlapMinutes,
+  occupiedMinutes,
 } from "./reportMetrics";
 import { printOverlapMinutes } from "./printTimeClient";
 import { addDaysToCivilDate } from "./dateUtils";
@@ -323,6 +325,116 @@ describe("staffedIntervals", () => {
 
   it("obrácený rozsah → prázdné pole", () => {
     assert.deepEqual(staffedIntervals("XL_105", "2026-04-17", "2026-04-13", make16hShifts(), []), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// staffedOverlapMinutes + occupiedMinutes — čitatel rigidního bloku
+// ---------------------------------------------------------------------------
+describe("staffedOverlapMinutes", () => {
+  /** Po 13. 4. 2026, jediná ranní směna 6–14 Praha = 04:00–12:00 UTC (8 h). */
+  const MORNING_ONLY = [makeRow("XL_105", 1, { morningOn: true })];
+  const staffedMonday = () => staffedIntervals("XL_105", "2026-04-13", "2026-04-13", MORNING_ONLY, []);
+
+  it("noční údržba celá mimo směnu → 0 minut (modelový příklad ze zadání)", () => {
+    // 22:00–06:00 Praha = 20:00 UTC → 04:00 UTC druhý den. S ranní 04:00–12:00 UTC
+    // se nepotká: ocas končí přesně tam, kde směna začíná, a intervaly jsou [start, end).
+    const udrzba = { startTime: "2026-04-13T20:00:00.000Z", endTime: "2026-04-14T04:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(udrzba, staffedMonday()), 0);
+  });
+
+  it("dotyk hranice směny není překryv", () => {
+    const pred = { startTime: "2026-04-13T02:00:00.000Z", endTime: "2026-04-13T04:00:00.000Z" };
+    const za = { startTime: "2026-04-13T12:00:00.000Z", endTime: "2026-04-13T14:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(pred, staffedMonday()), 0);
+    assert.equal(staffedOverlapMinutes(za, staffedMonday()), 0);
+  });
+
+  it("údržba zasahující do směny se počítá jen překryvem", () => {
+    // 04:00–08:00 Praha = 02:00–06:00 UTC; uvnitř směny leží 04:00–06:00 UTC = 120 min.
+    const udrzba = { startTime: "2026-04-13T02:00:00.000Z", endTime: "2026-04-13T06:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(udrzba, staffedMonday()), 120);
+  });
+
+  it("údržba celá uvnitř směny se počítá celá", () => {
+    const udrzba = { startTime: "2026-04-13T05:00:00.000Z", endTime: "2026-04-13T07:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(udrzba, staffedMonday()), 120);
+  });
+
+  it("blok mimo okno → 0", () => {
+    const udrzba = { startTime: "2026-04-20T05:00:00.000Z", endTime: "2026-04-20T07:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(udrzba, staffedMonday()), 0);
+  });
+
+  it("odstávka uvnitř směny se od čitatele odečte", () => {
+    // Zavřeno 04:00–06:00 UTC → obsazeno zbývá 06:00–12:00 UTC.
+    const shutdown = [{ machine: null, startDate: "2026-04-13T04:00:00.000Z", endDate: "2026-04-13T06:00:00.000Z" }];
+    const staffed = staffedIntervals("XL_105", "2026-04-13", "2026-04-13", MORNING_ONLY, shutdown);
+    const udrzba = { startTime: "2026-04-13T05:00:00.000Z", endTime: "2026-04-13T07:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(udrzba, staffed), 60);
+  });
+
+  it("stroj bez naseedovaných směn → 0, ne celý span", () => {
+    // Řádky `MachineWeekShifts` vznikají líně, takže neotevřený týden je běžný stav.
+    const udrzba = { startTime: "2026-04-13T05:00:00.000Z", endTime: "2026-04-13T07:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(udrzba, []), 0);
+  });
+
+  it("degenerovaný blok (konec = start) → 0", () => {
+    const nic = { startTime: "2026-04-13T05:00:00.000Z", endTime: "2026-04-13T05:00:00.000Z" };
+    assert.equal(staffedOverlapMinutes(nic, staffedMonday()), 0);
+  });
+
+  it("součet po dnech se rovná součtu za celé období (karta vs. heatmapa)", () => {
+    const rows = [makeRow("XL_105", 1, { morningOn: true }), makeRow("XL_105", 2, { morningOn: true })];
+    const whole = staffedIntervals("XL_105", "2026-04-13", "2026-04-14", rows, []);
+    const udrzba = { startTime: "2026-04-13T10:00:00.000Z", endTime: "2026-04-14T06:00:00.000Z" };
+
+    let daily = 0;
+    for (const d of ["2026-04-13", "2026-04-14"]) {
+      daily += staffedOverlapMinutes(udrzba, staffedIntervals("XL_105", d, d, rows, []));
+    }
+    assert.equal(staffedOverlapMinutes(udrzba, whole), 240, "10:00–12:00 UTC 13. 4. + 04:00–06:00 UTC 14. 4.");
+    assert.equal(daily, 240);
+  });
+
+  it("den přechodu na zimní čas: blok přes celé okno = všechny obsazené hodiny", () => {
+    // 25. 10. 2026 je poslední říjnová neděle. Směny jsou v MÍSTNÍM čase, takže
+    // 6–14 zůstává osmihodinová; invariant „blok přes celé okno zabere celou
+    // obsazenou dobu" ale musí platit i přes posun.
+    const rows = ["2026-10-19", "2026-10-26"].flatMap((weekStart) =>
+      makeWeekRows("XL_105", weekStart, { morningOn: true }),
+    );
+    const staffed = staffedIntervals("XL_105", "2026-10-24", "2026-10-26", rows, []);
+    const celyRozsah = { startTime: "2026-10-20T00:00:00.000Z", endTime: "2026-11-01T00:00:00.000Z" };
+    assert.equal(totalHours(staffed), 24, "tři dny × ranní 6–14");
+    assert.equal(staffedOverlapMinutes(celyRozsah, staffed), 24 * 60);
+  });
+});
+
+describe("occupiedMinutes", () => {
+  const MORNING_ONLY = [makeRow("XL_105", 1, { morningOn: true })];
+  const staffedMonday = () => staffedIntervals("XL_105", "2026-04-13", "2026-04-13", MORNING_ONLY, []);
+  const WIN_START = new Date("2026-04-12T22:00:00.000Z"); // 13. 4. 00:00 Praha
+  const WIN_END = new Date("2026-04-13T22:00:00.000Z");   // 14. 4. 00:00 Praha
+
+  it("se segmenty počítá tiskový čas, směny ignoruje", () => {
+    // Segmenty leží z definice uvnitř směn, takže druhý ořez by byl zbytečný —
+    // a u bloku, který segmenty MÁ, by ho zkreslil.
+    const b = { startTime: "2026-04-13T05:00:00.000Z", endTime: "2026-04-13T08:00:00.000Z" };
+    const segs = [
+      { kind: "print" as const, start: new Date("2026-04-13T05:00:00.000Z"), end: new Date("2026-04-13T06:00:00.000Z") },
+      { kind: "pause" as const, start: new Date("2026-04-13T06:00:00.000Z"), end: new Date("2026-04-13T07:00:00.000Z") },
+      { kind: "print" as const, start: new Date("2026-04-13T07:00:00.000Z"), end: new Date("2026-04-13T08:00:00.000Z") },
+    ];
+    assert.equal(occupiedMinutes(segs, b, WIN_START, WIN_END, staffedMonday()), 120, "pauza se nepočítá");
+  });
+
+  it("bez segmentů ořezává na obsazené směny, ne na okno", () => {
+    const udrzba = { startTime: "2026-04-13T20:00:00.000Z", endTime: "2026-04-14T04:00:00.000Z" };
+    // Okno bere 20:00–22:00 UTC = 2 h, směny nulu. Tohle je celá oprava etapy.
+    assert.equal(printOverlapMinutes(null, udrzba, WIN_START, WIN_END), 120);
+    assert.equal(occupiedMinutes(null, udrzba, WIN_START, WIN_END, staffedMonday()), 0);
   });
 });
 

@@ -11,7 +11,7 @@ import {
   subtractIntervals,
   totalHours,
 } from "./intervals";
-import { companyDayIntervalsFor } from "./printTimeClient";
+import { companyDayIntervalsFor, printOverlapMinutes, type PrintSegment } from "./printTimeClient";
 import { resolveShiftBounds } from "./shifts";
 import { type MachineWeekShiftsRow, weekStartStrFromDateStr } from "./machineWeekShifts";
 
@@ -167,6 +167,55 @@ export function computeAvailableHours(
   companyDays: CompanyDayRow[],
 ): number {
   return totalHours(staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, companyDays));
+}
+
+/**
+ * Minuty, kterými rigidní blok skutečně zabere stroj: průnik `[startTime, endTime)`
+ * s obsazenými směnami.
+ *
+ * Okno reportu se tu neřeší — `staffedIntervals` ho má už zahrnuté. Kdo sem pošle
+ * intervaly za jiné období než to, na které se ptá, dostane odpověď na tu jinou
+ * otázku.
+ *
+ * Existuje proto, že `printOverlapMinutes(null, …)` ořezává jen OKNEM. Osmihodinová
+ * noční údržba mimo jedinou ranní směnu se tak celá naúčtovala do čitatele, zatímco
+ * jmenovatel ji neznal — a stroj s prázdnou směnou hlásil „100 %, 0 h volných", po
+ * přidání jediné hodiny „113 %, přeplánováno o 1 h" (spec etapy 2 září 2026).
+ */
+export function staffedOverlapMinutes(
+  b: { startTime: string | Date; endTime: string | Date },
+  staffed: Interval[],
+): number {
+  const start = new Date(b.startTime).getTime();
+  const end = new Date(b.endTime).getTime();
+  if (!(end > start)) return 0;
+  let ms = 0;
+  for (const iv of intersectIntervals([{ start, end }], staffed)) ms += iv.end - iv.start;
+  return ms / 60_000;
+}
+
+/**
+ * JEDINÉ místo, které rozhoduje, jak se blok do vytížení počítá.
+ *
+ * - Segmenty (`blockReportSegments` je uměl spočítat) → tiskový čas uvnitř okna.
+ *   Segmenty z definice leží uvnitř směn, takže druhý ořez by nic nepřidal.
+ * - Bez segmentů (údržba, legacy rezervace bez `printMinutes`, odložený nebo
+ *   rozejitý blok, selhaná expanze) → průnik s obsazenými směnami.
+ *
+ * `winStart`/`winEnd` platí jen pro první větev; druhá má okno v `staffed`.
+ * Pravidlo má jedno jméno schválně: tři konzumenti (`handleRetro`, `handleOutlook`,
+ * `api/report/attention`) ho dřív měli každý vlastní a právě tak se rozešli.
+ */
+export function occupiedMinutes(
+  segments: PrintSegment[] | null,
+  b: { startTime: string | Date; endTime: string | Date },
+  winStart: Date,
+  winEnd: Date,
+  staffed: Interval[],
+): number {
+  return segments
+    ? printOverlapMinutes(segments, b, winStart, winEnd)
+    : staffedOverlapMinutes(b, staffed);
 }
 
 // ---------------------------------------------------------------------------
