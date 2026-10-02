@@ -15,12 +15,15 @@ import {
   computeReservedRatio,
   computePlanStability,
   resolvePlanCoverage,
+  staffedIntervals,
+  occupiedMinutes,
   type CalendarCascade,
 } from "@/lib/reportMetrics";
 import { OPEN_STATUSES, CLOSED_STATUSES, computeConversionPercent } from "@/lib/reservationStatus";
 import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
 import { blockReportSegments, printOverlapMinutes, type PrintSegment } from "@/lib/printTimeClient";
 import { usesTiskoveHodiny } from "@/lib/printTime";
+import { intersectIntervals, type Interval } from "@/lib/intervals";
 import { MACHINES } from "@/lib/machines";
 
 const ALLOWED_ROLES = new Set(["ADMIN"]);
@@ -442,20 +445,37 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
   }));
 
   // Segmenty 1× per blok — denní smyčka by expanzi opakovala až 30×.
+  // `usesTiskoveHodiny`, ne `type === "ZAKAZKA"`: IML zadané jako REZERVACE
+  // s tiskovými minutami se do etapy 2 (září 2026) počítalo nafouknutým
+  // kalendářním spanem místo tiskového času. Retrospektiva to dělala správně
+  // už od etapy 9; Výhled a stavový pás se tím teprve srovnávají.
   const segMap = new Map<(typeof blockInputs)[number], PrintSegment[] | null>();
   for (const b of blockInputs) {
-    segMap.set(b, b.type === "ZAKAZKA" ? blockReportSegments(b, weekShifts, companyDays) : null);
+    segMap.set(b, usesTiskoveHodiny(b) ? blockReportSegments(b, weekShifts, companyDays) : null);
+  }
+
+  // Obsazené směny 1× per stroj. Denní smyčka si z nich bere průnik se dnem —
+  // druhý průchod rozvrhem by u 400denního rozsahu jen zdvojil práci a hlavně
+  // by se mohl s celoobdobovým výpočtem rozejít (karta vs. heatmapa pod ní).
+  const staffedByMachine = new Map<string, Interval[]>();
+  for (const machine of MACHINES) {
+    staffedByMachine.set(machine, staffedIntervals(machine, rangeStart, rangeEnd, weekShifts, companyDays));
   }
 
   // Per-machine metrics
   const machines: Record<string, { plannedCapacity: number | null; freeHours: number; overbookedHours: number; availableHours: number }> = {};
 
   for (const machine of MACHINES) {
+    const staffed = staffedByMachine.get(machine) ?? [];
     const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
-    // Týž ořez jako v retro režimu i jako v denním grafu níž — viz komentář v `handleRetro`.
+    // Blok s tiskovými segmenty jde přes ně (týž ořez jako v retro režimu i v denním
+    // grafu níž); rigidní blok se ořezává na OBSAZENÉ SMĚNY, ne na okno reportu.
+    // Dokud se ořezával jen oknem, nafoukla osmihodinová noční údržba čitatel proti
+    // jmenovateli, který ji nezná — stroj s prázdnou ranní směnou hlásil „0 h volných"
+    // a po přidání jedné hodiny „přeplánováno o 1 h" (spec etapy 2, odd. 2.2).
     const plannedHours = blockInputs
       .filter((b) => b.machine === machine)
-      .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, startUtc, endUtc) / 60, 0);
+      .reduce((sum, b) => sum + occupiedMinutes(segMap.get(b) ?? null, b, startUtc, endUtc, staffed) / 60, 0);
     // `freeHours` se ZÁMĚRNĚ neusekává na nule — „0 h volných“ a „přeplánováno o 26 h“
     // jsou dvě různé zprávy a plánovač potřebuje tu druhou. Kladné `overbookedHours`
     // je ta část, o kterou je stroj nad kapacitou.
@@ -477,9 +497,15 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
     const entry: { date: string; XL_105: number | null; XL_106: number | null } = { date: cur, XL_105: null, XL_106: null };
     for (const machine of MACHINES) {
       const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
+      // Den se odvozuje PRŮNIKEM z celoobdobových intervalů, ne novým průchodem
+      // rozvrhem: tím je součet po dnech rovný součtu za období konstrukcí, takže
+      // heatmapa nemůže tvrdit něco jiného než karta nad ní.
+      const dayStaffed = intersectIntervals(staffedByMachine.get(machine) ?? [], [
+        { start: dayStart.getTime(), end: dayEnd.getTime() },
+      ]);
       const planned = dayBlocks
         .filter((b) => b.machine === machine)
-        .reduce((sum, b) => sum + printOverlapMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd), 0) / 60;
+        .reduce((sum, b) => sum + occupiedMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd, dayStaffed), 0) / 60;
       entry[machine] = computeUtilization(planned, avail);
     }
     dailyCapacity.push(entry);

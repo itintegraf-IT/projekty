@@ -439,6 +439,62 @@ describe("occupiedMinutes", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Modelový příklad ze zadání etapy 2 (září 2026)
+// ---------------------------------------------------------------------------
+describe("modelový příklad: noční údržba nesmí nafouknout obsazenost", () => {
+  // Stroj jede jedinou ranní směnu 6–14 v pondělí 13. 4. (8 h), v úterý nemá
+  // v `MachineWeekShifts` řádek. V noci z pondělí na úterý běží osmihodinová
+  // údržba 22–6, do směny nezasahuje. Uvnitř směny leží jedna hodina zakázky.
+  // Období je 13.–14. 4., takže celá údržba leží UVNITŘ okna reportu — právě
+  // v tom je vada: okno ji nezkrátí a jmenovatel o ní nic neví.
+  const rows = [makeRow("XL_105", 1, { morningOn: true })];
+  const WIN_START = new Date("2026-04-12T22:00:00.000Z"); // 13. 4. 00:00 Praha
+  const WIN_END = new Date("2026-04-14T22:00:00.000Z");   // 15. 4. 00:00 Praha
+  const udrzba = { startTime: "2026-04-13T20:00:00.000Z", endTime: "2026-04-14T04:00:00.000Z" };
+  const zakazka = { startTime: "2026-04-13T05:00:00.000Z", endTime: "2026-04-13T06:00:00.000Z" };
+
+  it("dnešní hrubý span dává 113 % a falešné přeplánování (pinuje opravovanou vadu)", () => {
+    const availableHours = computeAvailableHours("XL_105", "2026-04-13", "2026-04-14", rows, []);
+    const plannedHours =
+      (printOverlapMinutes(null, udrzba, WIN_START, WIN_END) +
+        printOverlapMinutes(null, zakazka, WIN_START, WIN_END)) / 60;
+    assert.equal(availableHours, 8, "jen pondělní ranní směna");
+    assert.equal(plannedHours, 9, "8 h údržby mimo směnu + 1 h zakázky ve směně");
+    assert.equal(computeUtilization(plannedHours, availableHours), 113);
+    assert.equal(Math.max(0, -(availableHours - plannedHours)), 1, "„přeplánováno o 1 h“");
+  });
+
+  it("po opravě: údržba 0 h, obsazenost 13 % a 7 h volných", () => {
+    const staffed = staffedIntervals("XL_105", "2026-04-13", "2026-04-14", rows, []);
+    const availableHours = totalHours(staffed);
+    const plannedHours =
+      (occupiedMinutes(null, udrzba, WIN_START, WIN_END, staffed) +
+        occupiedMinutes(null, zakazka, WIN_START, WIN_END, staffed)) / 60;
+
+    assert.equal(staffedOverlapMinutes(udrzba, staffed), 0, "noční údržba mimo směnu se nepočítá");
+    assert.equal(availableHours, 8);
+    assert.equal(plannedHours, 1);
+
+    const remaining = availableHours - plannedHours;
+    assert.equal(Math.max(0, remaining), 7, "7 h volných");
+    assert.equal(Math.max(0, -remaining), 0, "žádné přeplánování");
+    // Přesný poměr je 12,5 %; karta ukazuje celé procento, `computeUtilization`
+    // zaokrouhluje (`Math.round`) a to se v téhle etapě nemění.
+    assert.equal(computeUtilization(plannedHours, availableHours), 13);
+  });
+
+  it("rezervace s tiskovými minutami, jejíž expanze selže, se taky ořeže na směny", () => {
+    // `usesTiskoveHodiny` je u ní true, ale `blockReportSegments` může vrátit null
+    // (drift konce, chybějící týdny směn). Pak MUSÍ spadnout na ořez směnami, ne
+    // na hrubý span — jinak oprava mine právě tu populaci, kvůli které vznikla.
+    const staffed = staffedIntervals("XL_105", "2026-04-13", "2026-04-14", rows, []);
+    const iml = { startTime: "2026-04-13T20:00:00.000Z", endTime: "2026-04-14T04:00:00.000Z" };
+    assert.equal(printOverlapMinutes(null, iml, WIN_START, WIN_END), 480, "hrubý span");
+    assert.equal(occupiedMinutes(null, iml, WIN_START, WIN_END, staffed), 0, "ořez na směny");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // computeUtilization
 // ---------------------------------------------------------------------------
 describe("computeUtilization", () => {
