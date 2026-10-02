@@ -856,6 +856,7 @@ Nahraď v per-machine smyčce (začíná ř. 222) řádky 223–231 — tedy `co
 
 ```ts
     const staffed = staffedByMachine.get(machine) ?? [];
+    const availableHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
     // Souhrn se ořezává STEJNĚ jako denní graf. Dřív se sčítala celá délka bloků, které
     // období jen protínají, kdežto dostupné hodiny ořezané byly — na produkci 26 h ze
     // 399 h v srpnu 2026, a tytéž hodiny se započetly znovu i v září. Tímhle zároveň
@@ -888,7 +889,7 @@ Nahraď vnitřní smyčku `dailyUtilization` (dnes ř. 282–288, blok `for (con
     }
 ```
 
-Nakonec uprav komentář nad `segMap.set` v `handleRetro` (dnes ř. 207–210), aby dál nemluvil o „konzervativním fallbacku celého spanu" — celý blok pak vypadá takhle:
+Nakonec uprav komentář nad `segMap.set` v `handleRetro` — nahraď celý blok stavby `segMap` (dnes ř. 205–212), aby dál nemluvil o „konzervativním fallbacku celého spanu":
 
 ```ts
   // Segmenty 1× per blok — denní smyčka by expanzi opakovala až 30×.
@@ -902,22 +903,37 @@ Nakonec uprav komentář nad `segMap.set` v `handleRetro` (dnes ř. 207–210), 
   }
 ```
 
-- [ ] **Krok 4: Spusť test a ověř, že prochází**
+- [ ] **Krok 4: Odstraň nepoužitý import `printOverlapMinutes`**
+
+Tímto krokem zmizelo poslední volání `printOverlapMinutes` v `src/app/api/report/dashboard/route.ts` — hrubý span tam teď počítá jen `occupiedMinutes` uvnitř `reportMetrics.ts`. Zúž proto import (dnes ř. 22):
+
+```ts
+import { blockReportSegments, type PrintSegment } from "@/lib/printTimeClient";
+```
+
+Ověř, že v souboru opravdu žádné volání nezbylo:
+
+```bash
+grep -n "printOverlapMinutes" src/app/api/report/dashboard/route.ts
+```
+Expected: žádný výstup.
+
+- [ ] **Krok 5: Spusť test a ověř, že prochází**
 
 Run: `node --test --import tsx src/lib/reportNumeratorWiring.test.ts`
 Expected: PASS, všechny tři testy zelené.
 
 Pokud `assert.equal(… /intersectIntervals\(/g …, 2)` padne, znamená to, že v dashboardu je volání víc nebo míň — přepočítej skutečná místa (retro denní smyčka + výhled denní smyčka = 2) a uprav buď kód, nebo očekávané číslo, podle toho, co je pravda. Číslo v testu musí odpovídat kódu, ne naopak.
 
-- [ ] **Krok 5: Ověř celou suite a build**
+- [ ] **Krok 6: Ověř celou suite a build**
 
 Run: `node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/lib/undo/*.test.ts src/lib/revision/*.test.ts src/app/_components/*.test.ts`
 Expected: stejný počet selhání jako na začátku etapy (0 s běžící AMPPS MySQL).
 
 Run: `npm run build`
-Expected: úspěch.
+Expected: úspěch, bez varování o nepoužitém importu.
 
-- [ ] **Krok 6: Commit**
+- [ ] **Krok 7: Commit**
 
 ```bash
 git add src/app/api/report/dashboard/route.ts src/lib/reportNumeratorWiring.test.ts
