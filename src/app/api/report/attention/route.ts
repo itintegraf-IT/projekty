@@ -48,8 +48,10 @@ const round1 = (hours: number) => Math.round(hours * 10) / 10;
 
 export async function GET() {
   try {
-    // Reporty jsou ADMIN-only, shodně s /api/report/dashboard.
-    await requireRole(["ADMIN"]);
+    // Reporty vidí ADMIN i PLANOVAT, shodně s /api/report/dashboard
+    // a /api/report/health. Middleware tuhle cestu nejmenuje, takže je to
+    // JEDINÁ ochrana — viz komentář u bloku dashboardu v `src/middleware.ts`.
+    await requireRole(["ADMIN", "PLANOVAT"]);
 
     // `rangeEnd` je u `computeAvailableHours` INCLUSIVE (funkce si sama přidává
     // jeden den), takže poslední den horizontu je `today + (N - 1)`. Bez toho

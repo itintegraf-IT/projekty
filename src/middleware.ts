@@ -57,16 +57,22 @@ export async function middleware(req: NextRequest) {
       }
     }
 
-    // /reporty — jen ADMIN
+    // /reporty — ADMIN i PLANOVAT (etapa 2 září 2026, volba R1 = A: plánovač
+    // musí vidět vytíženost strojů). Výčet je shodný s /admin o pár řádků výš.
     if (pathname.startsWith("/reporty") && !pathname.startsWith("/api/")) {
-      if (role !== "ADMIN") {
+      if (!role || !["ADMIN", "PLANOVAT"].includes(role)) {
         return NextResponse.redirect(new URL("/", req.url));
       }
     }
 
-    // /api/report/dashboard — jen ADMIN
+    // /api/report/dashboard — ADMIN i PLANOVAT.
+    //
+    // POZOR: middleware NEJMENUJE `/api/report/attention` ani `/api/report/health`
+    // — obě stojí čistě na `requireRole` uvnitř routy. Při změně rolí se musí měnit
+    // VŠECHNA tři API společně, jinak plánovači funguje jen část stránky (karty se
+    // načtou, stavový pás mlčí). Hlídá `src/lib/reportAccessWiring.test.ts`.
     if (pathname.startsWith("/api/report/dashboard")) {
-      if (role !== "ADMIN") {
+      if (!role || !["ADMIN", "PLANOVAT"].includes(role)) {
         return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }

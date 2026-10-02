@@ -3429,7 +3429,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
               >Správa</a>
             </>
           )}
-          {currentUser.role === "ADMIN" && (
+          {["ADMIN", "PLANOVAT"].includes(currentUser.role) && (
             <a
               href="/reporty"
               style={{

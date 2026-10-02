@@ -26,7 +26,8 @@ import { usesTiskoveHodiny } from "@/lib/printTime";
 import { intersectIntervals, type Interval } from "@/lib/intervals";
 import { MACHINES } from "@/lib/machines";
 
-const ALLOWED_ROLES = new Set(["ADMIN"]);
+/** Reporty vidí ADMIN i PLANOVAT (etapa 2 září 2026, volba R1 = A). */
+const ALLOWED_ROLES = new Set(["ADMIN", "PLANOVAT"]);
 
 /**
  * Hodiny na obrazovku — jedno desetinné místo. Dvě setiny hodiny je 36 sekund,

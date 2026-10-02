@@ -7,7 +7,9 @@ import { runHealthChecks } from "@/lib/healthChecks.server";
 
 export async function GET() {
   try {
-    await requireRole(["ADMIN"]);
+    // Reporty vidí ADMIN i PLANOVAT, shodně s dashboardem a stavovým pásem.
+    // Middleware tuhle cestu nejmenuje — je to JEDINÁ ochrana.
+    await requireRole(["ADMIN", "PLANOVAT"]);
     const result = await runHealthChecks(prisma, new Date());
     return NextResponse.json(result);
   } catch (err) {
