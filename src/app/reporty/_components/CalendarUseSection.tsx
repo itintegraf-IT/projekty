@@ -94,7 +94,7 @@ function CascadeRow({ label, hours, calendarHours, color, showPercent, note }: {
  * Paleta kaskády — ČTYŘI kroky, tři z nich barevné.
  *
  * Semafor se tu ZÁMĚRNĚ nepoužívá jako paleta sérií. Na téže stránce znamená
- * `--status-warn` v heatmapě vytížení 50–79 % a `--status-ok` 80–100 %, takže
+ * `--status-warn` v heatmapě obsazenosti 50–79 % a `--status-ok` 80–100 %, takže
  * trénované oko čte jantarový pás „naplánováno" jako varovný STAV — a přitom
  * je to prostě třetí krok kaskády, který má být menší než druhý. Kroky 2 a 3
  * proto nesou neutrální dvojici sérií (`--series-a`/`--series-b`, u níž je
@@ -146,11 +146,20 @@ function MachineCascade({ machine, data }: { machine: string; data: RetroMachine
   const { totalT, weekendT, shutdownT, noRosterT, unstaffedT } = breakdownTenths(c);
 
   /*
-   * `plannedHours > staffedHours` NENÍ chyba vykreslení, ale běžný stav: odložené
-   * zakázky (`scheduleBypassed`), bloky ležící mimo pracovní dobu a legacy bloky
-   * bez `printMinutes` (u těch spadne `printOverlapMinutes` na celý elapsed span).
-   * Třetí pás je pak delší než druhý a bez vysvětlení to čtenář přečte jako vadu
-   * grafu. Je to užitečná informace, ne omluva — proto se vypisuje o kolik.
+   * `plannedHours > staffedHours` je od etapy 2 (září 2026) VZÁCNÉ, ne běžné —
+   * a má dnes jedinou příčinu: DVA ZAKÁZKOVÉ BLOKY NA JEDNOM STROJI VE STEJNÝ ČAS.
+   *
+   * Dřív tu stály odložené zakázky (`scheduleBypassed`), bloky mimo pracovní dobu
+   * a legacy bloky bez `printMinutes` — u těch padal čitatel na celý elapsed span.
+   * Ta příčina zmizela: každý příspěvek do `plannedHours` je teď buď tiskový
+   * segment (a ten z konstrukce leží uvnitř směn), nebo průnik s obsazenými
+   * směnami (`occupiedMinutes`). Součet částí uvnitř směn nemůže směny přerůst,
+   * pokud se části nepřekrývají mezi sebou.
+   *
+   * Pás proto zůstává, ale jako UPOZORNĚNÍ, ne jako omluva vykreslení: překryvy
+   * hlásí adresně Kontrolní panel kontrolou „Překryvy bloků" (`overlaps`, jen
+   * budoucí — u minulého období se tedy sám neozve). Vypisuje se o kolik, ať je
+   * z čeho vyjít.
    */
   const overStaffedT = tenths(c.plannedHours) - tenths(c.staffedHours);
 
@@ -197,7 +206,8 @@ function MachineCascade({ machine, data }: { machine: string; data: RetroMachine
       {overStaffedT > 0 && (
         <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: reportSpace.xs }}>
           Naplánováno přesahuje obsazené směny o <strong style={{ color: "var(--text)" }}>{fmtTenths(overStaffedT)} h</strong>
-          {" "}— odložené zakázky a bloky ležící mimo pracovní dobu se plánují i tam, kde směna není.
+          {" "}— na stroji se tedy někde překrývají dva zakázkové bloky, jinak by se součet uvnitř směn
+          do směn vešel. Dvojice vypíše Kontrolní panel, sekce „Překryvy bloků“ (ta hlídá jen budoucnost).
         </div>
       )}
       {/* Táž poctivost jako u konverze rezervací níž na stránce: filtr je

@@ -16,9 +16,10 @@ import {
   staffedIntervals,
   staffedOverlapMinutes,
   occupiedMinutes,
+  occupiedMinutesInDay,
 } from "./reportMetrics";
 import { printOverlapMinutes } from "./printTimeClient";
-import { addDaysToCivilDate } from "./dateUtils";
+import { addDaysToCivilDate, pragueToUTC } from "./dateUtils";
 import { totalHours } from "./intervals";
 import type { MachineWeekShiftsRow } from "./machineWeekShifts";
 
@@ -435,6 +436,89 @@ describe("occupiedMinutes", () => {
     // Okno bere 20:00–22:00 UTC = 2 h, směny nulu. Tohle je celá oprava etapy.
     assert.equal(printOverlapMinutes(null, udrzba, WIN_START, WIN_END), 120);
     assert.equal(occupiedMinutes(null, udrzba, WIN_START, WIN_END, staffedMonday()), 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// occupiedMinutesInDay — parita denního čitatele s obdobím (P22, druhá polovina)
+// ---------------------------------------------------------------------------
+describe("occupiedMinutesInDay — parita denního čitatele s obdobím", () => {
+  /*
+   * Stroj XL_105 jede jedinou ranní směnu 6–14 (Praha) každý den týdne, období
+   * je pondělí 13. 4. a úterý 14. 4. 2026 — tedy dvě obsazené směny, 04:00–12:00
+   * UTC v každém z těch dnů.
+   *
+   * Fixtura obsahuje oba tvary, na kterých se parita láme — blok přes hranici
+   * SMĚNY a blok přes hranici OBDOBÍ —, a to v obou větvích `occupiedMinutes`:
+   *  - `A` rigidní blok PŘES HRANICI SMĚNY (10:00–14:00 UTC, tedy 12:00–16:00
+   *    Praha) — druhá polovina leží mimo směnu a musí se odříznout,
+   *  - `B` rigidní blok PŘES OBĚ HRANICE OBDOBÍ i přes oba dny,
+   *  - `C` rigidní blok přesahující období zleva,
+   *  - `D` blok se SEGMENTY (tisk + pauza + tisk), jehož třetí tiskový segment
+   *    leží už za obdobím — tím se ověří, že segmentová větev respektuje okno.
+   */
+  const ROWS = makeWeekRows("XL_105", WEEK_START, { morningOn: true });
+  const STAFFED = () => staffedIntervals("XL_105", "2026-04-13", "2026-04-14", ROWS, []);
+  const PERIOD_START = pragueToUTC("2026-04-13", 0, 0);
+  const PERIOD_END = pragueToUTC("2026-04-15", 0, 0);
+  const DAYS = [
+    [pragueToUTC("2026-04-13", 0, 0), pragueToUTC("2026-04-14", 0, 0)],
+    [pragueToUTC("2026-04-14", 0, 0), pragueToUTC("2026-04-15", 0, 0)],
+  ] as const;
+
+  const A = { startTime: "2026-04-13T10:00:00.000Z", endTime: "2026-04-13T14:00:00.000Z" };
+  const B = { startTime: "2026-04-13T04:00:00.000Z", endTime: "2026-04-15T10:00:00.000Z" };
+  const C = { startTime: "2026-04-12T20:00:00.000Z", endTime: "2026-04-13T06:00:00.000Z" };
+  const D = { startTime: "2026-04-13T10:00:00.000Z", endTime: "2026-04-15T06:00:00.000Z" };
+  const SEGS_D = [
+    { kind: "print" as const, start: new Date("2026-04-13T10:00:00.000Z"), end: new Date("2026-04-13T12:00:00.000Z") },
+    { kind: "pause" as const, start: new Date("2026-04-13T12:00:00.000Z"), end: new Date("2026-04-14T04:00:00.000Z") },
+    { kind: "print" as const, start: new Date("2026-04-14T04:00:00.000Z"), end: new Date("2026-04-14T06:00:00.000Z") },
+    { kind: "pause" as const, start: new Date("2026-04-14T06:00:00.000Z"), end: new Date("2026-04-15T04:00:00.000Z") },
+    { kind: "print" as const, start: new Date("2026-04-15T04:00:00.000Z"), end: new Date("2026-04-15T06:00:00.000Z") },
+  ];
+  const BLOCKS = [A, B, C, D];
+  const segmentsOf = (b: (typeof BLOCKS)[number]) => (b === D ? SEGS_D : null);
+
+  /** Čitatel za CELÉ období — přesně tak, jak ho počítají obě routy u karet. */
+  const periodTotal = () =>
+    BLOCKS.reduce(
+      (sum, b) => sum + occupiedMinutes(segmentsOf(b), b, PERIOD_START, PERIOD_END, STAFFED()),
+      0,
+    );
+
+  it("součet po dnech se rovná celku (karta vs. heatmapa)", () => {
+    const staffed = STAFFED();
+    assert.equal(totalHours(staffed), 16, "dvě ranní směny 6–14");
+
+    const perDay = DAYS.map(([ds, de]) => occupiedMinutesInDay(BLOCKS, segmentsOf, staffed, ds, de));
+    assert.deepEqual(perDay, [840, 600], "13. 4.: 120+480+120+120 · 14. 4.: 0+480+0+120");
+    assert.equal(perDay[0] + perDay[1], 1440);
+    assert.equal(periodTotal(), 1440, "A 120 + B 960 + C 120 + D 240");
+    assert.equal(perDay[0] + perDay[1], periodTotal(), "součet dnů MUSÍ být celek (P22)");
+  });
+
+  it("transpozice (celoobdobové intervaly místo denních) paritu rozbije", () => {
+    /*
+     * Tohle je ta vada, kterou `occupiedMinutesInDay` dělá nemožnou, a zároveň
+     * doklad, že test výš má zuby: kdyby se dovnitř pustily celoobdobové
+     * intervaly jako „obsazené směny toho dne", rigidní blok přes oba dny by se
+     * naúčtoval celým průnikem DVAKRÁT (B 960 + 960) — heatmapa nad 100 %, karta
+     * nad ní dál správná. `staffedOverlapMinutes` totiž okno vůbec nezná, ořez na
+     * den dělá VÝHRADNĚ ten průnik intervalů.
+     *
+     * Segmentová větev (`D`) transpozicí netrpí — ta se řídí oknem —, takže rozdíl
+     * 2640 vs. 1440 je celý z rigidních bloků. Právě proto musí fixtura rigidní
+     * bloky mít; na samých zakázkách se segmenty by transpozice nebyla vidět.
+     */
+    const staffed = STAFFED();
+    const transposed = DAYS.reduce(
+      (sum, [ds, de]) =>
+        sum + BLOCKS.reduce((s, b) => s + occupiedMinutes(segmentsOf(b), b, ds, de, staffed), 0),
+      0,
+    );
+    assert.equal(transposed, 2640, "A 240 + B 1920 + C 240 + D 240");
+    assert.notEqual(transposed, periodTotal());
   });
 });
 

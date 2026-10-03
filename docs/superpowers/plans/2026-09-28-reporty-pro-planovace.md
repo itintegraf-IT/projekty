@@ -16,7 +16,8 @@
 - **Všech šest serverových míst se mění společně.** Middleware nejmenuje `/api/report/attention` ani `/api/report/health`, ty stojí čistě na `requireRole` uvnitř routy — částečná změna znamená, že plánovači funguje jen část stránky (spec „Stav dnes / Přístup").
 - `printOverlapMinutes` (`src/lib/printTimeClient.ts`) se **NEMĚNÍ**, ani jeho testy. Je to obecný nástroj „hrubý průnik bloku s oknem" a jinde je správně (spec odd. 2.4).
 - `computeAvailableHours` **nemění chování** — jeho dnešních 17 `it()` testů v `src/lib/reportMetrics.test.ts` musí projít BEZ jediné úpravy.
-- Poměrové funkce se **nezastropují na 100 %**. Skutečné přeplánování uvnitř směn musí být dál vidět (`docs/POUCENI.md`, P22).
+- Poměrové funkce se **nezastropují na 100 %**. Skutečné přeplánování uvnitř směn musí být dál vidět — pravidlo nese docstring `computeUtilization` (`src/lib/reportMetrics.ts`), NE P22 (ta říká něco jiného, viz řádek níž).
+- **Kde se součet dá rozložit (po dnech, po strojích), patří k němu strážný test parity: součet částí = celek** (`docs/POUCENI.md`, P22 — čitatel a jmenovatel nad touž množinou, a druhá polovina toho pravidla je právě ten test). Denní čitatel proto jede jedinou funkcí (`occupiedMinutesInDay`) a paritu s obdobím pinuje test v `src/lib/reportMetrics.test.ts`.
 - `plannerActivity` v odpovědi `/api/report/dashboard?mode=retro` se **NEDOTÝKÁ** — Vojta 16. 9. 2026 rozhodl nechat ho, jak je (spec odd. 1.2).
 - Komentář, který po změně přestane být pravdivý, je v tomhle projektu **vada** (`docs/POUCENI.md`, P19). Každý komentář tvrdící „ADMIN-only" nebo „jen ZAKAZKA má segmenty" se přepisuje ve stejném commitu.
 - Barvy a rozměry v `/reporty` výhradně přes tokeny (`src/lib/reportTokens.ts`, `globals.css`), nikdy hex literál (CLAUDE.md, sekce Design tokens).
@@ -1383,7 +1384,8 @@ jen u odložených (`scheduleBypassed`) a rozejitých bloků — zakázka zapark
 víkend přestala vytížení nafukovat. Modelový příklad: stroj s jedinou ranní směnou
 6–14 a osmihodinovou noční údržbou hlásil „100 %, 0 h volných" a po přidání jedné
 hodiny „113 %, přeplánováno o 1 h"; nově 13 % a 7 h volných. Poměry se dál
-nezastropují — skutečné přeplánování uvnitř směn musí být vidět (P22).
+nezastropují — skutečné přeplánování uvnitř směn musí být vidět (pravidlo nese
+docstring `computeUtilization`, ne P22).
 
 **Pojmenování.** Retrospektiva má kartu „Vytížení výrobou", Výhled „Obsazenost
 směn" (sekce i heatmapa stejně), obě s popiskem, co se do nich počítá. `KpiCard`

@@ -17,13 +17,14 @@ import {
   resolvePlanCoverage,
   staffedIntervals,
   occupiedMinutes,
+  occupiedMinutesInDay,
   type CalendarCascade,
 } from "@/lib/reportMetrics";
 import { OPEN_STATUSES, CLOSED_STATUSES, computeConversionPercent } from "@/lib/reservationStatus";
 import { REVISION_RETENTION_DAYS, REVISION_MIGRATION_NAME } from "@/lib/revision/retention";
 import { blockReportSegments, type PrintSegment } from "@/lib/printTimeClient";
 import { usesTiskoveHodiny } from "@/lib/printTime";
-import { intersectIntervals, type Interval } from "@/lib/intervals";
+import { type Interval } from "@/lib/intervals";
 import { MACHINES } from "@/lib/machines";
 
 /** Reporty vidí ADMIN i PLANOVAT (etapa 2 září 2026, volba R1 = A). */
@@ -299,13 +300,15 @@ async function handleRetro(rangeStart: string, rangeEnd: string, startUtc: Date,
     const entry: { date: string; XL_105: number | null; XL_106: number | null } = { date: cur, XL_105: null, XL_106: null };
     for (const machine of MACHINES) {
       const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
-      // Den průnikem z celoobdobových intervalů — viz týž komentář v `handleOutlook`.
-      const dayStaffed = intersectIntervals(staffedByMachine.get(machine) ?? [], [
-        { start: dayStart.getTime(), end: dayEnd.getTime() },
-      ]);
-      const prodMin = dayBlocks
-        .filter((b) => b.machine === machine && b.type === "ZAKAZKA")
-        .reduce((sum, b) => sum + occupiedMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd, dayStaffed), 0);
+      // Den si NEODVOZUJE route, ale `occupiedMinutesInDay` průnikem celoobdobových
+      // intervalů — viz týž komentář v `handleOutlook` i docstring té funkce.
+      const prodMin = occupiedMinutesInDay(
+        dayBlocks.filter((b) => b.machine === machine && b.type === "ZAKAZKA"),
+        (b) => segMap.get(b) ?? null,
+        staffedByMachine.get(machine) ?? [],
+        dayStart,
+        dayEnd,
+      );
       entry[machine] = computeUtilization(prodMin / 60, avail);
     }
     dailyUtilization.push(entry);
@@ -518,13 +521,16 @@ async function handleOutlook(rangeStart: string, rangeEnd: string, startUtc: Dat
       const avail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
       // Den se odvozuje PRŮNIKEM z celoobdobových intervalů, ne novým průchodem
       // rozvrhem: tím je součet po dnech rovný součtu za období konstrukcí, takže
-      // heatmapa nemůže tvrdit něco jiného než karta nad ní.
-      const dayStaffed = intersectIntervals(staffedByMachine.get(machine) ?? [], [
-        { start: dayStart.getTime(), end: dayEnd.getTime() },
-      ]);
-      const planned = dayBlocks
-        .filter((b) => b.machine === machine)
-        .reduce((sum, b) => sum + occupiedMinutes(segMap.get(b) ?? null, b, dayStart, dayEnd, dayStaffed), 0) / 60;
+      // heatmapa nemůže tvrdit něco jiného než karta nad ní. Ten průnik dělá
+      // `occupiedMinutesInDay` — všechny tři denní smyčky (retro, výhled, stavový
+      // pás) jedou jedinou funkcí, aby šlo paritu s obdobím pinovat testem.
+      const planned = occupiedMinutesInDay(
+        dayBlocks.filter((b) => b.machine === machine),
+        (b) => segMap.get(b) ?? null,
+        staffedByMachine.get(machine) ?? [],
+        dayStart,
+        dayEnd,
+      ) / 60;
       entry[machine] = computeUtilization(planned, avail);
     }
     dailyCapacity.push(entry);

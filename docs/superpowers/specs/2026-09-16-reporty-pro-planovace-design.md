@@ -162,7 +162,10 @@ nafouknutým kalendářním spanem.
 obecný nástroj („hrubý průnik bloku s oknem") a používá se i tam, kde je hrubý span
 správně. Dva existující testy, které jeho chování pinují, tím zůstávají v platnosti.
 Poměrové funkce se **nezastropují na 100 %**; skutečné přeplánování uvnitř směn musí
-být dál vidět (`docs/POUCENI.md`, P22).
+být dál vidět — to pravidlo nese docstring `computeUtilization`, ne P22. P22 je
+„čitatel a jmenovatel nad touž množinou" a pro tuhle opravu z ní platí hlavně její
+druhá polovina: rozložitelný součet (po dnech, po strojích) musí mít strážný test
+parity, že součet částí = celek.
 
 ### 3. Pojmenování a popisky
 

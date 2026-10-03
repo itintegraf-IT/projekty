@@ -218,6 +218,44 @@ export function occupiedMinutes(
     : staffedOverlapMinutes(b, staffed);
 }
 
+/**
+ * Čitatel JEDNOHO DNE: minuty, kterými zadané bloky zabírají stroj v okně
+ * `[dayStart, dayEnd)`.
+ *
+ * **`staffed` jsou intervaly za CELÉ období — den se z nich odvozuje průnikem
+ * TADY, ne u volajícího.** Právě v tom je pointa: tři denní smyčky
+ * (`handleRetro`, `handleOutlook`, stavový pás) si tenhle pětiřádkový vzorec
+ * psaly každá sama, a stačilo v jedné z nich poslat do `occupiedMinutes`
+ * celoobdobové intervaly místo denních — rigidní třídenní blok by se celým svým
+ * průnikem naúčtoval KAŽDÉMU ze tří dnů, heatmapa by svítila nad 100 % a karta
+ * nad ní by přitom zůstala správná. Přesně ten rozpor karty a heatmapy, který
+ * etapa 2 (září 2026) odstraňovala — a žádný tehdejší test by ho nechytil, protože
+ * `occupiedMinutes` se volalo dál.
+ *
+ * Je to třída vady z `docs/POUCENI.md` P22 (čitatel a jmenovatel nad touž
+ * množinou) a platí i druhá polovina toho pravidla: rozložitelný součet musí mít
+ * strážný test parity „součet dnů = celek". Ten test je v `reportMetrics.test.ts`
+ * (`occupiedMinutesInDay — parita denního čitatele s obdobím`).
+ *
+ * VÝBĚR bloků (stroj, typ, odklepnutý tisk) zůstává u volajícího — v tom se tři
+ * agregace legitimně liší. Shodné musí být JEN to, jak se den počítá.
+ */
+export function occupiedMinutesInDay<B extends { startTime: string | Date; endTime: string | Date }>(
+  blocks: B[],
+  segmentsOf: (b: B) => PrintSegment[] | null,
+  staffed: Interval[],
+  dayStart: Date,
+  dayEnd: Date,
+): number {
+  const dayStaffed = intersectIntervals(staffed, [
+    { start: dayStart.getTime(), end: dayEnd.getTime() },
+  ]);
+  return blocks.reduce(
+    (sum, b) => sum + occupiedMinutes(segmentsOf(b), b, dayStart, dayEnd, dayStaffed),
+    0,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 1b. computeCalendarCascade
 // ---------------------------------------------------------------------------
@@ -248,8 +286,9 @@ export type CalendarCascade = {
  * 95 % a přitom stát tři čtvrtiny roku.
  *
  * `plannedHours` a `confirmedHours` se PŘEDÁVAJÍ, nepočítají. Route je má
- * spočítané přes `segMap` a `printOverlapMinutes`; druhá cesta k témuž číslu
- * by se dřív nebo později rozešla.
+ * spočítané přes `segMap` a `occupiedMinutes` (od etapy 2 září 2026 — dřív to byl
+ * `printOverlapMinutes`, tedy hrubý span); druhá cesta k témuž číslu by se dřív
+ * nebo později rozešla.
  */
 export function computeCalendarCascade(args: {
   machine: string;
@@ -270,7 +309,7 @@ export function computeCalendarCascade(args: {
   const calendarHours = totalHours(period);
 
   // Kapacita se NEPOČÍTÁ znovu — bere se z téže funkce, jakou používá karta
-  // „Vytížení". Dvě cesty k témuž číslu se dřív nebo později rozejdou.
+  // „Vytížení výrobou". Dvě cesty k témuž číslu se dřív nebo později rozejdou.
   const staffedHours = computeAvailableHours(machine, rangeStart, rangeEnd, weekShifts, companyDays);
 
   const shutdowns = mergeIntervals(

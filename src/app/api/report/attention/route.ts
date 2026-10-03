@@ -6,10 +6,9 @@ import { logger } from "@/lib/logger";
 import { MACHINES } from "@/lib/machines";
 import { todayPragueDateStr, addDaysToCivilDate, pragueToUTC } from "@/lib/dateUtils";
 import { serializeWeekShifts } from "@/lib/scheduleValidation";
-import { computeAvailableHours, staffedIntervals, occupiedMinutes } from "@/lib/reportMetrics";
+import { computeAvailableHours, staffedIntervals, occupiedMinutesInDay } from "@/lib/reportMetrics";
 import { blockReportSegments, type PrintSegment } from "@/lib/printTimeClient";
 import { usesTiskoveHodiny } from "@/lib/printTime";
-import { intersectIntervals, type Interval } from "@/lib/intervals";
 import {
   ATTENTION_THRESHOLDS,
   type OverbookedMachine,
@@ -30,11 +29,12 @@ import {
  *
  * Vstupy jsou ZÁMĚRNĚ tytéž jako v `handleOutlook` (`/api/report/dashboard`):
  * tiskové minuty bloků se segmenty ořezané oknem a rigidní bloky ořezané na
- * OBSAZENÉ SMĚNY, obojí přes `occupiedMinutes`. Segmenty se staví pro každý
+ * OBSAZENÉ SMĚNY, obojí přes `occupiedMinutes` — a den z celoobdobových intervalů
+ * skládá sdílený `occupiedMinutesInDay`. Segmenty se staví pro každý
  * blok, který používá tiskové hodiny (`usesTiskoveHodiny`), tedy i pro IML
  * rezervaci s tiskovými minutami — ne jen pro ZAKAZKA.
  *
- * **Číslo se ale s kartou Kapacity shodovat NEBUDE, a je to správně.** Karta
+ * **Číslo se ale s kartou „Obsazenost směn" shodovat NEBUDE, a je to správně.** Karta
  * počítá zvolené období (`today`/`week`/`month`/`custom`, klidně s polovinou
  * v minulosti) a bere rozdíl přes celý rozsah; pás jede pevných 30 dní dopředu
  * a sčítá přetečení PO DNECH. Jsou to dvě různé otázky — „vešel se plán do
@@ -114,14 +114,10 @@ export async function GET() {
     const checkedDaysByMachine: Record<string, number> = {};
     for (const machine of MACHINES) {
       const machineBlocks = blocks.filter((b) => b.machine === machine);
-      // Obsazené směny za celý horizont 1×; den se z nich odvozuje průnikem,
-      // takže se denní verdikt nemůže rozejít s celkovým součtem.
+      // Obsazené směny za celý horizont 1×; den se z nich odvozuje průnikem uvnitř
+      // `occupiedMinutesInDay` (týž pomocník jako v obou denních smyčkách
+      // dashboardu), takže se denní verdikt nemůže rozejít s celkovým součtem.
       const staffed = staffedIntervals(machine, today, horizonLastDay, weekShifts, companyDays);
-      const plannedMinutes = (winStart: Date, winEnd: Date, winStaffed: Interval[]) =>
-        machineBlocks.reduce(
-          (s, b) => s + occupiedMinutes(segMap.get(b) ?? null, b, winStart, winEnd, winStaffed),
-          0,
-        );
 
       /*
        * Verdikt se skládá PO DNECH, ne z třicetidenního součtu.
@@ -153,11 +149,14 @@ export async function GET() {
       while (cur <= horizonLastDay) {
         const dayStart = pragueToUTC(cur, 0, 0);
         const dayEnd = pragueToUTC(addDaysToCivilDate(cur, 1), 0, 0);
-        const dayStaffed = intersectIntervals(staffed, [
-          { start: dayStart.getTime(), end: dayEnd.getTime() },
-        ]);
         const dayAvail = computeAvailableHours(machine, cur, cur, weekShifts, companyDays);
-        const dayPlanned = plannedMinutes(dayStart, dayEnd, dayStaffed) / 60;
+        const dayPlanned = occupiedMinutesInDay(
+          machineBlocks,
+          (b) => segMap.get(b) ?? null,
+          staffed,
+          dayStart,
+          dayEnd,
+        ) / 60;
         if (dayAvail > 0) {
           checkedDays++;
           if (dayPlanned > dayAvail) {

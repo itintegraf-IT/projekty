@@ -2679,6 +2679,17 @@ s tiskovými minutami se konečně počítá tiskovým časem. Zapojení hlídá
 `src/lib/reportNumeratorWiring.test.ts`. `printOverlapMinutes` zůstalo nedotčené —
 je to obecný nástroj a jinde je hrubý span správně.
 
+**Denní čitatel je JEDNA funkce** (`occupiedMinutesInDay`, doplněno opravnou vlnou
+po finálním review). Tři denní smyčky si pětiřádkový vzorec „odvoď den z obsazených
+směn, filtruj bloky, sečti přes `occupiedMinutes`" psaly každá sama a stačilo v jedné
+z nich poslat celoobdobové intervaly místo denních: rigidní blok přes tři dny by se
+celým průnikem naúčtoval každému z nich — heatmapa nad 100 %, karta nad ní dál
+správná. Pomocník si den odvozuje průnikem SÁM, takže transpozice u volajícího
+nejde zapsat; paritu „součet dnů = celek" k tomu pinuje test v
+`src/lib/reportMetrics.test.ts` (P22, druhá polovina pravidla: rozložitelný součet
+musí mít strážný test parity). Výběr bloků zůstává u volajícího — v tom se tři
+agregace legitimně liší.
+
 **Dopad na čísla.** Klesla obsazenost ve Výhledu, heatmapa, stavový pás a „Podíl
 údržby" u strojů s noční či víkendovou údržbou a s legacy rezervacemi mimo směny;
 falešné „přeplánováno o X h" u prázdné směny zmizelo. Vytížení výrobou se změnilo
@@ -2686,7 +2697,8 @@ jen u odložených (`scheduleBypassed`) a rozejitých bloků — zakázka zapark
 víkend přestala vytížení nafukovat. Modelový příklad: stroj s jedinou ranní směnou
 6–14 a osmihodinovou noční údržbou hlásil „100 %, 0 h volných" a po přidání jedné
 hodiny „113 %, přeplánováno o 1 h"; nově 13 % a 7 h volných. Poměry se dál
-nezastropují — skutečné přeplánování uvnitř směn musí být vidět (P22).
+nezastropují — skutečné přeplánování uvnitř směn musí být vidět (pravidlo nese
+docstring `computeUtilization`, ne P22).
 
 **Pojmenování.** Retrospektiva má kartu „Vytížení výrobou", Výhled „Obsazenost
 směn" (sekce i heatmapa stejně), obě s popiskem, co se do nich počítá. `KpiCard`

@@ -233,8 +233,10 @@ export function getBlockSegments(
  * segmenty i pro souvislý blok bez pauzy (reporty potřebují průnik tiskového
  * času s oknem dne/směny vždy, ne jen kvůli overlay) a nevyžaduje přítomnost
  * pauzy. Null = nelze spolehlivě expandovat (guardy tryExpandForBlock, expanze
- * selže, nebo drift endu) — volající počítá konzervativní fallback z celého
- * spanu přes printOverlapMinutes(null, …).
+ * selže, nebo drift endu) — volající `/report/daily` (ReportView.tsx) počítá
+ * konzervativní fallback z celého spanu přes printOverlapMinutes(null, …);
+ * reportové agregace (`/reporty`) jdou od etapy 2 září 2026 přes occupiedMinutes
+ * a ořežou takový blok na obsazené směny, ne na celý span.
  */
 export function blockReportSegments(
   b: { type: string; machine: string; startTime: string | Date; endTime: string | Date; printMinutes?: number | null; scheduleBypassed?: boolean | null },

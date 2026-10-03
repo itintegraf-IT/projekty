@@ -106,7 +106,10 @@ export type HeatTone = {
 };
 
 /**
- * Barva dlaždice heatmapy podle vytížení v procentech.
+ * Barva dlaždice heatmapy podle obsazenosti v procentech. („Obsazenost", ne
+ * „vytížení": `heatToneFor` kreslí jedinou heatmapu v modulu, tu ve Výhledu,
+ * a ta počítá VŠECHNY typy bloků uvnitř směn — „Vytížení výrobou" je jméno té
+ * druhé definice, jen zakázek v Retrospektivě.)
  *
  * `null` = stroj v ten den nejede. To NENÍ nula: nula znamená „stroj jede a
  * nic na něm není", což je informace o plánu, ne o kalendáři.

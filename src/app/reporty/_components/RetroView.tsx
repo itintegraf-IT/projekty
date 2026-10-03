@@ -87,7 +87,13 @@ export function RetroView({ data }: { data: RetroData }) {
           <div style={{ fontSize: reportTypeScale.display, fontWeight: 700, color: "var(--text)", fontVariantNumeric: "tabular-nums" }}>
             {data.maintenanceRatio == null ? "—" : `${data.maintenanceRatio}%`}
           </div>
-          <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2 }}>čas údržby / celkový čas</div>
+          {/* Popisek MUSÍ jmenovat obě strany po etapě 2 (září 2026): čitatel je
+              údržba ořezaná na obsazené směny (`occupiedMinutes`), jmenovatel
+              hodiny těch směn. Dokud tu stálo „čas údržby / celkový čas", lhal
+              popisek v obou polovinách — stroj s jedinou ranní směnou a osmihodinovou
+              noční údržbou každou noc ukazuje nově 0 %, a plánovač, který ví, že
+              se údržba jela, to bez tohohle popisku čte jako rozbitý report. */}
+          <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2 }}>údržba uvnitř směn / hodiny obsazených směn</div>
           {/* Souhrn přes oba stroje ředí odstávku jednoho kapacitou druhého — proto i per stroj. */}
           <div style={{ fontSize: reportTypeScale.xs, color: "var(--text-muted)", marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
             {machineLabel("XL_105")}: {xl105?.maintenanceRatio == null ? "—" : `${xl105.maintenanceRatio}%`}

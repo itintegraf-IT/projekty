@@ -36,7 +36,7 @@ společně: middleware jmenuje jen `/reporty` a `/api/report/dashboard`, kdežto
 routy. Rozpojené jedno místo se neprojeví chybou, ale tím, že roli funguje jen část
 stránky. Hlídá `src/lib/reportAccessWiring.test.ts`. Sloupec „Reporty" znamená celý
 modul včetně Kontrolního panelu — `/report/daily` (tiskový přehled dne) je jiný modul
-a vidí ho každá přihlášená role.
+s vlastním gate (dnes rovněž `ADMIN` + `PLANOVAT`).
 
 ## Data & DB
 
