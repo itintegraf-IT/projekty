@@ -86,3 +86,16 @@ test("Správa: obsah záložky Audit log není pro plánovače zablokovaný", ()
   const guard = before.slice(cond, before.indexOf("?", cond));
   assert.doesNotMatch(guard, /isPlanovat/, `render guard záložky audit pořád vylučuje plánovače: ${guard}`);
 });
+
+// ─── Jediné místo načítání historie v klientu ───────────────────────────────
+
+test("historie se načítá na JEDNOM místě a chyba nevypadá jako prázdná historie", () => {
+  // Čte se až uvnitř testu: dokud hook neexistuje, spadne jen tenhle test, ne celý soubor.
+  const hook = stripComments(readFileSync("src/hooks/useBlockHistory.ts", "utf8"));
+  const detail = stripComments(readFileSync("src/components/BlockDetail.tsx", "utf8"));
+  assert.match(hook, /\.then\(readBlockHistoryResponse\)/, "hook neprochází readBlockHistoryResponse (403 by vypadalo jako prázdná historie)");
+  assert.match(hook, /pickLoadedHistory\(/, "hook nepoužívá pickLoadedHistory (ukázal by historii předchozího bloku)");
+  assert.doesNotMatch(detail, /\/audit`/, "BlockDetail si historii zase načítá sám");
+  assert.match(detail, /useBlockHistory\(block\.id\)/);
+  assert.match(detail, /<BlockHistoryList entries=\{history\.entries\} maxHeight=\{220\} \/>/, "detail musí dál mít seznam vysoký 220 px");
+});
