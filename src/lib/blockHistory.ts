@@ -1,4 +1,5 @@
 import { coveredColumns, type AuditCoverageRow } from "./auditCoverage";
+import { canAccessBlockNotes, type NoteRole } from "./blockNotePermissions";
 
 type Row = Record<string, unknown>;
 
@@ -178,4 +179,76 @@ export function sortHistoryEntries(entries: BlockHistoryEntry[]): BlockHistoryEn
     // Stabilní doraz: v rámci téhož zdroje novější (vyšší id) nahoře.
     return b.id - a.id;
   });
+}
+
+// ─── Viditelnost podle role (etapa 3 září 2026) ──────────────────────────────
+
+/**
+ * Auditní akce, jejichž obsahem je TEXT poznámky tiskaře (`BlockNote`):
+ * `NOTE_CREATE` ho nese v `newValue`, `NOTE_UPDATE` v `oldValue` i `newValue`,
+ * `NOTE_DELETE` v `oldValue`. Proto všechny tři, ne jen vytvoření.
+ */
+const TISKAR_NOTE_ACTIONS: ReadonlySet<string> = new Set(["NOTE_CREATE", "NOTE_UPDATE", "NOTE_DELETE"]);
+
+/**
+ * Historie bloku tak, jak ji smí vidět daná role. Poznámky tiskaře smí jen role
+ * s `canAccessBlockNotes` (ADMIN, PLANOVAT, TISKAR); ostatním se jejich auditní
+ * řádky odstraní celé. DTP a MTZ dostávají historii zakázky od etapy 3 (září
+ * 2026), kdy jim vznikl dialog z kontextového menu karty.
+ *
+ * Predikát se ZÁMĚRNĚ odvozuje od `canAccessBlockNotes`, ne od vlastního výčtu
+ * rolí — dvě definice „kdo smí na poznámky tiskaře" by se časem rozešly. A je to
+ * allowlist: role, o které modul poznámek nic neví (třeba nově přidaná), dostane
+ * historii BEZ poznámek, ne s nimi.
+ *
+ * Filtr je vázaný na `source === "audit"`. Revize akci poznámky nenese a nesmí
+ * zmizet nikdy — u přesunu bloku na jiný stroj je jediným existujícím záznamem.
+ *
+ * `GET /api/blocks/[id]/audit` ho volá jako POSLEDNÍ krok, až za
+ * `sortHistoryEntries`: potlačení pokrytých sloupců (`suppressCoveredColumns`)
+ * tak zůstává pro všechny role shodné a DTP vidí přesně to, co plánovač, minus
+ * řádky познámek. Má-li role na poznámky právo, vrací se TENTÝŽ objekt pole.
+ */
+export function visibleHistoryFor(entries: BlockHistoryEntry[], role: string): BlockHistoryEntry[] {
+  if (canAccessBlockNotes(role as NoteRole)) return entries;
+  return entries.filter((e) => !(e.source === "audit" && TISKAR_NOTE_ACTIONS.has(e.action)));
+}
+
+// ─── Načítání v klientu (etapa 3 září 2026) ──────────────────────────────────
+
+/** Výsledek jednoho dotazu na historii — co se dá ukázat, když dotaz doběhl. */
+export type BlockHistoryResult =
+  | { status: "ready"; entries: BlockHistoryEntry[] }
+  | { status: "error"; httpStatus: number | null };
+
+/** Stav historie v UI: buď se ještě načítá, nebo je k dispozici výsledek. */
+export type BlockHistoryState = { status: "loading" } | BlockHistoryResult;
+
+/** Doběhlý výsledek spolu s blokem, ke kterému patří (viz `pickLoadedHistory`). */
+export type LoadedBlockHistory = { blockId: number; result: BlockHistoryResult };
+
+/**
+ * Převede odpověď `GET /api/blocks/[id]/audit` na výsledek pro UI.
+ *
+ * Neúspěch NESMÍ vypadat jako prázdná historie (`docs/POUCENI.md`, P32). Detail
+ * bloku do etapy 3 mapoval jakoukoli chybovou odpověď na `[]` a sekci tiše skryl
+ * — u plánovače, kterého API pouští, to nevadilo. Dialog pro DTP a MTZ by ale
+ * odmítnutí (403) ukázal jako „Zatím žádné změny", tedy jako pravdivě vypadající
+ * lež. Proto `error` i s HTTP kódem, ať dialog řekne, co se skutečně stalo.
+ */
+export async function readBlockHistoryResponse(res: Response): Promise<BlockHistoryResult> {
+  if (!res.ok) return { status: "error", httpStatus: res.status };
+  const data: unknown = await res.json().catch(() => null);
+  if (!Array.isArray(data)) return { status: "error", httpStatus: res.status };
+  return { status: "ready", entries: data as BlockHistoryEntry[] };
+}
+
+/**
+ * Stav historie pro `blockId`: výsledek jen tehdy, když patří TOMUHLE bloku,
+ * jinak `loading`. Detail bloku do etapy 3 ukazoval po přepnutí na jiný blok
+ * historii PŘEDCHOZÍHO, dokud nedoběhl nový dotaz — při vyšetřování havárie,
+ * kdy se mezi bloky přepíná rychle, zavádějící.
+ */
+export function pickLoadedHistory(loaded: LoadedBlockHistory | null, blockId: number): BlockHistoryState {
+  return loaded !== null && loaded.blockId === blockId ? loaded.result : { status: "loading" };
 }

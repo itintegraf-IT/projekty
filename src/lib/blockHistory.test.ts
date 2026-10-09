@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { suppressCoveredColumns, groupsWithAddressedTarget, sortHistoryEntries, type BlockHistoryEntry } from "./blockHistory";
+import {
+  suppressCoveredColumns,
+  groupsWithAddressedTarget,
+  sortHistoryEntries,
+  visibleHistoryFor,
+  readBlockHistoryResponse,
+  pickLoadedHistory,
+  type BlockHistoryEntry,
+} from "./blockHistory";
 
 test("sloupec pokrytý auditem se z revize odečte", () => {
   const out = suppressCoveredColumns(
@@ -197,4 +205,131 @@ test("O2: vstupní pole se nemutuje", () => {
   const before = input.map((e) => e.id);
   sortHistoryEntries(input);
   assert.deepEqual(input.map((e) => e.id), before, "sort musí pracovat nad kopií");
+});
+
+// ─── visibleHistoryFor — poznámky tiskaře podle role (etapa 3 září 2026) ─────
+
+type AuditEntry = Extract<BlockHistoryEntry, { source: "audit" }>;
+
+function auditRow(id: number, action: string, extra: Partial<AuditEntry> = {}): BlockHistoryEntry {
+  return {
+    source: "audit",
+    id,
+    createdAt: "2026-10-05T08:00:00.000Z",
+    groupId: `g${id}`,
+    username: "planovac",
+    action,
+    field: null,
+    oldValue: null,
+    newValue: null,
+    orderNumber: "18827",
+    ...extra,
+  };
+}
+
+function revisionRow(id: number, action = "UPDATE"): BlockHistoryEntry {
+  return {
+    source: "revision",
+    id,
+    createdAt: "2026-10-05T08:00:00.000Z",
+    groupId: `r${id}`,
+    username: "planovac",
+    action,
+    label: "Úprava bloku",
+    propagated: false,
+    lines: ["Stroj: XL 105 → XL 106"],
+  };
+}
+
+/** Osa se vším, co se v historii zakázky potká: úprava, tři akce poznámky, revize, tisk. */
+const MIXED: BlockHistoryEntry[] = [
+  auditRow(1, "UPDATE", { field: "description", oldValue: "a", newValue: "b" }),
+  auditRow(2, "NOTE_CREATE", { newValue: "Barva v pořádku, pouštím." }),
+  revisionRow(3),
+  auditRow(4, "NOTE_UPDATE", { oldValue: "Barva v pořádku, pouštím.", newValue: "Chybí lak." }),
+  auditRow(5, "NOTE_DELETE", { oldValue: "Chybí lak." }),
+  auditRow(6, "PRINT_COMPLETE"),
+];
+
+test("visibleHistoryFor: DTP nedostane žádný řádek poznámky tiskaře", () => {
+  assert.deepEqual(visibleHistoryFor(MIXED, "DTP").map((e) => e.id), [1, 3, 6]);
+});
+
+test("visibleHistoryFor: MTZ taky ne", () => {
+  assert.deepEqual(visibleHistoryFor(MIXED, "MTZ").map((e) => e.id), [1, 3, 6]);
+});
+
+test("visibleHistoryFor: text poznámky nepřežije v žádném poli (NOTE_UPDATE/NOTE_DELETE ho nesou v oldValue)", () => {
+  const leaked = JSON.stringify(visibleHistoryFor(MIXED, "DTP"));
+  for (const text of ["Barva v pořádku", "Chybí lak"]) {
+    assert.ok(!leaked.includes(text), `unikl text poznámky „${text}"`);
+  }
+});
+
+test("visibleHistoryFor: role s právem na poznámky dostane TOTÉŽ pole", () => {
+  for (const role of ["ADMIN", "PLANOVAT", "TISKAR"]) {
+    assert.equal(visibleHistoryFor(MIXED, role), MIXED, role);
+  }
+});
+
+test("visibleHistoryFor: neznámá role je bez poznámek (allowlist, ne denylist)", () => {
+  assert.deepEqual(visibleHistoryFor(MIXED, "EXPEDICE").map((e) => e.id), [1, 3, 6]);
+});
+
+test("visibleHistoryFor: revize se nefiltruje, ani kdyby nesla akci poznámky", () => {
+  assert.deepEqual(visibleHistoryFor([revisionRow(7, "NOTE_CREATE")], "DTP").map((e) => e.id), [7]);
+});
+
+test("visibleHistoryFor: vstupní pole se nemutuje", () => {
+  const before = MIXED.map((e) => e.id);
+  visibleHistoryFor(MIXED, "DTP");
+  assert.deepEqual(MIXED.map((e) => e.id), before);
+});
+
+// ─── readBlockHistoryResponse — chyba nesmí vypadat jako prázdná historie ─────
+
+test("readBlockHistoryResponse: 200 s polem je hotová historie", async () => {
+  const out = await readBlockHistoryResponse(new Response(JSON.stringify([auditRow(1, "CREATE")]), { status: 200 }));
+  assert.equal(out.status, "ready");
+  assert.equal(out.status === "ready" ? out.entries.length : -1, 1);
+});
+
+test("readBlockHistoryResponse: 200 s prázdným polem je prázdná historie, ne chyba", async () => {
+  assert.deepEqual(await readBlockHistoryResponse(new Response("[]", { status: 200 })), { status: "ready", entries: [] });
+});
+
+test("readBlockHistoryResponse: 403 je chyba s kódem, NE prázdná historie", async () => {
+  const out = await readBlockHistoryResponse(new Response(JSON.stringify({ error: "Forbidden" }), { status: 403 }));
+  assert.deepEqual(out, { status: "error", httpStatus: 403 });
+});
+
+test("readBlockHistoryResponse: 500 je chyba s kódem", async () => {
+  const out = await readBlockHistoryResponse(new Response(JSON.stringify({ error: "Chyba serveru" }), { status: 500 }));
+  assert.deepEqual(out, { status: "error", httpStatus: 500 });
+});
+
+test("readBlockHistoryResponse: 200 s objektem místo pole je chyba", async () => {
+  const out = await readBlockHistoryResponse(new Response(JSON.stringify({ error: "x" }), { status: 200 }));
+  assert.deepEqual(out, { status: "error", httpStatus: 200 });
+});
+
+test("readBlockHistoryResponse: nečitelné tělo je chyba", async () => {
+  const out = await readBlockHistoryResponse(new Response("<html>", { status: 200 }));
+  assert.deepEqual(out, { status: "error", httpStatus: 200 });
+});
+
+// ─── pickLoadedHistory — historie předchozího bloku se nesmí ukázat ──────────
+
+test("pickLoadedHistory: nic načteno → loading", () => {
+  assert.deepEqual(pickLoadedHistory(null, 5), { status: "loading" });
+});
+
+test("pickLoadedHistory: výsledek JINÉHO bloku se neukáže → loading", () => {
+  const loaded = { blockId: 4, result: { status: "ready" as const, entries: [auditRow(1, "CREATE")] } };
+  assert.deepEqual(pickLoadedHistory(loaded, 5), { status: "loading" });
+});
+
+test("pickLoadedHistory: výsledek téhož bloku se vrátí", () => {
+  const result = { status: "error" as const, httpStatus: 500 };
+  assert.equal(pickLoadedHistory({ blockId: 5, result }, 5), result);
 });
