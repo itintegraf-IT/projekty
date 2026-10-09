@@ -159,7 +159,11 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
   v `PlannerPage.tsx` (keydown na `window`, bublací fáze) ignoruje jen `INPUT`/`TEXTAREA`/`SELECT`,
   takže pod modálem by jinak běželo Ctrl+Z (undo), Delete (mazání vybraného bloku), Ctrl+C
   (toast místo kopírování textu) i Esc (zrušení výběru a hledání). Vzor: `BlockHistoryDialog.tsx`
-  — posluchač na `window` v capture fázi + `stopPropagation()`. `BlockNotesDialog` to nedělá;
+  — posluchač na `window` v capture fázi + `stopPropagation()`. **Vzor platí jen pro modál BEZ
+  vlastní klávesové obsluhy:** App Router hydratuje React na `document`, takže zarážka na `window`
+  umlčí i všechny Reactí `onKeyDown` — včetně těch uvnitř modálu (Radix Select/Tabs/Menu, pole
+  s `onKeyDown`). Takový modál potřebuje místo toho guard v globálním handleru planneru (např.
+  přeskočit, když je v DOM otevřený `[aria-modal="true"]`). `BlockNotesDialog` zarážku nemá;
   chrání ho jen to, že fokus obvykle stojí v jeho textovém poli.
 - **Sdílené UI kameny** (`src/components/`, ne `ui/` — shadcn plošně nerozšiřujeme): `NativeSelect`, `PrimaryCta`, `ConfirmDialog`, `ModuleHeader`; admin tlačítka/inputy z `src/lib/uiStyles.ts`. Kdy co viz `docs/vyvoj-historie.md`.
 - **Nové standalone komponenty** jako named export do `src/components/` — **NEpsat inline do velkých souborů** (PlannerPage/TimelineGrid byly záměrně dekomponovány). Než přidáš do souboru u limitu, nejdřív navrhni extrakci a ohlas rozhodnutí (ESLint `max-lines` warn hlídá).

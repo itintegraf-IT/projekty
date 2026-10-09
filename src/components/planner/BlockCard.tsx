@@ -687,8 +687,9 @@ export function BlockCard({
   const hasNote = !!block.materialNote;
   const tiskarNotes = block.notes ?? [];
   const hasTiskarNotes = tiskarNotes.length > 0;
-  // `onOpenHistory` je jediná položka menu, kterou má DTP — bez něj by se mu
-  // karta do ContextMenu vůbec nezabalila (`if (!showMenu) return blockDiv;` níž).
+  // `onOpenHistory` je pro DTP jediná AKTIVNÍ položka menu. Bez něj by se mu karta
+  // do ContextMenu zabalila jen u bloku s poznámkou MTZ (`hasNote`) a menu by neslo
+  // jen neaktivní „📌 Poznámka MTZ existuje" (`if (!showMenu) return blockDiv;` níž).
   const showMenu = (canEdit && !block.locked) || canEditMat || hasNote || !!onOpenNotes || !!onOpenHistory;
 
   const showTooltip = block.type !== "UDRZBA" && !badgeHovered;
@@ -1515,7 +1516,8 @@ export function BlockCard({
       >
         {/* Historie změn — pro všechny typy bloků i na zamčeném bloku, je to jen
             čtení (etapa 3 září 2026). Stojí první a bez oddělovače: u DTP je
-            v menu jediná. */}
+            v menu jedinou aktivní položkou (u bloku s poznámkou MTZ je pod ní
+            ještě neaktivní „📌 Poznámka MTZ existuje"). */}
         {onOpenHistory && (
           <ContextMenuItem onClick={() => onOpenHistory(block)} style={menuItemStyle}>
             🕘 Historie změn

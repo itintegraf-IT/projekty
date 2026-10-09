@@ -9,7 +9,7 @@ type Row = Record<string, unknown>;
  * ZÁMĚRNĚ samostatný typ, ne rozšíření `AuditLogEntry`: ten má v repu DVĚ
  * nezávislé definice (`src/components/InfoPanel.tsx` a
  * `src/components/admin/AuditLogPanel.tsx`), každá obsluhuje jiný endpoint
- * (`/api/audit/today`, `/api/admin/audit`) a jeho rozšíření o revizní varianty
+ * (`/api/audit/today`, `/api/audit`) a jeho rozšíření o revizní varianty
  * by tiše vyprázdnilo panel notifikací i admin log.
  *
  * Diskriminátor `source` je povinný na OBOU větvích, aby TypeScript zúžil unii
@@ -207,7 +207,7 @@ const TISKAR_NOTE_ACTIONS: ReadonlySet<string> = new Set(["NOTE_CREATE", "NOTE_U
  * `GET /api/blocks/[id]/audit` ho volá jako POSLEDNÍ krok, až za
  * `sortHistoryEntries`: potlačení pokrytých sloupců (`suppressCoveredColumns`)
  * tak zůstává pro všechny role shodné a DTP vidí přesně to, co plánovač, minus
- * řádky познámek. Má-li role na poznámky právo, vrací se TENTÝŽ objekt pole.
+ * řádky poznámek. Má-li role na poznámky právo, vrací se TENTÝŽ objekt pole.
  */
 export function visibleHistoryFor(entries: BlockHistoryEntry[], role: string): BlockHistoryEntry[] {
   if (canAccessBlockNotes(role as NoteRole)) return entries;

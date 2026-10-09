@@ -37,10 +37,12 @@ test("historie bloku: každá úspěšná odpověď jde přes visibleHistoryFor"
   // Každé `NextResponse.json(` je buď chybové tělo `{ error … }`, nebo filtrovaná
   // historie. Nefiltrovaný návrat (`NextResponse.json(sortHistoryEntries(…))`)
   // by poslal poznámky tiskaře i DTP a MTZ.
-  const heads = [...blockAudit.matchAll(/NextResponse\.json\(\s*([A-Za-z_{][\w]*)/g)].map((m) => m[1]);
+  const heads = [...blockAudit.matchAll(/NextResponse\.json\(\s*(\{\s*error\b|[A-Za-z_]\w*|\{)/g)].map((m) =>
+    m[1].replace(/\s+/g, " "),
+  );
   assert.ok(heads.includes("visibleHistoryFor"), "úspěšná odpověď historie nejde přes visibleHistoryFor");
   for (const head of heads) {
-    assert.ok(head === "{" || head === "visibleHistoryFor", `nefiltrovaná odpověď: NextResponse.json(${head}…`);
+    assert.ok(head === "{ error" || head === "visibleHistoryFor", `nefiltrovaná odpověď: NextResponse.json(${head}…`);
   }
   assert.match(
     blockAudit,
@@ -98,6 +100,10 @@ test("historie se načítá na JEDNOM místě a chyba nevypadá jako prázdná h
   assert.doesNotMatch(detail, /\/audit`/, "BlockDetail si historii zase načítá sám");
   assert.match(detail, /useBlockHistory\(block\.id\)/);
   assert.match(detail, /<BlockHistoryList entries=\{history\.entries\} maxHeight=\{220\} \/>/, "detail musí dál mít seznam vysoký 220 px");
+
+  const dialogSrc = stripComments(readFileSync("src/components/BlockHistoryDialog.tsx", "utf8"));
+  assert.match(dialogSrc, /useBlockHistory\(blockId\)/, "dialog nenačítá historii přes useBlockHistory");
+  assert.doesNotMatch(dialogSrc, /\/audit`/, "dialog si historii načítá sám");
 });
 
 // ─── Dialog historie z kontextového menu karty ──────────────────────────────
@@ -124,7 +130,34 @@ test("planner nabízí historii PŘESNĚ rolím, které pustí API", () => {
 test("dialog historie zachytí klávesy dřív než globální handler planneru", () => {
   // Čte se až uvnitř testu: dokud dialog neexistuje, spadne jen tenhle test.
   const dialog = stripComments(readFileSync("src/components/BlockHistoryDialog.tsx", "utf8"));
-  assert.match(dialog, /window\.addEventListener\("keydown",\s*\w+,\s*true\)/, "posluchač musí být na window v capture fázi (třetí argument true)");
-  assert.match(dialog, /window\.removeEventListener\("keydown",\s*\w+,\s*true\)/);
-  assert.match(dialog, /\.stopPropagation\(\)/);
+  const reg = dialog.match(/window\.addEventListener\("keydown",\s*(\w+),\s*true\)/);
+  assert.ok(reg, "posluchač musí být na window v capture fázi (třetí argument true)");
+  const handler = reg[1];
+  assert.match(
+    dialog,
+    new RegExp(String.raw`window\.removeEventListener\("keydown",\s*${handler},\s*true\)`),
+    "odhlášení musí mít tytéž argumenty jako přihlášení",
+  );
+  // stopPropagation se hledá v TĚLE zaregistrovaného handleru, ne kdekoli v souboru —
+  // `onClick={(e) => e.stopPropagation()}` na panelu by jinak test splnil i bez zarážky kláves.
+  const body = dialog.match(new RegExp(String.raw`const ${handler} = \(e: KeyboardEvent\) => \{([\s\S]*?)\n\s*\};`));
+  assert.ok(body, `tělo handleru ${handler} nenalezeno`);
+  assert.match(body[1], /e\.stopPropagation\(\)/, "handler kláves nezastavuje šíření — zkratky planneru by běžely pod dialogem");
+});
+
+test("dialog historie nevydává chybu za prázdnou historii (P32)", () => {
+  const dialog = stripComments(readFileSync("src/components/BlockHistoryDialog.tsx", "utf8"));
+  assert.match(
+    dialog,
+    /history\.status === "error"[\s\S]{0,400}?nemáte přístup[\s\S]{0,200}?nepodařilo načíst/,
+    "chybový stav musí mít vlastní hlášku, u 403 jinou než u ostatních chyb",
+  );
+  const empty = dialog.indexOf("Zatím žádné změny.");
+  assert.ok(empty > 0, "chybí text prázdné historie");
+  const cond = dialog.lastIndexOf("{history.status", empty);
+  assert.match(
+    dialog.slice(cond, empty),
+    /^\{history\.status === "ready" && history\.entries\.length === 0 && \(/,
+    "„Zatím žádné změny\" se smí ukázat jen u hotové a prázdné historie",
+  );
 });

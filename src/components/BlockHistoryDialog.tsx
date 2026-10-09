@@ -37,6 +37,10 @@ export function BlockHistoryDialog({
 }) {
   const history = useBlockHistory(blockId);
   const closeRef = useRef<HTMLButtonElement>(null);
+  // Zavírá jen kliknutí, které na překryvu ZAČALO i SKONČILO. Tažení výběru textu
+  // z historie, které skončí mimo panel, vyvolá `click` přímo na překryvu (cílem je
+  // nejbližší společný předek) — bez téhle kontroly by dialog zmizel i s výběrem.
+  const pressedOnOverlay = useRef(false);
 
   useEffect(() => {
     // Klávesy pod otevřeným dialogem NESMÍ dojít ke globálnímu handleru planneru
@@ -46,7 +50,10 @@ export function BlockHistoryDialog({
     // Ctrl+C místo zkopírování textu z historie ukázal toast a Esc smazal hledání.
     // Capture fáze na window běží před každým jiným posluchačem a stopPropagation
     // zastaví zbytek cesty včetně bublací fáze na window. Výchozí akce prohlížeče
-    // (Tab, kopírování označeného textu, Enter na tlačítku) běží dál.
+    // (Tab, kopírování označeného textu, Enter na tlačítku) běží dál. Zarážka ale
+    // umlčí i VŠECHNY Reactí onKeyDown, i uvnitř dialogu (App Router hydratuje React
+    // na `document`) — dialog proto žádné nemá; modál, který je potřebuje, musí jít
+    // jinou cestou (viz CLAUDE.md, konvence kláves pod modálem).
     const onKey = (e: KeyboardEvent) => {
       e.stopPropagation();
       if (e.key === "Escape") onClose();
@@ -77,7 +84,13 @@ export function BlockHistoryDialog({
         justifyContent: "center",
         padding: 16,
       }}
-      onClick={onClose}
+      onMouseDown={(e) => {
+        pressedOnOverlay.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (pressedOnOverlay.current && e.target === e.currentTarget) onClose();
+        pressedOnOverlay.current = false;
+      }}
     >
       <div
         role="dialog"

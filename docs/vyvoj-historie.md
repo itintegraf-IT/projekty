@@ -2735,7 +2735,8 @@ neměl (výjimkou byly bloky s poznámkou MTZ, kde v něm stála jen neaktivní 
 Řádky historie se z `BlockDetail.tsx` doslova přesunuly do `BlockHistoryList.tsx` a načítá
 je jediný hook `useBlockHistory`; detail vypadá stejně jako dřív, jen po přepnutí bloku
 už neukazuje historii předchozího, dokud nedoběhne nový dotaz. Dialog drží snímek
-bloku z chvíle otevření, takže se nezavře, když blok mezitím někdo smaže.
+bloku z chvíle otevření, takže se nezavře, když blok mezitím někdo smaže. Kliknutí mimo
+dialog ho zavře, tažení výběru textu, které skončí mimo panel, ne.
 
 **Poznámky tiskaře.** Text poznámky je v auditu (`NOTE_CREATE` v `newValue`,
 `NOTE_UPDATE` v obou polích, `NOTE_DELETE` v `oldValue`) a DTP ani MTZ ho vidět nesmí.
@@ -2755,7 +2756,9 @@ seznam by vytlačil revize.
 **Klávesy pod modálem.** Globální handler planneru poslouchá na `window` a ignoruje
 jen vstupní pole, takže pod dialogem bez pole by běželo Ctrl+Z, Delete, Ctrl+C i Esc.
 Dialog proto klávesy zachytává ve fázi capture a dál je nepustí. Zapsáno do CLAUDE.md
-jako konvence pro každý další modál nad plánem.
+jako konvence pro další modály nad plánem, i s omezením: zarážka na `window` umlčí i
+Reactí `onKeyDown` uvnitř modálu, takže modál s vlastní klávesovou obsluhou potřebuje
+jiné řešení.
 
 **Hlídá** `src/lib/historieAccessWiring.test.ts` (shoda obou dvojic výčtů, filtr na
 každé úspěšné odpovědi, záložka ve Správě, menu pro DTP, jediné místo načítání,
