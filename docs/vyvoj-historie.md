@@ -2708,3 +2708,59 @@ je od R3 jediným nositelem hodin volna.
 **Vědomý kompromis:** rozpis tiskařů jako zdroj kapacity (R3 = A) je až po
 31. 10. 2026, takže „obsazené směny" znamená dál rozvrh `MachineWeekShifts`, ne
 skutečně přítomné lidi.
+
+## Historie pro plánovače a pre-press (etapa 3 září 2026, 5. 10. 2026)
+
+**Zadání.** Tři body zářijové vlny: pre-press (DTP) nevidí, kdo a kdy zakázku změnil;
+historie v detailu zakázky končí po dvaceti řádcích z každého zdroje; a plánovač nemá
+audit log. Spec: `docs/superpowers/specs/2026-10-05-historie-pro-planovace-a-pre-press-design.md`.
+
+**Dvě plochy, dva adresáti.** Volby H1 (audit log ve Správě) a H2 (historii vidí i DTP
+a MTZ) vypadaly jako rozpor — do `/admin` DTP ani MTZ nesmí. Míří ale na jiné body
+zadání: plný audit log chtěl plánovač, pre-press chtěl historii jedné zakázky. Správa
+proto zůstala `ADMIN` + `PLANOVAT` a middleware se nezměnil.
+
+**Audit log pro plánovače.** Záložka „Audit log" ve Správě je vidět i roli PLANOVAT;
+`/api/audit` (seznam) a `/api/audit/filters` (fasety) pouštějí oba shodným výčtem —
+otevřený samotný seznam by dal plánovači log s prázdnými rozbalovátky filtrů a žádnou
+chybu. „Uživatelé" a „Přihlášení" zůstávají ADMINovi. Důsledek: plánovač vidí ve
+filtru seznam všech účtů s rolemi (faseta uživatelů), nic víc.
+
+**Historie zakázky pro DTP a MTZ.** Pravý klik na kartu bloku → „🕘 Historie změn"
+otevře `BlockHistoryDialog` — modál, ne boční panel, protože DTP má vlevo `DtpPanel`
+a na 1366 px by další panel časovou osu udusil. Položka je pro ADMIN, PLANOVAT, DTP
+i MTZ, pro všechny typy bloků i na zamčeném bloku. DTP dřív kontextové menu na kartě
+neměl (výjimkou byly bloky s poznámkou MTZ, kde v něm stála jen neaktivní položka
+„📌 Poznámka MTZ existuje") — `showMenu` v `BlockCard.tsx` teď počítá i s `onOpenHistory`.
+Řádky historie se z `BlockDetail.tsx` doslova přesunuly do `BlockHistoryList.tsx` a načítá
+je jediný hook `useBlockHistory`; detail vypadá stejně jako dřív, jen po přepnutí bloku
+už neukazuje historii předchozího, dokud nedoběhne nový dotaz. Dialog drží snímek
+bloku z chvíle otevření, takže se nezavře, když blok mezitím někdo smaže.
+
+**Poznámky tiskaře.** Text poznámky je v auditu (`NOTE_CREATE` v `newValue`,
+`NOTE_UPDATE` v obou polích, `NOTE_DELETE` v `oldValue`) a DTP ani MTZ ho vidět nesmí.
+`visibleHistoryFor` (`src/lib/blockHistory.ts`) ty řádky odstraní každé roli bez
+`canAccessBlockNotes` — je to allowlist, takže nová role dostane historii bez poznámek,
+ne s nimi. Běží jako poslední krok routy, za řazením, takže DTP vidí přesně to, co
+plánovač, minus poznámky. Revize se nefiltrují nikdy.
+
+**Chyba nevypadá jako prázdno.** Detail bloku dřív mapoval každou chybovou odpověď na
+prázdnou historii. Dialog rozlišuje odmítnutí (403 → „K historii této zakázky nemáte
+přístup."), jinou chybu a skutečně prázdnou historii (`readBlockHistoryResponse`, P32).
+
+**Limit.** `PER_SOURCE_LIMIT` v `GET /api/blocks/[id]/audit` je 100 místo 20 (volba
+H3 = C, bez stránkování). Dál platí na každý zdroj zvlášť — společný strop na sloučený
+seznam by vytlačil revize.
+
+**Klávesy pod modálem.** Globální handler planneru poslouchá na `window` a ignoruje
+jen vstupní pole, takže pod dialogem bez pole by běželo Ctrl+Z, Delete, Ctrl+C i Esc.
+Dialog proto klávesy zachytává ve fázi capture a dál je nepustí. Zapsáno do CLAUDE.md
+jako konvence pro každý další modál nad plánem.
+
+**Hlídá** `src/lib/historieAccessWiring.test.ts` (shoda obou dvojic výčtů, filtr na
+každé úspěšné odpovědi, záložka ve Správě, menu pro DTP, jediné místo načítání,
+zachytávání kláves) a testy čistých funkcí v `src/lib/blockHistory.test.ts`.
+
+**Stranou zůstalo:** retence revizí (90 dní, H4 = A), stránkování historie, plný audit
+log pro DTP a MTZ, login log pro plánovače a vstup do historie přímo z karty
+v `DtpPanel` (DTP jde přes klik v panelu → doskrolování → pravý klik na kartu v plánu).

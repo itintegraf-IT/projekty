@@ -18,15 +18,15 @@ node --experimental-test-module-mocks --test --import tsx src/lib/*.test.ts src/
 
 ## Role a přístup
 
-| Role | Planner | Rezervace | Admin | Reporty | Notifikace |
-| --- | --- | --- | --- | --- | --- |
-| `ADMIN` | plný edit | ano | plný | ano | audit + historie |
-| `PLANOVAT` | plný edit | ano | omezený admin (číselníky/presety/prac. doba) | ano | audit + historie |
-| `DTP` | edit DATA | ne | ne | ne | vlastní inbox |
-| `MTZ` | edit MATERIÁL | ne | ne | ne | vlastní inbox |
-| `OBCHODNIK` | read-only | vlastní rezervace | ne | ne | vlastní inbox |
-| `TISKAR` | read-only + tisk (režim `isTiskar` na `/`) | ne | ne | ne | ne |
-| `VIEWER` | read-only | ne | ne | ne | ne |
+| Role | Planner | Rezervace | Admin | Reporty | Historie zakázky | Notifikace |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ADMIN` | plný edit | ano | plný | ano | ano | audit + historie |
+| `PLANOVAT` | plný edit | ano | omezený admin (číselníky/presety/prac. doba/audit log) | ano | ano | audit + historie |
+| `DTP` | edit DATA | ne | ne | ne | ano, bez poznámek tiskaře | vlastní inbox |
+| `MTZ` | edit MATERIÁL | ne | ne | ne | ano, bez poznámek tiskaře | vlastní inbox |
+| `OBCHODNIK` | read-only | vlastní rezervace | ne | ne | ne | vlastní inbox |
+| `TISKAR` | read-only + tisk (režim `isTiskar` na `/`) | ne | ne | ne | ne | ne |
+| `VIEWER` | read-only | ne | ne | ne | ne | ne |
 
 Modul `/tiskar` byl zrušen (mrtvý kód) — tiskař jede na `/`.
 
@@ -37,6 +37,17 @@ routy. Rozpojené jedno místo se neprojeví chybou, ale tím, že roli funguje 
 stránky. Hlídá `src/lib/reportAccessWiring.test.ts`. Sloupec „Reporty" znamená celý
 modul včetně Kontrolního panelu — `/report/daily` (tiskový přehled dne) je jiný modul
 s vlastním gate (dnes rovněž `ADMIN` + `PLANOVAT`).
+
+**Historie drží na rolích ČTYŘI místa ve dvou dvojicích** (etapa 3 září 2026) a obě
+dvojice se rozpojí tiše. Audit log ve Správě: `/api/audit` a `/api/audit/filters`
+musí pouštět totéž (`ADMIN` + `PLANOVAT`) — otevřený seznam bez faset dá plánovači
+log s prázdnými filtry a žádnou chybu. Historie jedné zakázky (dialog z kontextového
+menu karty, `BlockHistoryDialog`): role v `GET /api/blocks/[id]/audit` a
+`canSeeHistory` v `PlannerPage.tsx` musí být shodné (`ADMIN` + `PLANOVAT` + `DTP` +
+`MTZ`) — položka, kterou API odmítne, skončí hláškou „nemáte přístup". Poznámky
+tiskaře (`NOTE_*`) z historie odstraňuje `visibleHistoryFor` (`src/lib/blockHistory.ts`)
+každé roli bez `canAccessBlockNotes`, jako poslední krok routy. DTP a MTZ do
+Správy dál nesmí. Hlídá `src/lib/historieAccessWiring.test.ts`.
 
 ## Data & DB
 
@@ -144,6 +155,12 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 - **Velikosti v `/reporty`** vždy přes `src/lib/reportTokens.ts` (`reportTypeScale` s podlahou 10 px, `reportGlyph`, `reportRadius`), nikdy holé číslo — obdoba `plannerTypography.ts` pro planner, `monitorTypography.ts` pro Monitor a `uiStyles.ts` pro admin.
 - **Velikosti na Monitoru u stroje** vždy přes `src/lib/monitorTypography.ts` (`monitorTypeScale`), nikdy holý `fontSize` — hlídá to strážný test, který zdrojáky `src/components/monitor/*.tsx` prochází regulárem. Stupeň M/L/XL i klíč v localStorage Monitor SDÍLÍ s plánem (`PLANNER_FONT_SCALES`, `FONT_SCALE_STORAGE_KEY`); vlastní škála existuje jen kvůli jiným rozměrům (46px číslo přes půl obrazovky vs. 12px v mřížce). **Tlačítka velké karty mají pevnou výšku `MONITOR_HERO_BUTTON_HEIGHT`** a neroste jim s písmem — jsou to dotykové cíle. Obsah karty leží ve VLASTNÍM `flex: 1; minHeight: 0; overflow: hidden` kontejneru odděleně od tlačítek: ořez tak sebere obsah, nikdy tlačítko HOTOVO (do 17. 8. 2026 držel tlačítko dole jen `marginTop: auto` a přerostlý obsah ho vystrčil pod ořez — táž třída vady jako havárie rozpočtů 3. a 12. 8. 2026).
 - **Z-index** výhradně přes `src/lib/zLayers.ts` (`Z_TIMELINE`/`Z_LAYOUT`/`Z_OVERLAY`), nikdy magické číslo.
+- **Modál nad plannerem bez textového pole musí klávesy zachytit sám.** Globální handler
+  v `PlannerPage.tsx` (keydown na `window`, bublací fáze) ignoruje jen `INPUT`/`TEXTAREA`/`SELECT`,
+  takže pod modálem by jinak běželo Ctrl+Z (undo), Delete (mazání vybraného bloku), Ctrl+C
+  (toast místo kopírování textu) i Esc (zrušení výběru a hledání). Vzor: `BlockHistoryDialog.tsx`
+  — posluchač na `window` v capture fázi + `stopPropagation()`. `BlockNotesDialog` to nedělá;
+  chrání ho jen to, že fokus obvykle stojí v jeho textovém poli.
 - **Sdílené UI kameny** (`src/components/`, ne `ui/` — shadcn plošně nerozšiřujeme): `NativeSelect`, `PrimaryCta`, `ConfirmDialog`, `ModuleHeader`; admin tlačítka/inputy z `src/lib/uiStyles.ts`. Kdy co viz `docs/vyvoj-historie.md`.
 - **Nové standalone komponenty** jako named export do `src/components/` — **NEpsat inline do velkých souborů** (PlannerPage/TimelineGrid byly záměrně dekomponovány). Než přidáš do souboru u limitu, nejdřív navrhni extrakci a ohlas rozhodnutí (ESLint `max-lines` warn hlídá).
 - **Focus**: neodstraňovat viditelný focus ring; globální `:focus-visible` používá `--ring`.
@@ -157,7 +174,7 @@ Pokud je formátovač přepíše na `Block`/`ReservationAttachment`/`Reservation
 
 **Sdílené jádro:** `src/lib/errors.ts` (AppError/errorStatus) · `authz.ts`+`auth.ts` (requireRole) · `logger.ts` · `scheduleValidationServer.ts` (validateAndComputeEnd) · `printTime.ts`/`printTime.server.ts`/`printTimeClient.ts` (tiskové hodiny) · `blockPayload.ts` (Block→POST payload, jediný zdroj) · `blockStyles.ts` · `machines.ts` · `zLayers.ts` · `dateUtils.ts` · `plannerTypes.ts` · `uiStyles.ts` · `reflow.server.ts` · `calendarDrift.server.ts` · `cascadeCheck.ts` (`classifyCascade`/`computeConflictWindow` — diferenční kontrola kaskády, viz sekce Chain push výš) · `cascadeDialogText.ts` (texty kaskádového dialogu, `CASCADE_REASON_LABELS`) · `cascadeLimit.ts` (`measureCascade`/`CASCADE_CONFIRM_MAX_BLOCKS`/`CASCADE_CONFIRM_ENFORCED` — práh a dopad autoposunu, viz sekce Chain push výš) · `cascadeLimit.server.ts` (`assertCascadeConfirmed` — jediné místo, které práh vynucuje/loguje) · `cascadeResponse.ts` (`cascadeConfirmBody` — jednotné tělo 409 `CASCADE_CONFIRM` napříč šesti zápisovými cestami) · `cascadeConfirmClient.ts` (`fetchWithCascadeConfirm` — klientský retry po potvrzení dialogu) · `autoShiftOff.ts` (`autoShiftExplicitlyOff`/`overlapMessageFor`/`AUTOSHIFT_OFF_OVERLAP_MESSAGE` — vypínač autoposunu, viz sekce Chain push výš) · `monitorDriftMark.ts` (`shouldMarkDrift` — značka „nesedí na kalendář" na Monitoru) · `undoApply.server.ts` (atomické undo/redo, `sanitizeUndoOps`+`applyUndoOps`) · `splitSharedFields.ts` (`SPLIT_SHARED_FIELDS`, sdílené serverem i klientem) · `undo/restoreFields.ts` (`UNDO_RESTORABLE_FIELDS` allowlist) · `undo/splitSiblingFields.ts` (`buildSplitEditTargets`/`buildSplitEditTargetsWithShifted`/`buildPassiveSiblingTargets`) · `prismaTx.ts` (`PrismaTransactionClient`, jediný zdroj) · `orderSearch.ts` (`blockMatchesQuery` — co znamená shoda při hledání zakázky; sdílí hlavičkové hledání, ztlumení v `TimelineGrid`, tiskařský `OrderSearchSheet` i DTP přehled) · `overdueState.ts` (`isOverdueUnacknowledged` — zpožděná neodklepnutá zakázka je od 17. 8. 2026 VŽDY červená, žádná dvoustupňovost ani časové okno; velkou kartu Monitoru neřídí vůbec, ta drží zakázku, dokud tiskař nedá HOTOVO nebo „Přeskočit →" (`pickHeroBlock`)) · `dtpOverview.ts` (výběr a řazení zakázek v DTP přehledu) · `reflowBefore.server.ts` (`ReflowBeforeSnapshot` — poziční stav bloku PŘED autoposunem, serializovaný tvarem shodným s klientským `BlockSnapshot`, aby ho šlo poslat do `buildReflowCommand` beze změny) · `reflowToastText.ts` (`reflowMachineToast`/`reflowBlockToast` — hlášky po „Přepočítat", testovatelné odděleně od `PlannerPage.tsx`) · `undo/limits.ts` (`UNDO_MAX_OPS` — jediný zdroj pravdy pro strop dávky, klient i server).
 
-**Revize bloků (černá skříňka, etapa B1):** `src/lib/revision.server.ts` (`withRevision`, podstrčené delegáty, allow-list metod) · `revision/blockColumns.ts` (Boolean/DateTime sloupce `Block`) · `revision/rowNormalize.ts` (raw řádek → typovaný) · `revision/diff.ts` (`computeRevisionDiff`, BEZ `updatedAt`) · `auditCoverage.ts` (`coveredColumns` — co už pokrývá audit) · `revisionFormat.ts` (`formatRevisionLines` — české věty) · `blockHistory.ts` (`BlockHistoryEntry`, sloučená osa) · `revisionWiring.test.ts` (strážný test zapojení všech 9 cest) · `scripts/prune-revisions.ts` (retence 90 dní).
+**Revize bloků (černá skříňka, etapa B1):** `src/lib/revision.server.ts` (`withRevision`, podstrčené delegáty, allow-list metod) · `revision/blockColumns.ts` (Boolean/DateTime sloupce `Block`) · `revision/rowNormalize.ts` (raw řádek → typovaný) · `revision/diff.ts` (`computeRevisionDiff`, BEZ `updatedAt`) · `auditCoverage.ts` (`coveredColumns` — co už pokrývá audit) · `revisionFormat.ts` (`formatRevisionLines` — české věty) · `blockHistory.ts` (`BlockHistoryEntry`, sloučená osa; `visibleHistoryFor` — filtr poznámek tiskaře podle role; `readBlockHistoryResponse`/`pickLoadedHistory` — stav načítání v klientu) · `src/components/BlockHistoryList.tsx` + `src/hooks/useBlockHistory.ts` (řádky a jediné načítání historie — sdílí detail bloku i `BlockHistoryDialog.tsx`) · `revisionWiring.test.ts` (strážný test zapojení všech 9 cest) · `scripts/prune-revisions.ts` (retence 90 dní).
 
 **Planner:** `src/app/_components/PlannerPage.tsx` (orchestrátor ~3109 ř.) · `TimelineGrid.tsx` (~2355 ř.) · `src/components/planner/BlockCard.tsx` (render bloku) · `src/hooks/useJobBuilder.ts` + `src/components/planner/JobBuilderPanel.tsx` (builder) · `src/components/planner/ProductionTagsRow.tsx` (sdílený řádek výrobních štítků OBÁLKA/VNITŘKY + archy/série — BlockEdit i builder) · `src/lib/monitorView.ts` (pravidla Monitoru u stroje — `pickHeroBlock`, `monitorQueue` včetně sekce nedodělaných, `UNFINISHED_LOOKBACK_DAYS`; **fronta DNES/ZÍTRA nese od 17. 8. 2026 i ÚDRŽBU**, sekce NEDODĚLÁNO zůstává jen na zakázkách — údržba se neodklepává, uvázla by tam napořád) · `src/lib/monitorTypography.ts` (`monitorTypeScale`, `MONITOR_HERO_BUTTON_HEIGHT`) · `src/components/monitor/MonitorHeroTiming.tsx` (osa běhu na velké kartě) · `src/lib/tiskarViewRange.ts` (`viewDaysBack`/`viewDaysAhead` — jediný vynucovací bod „tiskař nedědí uložený rozsah plánu"; historie 5 dní zpět od 17. 8. 2026, dřív 1) · `src/lib/plannerHoverTooltip.ts` (`hoverTooltipPlacement` — hover bublina na kartě bloku (`src/components/planner/BlockHoverTooltip.tsx`) se od 14. 9. 2026 staví nad SOUSEDNÍ stroj, pravou hranou k jeho sloupci a ve výšce karty; souseda hledá mezi sourozenci s hákem `data-machine-col`. Záchranný režim (tiskař s jedním sloupcem, úzké okno, chybějící hák) = dřívější pravidlo pod kartou ve vlastním sloupci. Otevírá se po `TOOLTIP_OPEN_DELAY_MS` (400 ms, stejná konstanta drží náhled poznámky MTZ). Nikdy neumísťovat bublinu „na stranu" bez ověření, že se tam vejde — vlevo od XL 105 je 116 px na prvek široký 250 px, viz `docs/POUCENI.md` P28) · `ShutdownManager.tsx` · `ResizeHandle.tsx` · `src/components/BlockEdit.tsx`/`BlockDetail.tsx`/`NativeSelect.tsx`/`PrimaryCta.tsx`/`ModuleHeader.tsx`/`ConfirmDialog.tsx`.
 
