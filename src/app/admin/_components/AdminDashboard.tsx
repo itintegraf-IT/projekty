@@ -27,7 +27,10 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
     window.location.href = "/login";
   }
   const visibleTabs = (["users", "codebook", "presets", "audit", "logins", "shifts", "rozpis"] as const).filter((tab) => {
-    if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "shifts" || tab === "rozpis";
+    // PLANOVAT vidí i Audit log (etapa 3 září 2026, volba H1 = A); Uživatelé a
+    // Přihlášení zůstávají jen ADMINovi. Obě audit API pouštějí totéž — hlídá
+    // src/lib/historieAccessWiring.test.ts.
+    if (isPlanovat) return tab === "codebook" || tab === "presets" || tab === "audit" || tab === "shifts" || tab === "rozpis";
     return true;
   });
   const [activeTab, setActiveTab] = useState<"users" | "codebook" | "presets" | "audit" | "logins" | "shifts" | "rozpis">(
@@ -128,7 +131,7 @@ export default function AdminDashboard({ currentUser }: { currentUser: SessionUs
           <CodebookSection />
         ) : activeTab === "presets" ? (
           <PresetSection />
-        ) : activeTab === "audit" && !isPlanovat ? (
+        ) : activeTab === "audit" ? (
           <Suspense fallback={null}>
             <AuditLogPanel />
           </Suspense>

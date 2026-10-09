@@ -54,7 +54,9 @@ async function loadFacets(): Promise<FilterFacets> {
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.role !== "ADMIN") {
+  // Fasety pro filtry Audit logu — výčet MUSÍ být shodný s `/api/audit` (etapa 3
+  // září 2026). Hlídá src/lib/historieAccessWiring.test.ts.
+  if (!["ADMIN", "PLANOVAT"].includes(session.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

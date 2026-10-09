@@ -7,7 +7,10 @@ import { buildAuditWhere, parseAuditFilters } from "@/lib/auditQuery";
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.role !== "ADMIN") {
+  // Audit log vidí ADMIN i PLANOVAT (etapa 3 září 2026, volba H1 = A). Výčet MUSÍ
+  // být shodný s `/api/audit/filters` — jinak plánovač dostane log s prázdnými
+  // filtry a žádnou chybu. Hlídá src/lib/historieAccessWiring.test.ts.
+  if (!["ADMIN", "PLANOVAT"].includes(session.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

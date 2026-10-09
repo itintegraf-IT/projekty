@@ -52,3 +52,37 @@ test("historie bloku: každá úspěšná odpověď jde přes visibleHistoryFor"
 test("historie bloku: limit je 100 na každý zdroj (volba H3 = C)", () => {
   assert.match(blockAudit, /const PER_SOURCE_LIMIT = 100;/);
 });
+
+// ─── Audit log ve Správě (volba H1 = A) ──────────────────────────────────────
+
+const auditList = stripComments(readFileSync("src/app/api/audit/route.ts", "utf8"));
+const auditFacets = stripComments(readFileSync("src/app/api/audit/filters/route.ts", "utf8"));
+const adminDashboard = stripComments(readFileSync("src/app/admin/_components/AdminDashboard.tsx", "utf8"));
+
+test("audit log: seznam i fasety pouštějí ADMIN i PLANOVAT, shodným výčtem", () => {
+  const list = allowlistOf(auditList, "api/audit");
+  const facets = allowlistOf(auditFacets, "api/audit/filters");
+  assert.equal(list, '["ADMIN", "PLANOVAT"]');
+  assert.equal(facets, list, "fasety pouštějí jiné role než seznam — plánovač by dostal log s prázdnými filtry");
+  assert.doesNotMatch(auditList, /session\.role\s*!==\s*"ADMIN"/);
+  assert.doesNotMatch(auditFacets, /session\.role\s*!==\s*"ADMIN"/);
+});
+
+test("Správa: záložka Audit log je vidět i plánovači, Uživatelé a Přihlášení ne", () => {
+  const m = adminDashboard.match(/if \(isPlanovat\) return ([^;]+);/);
+  assert.ok(m, "AdminDashboard: chybí filtr záložek pro isPlanovat");
+  assert.match(m[1], /tab === "audit"/, "plánovač záložku Audit log nevidí");
+  assert.doesNotMatch(m[1], /tab === "users"|tab === "logins"/, "plánovač nesmí vidět Uživatele ani Přihlášení");
+});
+
+test("Správa: obsah záložky Audit log není pro plánovače zablokovaný", () => {
+  // Kotva na samotný panel a NEJBLIŽŠÍ předchozí podmínku záložky — stejně jako
+  // strážný test reportů u odkazu, aby ji nemohla zastoupit jiná větev.
+  const at = adminDashboard.indexOf("<AuditLogPanel");
+  assert.ok(at > 0, "AuditLogPanel se ve Správě nerenderuje");
+  const before = adminDashboard.slice(0, at);
+  const cond = before.lastIndexOf('activeTab === "audit"');
+  assert.ok(cond >= 0, "AuditLogPanel není pod podmínkou záložky audit");
+  const guard = before.slice(cond, before.indexOf("?", cond));
+  assert.doesNotMatch(guard, /isPlanovat/, `render guard záložky audit pořád vylučuje plánovače: ${guard}`);
+});
