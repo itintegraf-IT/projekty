@@ -69,10 +69,11 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     ]);
 
     // Predikát potlačení NEJDE vyhodnotit z auditního okna výš — jedno uložení
-    // z BlockEditu vyrobí i osmnáct auditních řádků, takže starší skupina by
-    // z dvacetiřádkového okna vypadla a její revize by se zobrazila, přestože
-    // potlačena být má. Výsledek by tak závisel na tom, kolik řádků má nejnovější
-    // editace. Ptáme se proto cíleně na dotčené groupId, nezávisle na okně.
+    // z BlockEditu vyrobí i osmnáct auditních řádků, takže auditní řádky starší
+    // skupiny by z okna (`PER_SOURCE_LIMIT` řádků) vypadly dřív než její revize
+    // a ta by se zobrazila, přestože potlačena být má. Výsledek by tak závisel na
+    // tom, kolik řádků mají nejnovější editace. Ptáme se proto cíleně na dotčené
+    // groupId, nezávisle na okně.
     const groupIds = revisionRows.map((r) => r.groupId);
     // Druhý dotaz ze stejného důvodu: jestli byl v téže transakci NĚKDO jmenován
     // adresně, se z revizí tohohle bloku poznat nedá — adresný cíl je typicky
