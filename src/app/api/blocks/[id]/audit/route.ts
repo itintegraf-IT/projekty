@@ -2,7 +2,7 @@ import { logger } from "@/lib/logger";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/auth";
-import { suppressCoveredColumns, groupsWithAddressedTarget, sortHistoryEntries, type BlockHistoryEntry } from "@/lib/blockHistory";
+import { suppressCoveredColumns, groupsWithAddressedTarget, sortHistoryEntries, visibleHistoryFor, type BlockHistoryEntry } from "@/lib/blockHistory";
 import { formatRevisionLines } from "@/lib/revisionFormat";
 import type { AuditCoverageRow } from "@/lib/auditCoverage";
 
@@ -10,20 +10,24 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 /**
  * Kolik řádků se načte Z KAŽDÉHO ZDROJE zvlášť. NENÍ to strop na celou odpověď —
- * ta jich může nést až dvojnásobek (20 auditních + 20 revizních).
+ * ta jich může nést až dvojnásobek (100 auditních + 100 revizních).
+ *
+ * Do etapy 3 (září 2026) tu bylo 20. Na produkční kopii (931 bloků / 3602
+ * auditních řádků) na ten strop narazilo 6 bloků, tedy 0,6 % — jenže zrovna ty
+ * nejrušnější, tedy přesně ty, které někdo po havárii vyšetřuje. Plánovač si na
+ * „omezenou historii" stěžoval a volba H3 = C zní „jen zvednout limit": bez
+ * stránkování, bez tlačítka „Načíst další".
  *
  * Společný strop na SLOUČENÝ seznam tu být NESMÍ, a to je celý smysl téhle
  * konstrukce: auditních řádků je vždycky řádově víc než revizních, protože jedno
- * uložení z BlockEditu jich vyrobí spoustu v JEDINÉ transakci: `AUDITED_FIELDS`
- * má 23 položek, takže horní mez je 23 řádků, a bohaté uložení se naměřilo na
- * 12–18 (ověřeno 9. 8. 2026 během endpointu nad dev DB — 18 změněných
- * auditovaných polí dalo 18 řádků). Revizí přitom ze stejné
+ * uložení z BlockEditu jich vyrobí spoustu v JEDINÉ transakci — `AUDITED_FIELDS`
+ * (`src/lib/auditedFields.ts`) jmenuje přes dvacet polí a bohaté uložení se
+ * naměřilo na 12–18 řádků (ověřeno 9. 8. 2026 během endpointu nad dev DB —
+ * 18 změněných auditovaných polí dalo 18 řádků). Revizí přitom ze stejné
  * transakce vznikne typicky JEDNA. Jakýkoli společný ořez proto revize
  * SYSTEMATICKY vytlačí — a revize je u některých změn jediný záznam, který
  * existuje: `machine` v `AUDITED_FIELDS` není, takže o přesunu bloku na jiný
- * stroj jinde stopa NENÍ. Měřeno na produkční kopii (931 bloků / 3602 auditních
- * řádků) mělo víc než 20 auditních řádků 6 bloků, tedy 0,6 % — jenže jsou to
- * zrovna ty nejrušnější, tedy přesně ty, které někdo po havárii vyšetřuje.
+ * stroj jinde stopa NENÍ.
  *
  * Známá vlastnost dvou nezávislých oken: konec seznamu je „roztřepený". Když
  * jsou auditní řádky husté a revize řídké, sahá revizní okno časově dál a pod
@@ -31,10 +35,11 @@ type RouteContext = { params: Promise<{ id: string }> };
  * se řídký zdroj vůbec zobrazí; alternativa (ořez na novější z obou hranic) je
  * přesně ta vada, kterou tenhle komentář popisuje.
  *
- * Panel má `maxHeight: 220` + `overflowY: auto` (`BlockDetail.tsx`), takže se
- * ani při plných 40 položkách vizuálně nic nerozjede.
+ * Seznam se vykresluje ve scrollujícím kontejneru (`BlockHistoryList`): v detailu
+ * bloku vysokém 220 px, v dialogu historie do výšky dialogu. Ani při plných
+ * 200 položkách se tedy vizuálně nic nerozjede.
  */
-const PER_SOURCE_LIMIT = 20;
+const PER_SOURCE_LIMIT = 100;
 
 export async function GET(_: NextRequest, { params }: RouteContext) {
   const session = await getSession();
@@ -155,7 +160,12 @@ export async function GET(_: NextRequest, { params }: RouteContext) {
     // padlo na revize, protože jich je proti auditu vždycky málo. Strop drží samy
     // dotazy — víc než `2 × PER_SOURCE_LIMIT` položek sem přijít nemůže a panel
     // scrolluje.
-    return NextResponse.json(sortHistoryEntries(entries));
+    //
+    // Poznámky tiskaře (`NOTE_*`) smí jen ADMIN, PLANOVAT a TISKAR — DTP a MTZ,
+    // kteří historii dostali v etapě 3 (září 2026), je vidět NESMÍ. Filtruje se
+    // až TADY, za řazením: potlačení pokrytých sloupců výš tak zůstává pro všechny
+    // role shodné a DTP vidí přesně to, co plánovač, minus řádky poznámek.
+    return NextResponse.json(visibleHistoryFor(sortHistoryEntries(entries), session.role));
   } catch (error) {
     logger.error(`[GET /api/blocks/${id}/audit]`, error);
     return NextResponse.json({ error: "Chyba serveru" }, { status: 500 });
