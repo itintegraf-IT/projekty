@@ -99,3 +99,32 @@ test("historie se načítá na JEDNOM místě a chyba nevypadá jako prázdná h
   assert.match(detail, /useBlockHistory\(block\.id\)/);
   assert.match(detail, /<BlockHistoryList entries=\{history\.entries\} maxHeight=\{220\} \/>/, "detail musí dál mít seznam vysoký 220 px");
 });
+
+// ─── Dialog historie z kontextového menu karty ──────────────────────────────
+
+const blockCard = stripComments(readFileSync("src/components/planner/BlockCard.tsx", "utf8"));
+const planner = stripComments(readFileSync("src/app/_components/PlannerPage.tsx", "utf8"));
+const timeline = stripComments(readFileSync("src/app/_components/TimelineGrid.tsx", "utf8"));
+
+test("karta: DTP dostane kontextové menu kvůli položce Historie změn", () => {
+  const m = blockCard.match(/const showMenu = ([^;]+);/);
+  assert.ok(m, "BlockCard: chybí const showMenu");
+  assert.match(m[1], /!!onOpenHistory/, "bez !!onOpenHistory v showMenu se karta DTP do menu nezabalí a položka je mrtvá");
+  assert.match(blockCard, /\{onOpenHistory && \(/, "položka Historie změn chybí, nebo ji neřídí onOpenHistory");
+});
+
+test("planner nabízí historii PŘESNĚ rolím, které pustí API", () => {
+  const m = planner.match(/const canSeeHistory = (\[[^\]]*\])\.includes\(currentUser\.role\);/);
+  assert.ok(m, "PlannerPage: chybí const canSeeHistory = [...].includes(currentUser.role)");
+  assert.equal(m[1], allowlistOf(blockAudit, "blocks/[id]/audit"), "menu nabízí historii jiným rolím, než pustí API");
+  assert.match(planner, /onOpenHistory=\{canSeeHistory \?/, "TimelineGrid dostává onOpenHistory bez podmínky canSeeHistory");
+  assert.match(timeline, /onOpenHistory=\{onOpenHistory\}/, "TimelineGrid prop kartě nepředává");
+});
+
+test("dialog historie zachytí klávesy dřív než globální handler planneru", () => {
+  // Čte se až uvnitř testu: dokud dialog neexistuje, spadne jen tenhle test.
+  const dialog = stripComments(readFileSync("src/components/BlockHistoryDialog.tsx", "utf8"));
+  assert.match(dialog, /window\.addEventListener\("keydown",\s*\w+,\s*true\)/, "posluchač musí být na window v capture fázi (třetí argument true)");
+  assert.match(dialog, /window\.removeEventListener\("keydown",\s*\w+,\s*true\)/);
+  assert.match(dialog, /\.stopPropagation\(\)/);
+});

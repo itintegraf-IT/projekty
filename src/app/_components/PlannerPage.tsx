@@ -43,6 +43,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { UndoRedoButtons } from "@/components/UndoRedoButtons";
 import { NotificationsPanel, type NotifTab } from "@/components/NotificationsPanel";
 import { BlockNotesDialog } from "@/components/BlockNotesDialog";
+import { BlockHistoryDialog } from "@/components/BlockHistoryDialog";
 import type { SerializedBlockNote } from "@/lib/blockNoteSerialization";
 import type { NoteRole } from "@/lib/blockNotePermissions";
 import { MonitorView } from "@/components/monitor/MonitorView";
@@ -125,9 +126,16 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
   const canEditMat      = canEdit || currentUser.role === "MTZ";
   const isTiskar    = currentUser.role === "TISKAR";
   const canSeeNotes = canEdit || isTiskar;
+  // Historie jedné zakázky v dialogu z kontextového menu karty (etapa 3 září 2026).
+  // Výčet MUSÍ být shodný s rolemi v GET /api/blocks/[id]/audit — položka, kterou
+  // API odmítne, by v dialogu skončila hláškou „nemáte přístup".
+  // Hlídá src/lib/historieAccessWiring.test.ts.
+  const canSeeHistory = ["ADMIN", "PLANOVAT", "DTP", "MTZ"].includes(currentUser.role);
 
   const [blocks, setBlocks] = useState<Block[]>(initialBlocks);
   const [notesDialogBlockId, setNotesDialogBlockId] = useState<number | null>(null);
+  // Snímek z chvíle otevření, ne id do živého `blocks` — viz BlockHistoryDialog.
+  const [historyTarget, setHistoryTarget] = useState<{ id: number; orderNumber: string; machine: string } | null>(null);
   const [companyDays, setCompanyDays] = useState<CompanyDay[]>(initialCompanyDays);
   const [machineWeekShifts, setMachineWeekShifts] = useState<MachineWeekShiftsRow[]>(initialMachineWeekShifts);
   // Dark mode detekce — projekt přepíná theme přes .dark třídu na html elementu
@@ -3593,6 +3601,7 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
             onDataChipDoubleClick={canEditData && !canEditDataDate ? handleDataChipDoubleClick : undefined}
             onShiftBoundsChange={canEdit ? updateShiftBounds : undefined}
             onOpenNotes={canSeeNotes ? (b) => setNotesDialogBlockId(b.id) : undefined}
+            onOpenHistory={canSeeHistory ? (b) => setHistoryTarget({ id: b.id, orderNumber: b.orderNumber, machine: b.machine }) : undefined}
             onSplitChipClick={handleSplitChipClick}
             pasteTarget={pasteTarget}
             clipboardHasContent={!!copiedBlock || clipboardGroupRef.current.length > 0}
@@ -3749,6 +3758,15 @@ export default function PlannerPage({ initialBlocks, initialCompanyDays, initial
           />
         );
       })()}
+
+      {historyTarget && (
+        <BlockHistoryDialog
+          blockId={historyTarget.id}
+          orderNumber={historyTarget.orderNumber}
+          machine={historyTarget.machine}
+          onClose={() => setHistoryTarget(null)}
+        />
+      )}
 
       {dtpPopover && (
         <DtpDataPopover

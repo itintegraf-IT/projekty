@@ -302,6 +302,7 @@ interface TimelineGridProps {
   onExpeditionPublish?:   (blockId: number) => Promise<void>;
   onExpeditionUnpublish?: (blockId: number) => Promise<void>;
   onOpenNotes?: (block: Block) => void;
+  onOpenHistory?: (block: Block) => void;
   onShiftBoundsChange?: (
     machine: string,
     date: Date,
@@ -633,6 +634,7 @@ export default function TimelineGrid({
   onExpeditionPublish,
   onExpeditionUnpublish,
   onOpenNotes,
+  onOpenHistory,
   onShiftBoundsChange,
   onSplitChipClick,
   pasteTarget,
@@ -2320,6 +2322,7 @@ export default function TimelineGrid({
                       onExpeditionPublish={onExpeditionPublish}
                       onExpeditionUnpublish={onExpeditionUnpublish}
                       onOpenNotes={onOpenNotes}
+                      onOpenHistory={onOpenHistory}
                       splitPartner={splitPartner}
                       groupUnconfirmedReservation={groupUnconfirmedReservation}
                       onSplitChipClick={onSplitChipClick}

@@ -245,6 +245,7 @@ export function BlockCard({
   onExpeditionPublish, onExpeditionUnpublish,
   onDataChipDoubleClick,
   onOpenNotes,
+  onOpenHistory,
   splitPart, splitTotal, splitTotalMinutes,
   splitPartner, onSplitChipClick,
   pauseOverlays, contentHeight,
@@ -310,6 +311,8 @@ export function BlockCard({
   onExpeditionPublish?:   (blockId: number) => Promise<void>;
   onExpeditionUnpublish?: (blockId: number) => Promise<void>;
   onOpenNotes?: (block: Block) => void;
+  /** Otevře dialog historie změn (etapa 3 září 2026). PlannerPage ho předává rolím ADMIN, PLANOVAT, DTP a MTZ. */
+  onOpenHistory?: (block: Block) => void;
   splitPartner?: Block | null;
   onSplitChipClick?: (partnerId: number) => void;
 }) {
@@ -684,7 +687,9 @@ export function BlockCard({
   const hasNote = !!block.materialNote;
   const tiskarNotes = block.notes ?? [];
   const hasTiskarNotes = tiskarNotes.length > 0;
-  const showMenu = (canEdit && !block.locked) || canEditMat || hasNote || !!onOpenNotes;
+  // `onOpenHistory` je jediná položka menu, kterou má DTP — bez něj by se mu
+  // karta do ContextMenu vůbec nezabalila (`if (!showMenu) return blockDiv;` níž).
+  const showMenu = (canEdit && !block.locked) || canEditMat || hasNote || !!onOpenNotes || !!onOpenHistory;
 
   const showTooltip = block.type !== "UDRZBA" && !badgeHovered;
 
@@ -1508,6 +1513,14 @@ export function BlockCard({
         style={{ background: "#1c1c1e", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 10, padding: "4px", minWidth: 180, zIndex: Z_OVERLAY.contextMenu }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Historie změn — pro všechny typy bloků i na zamčeném bloku, je to jen
+            čtení (etapa 3 září 2026). Stojí první a bez oddělovače: u DTP je
+            v menu jediná. */}
+        {onOpenHistory && (
+          <ContextMenuItem onClick={() => onOpenHistory(block)} style={menuItemStyle}>
+            🕘 Historie změn
+          </ContextMenuItem>
+        )}
         {canEdit && !block.locked && block.type === "ZAKAZKA" && (
           <>
             <ContextMenuSub>
