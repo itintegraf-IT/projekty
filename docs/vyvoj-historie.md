@@ -2767,3 +2767,13 @@ zachytávání kláves) a testy čistých funkcí v `src/lib/blockHistory.test.t
 **Stranou zůstalo:** retence revizí (90 dní, H4 = A), stránkování historie, plný audit
 log pro DTP a MTZ, login log pro plánovače a vstup do historie přímo z karty
 v `DtpPanel` (DTP jde přes klik v panelu → doskrolování → pravý klik na kartu v plánu).
+
+**Změřeno na testu 3021 (10. 10. 2026, čerstvá kopie produkce).** Podmínka plánu před
+produkcí: `GET /api/blocks/[id]/audit` pod 300 ms i u nejhoršího bloku. Sedm nejrušnějších
+bloků — nejvíc auditu, nejvíc revizí a nejtěžší `groupRows` (blok 1389: transakce s ~1900
+revizními řádky napříč bloky) — vrátilo 66–110 položek o velikosti 20–29 kB. Po zahřátí
+medián 67–81 ms, **maximum 144 ms**, měřeno z Macu přes síť. Náhrada z Rozhodnutí 8 plánu
+(`groupBy` s `viaMany: false`) proto není potřeba. Měřilo se přímými HTTP požadavky (Node
+`fetch`, jedno přihlášení dočasným účtem PLANOVAT), ne přes Playwright jako v plánu — veličina
+je stejná a odpadlo opakované přihlašování proti limitu. První požadavek po nečinnosti trval
+až 167 ms: test má čtvrtinu paměti ve swapu, proto se měří po zahřátí.
