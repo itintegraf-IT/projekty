@@ -14,7 +14,9 @@ export async function POST(req: NextRequest) {
   // Když reverzní proxy neposílá X-Real-IP ani X-Forwarded-For, spadnou VŠICHNI
   // uživatelé do jednoho bucketu "unknown" a přísný limit by zamkl celou firmu.
   // Reálnou ochranu účtu v takovém případě dělá per-účet limiter níž.
-  // (Nginx MUSÍ nastavovat X-Real-IP — viz docs/DEPLOY_WORKFLOW.md.)
+  // (Nginx MUSÍ nastavovat X-Real-IP — viz docs/DEPLOY_WORKFLOW.md.) Bez hlavičky
+  // si Next.js doplní adresu nginxu na localhostu; na "unknown" ji převádí až
+  // `getClientIp` — do 10. 10. 2026 se proto tahle větev nespustila (POUCENI P34).
   const ipLimitMax = ip === "unknown" ? 100 : 10;
   const { allowed, retryAfterSeconds } = checkRateLimit("login", ip, ipLimitMax, 15 * 60 * 1000);
   if (!allowed) {

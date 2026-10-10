@@ -21,17 +21,29 @@ function getStore(name: string): Store {
  * a z `x-forwarded-for` se bere POSLEDNÍ hodnota — tu připojuje nejbližší proxy.
  * První (nejlevější) hodnota je plně pod kontrolou klienta, takže se s ní dal
  * rate limit obejít a otrávit audit (audit SEC-04 / A-3).
+ *
+ * Adresa smyčky (127.x.x.x, ::1) se vrací jako "unknown". Když proxy IP klienta
+ * nepošle, Next.js si `x-forwarded-for` doplní adresou socketu, tedy nginxu na
+ * localhostu (`next/dist/server/base-server.js`, `??=`). Bez převodu by se
+ * mírnější limit pro "unknown" v login route nikdy nezapnul a celá firma by
+ * sdílela přísný limit — tak produkce běžela do 10. 10. 2026 (POUCENI P34).
  */
 export function getClientIp(req: NextRequest | Request): string {
   const h = req.headers;
   const realIp = h.get("x-real-ip")?.trim();
-  if (realIp) return realIp;
+  if (realIp) return loopbackAsUnknown(realIp);
   const forwarded = h.get("x-forwarded-for");
   if (forwarded) {
     const parts = forwarded.split(",").map((p) => p.trim()).filter(Boolean);
-    if (parts.length > 0) return parts[parts.length - 1];
+    if (parts.length > 0) return loopbackAsUnknown(parts[parts.length - 1]);
   }
   return "unknown";
+}
+
+function loopbackAsUnknown(ip: string): string {
+  if (ip === "::1") return "unknown";
+  const v4 = ip.toLowerCase().startsWith("::ffff:") ? ip.slice(7) : ip;
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v4) ? "unknown" : ip;
 }
 
 /**

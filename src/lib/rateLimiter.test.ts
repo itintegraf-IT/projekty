@@ -25,6 +25,28 @@ test("getClientIp: bez hlaviček → unknown", () => {
   assert.equal(getClientIp(req({ "x-forwarded-for": " , " })), "unknown");
 });
 
+test("getClientIp: adresa smyčky v x-forwarded-for → unknown (Next.js ji doplní, když proxy IP neposlala)", () => {
+  // Za nginxem bez X-Real-IP si Next.js doplní x-forwarded-for adresou socketu,
+  // tedy nginxu na localhostu. Na produkci tak do 10. 10. 2026 vypadali všichni
+  // uživatelé jako jeden klient a sdíleli přísný login limit (POUCENI P34).
+  assert.equal(getClientIp(req({ "x-forwarded-for": "::ffff:127.0.0.1" })), "unknown");
+  assert.equal(getClientIp(req({ "x-forwarded-for": "127.0.0.1" })), "unknown");
+  assert.equal(getClientIp(req({ "x-forwarded-for": "::1" })), "unknown");
+  assert.equal(getClientIp(req({ "x-forwarded-for": "1.2.3.4, 127.0.0.1" })), "unknown");
+});
+
+test("getClientIp: adresa smyčky i v x-real-ip → unknown", () => {
+  assert.equal(getClientIp(req({ "x-real-ip": "127.0.0.1" })), "unknown");
+  assert.equal(getClientIp(req({ "x-real-ip": "::ffff:127.0.0.2" })), "unknown");
+});
+
+test("getClientIp: skutečné adresy zůstávají beze změny, i ve tvaru ::ffff:", () => {
+  assert.equal(getClientIp(req({ "x-forwarded-for": "::ffff:192.168.8.23" })), "::ffff:192.168.8.23");
+  assert.equal(getClientIp(req({ "x-real-ip": "192.168.10.1" })), "192.168.10.1");
+  // 127 rozhoduje jen jako první oktet, ne kdekoli v adrese
+  assert.equal(getClientIp(req({ "x-forwarded-for": "10.127.0.1" })), "10.127.0.1");
+});
+
 test("checkRateLimit: pustí max pokusů, pak blokuje s retryAfter", () => {
   const key = `test-${Math.round(Number(process.hrtime.bigint() % 1000000n))}`;
   for (let i = 0; i < 3; i++) {

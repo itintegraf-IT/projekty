@@ -465,8 +465,11 @@ Po nasazení otestuj přihlášení jedním účtem dřív, než odejdeš od ter
 ## Nginx: hlavička s IP klienta (POVINNÉ)
 
 Rate limity loginu a `LoginLog` berou IP z `X-Real-IP`, jinak z poslední hodnoty
-`X-Forwarded-For`. Pokud nginx neposílá ani jedno, všichni uživatelé vypadají
-jako jeden klient (`unknown`). V server bloku aplikace proto musí být:
+`X-Forwarded-For`. Pokud nginx neposílá ani jedno, Next.js si `X-Forwarded-For`
+doplní adresou samotného nginxu na localhostu a všichni uživatelé vypadají jako
+jeden klient. Aplikace takovou adresu od 10. 10. 2026 zapisuje jako `unknown`
+a login limit zmírní na 100 pokusů (`getClientIp`, `src/lib/rateLimiter.ts`).
+V server bloku aplikace proto musí být:
 
 ```nginx
 proxy_set_header X-Real-IP        $remote_addr;
@@ -476,6 +479,15 @@ proxy_set_header Host             $host;
 
 Ověření po deployi: neúspěšné přihlášení a pak v adminu (LoginLog) zkontrolovat,
 že u záznamu je skutečná IP stanice, ne `unknown` nebo `127.0.0.1`.
+
+**Stav na produkci:** hlavičky chyběly až do 10. 10. 2026. Do té doby měla celá
+firma jeden společný limit 10 pokusů za 15 minut, počítaný včetně úspěšných
+přihlášení (POUCENI P34). Doplněné jsou v obou blocích (HTTP i HTTPS) souboru
+`/etc/nginx/sites-available/planovani.conf`. `sites-enabled/planovani.conf` je na
+něj symlink — editovat cíl (`readlink -f`), jinak `sed -i` symlink nahradí obyčejným
+souborem. Záložní kopii konfigurace nikdy neukládat do `sites-enabled/`, nginx
+načítá všechny soubory v té složce. Uživatelé připojení přes VPN se v `LoginLog`
+ukazují adresou brány `192.168.10.1`.
 
 ## PM2 provozní hygiena (jednorázově na serveru)
 

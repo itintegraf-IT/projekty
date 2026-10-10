@@ -730,3 +730,23 @@ ho uživatel vypnul, a chain push mezitím běžel dál.
 **Pravidlo:** U nového nastavení vždy projít celý okruh zápis → obnovení
 stránky → čtení, včetně větve, kdy načtení ze serveru selže. Zapsat a
 nepřečíst je horší než neuložit vůbec — uživatel věří, že to platí.
+
+---
+
+## P34 — Pojistka na „chybějící hlavičku" se nikdy nespustila
+
+**Co se stalo (audit produkce 10. 10. 2026):** Login route měla pro případ, že
+reverzní proxy neposílá IP klienta, mírnější limit — 100 pokusů za 15 minut místo
+10 (větev `ip === "unknown"`). Na produkci nginx IP opravdu neposílal, přestože ho
+`DEPLOY_WORKFLOW.md` vedl jako POVINNÝ. Pojistka se přesto nespustila ani jednou:
+Next.js si chybějící `x-forwarded-for` doplní adresou socketu, tedy nginxu na
+localhostu, takže aplikace dostávala `::ffff:127.0.0.1`, ne `unknown`. Celá firma
+tak sdílela jeden limit 10 pokusů, do kterého se počítala i úspěšná přihlášení —
+9. 10. jeden obchodník s překlepy v hesle spotřeboval šest z nich. Odhalil to až
+pohled do `LoginLog`: všech 73 přihlášení za týden „z 127.0.0.1".
+
+**Pravidlo:** Pojistku pro zhoršené prostředí testovat proti tomu, co v něm skutečně
+dorazí, ne proti zjednodušení („hlavička chybí"), které za nás upraví framework.
+A povinný krok z provozní dokumentace ověřit na produkci výstupem, ne předpokládat,
+že ho někdo udělal.
+
